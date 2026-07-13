@@ -29,7 +29,6 @@ func TestFailClosedLockdownInPodNetworkNamespace(t *testing.T) {
 	}
 	binary := filepath.Join(t.TempDir(), "dataplane.test")
 	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", binary, "../../internal/dataplane")
-
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	direct, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
@@ -82,6 +81,8 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	}
 	binary := filepath.Join(t.TempDir(), "dataplane.test")
 	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", binary, "../../internal/dataplane")
+	gatewayBinary := filepath.Join(t.TempDir(), "gateway.test")
+	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", gatewayBinary, "../../internal/gateway")
 
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
@@ -105,8 +106,10 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	must(t, direct.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "kube-dns"}, &clusterDNS))
 	copyTestBinary(t, binary, namespace, gateway.Name)
 	copyTestBinary(t, binary, namespace, protected.Name)
+	copyLocalFile(t, gatewayBinary, namespace, gateway.Name, "/tmp/gateway.test")
 
-	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "env", "WAYCLOAK_E2E_GATEWAY_NETWORK=1", "WAYCLOAK_E2E_REMOTE_IP="+protected.Status.PodIP, "/tmp/gateway.test", "-test.run", "^TestConfigureGatewayVXLAN$", "-test.v")
+	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_SKIP_GATEWAY_VXLAN=1 WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "sh", "-c", gatewayCommand)
 	deadline := time.Now().Add(20 * time.Second)
 	ready := false

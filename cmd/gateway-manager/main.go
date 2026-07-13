@@ -53,6 +53,7 @@ func run(args []string) error {
 	manager := &waygateway.HealthManager{Engine: engine}
 	if *configPath != "" {
 		manager.Source = waygateway.FileSource{Path: *configPath}
+		manager.Network = waygateway.NewNetwork()
 	}
 	return serve(ctx, manager, *healthAddress, 2*time.Second)
 }

@@ -81,7 +81,7 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	}
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionScheduled, metav1.ConditionTrue, waystatus.ReasonGatewayPodScheduled)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionTunnelReady, metav1.ConditionTrue, waystatus.ReasonTunnelObservedReady)
-	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotImplemented)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
 
 	if err := client.Delete(context.Background(), pod); err != nil {
@@ -94,6 +94,7 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady)
 }
 
 func TestGatewayRejectsMutableEngineImageWithoutCreatingResources(t *testing.T) {

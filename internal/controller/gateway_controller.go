@@ -215,21 +215,23 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 	managerReady := containerReady(selected, waygateway.ManagerContainer)
 	if managerReady {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionTrue, waystatus.ReasonTunnelObservedReady, "Gateway manager reports the engine tunnel healthy")
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady, "Gateway manager reports the overlay reconciled")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "Gateway manager has not observed a healthy engine tunnel")
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady, "Gateway manager has not reported the overlay ready")
 	}
-	setUnimplementedGatewayConditions(gateway)
+	setRemainingGatewayConditions(gateway)
 	return nil
 }
 
 func setGatewayPending(gateway *wayv1.VPNGateway, message string) {
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionFalse, waystatus.ReasonGatewayPodPending, message)
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "No serving gateway Pod is available")
-	setUnimplementedGatewayConditions(gateway)
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady, "No serving gateway Pod is available")
+	setRemainingGatewayConditions(gateway)
 }
 
-func setUnimplementedGatewayConditions(gateway *wayv1.VPNGateway) {
-	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotImplemented, "Gateway overlay management is not implemented yet")
+func setRemainingGatewayConditions(gateway *wayv1.VPNGateway) {
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotImplemented, "Gateway DNS forwarding is not implemented yet")
 	if gateway.Spec.PortForwarding.Enabled {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotImplemented, "Gateway port forwarding is not implemented yet")

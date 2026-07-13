@@ -43,12 +43,12 @@ Exit: passed on Kubernetes 1.36 k3s. Forced agent and gateway failures produce n
 
 ## Phase 3 — Gluetun gateway (`v0.1.0`)
 
-The controller-owned singleton StatefulSet, headless Service, read-only engine configuration, gateway-manager runtime, and Gluetun observation adapter are complete. This includes digest-only images, engine-only credential mounting, token isolation, owner cleanup, generated RBAC, typed tunnel/DNS/public-IP observations, and a k3s fake-engine loss/recovery test. The fixture is explicitly not a VPN. Next vertical slice: implement native gateway-side VXLAN peer reconciliation, forwarding/NAT, and DNS service integration behind interfaces before running the real Gluetun public-egress acceptance.
+The controller-owned singleton StatefulSet, headless Service, read-only engine configuration, gateway-manager runtime, Gluetun observation adapter, stable membership publication, and native gateway VXLAN peer reconciliation are complete. This includes digest-only images, engine-only credential mounting, token isolation, owner cleanup, generated RBAC, typed tunnel/DNS/public-IP observations, and k3s engine-loss and production-overlay tests. The fixtures are explicitly not VPNs. Next vertical slice: implement native gateway forwarding/NAT and DNS service integration behind interfaces before running the real Gluetun public-egress acceptance.
 
 - [ ] Reconcile gateway StatefulSet, Service, configuration, RBAC, and disruption controls.
 - [ ] Integrate pinned Gluetun engine.
-- [ ] Implement tunnel and public-egress health observations.
-- [ ] Apply membership incrementally without tunnel restart.
+- [x] Implement tunnel and public-egress health observations.
+- [x] Apply membership incrementally without tunnel restart.
 - [ ] Package a signed Helm OCI chart and images.
 - [ ] Publish install, security-exception, troubleshooting, and uninstall guides.
 

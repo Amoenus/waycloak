@@ -21,6 +21,10 @@ type fakeSource struct{ err error }
 
 func (source fakeSource) Load() (DesiredState, error) { return DesiredState{}, source.err }
 
+type fakeNetwork struct{ err error }
+
+func (network fakeNetwork) Reconcile(context.Context, DesiredState) error { return network.err }
+
 func (engine *fakeEngine) Observe(context.Context) (provider.EngineObservation, error) {
 	return engine.observation, engine.err
 }
@@ -48,5 +52,11 @@ func TestHealthManagerTracksObservedEngineState(t *testing.T) {
 	manager.Reconcile(context.Background())
 	if manager.Ready() || manager.Error() == nil {
 		t.Fatal("manager ignored invalid gateway desired state")
+	}
+	manager.Source = fakeSource{}
+	manager.Network = fakeNetwork{err: errors.New("overlay down")}
+	manager.Reconcile(context.Background())
+	if manager.Ready() || manager.Error() == nil {
+		t.Fatal("manager ignored gateway overlay failure")
 	}
 }

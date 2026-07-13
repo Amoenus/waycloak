@@ -31,6 +31,8 @@ const (
 	ReasonGatewayPodScheduled             = "GatewayPodScheduled"
 	ReasonTunnelObservedReady             = "TunnelObservedReady"
 	ReasonTunnelNotReady                  = "TunnelNotReady"
+	ReasonOverlayObservedReady            = "OverlayObservedReady"
+	ReasonOverlayNotReady                 = "OverlayNotReady"
 	ReasonOverlayNotImplemented           = "OverlayNotImplemented"
 	ReasonDNSNotImplemented               = "DNSNotImplemented"
 	ReasonPortForwardDisabled             = "PortForwardDisabled"

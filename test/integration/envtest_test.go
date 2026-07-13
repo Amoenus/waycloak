@@ -133,14 +133,22 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		t.Fatalf("unexpected workloads: %#v", workloads.Items)
 	}
 	workload := &workloads.Items[0]
-	workload.Finalizers = nil
-	must(t, mgr.GetClient().Update(ctx, workload))
 	must(t, mgr.GetClient().Delete(ctx, pod))
-	must(t, mgr.GetClient().Delete(ctx, workload))
-	_ = mgr.GetClient().Delete(ctx, &cm)
+	waitFor(t, 10*time.Second, func() bool {
+		var item corev1.Pod
+		return apierrors.IsNotFound(apiClient.Get(ctx, client.ObjectKeyFromObject(pod), &item))
+	})
+	var retiring wayv1.VPNWorkload
+	if err := apiClient.Get(ctx, client.ObjectKeyFromObject(workload), &retiring); err == nil {
+		if retiring.DeletionTimestamp.IsZero() {
+			must(t, apiClient.Delete(ctx, &retiring))
+		}
+	} else if !apierrors.IsNotFound(err) {
+		must(t, err)
+	}
 	waitFor(t, 10*time.Second, func() bool {
 		var item wayv1.VPNWorkload
-		return apierrors.IsNotFound(mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(workload), &item))
+		return apierrors.IsNotFound(apiClient.Get(ctx, client.ObjectKeyFromObject(workload), &item))
 	})
 	must(t, apiClient.Delete(ctx, gw))
 	waitFor(t, 10*time.Second, func() bool {
