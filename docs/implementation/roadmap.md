@@ -65,7 +65,11 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Persist stable lease identities and generations.
 - [x] Reconcile TCP/UDP DNAT atomically.
 - [x] Deliver neutral lease records to workloads.
-- [ ] Publish qBitTorrent adapter/example.
+- [x] Implement the generic exact-generation `ProviderAssigned` handoff and
+  evidence-backed qBitTorrent sidecar outside application-agnostic controller
+  semantics.
+- [ ] Publish the signed adapter image and complete sustained real-provider
+  qBitTorrent ingress, advertisement, DHT, renewal, and rotation acceptance.
 - [ ] Validate Bitmagnet and Loadstone consumption.
 
 Exit: qBitTorrent receives inbound TCP/UDP through a provider lease, reports healthy DHT, and survives lease renewal during a sustained test.

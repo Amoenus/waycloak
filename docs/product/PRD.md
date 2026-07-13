@@ -32,6 +32,13 @@ For software that must learn its provider-assigned public port, consumes the Way
 
 ## Goals
 
+Waycloak is declaratively visible and operationally invisible. A workload opts
+in by naming a `VPNGateway` on its Pod template and, when needed, declaring a
+`PortForwardLease`. Beyond those explicit Kubernetes intents, existing
+application images, protocols, credentials, and configuration should remain
+unaware of Waycloak wherever the application semantics permit it. Provider
+details and lease churn belong behind the Waycloak boundary.
+
 1. Route opted-in Pod traffic through a named, shared VPN gateway.
 2. Fail closed before application startup and throughout tunnel or gateway failure.
 3. Preserve normal Kubernetes scheduling; protected applications do not share a Pod with the VPN engine.
@@ -42,6 +49,9 @@ For software that must learn its provider-assigned public port, consumes the Way
 8. Publish hardened, signed OCI artifacts with reproducible metadata.
 9. Make routing and lease health visible as conditions, events, logs, and metrics.
 10. Support lightweight homelab clusters without requiring a service mesh or replacement CNI.
+11. Absorb provider port changes at the gateway so workload listeners stay
+    stable, and present the current external port through generic standards
+    when an application must advertise it.
 
 ## Non-goals
 
@@ -107,9 +117,19 @@ Protected Pods resolve external names through the gateway or an explicitly trust
 
 The `PortForwardLease` API binds one requested protocol set to one target Pod or Service identity. The provider driver reports its capabilities. Unsupported multi-port or protocol requests fail explicitly. Leases survive controller restarts and are reconciled after gateway replacement.
 
-### FR-8: Lease delivery
+### FR-8: Lease delivery and adapter boundary
 
 Waycloak provides an application-neutral lease representation containing public port, protocols, gateway, generation, issued time, renewal time, and state. The initial mechanisms are a projected/mounted file and a Pod-local HTTP endpoint. Application-specific adapters remain separate packages or examples.
+
+Gateway translation, standards-based local mapping presentation, and the
+neutral contract are always preferred over an application-specific adapter.
+An adapter may be added only after acceptance evidence shows that a workload
+cannot operate with a stable `spec.target.port`, cannot learn its external
+mapping through NAT-PMP/PCP/UPnP, and cannot consume the neutral file or local
+HTTP API. It must remain an explicit, least-privilege workload integration
+outside the controller, and its design must document why the generic
+mechanisms are insufficient. Core conditions must not acquire
+application-specific semantics.
 
 ### FR-9: Status
 
@@ -173,7 +193,9 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - Proton/OpenVPN NAT-PMP implementation through Gluetun.
 - Multiple stable leases on one tunnel when the provider permits it.
 - TCP and UDP DNAT to separate workloads.
-- qBitTorrent reference integration and sustained DHT proof.
+- qBitTorrent integration through a separately packaged, least-privilege
+  adapter because acceptance evidence shows qBitTorrent 5.2.3 continues to
+  announce its local listener after learning a different PCP external port.
 - Lease renewal without leaking traffic or silently changing the application contract.
 
 ### v0.3.0 — operational maturity
@@ -198,3 +220,8 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - The initial agent uses native nftables and netlink exclusively and rejects unsupported kernels; it has no permissive iptables fallback ([ADR 0006](../decisions/0006-native-linux-data-plane.md)).
 - The chart consumes an externally managed webhook TLS Secret and CA bundle. Optional certificate automation may produce those inputs but is not a runtime dependency ([ADR 0010](../decisions/0010-external-webhook-certificate-ownership.md)).
 - Renewable leases use the mounted file and Pod-loopback endpoint as canonical live state. Environment-only applications explicitly use a fail-closed supervisor that restarts its child on generation changes; the controller does not restart arbitrary workload owners ([ADR 0011](../decisions/0011-renewable-port-lease-delivery.md)).
+- Stable target-port DNAT preserves the local listener while a standards-based
+  Pod-local mapping surface exposes the actual external port to applications
+  that must advertise it. Workload-specific adapters are last-resort, opt-in
+  integrations and never controller behavior
+  ([ADR 0015](../decisions/0015-stable-target-port-translation.md)).

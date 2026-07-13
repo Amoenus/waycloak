@@ -173,7 +173,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	observedPod.Status.PodIP = "127.0.0.2"
 	observedPod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
 	must(t, apiClient.Status().Update(ctx, &observedPod))
-	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "protected"}}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP, wayv1.PortForwardProtocolUDP}}}
+	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "protected"}}, Port: 6881, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP, wayv1.PortForwardProtocolUDP}}}
 	must(t, mgr.GetClient().Create(ctx, lease))
 	waitFor(t, 10*time.Second, func() bool {
 		var current wayv1.PortForwardLease
@@ -190,7 +190,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	must(t, mgr.GetClient().Get(ctx, cmKey, &cm))
 	var document delivery.Document
 	must(t, json.Unmarshal([]byte(cm.Data[contract.PortForwardLeasesKey]), &document))
-	if document.PodUID != string(pod.UID) || len(document.Leases) != 1 || document.Leases[0].Identity != string(lease.UID) || document.Leases[0].Generation != 1 {
+	if document.PodUID != string(pod.UID) || len(document.Leases) != 1 || document.Leases[0].Identity != string(lease.UID) || document.Leases[0].Generation != 1 || document.Leases[0].ApplicationPortMode != delivery.ApplicationPortModeProviderAssigned || document.Leases[0].ApplicationPort != 42000 {
 		t.Fatalf("delivered document = %#v", document)
 	}
 	must(t, mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(pod), &observedPod))
@@ -244,7 +244,7 @@ type integrationLeaseObserver struct {
 }
 
 func (observer *integrationLeaseObserver) ObserveLease(_ context.Context, _ string, identity string) (waygateway.PortForwardObservation, error) {
-	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: observer.issuedAt, RenewAfter: observer.issuedAt.Add(8 * time.Second), ExpiresAt: observer.issuedAt.Add(12 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
+	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: observer.issuedAt, RenewAfter: observer.issuedAt.Add(8 * time.Second), ExpiresAt: observer.issuedAt.Add(12 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
 }
 
 type integrationDeliveryObserver struct {
@@ -274,7 +274,7 @@ func (observer *integrationDeliveryObserver) ObserveDelivery(ctx context.Context
 		}
 		for _, record := range document.Leases {
 			if record.Identity == identity {
-				return delivery.Observation{APIVersion: document.APIVersion, Identity: identity, PodUID: document.PodUID, Generation: record.Generation, ExpiresAt: record.ExpiresAt, Ready: true}, nil
+				return delivery.Observation{APIVersion: document.APIVersion, Identity: identity, PodUID: document.PodUID, Generation: record.Generation, ExpiresAt: record.ExpiresAt, Ready: true, AppliedPort: record.ApplicationPort}, nil
 			}
 		}
 	}

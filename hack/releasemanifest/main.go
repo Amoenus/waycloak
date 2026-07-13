@@ -57,9 +57,10 @@ func main() {
 	controller := flag.String("controller", "", "controller digest reference")
 	agent := flag.String("agent", "", "agent digest reference")
 	gatewayManager := flag.String("gateway-manager", "", "gateway-manager digest reference")
+	qbittorrentAdapter := flag.String("qbittorrent-adapter", "", "qBitTorrent adapter digest reference")
 	chart := flag.String("chart", "", "Helm chart digest reference")
 	flag.Parse()
-	value, err := buildManifest(*version, *repository, *commit, *workflowRun, map[string]string{"controllerImage": *controller, "agentImage": *agent, "gatewayManagerImage": *gatewayManager, "helmChart": *chart})
+	value, err := buildManifest(*version, *repository, *commit, *workflowRun, map[string]string{"controllerImage": *controller, "agentImage": *agent, "gatewayManagerImage": *gatewayManager, "qbittorrentAdapterImage": *qbittorrentAdapter, "helmChart": *chart})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

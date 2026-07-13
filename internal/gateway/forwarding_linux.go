@@ -57,7 +57,11 @@ func (linuxForwarding) Reconcile(_ context.Context, desired DesiredState) error 
 	if overlay.Attrs().Index == tunnel.Attrs().Index {
 		return errors.New("gateway overlay and VPN tunnel interfaces must differ")
 	}
-	if err := replaceForwardingPolicy(desired, overlay.Attrs().Name, tunnel.Attrs().Name); err != nil {
+	tunnelAddress, err := primaryIPv4Address(tunnel)
+	if err != nil {
+		return fmt.Errorf("resolve VPN tunnel address for forwarding: %w", err)
+	}
+	if err := replaceForwardingPolicy(desired, overlay.Attrs().Name, tunnel.Attrs().Name, tunnelAddress); err != nil {
 		return err
 	}
 	return replaceVXLANIngressPolicy(desired)
@@ -107,6 +111,11 @@ func (linuxForwarding) ObservePortForwardRules(_ context.Context, desired Desire
 					observation.Ready = false
 				}
 			}
+			for _, sourcePort := range portForwardSourcePorts(lease) {
+				if _, exists := markers["postrouting\x00"+string(portForwardSourceMarker(lease, protocol, sourcePort))]; !exists {
+					observation.Ready = false
+				}
+			}
 		}
 		observations = append(observations, observation)
 	}
@@ -139,7 +148,40 @@ func readyLink(name string) (netlink.Link, error) {
 	return link, nil
 }
 
-func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName string) error {
+func primaryIPv4Address(link netlink.Link) (netip.Addr, error) {
+	addresses, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	type candidate struct {
+		address netip.Addr
+		bits    int
+	}
+	candidates := make([]candidate, 0, len(addresses))
+	for _, address := range addresses {
+		if address.IPNet == nil || address.IPNet.IP == nil {
+			continue
+		}
+		parsed, ok := netip.AddrFromSlice(address.IPNet.IP.To4())
+		if !ok || parsed.IsUnspecified() {
+			continue
+		}
+		bits, _ := address.IPNet.Mask.Size()
+		candidates = append(candidates, candidate{address: parsed, bits: bits})
+	}
+	if len(candidates) == 0 {
+		return netip.Addr{}, fmt.Errorf("interface %q has no IPv4 address", link.Attrs().Name)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].bits != candidates[j].bits {
+			return candidates[i].bits < candidates[j].bits
+		}
+		return candidates[i].address.Less(candidates[j].address)
+	})
+	return candidates[0].address, nil
+}
+
+func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName string, tunnelAddress netip.Addr) error {
 	conn := &nftables.Conn{}
 	tableName := forwardingTableName(desired.GatewayName)
 	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
@@ -186,6 +228,17 @@ func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName strin
 		}
 	}
 	postrouting := conn.AddChain(&nftables.Chain{Table: table, Name: "postrouting", Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
+	for _, lease := range sortedPortForwardLeases(desired.PortForwardLeases) {
+		if lease.LeaseGeneration == 0 {
+			continue
+		}
+		target := netip.MustParseAddr(lease.TargetAddress)
+		for _, protocol := range sortedProtocols(lease.Protocols) {
+			for _, sourcePort := range portForwardSourcePorts(lease) {
+				conn.AddRule(&nftables.Rule{Table: table, Chain: postrouting, UserData: portForwardSourceMarker(lease, protocol, sourcePort), Exprs: portForwardSourceNATExpressions(tunnelName, tunnelAddress, lease, protocol, target, sourcePort)})
+			}
+		}
+	}
 	conn.AddRule(&nftables.Rule{Table: table, Chain: postrouting, UserData: marker, Exprs: append(sourcePrefixExpressions(prefix),
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: fixedInterfaceName(tunnelName)},
@@ -195,6 +248,34 @@ func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName strin
 		return fmt.Errorf("replace gateway forwarding policy: %w", err)
 	}
 	return nil
+}
+
+func portForwardSourcePorts(lease PortForwardLeaseIntent) []uint16 {
+	ports := []uint16{lease.TargetPort}
+	if lease.SuggestedExternalPort != 0 && lease.SuggestedExternalPort != lease.TargetPort {
+		ports = append(ports, lease.SuggestedExternalPort)
+	}
+	return ports
+}
+
+func portForwardSourceNATExpressions(tunnelName string, tunnelAddress netip.Addr, lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol, target netip.Addr, sourcePort uint16) []expr.Any {
+	protocolNumber := byte(unix.IPPROTO_TCP)
+	if protocol == provider.ProtocolUDP {
+		protocolNumber = unix.IPPROTO_UDP
+	}
+	return []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: target.AsSlice()},
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: fixedInterfaceName(tunnelName)},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protocolNumber}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 0, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: encodedPort(sourcePort)},
+		&expr.Immediate{Register: 1, Data: tunnelAddress.AsSlice()},
+		&expr.Immediate{Register: 2, Data: encodedPort(lease.InternalPort)},
+		&expr.NAT{Type: expr.NATTypeSourceNAT, Family: unix.NFPROTO_IPV4, RegAddrMin: 1, RegProtoMin: 2},
+	}
 }
 
 func portForwardDNATExpressions(tunnelName string, lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol, target netip.Addr) []expr.Any {
@@ -260,6 +341,10 @@ func sortedProtocols(protocols []provider.PortForwardProtocol) []provider.PortFo
 
 func portForwardRuleMarker(kind string, lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol) []byte {
 	return []byte(fmt.Sprintf("waycloak-port-forward:%s:%s:%d:%s:%s:%d", kind, lease.Identity, lease.LeaseGeneration, protocol, lease.TargetAddress, lease.TargetPort))
+}
+
+func portForwardSourceMarker(lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol, sourcePort uint16) []byte {
+	return []byte(fmt.Sprintf("waycloak-port-forward:snat:%s:%d:%s:%s:%d:%d:%d", lease.Identity, lease.LeaseGeneration, protocol, lease.TargetAddress, sourcePort, lease.InternalPort, lease.SuggestedExternalPort))
 }
 
 func ensureForwardingLockdown(gatewayName string) error {

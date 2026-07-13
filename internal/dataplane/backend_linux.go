@@ -53,7 +53,7 @@ func (*linuxBackend) InstallLockdown(_ context.Context, podUID string) error {
 	if podUID == "" {
 		return errors.New("pod UID is required")
 	}
-	return replacePolicy(podUID, "", netip.AddrPort{}, "", netip.Addr{}, ClusterTrafficGateway, nil)
+	return replacePolicy(podUID, "", netip.AddrPort{}, "", netip.Addr{}, netip.Addr{}, ClusterTrafficGateway, nil, nil)
 }
 
 func (*linuxBackend) Configure(_ context.Context, cfg Config) error {
@@ -81,7 +81,7 @@ func (*linuxBackend) Configure(_ context.Context, cfg Config) error {
 	if err := reconcilePolicyRules(cfg); err != nil {
 		return fmt.Errorf("reconcile protected policy-routing rules: %w", err)
 	}
-	if err := replacePolicy(cfg.PodUID, underlay.Attrs().Name, cfg.GatewayEndpoint, linkName, cfg.GatewayAddress, cfg.ClusterTrafficMode, cfg.ClusterCIDRs); err != nil {
+	if err := replacePolicy(cfg.PodUID, underlay.Attrs().Name, cfg.GatewayEndpoint, linkName, cfg.GatewayAddress, cfg.Address.Addr(), cfg.ClusterTrafficMode, cfg.ClusterCIDRs, cfg.ApplicationPortRedirects); err != nil {
 		return fmt.Errorf("activate protected nftables policy: %w", err)
 	}
 	return nil
@@ -154,7 +154,7 @@ func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {
 	return b.Verify(ctx, cfg)
 }
 
-func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlayName string, dnsGateway netip.Addr, mode ClusterTrafficMode, clusterCIDRs []netip.Prefix) error {
+func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlayName string, dnsGateway, applicationAddress netip.Addr, mode ClusterTrafficMode, clusterCIDRs []netip.Prefix, redirects []ApplicationPortRedirect) error {
 	conn := &nftables.Conn{}
 	tableName := policyTableName(podUID)
 	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
@@ -190,7 +190,48 @@ func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlay
 	if dnsGateway.IsValid() {
 		addDNSRedirect(conn, table, dnsGateway, marker)
 	}
+	if len(redirects) > 0 {
+		addApplicationPortRedirects(conn, table, applicationAddress, redirects, marker)
+	}
 	return conn.Flush()
+}
+
+func addApplicationPortRedirects(conn *nftables.Conn, table *nftables.Table, address netip.Addr, redirects []ApplicationPortRedirect, marker []byte) {
+	chain := conn.AddChain(&nftables.Chain{Table: table, Name: "application-port-prerouting", Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPrerouting, Priority: nftables.ChainPriorityNATDest})
+	address = address.Unmap()
+	family := uint32(unix.NFPROTO_IPV4)
+	nfproto := byte(unix.NFPROTO_IPV4)
+	offset := uint32(16)
+	if address.Is6() {
+		family = unix.NFPROTO_IPV6
+		nfproto = byte(unix.NFPROTO_IPV6)
+		offset = 24
+	}
+	for _, redirect := range redirects {
+		from := make([]byte, 2)
+		binary.BigEndian.PutUint16(from, redirect.TargetPort)
+		to := make([]byte, 2)
+		binary.BigEndian.PutUint16(to, redirect.ApplicationPort)
+		for _, protocol := range redirect.Protocols {
+			transport := byte(unix.IPPROTO_TCP)
+			if protocol == "UDP" {
+				transport = unix.IPPROTO_UDP
+			}
+			conn.AddRule(&nftables.Rule{Table: table, Chain: chain, UserData: append(append([]byte(nil), marker...), []byte(":"+redirect.Identity)...), Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{nfproto}},
+				&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: uint32(len(address.AsSlice()))},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: address.AsSlice()},
+				&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{transport}},
+				&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: from},
+				&expr.Immediate{Register: 1, Data: address.AsSlice()},
+				&expr.Immediate{Register: 2, Data: to},
+				&expr.NAT{Type: expr.NATTypeDestNAT, Family: family, RegAddrMin: 1, RegProtoMin: 2},
+			}})
+		}
+	}
 }
 
 func addDNSRedirect(conn *nftables.Conn, table *nftables.Table, gateway netip.Addr, marker []byte) {

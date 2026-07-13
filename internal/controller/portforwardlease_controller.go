@@ -53,6 +53,10 @@ type PortForwardLeaseReconciler struct {
 const (
 	providerDeletionQuarantine = 3 * time.Minute
 	providerObservationPoll    = 2 * time.Second
+	// Provider mapping identities must not consume privileged or well-known
+	// ports on the shared gateway.
+	providerInternalPortStart = uint32(49152)
+	providerInternalPortEnd   = uint32(65535)
 )
 
 func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -226,6 +230,8 @@ func deliveryObservationMismatch(lease *wayv1.PortForwardLease, target *corev1.P
 		return "Pod UID mismatch"
 	case observation.Generation != lease.Status.LeaseGeneration:
 		return "lease generation mismatch"
+	case lease.Spec.Target.ApplicationPortMode == delivery.ApplicationPortModeProviderAssigned && observation.AppliedPort != uint16(lease.Status.PublicPort):
+		return "applied application port does not match the provider port"
 	case lease.Status.ExpiresAt == nil:
 		return "lease expiry is absent"
 	case !observation.ExpiresAt.Equal(lease.Status.ExpiresAt.Time):
@@ -297,7 +303,7 @@ func (r *PortForwardLeaseReconciler) allocateInternalPort(ctx context.Context, l
 		}
 		used[uint16(candidate.Status.ProviderInternalPort)] = struct{}{}
 	}
-	for port := uint32(1); port <= 65535; port++ {
+	for port := providerInternalPortStart; port <= providerInternalPortEnd; port++ {
 		if _, exists := used[uint16(port)]; !exists {
 			return uint16(port), nil
 		}

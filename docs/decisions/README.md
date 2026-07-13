@@ -15,5 +15,8 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0011: Renewable port-lease delivery and environment-only applications](0011-renewable-port-lease-delivery.md)
 - [0012: Port-forward lease identity and observed target binding](0012-port-forward-lease-identity-and-target-binding.md)
 - [0013: Proton NAT-PMP ownership and observation](0013-proton-nat-pmp-ownership-and-observation.md)
+- [0014: Atomic port-forward DNAT](0014-atomic-port-forward-dnat.md)
+- [0015: Stable target ports and generic external-port presentation](0015-stable-target-port-translation.md)
+- [0016: Provider-assigned application-port handoff](0016-provider-assigned-application-port-handoff.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

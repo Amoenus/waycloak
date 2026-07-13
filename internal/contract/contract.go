@@ -22,6 +22,7 @@ const (
 	AgentContainer                 = "waycloak-agent"
 	AgentHealthPort                = 9808
 	AgentLeasePort                 = 9809
+	QBittorrentAdapterHealthPort   = 9810
 	PortForwardLeasesKey           = "port-forward-leases.json"
 	ApplicationLeaseMountPath      = "/run/waycloak/port-forward"
 	GatewayDNSPort                 = 1053

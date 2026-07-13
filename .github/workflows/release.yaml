@@ -106,14 +106,16 @@ jobs:
           build_image controller controller ./cmd/controller
           build_image agent agent ./cmd/agent
           build_image manager gateway-manager ./cmd/gateway-manager
+          build_image adapter qbittorrent-adapter ./cmd/qbittorrent-adapter
       - name: Scan published images and emit release SBOMs
         env:
           CONTROLLER: ${{ steps.images.outputs.controller }}
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
+          ADAPTER: ${{ steps.images.outputs.adapter }}
         run: |
           mkdir -p dist
-          for entry in CONTROLLER AGENT MANAGER; do
+          for entry in CONTROLLER AGENT MANAGER ADAPTER; do
             ref="${!entry}"
             output="dist/$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]').spdx.json"
             trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$ref"
@@ -150,13 +152,15 @@ jobs:
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
           CHART: ${{ steps.chart.outputs.reference }}
+          ADAPTER: ${{ steps.images.outputs.adapter }}
         run: |
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$CHART"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART"; do
             cosign sign --yes "$ref"
           done
           cosign attest --yes --type spdxjson --predicate dist/controller.spdx.json "$CONTROLLER"
           cosign attest --yes --type spdxjson --predicate dist/agent.spdx.json "$AGENT"
           cosign attest --yes --type spdxjson --predicate dist/manager.spdx.json "$MANAGER"
+          cosign attest --yes --type spdxjson --predicate dist/adapter.spdx.json "$ADAPTER"
           cosign attest --yes --type spdxjson --predicate dist/helm-chart.spdx.json "$CHART"
       - name: Attest controller image provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -176,6 +180,12 @@ jobs:
           subject-name: ${{ steps.images.outputs.manager_name }}
           subject-digest: ${{ steps.images.outputs.manager_digest }}
           push-to-registry: true
+      - name: Attest qBitTorrent adapter image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.images.outputs.adapter_name }}
+          subject-digest: ${{ steps.images.outputs.adapter_digest }}
+          push-to-registry: true
       - name: Attest Helm chart provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
@@ -188,6 +198,7 @@ jobs:
           CONTROLLER: ${{ steps.images.outputs.controller }}
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
+          ADAPTER: ${{ steps.images.outputs.adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
         run: |
           go run ./hack/releasemanifest \
@@ -196,17 +207,19 @@ jobs:
             --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --commit "$GITHUB_SHA" \
             --workflow-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER" --chart "$CHART"
+            --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER" \
+            --qbittorrent-adapter "$ADAPTER" --chart "$CHART"
           cosign sign-blob --yes --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
       - name: Verify signatures before release
         env:
           CONTROLLER: ${{ steps.images.outputs.controller }}
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
+          ADAPTER: ${{ steps.images.outputs.adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
         run: |
           identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yaml@refs/tags/${GITHUB_REF_NAME}"
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$CHART"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART"; do
             cosign verify --certificate-identity "$identity" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
           done

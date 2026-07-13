@@ -74,6 +74,15 @@ spec:
                 x-kubernetes-list-type: set
               target:
                 properties:
+                  applicationPortMode:
+                    default: Fixed
+                    description: |-
+                      ApplicationPortMode controls whether the application listens on the stable
+                      target port or must follow the provider-assigned public port.
+                    enum:
+                    - Fixed
+                    - ProviderAssigned
+                    type: string
                   podSelector:
                     description: |-
                       A label selector is a label query over a set of resources. The result of matchLabels and

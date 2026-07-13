@@ -62,7 +62,10 @@ Mandatory scenarios:
 - no cross-delivery after target deletion/address reuse;
 - two or more simultaneous leases when capabilities permit;
 - explicit failure when provider only permits one lease;
-- qBitTorrent API adapter updates listen port;
+- a compatibility probe proves qBitTorrent's native PCP mapping still
+  announces the local listener when the external port differs;
+- the qBitTorrent sidecar applies the exact current public port and acknowledges
+  its lease UID and generation without receiving Kubernetes or VPN credentials;
 - sustained qBitTorrent DHT health through lease renewal;
 - Bitmagnet and Loadstone can consume the neutral lease record.
 

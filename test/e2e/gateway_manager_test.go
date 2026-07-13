@@ -90,7 +90,7 @@ func TestGatewayManagerRenewsProtonNATPMPObservation(t *testing.T) {
 	ctx := context.Background()
 	must(t, direct.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 	t.Cleanup(func() { _ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}) })
-	desired := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"lease-target","overlayAddress":"172.30.99.10","underlayIP":"10.2.0.1"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":1,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881}]}`
+	desired := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"lease-target","overlayAddress":"172.30.99.10","underlayIP":"10.2.0.1"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881}]}`
 	must(t, direct.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gateway-config", Namespace: namespace}, Data: map[string]string{"gateway.json": desired}}))
 	no := false
 	runner := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: namespace}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "gateway-config"}}}}}}}
@@ -133,8 +133,9 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 	ctx := context.Background()
 	must(t, direct.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 	t.Cleanup(func() { _ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}) })
-	desired := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":1,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":8080,"leaseGeneration":1}]}`
-	desiredWithSecond := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-two","internalPort":2,"protocols":["TCP"],"targetAddress":"172.30.99.10","targetPort":8081,"leaseGeneration":1},{"identity":"lease-uid","internalPort":1,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":8080,"leaseGeneration":1}]}`
+	desired := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42000,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":1}]}`
+	desiredRotated := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`
+	desiredWithSecond := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-two","internalPort":49153,"protocols":["TCP"],"targetAddress":"172.30.99.10","targetPort":8081,"leaseGeneration":1},{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`
 	must(t, direct.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gateway-config", Namespace: namespace}, Data: map[string]string{"gateway.json": desired}}))
 	no, yes := false, true
 	runner := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: namespace}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Privileged: &yes}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "gateway-config"}}}}}}}
@@ -144,9 +145,9 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 	copyLocalFile(t, fakeEngineBinary, namespace, runner.Name, "/tmp/fake-gluetun")
 	copyLocalFile(t, fakeNATPMPBinary, namespace, runner.Name, "/tmp/fake-natpmp")
 
-	setup := "set -eu; apk add --no-cache iproute2 nftables; nft add table ip waycloak_e2e_unrelated; ip netns add source; ip netns add target; " +
+	setup := "set -eu; apk add --no-cache iproute2 nftables socat; nft add table ip waycloak_e2e_unrelated; ip netns add source; ip netns add target; " +
 		"ip link add tunwaycloak type veth peer name src0; ip link set src0 netns source; ip address add 10.2.0.2/24 dev tunwaycloak; ip link set tunwaycloak up; " +
-		"ip netns exec source ip link set lo up; ip netns exec source ip address add 10.2.0.1/24 dev src0; ip netns exec source ip link set src0 up; " +
+		"ip netns exec source ip link set lo up; ip netns exec source ip address add 10.2.0.1/24 dev src0; ip netns exec source ip address add 10.2.0.3/24 dev src0; ip netns exec source ip link set src0 up; " +
 		"ip link add gwunderlay type veth peer name targetunderlay; ip link set targetunderlay netns target; ip address add 192.0.2.1/24 dev gwunderlay; ip link set gwunderlay up; " +
 		"ip netns exec target ip link set lo up; ip netns exec target ip address add 192.0.2.2/24 dev targetunderlay; ip netns exec target ip link set targetunderlay up; " +
 		"ip netns exec target ip link add targetvx type vxlan id 7999 dev targetunderlay local 192.0.2.2 remote 192.0.2.1 dstport 4789; " +
@@ -154,8 +155,8 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", setup)
 	startFakeEngine(t, namespace, runner.Name)
 	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec source /tmp/fake-natpmp --listen=10.2.0.1:5351 >/tmp/natpmp.log 2>&1 &")
-	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec target sh -c 'while true; do printf tcp-ok | nc -l -p 8080; done' >/tmp/tcp.log 2>&1 &")
-	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec target sh -c 'while true; do printf udp-ok | nc -u -l -p 8080; done' >/tmp/udp.log 2>&1 &")
+	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec target sh -c 'while true; do printf tcp-ok | nc -l -p 6881; done' >/tmp/tcp.log 2>&1 &")
+	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec target socat -u UDP4-RECVFROM:6881,reuseaddr,fork STDOUT >/tmp/udp-received.log 2>/tmp/udp-listener.log &")
 	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec target sh -c 'while true; do printf tcp-two | nc -l -p 8081; done' >/tmp/tcp-two.log 2>&1 &")
 	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup /tmp/gateway-manager run --engine-type=Gluetun --config-path=/config/gateway.json --resolv-conf=/etc/resolv.conf --port-forward-driver=ProtonNatPmp --tunnel-interface=tunwaycloak --nat-pmp-gateway-address=10.2.0.1:5351 >/tmp/manager.log 2>&1 &")
 	waitFor(t, 30*time.Second, func() bool {
@@ -164,12 +165,12 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 	if overlay := waygateway.OverlayInterfaceName("private"); !commandSucceeds(namespace, runner.Name, "ip link show "+overlay+" >/dev/null") {
 		t.Fatalf("gateway overlay %s was not created", overlay)
 	}
-	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 1' | grep -q tcp-ok") {
+	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 49152' | grep -q tcp-ok") {
 		t.Fatal("TCP mapping did not reach the exact overlay target")
 	}
-	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -u -w 3 10.2.0.2 1' | grep -q udp-ok") {
-		t.Fatal("UDP mapping did not reach the exact overlay target")
-	}
+	waitFor(t, 10*time.Second, func() bool {
+		return commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf initial-udp | nc -u -s 10.2.0.1 -p 40001 -w 1 10.2.0.2 49152 >/dev/null || true'; grep -q initial-udp /tmp/udp-received.log")
+	})
 	updateDesired := func(value string) {
 		t.Helper()
 		var configMap corev1.ConfigMap
@@ -177,24 +178,47 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 		configMap.Data["gateway.json"] = value
 		must(t, direct.Update(ctx, &configMap))
 	}
+	waitFor(t, 2*time.Minute, func() bool {
+		return commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/port-forward/leases/lease-uid | grep -q '\"publicPort\":42001'")
+	})
+	updateDesired(desiredRotated)
+	waitFor(t, 2*time.Minute, func() bool {
+		return commandSucceeds(namespace, runner.Name, "payload=$(wget -qO- http://127.0.0.1:18080/v1/port-forward/leases/lease-uid) && echo \"$payload\" | grep -q '\"publicPort\":42001' && echo \"$payload\" | grep -q '\"gatewayRulesGeneration\":2'")
+	})
+	waitFor(t, 10*time.Second, func() bool {
+		return commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf rotated | nc -w 3 10.2.0.2 49152' | grep -q tcp-ok")
+	})
+	waitFor(t, 10*time.Second, func() bool {
+		return commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf rotated-udp | nc -u -s 10.2.0.3 -p 40002 -w 1 10.2.0.2 49152 >/dev/null || true'; grep -q rotated-udp /tmp/udp-received.log")
+	})
+	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "nohup ip netns exec source sh -c 'while true; do printf outbound-ok | nc -l -p 9090 -v; done' >/tmp/outbound-source.log 2>&1 &")
+	command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "sh", "-c", "ip netns exec target ip route replace default via 172.30.99.1 dev targetvx")
+	waitFor(t, 10*time.Second, func() bool {
+		return commandSucceeds(namespace, runner.Name, "ip netns exec target sh -c 'nc -p 42001 -w 3 10.2.0.1 9090' | grep -q outbound-ok")
+	})
+	peerLog := command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "cat", "/tmp/outbound-source.log")
+	if !strings.Contains(peerLog, "10.2.0.2]:49152") {
+		ruleset := command(t, nil, "kubectl", "exec", "-n", namespace, runner.Name, "--", "nft", "list", "ruleset")
+		t.Fatalf("expected provider-facing source 10.2.0.2:49152, got log %q; ruleset:\n%s", peerLog, ruleset)
+	}
 	updateDesired(desiredWithSecond)
 	waitFor(t, 2*time.Minute, func() bool {
 		return commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/port-forward/leases/lease-two | grep -q '\"gatewayRulesReady\":true'")
 	})
-	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 2' | grep -q tcp-two") {
+	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 49153' | grep -q tcp-two") {
 		t.Fatal("second identity did not reach its exact target")
 	}
-	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 1' | grep -q tcp-ok") {
+	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 49152' | grep -q tcp-ok") {
 		t.Fatal("adding a second identity disturbed the existing mapping")
 	}
-	updateDesired(desired)
+	updateDesired(desiredRotated)
 	waitFor(t, 2*time.Minute, func() bool {
 		return !commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/port-forward/leases/lease-two >/dev/null") && commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/port-forward/leases/lease-uid | grep -q '\"gatewayRulesReady\":true'")
 	})
-	if commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf stale | nc -w 1 10.2.0.2 2' | grep -q tcp-two") {
+	if commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf stale | nc -w 1 10.2.0.2 49153' | grep -q tcp-two") {
 		t.Fatal("removed identity retained stale cross-delivery")
 	}
-	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 1' | grep -q tcp-ok") {
+	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf request | nc -w 3 10.2.0.2 49152' | grep -q tcp-ok") {
 		t.Fatal("removing a second identity disturbed the existing mapping")
 	}
 	if !commandSucceeds(namespace, runner.Name, "nft list table ip waycloak_e2e_unrelated >/dev/null") {

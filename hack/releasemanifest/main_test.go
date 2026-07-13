@@ -10,11 +10,11 @@ import (
 
 func TestBuildManifestTiesImmutableArtifacts(t *testing.T) {
 	reference := "ghcr.io/example/waycloak@sha256:" + strings.Repeat("a", 64)
-	value, err := buildManifest("0.1.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", map[string]string{"controllerImage": reference, "agentImage": reference, "gatewayManagerImage": reference, "helmChart": reference})
+	value, err := buildManifest("0.1.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", map[string]string{"controllerImage": reference, "agentImage": reference, "gatewayManagerImage": reference, "qbittorrentAdapterImage": reference, "helmChart": reference})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value.Artifacts["controllerImage"].Digest != "sha256:"+strings.Repeat("a", 64) || value.Security.TestedGluetun != testedGluetun || value.Compatibility.CRDStorageVersion != "v1alpha1" {
+	if value.Artifacts["controllerImage"].Digest != "sha256:"+strings.Repeat("a", 64) || value.Artifacts["qbittorrentAdapterImage"].Reference != reference || value.Security.TestedGluetun != testedGluetun || value.Compatibility.CRDStorageVersion != "v1alpha1" {
 		t.Fatalf("manifest = %#v", value)
 	}
 }

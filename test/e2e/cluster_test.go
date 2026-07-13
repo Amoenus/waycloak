@@ -198,7 +198,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		}
 		target := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionTargetReady)
 		provider := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionProviderLeaseReady)
-		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeaseObservationFailed && current.Status.Target != nil && current.Status.Target.PodRef.UID == protected.UID && current.Status.ProviderInternalPort == 1
+		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeaseObservationFailed && current.Status.Target != nil && current.Status.Target.PodRef.UID == protected.UID && current.Status.ProviderInternalPort == 49152
 	})
 	invalidLease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: namespace}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP}}}
 	if err := direct.Create(ctx, invalidLease); err == nil {
@@ -303,6 +303,10 @@ func startControllerWithImage(t *testing.T, namespace string, controllers bool, 
 	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-cert-dir=/certs --allocation-quarantine=1s --port-forward-deletion-quarantine=1s --agent-image=%s >/tmp/controller.log 2>&1 &", controllers, agentImage)
 	command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", commandLine)
 	time.Sleep(2 * time.Second)
+	if !commandSucceeds(namespace, "controller", "pgrep waycloak-controller >/dev/null") {
+		log := command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", "cat /tmp/controller.log 2>/dev/null || true")
+		t.Fatalf("controller process exited during startup:\n%s", log)
+	}
 }
 
 func stopController(t *testing.T, namespace string) {

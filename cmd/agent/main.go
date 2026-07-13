@@ -122,7 +122,7 @@ func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane
 		}
 	}()
 	go refreshDeliveries(ctx, deliveries, deliveryDirectory, interval)
-	return reconcileLoop(ctx, agent, load, interval, ready)
+	return reconcileLoopWithDeliveries(ctx, agent, load, interval, ready, deliveries)
 }
 
 func agentHandler(ready *atomic.Bool, deliveries *delivery.Store) http.Handler {
@@ -163,11 +163,30 @@ func leaseHandler(deliveries *delivery.Store) http.Handler {
 		writeJSON(response, document)
 	})
 	mux.HandleFunc("/v1/port-forward/leases/", func(response http.ResponseWriter, request *http.Request) {
+		path := request.URL.Path[len("/v1/port-forward/leases/"):]
+		if request.Method == http.MethodPost && strings.HasSuffix(path, "/ack") {
+			identity := strings.TrimSuffix(path, "/ack")
+			if identity == "" || strings.Contains(identity, "/") {
+				http.NotFound(response, request)
+				return
+			}
+			var acknowledgement delivery.ApplicationAcknowledgement
+			if err := json.NewDecoder(http.MaxBytesReader(response, request.Body, 4096)).Decode(&acknowledgement); err != nil {
+				http.Error(response, "invalid acknowledgement", http.StatusBadRequest)
+				return
+			}
+			if err := deliveries.Acknowledge(identity, acknowledgement); err != nil {
+				http.Error(response, "lease generation is unavailable", http.StatusConflict)
+				return
+			}
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if request.Method != http.MethodGet {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		identity := request.URL.Path[len("/v1/port-forward/leases/"):]
+		identity := path
 		if identity == "" || strings.Contains(identity, "/") {
 			http.NotFound(response, request)
 			return
@@ -213,17 +232,37 @@ func readinessHandler(ready *atomic.Bool) http.Handler {
 }
 
 func reconcileLoop(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration, ready *atomic.Bool) error {
+	return reconcileLoopWithDeliveries(ctx, agent, load, interval, ready, nil)
+}
+
+func reconcileLoopWithDeliveries(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration, ready *atomic.Bool, deliveries *delivery.Store) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		cfg, err := load()
+		var redirects []delivery.PortRedirect
+		if err == nil && deliveries != nil {
+			redirects = deliveries.RequestedRedirects()
+			for _, redirect := range redirects {
+				if redirect.TargetPort == redirect.ApplicationPort {
+					continue
+				}
+				cfg.ApplicationPortRedirects = append(cfg.ApplicationPortRedirects, dataplane.ApplicationPortRedirect{Identity: redirect.Identity, TargetPort: redirect.TargetPort, ApplicationPort: redirect.ApplicationPort, Protocols: append([]string(nil), redirect.Protocols...)})
+			}
+		}
 		if err == nil {
 			err = agent.Repair(ctx, cfg)
 		}
 		if err != nil {
+			if deliveries != nil {
+				deliveries.ClearApplied()
+			}
 			ready.Store(false)
 			log.Printf("protected-path reconciliation failed; existing deny state remains: %v", err)
 		} else {
+			if deliveries != nil {
+				deliveries.MarkApplied(redirects)
+			}
 			ready.Store(true)
 		}
 		select {
