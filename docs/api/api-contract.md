@@ -166,6 +166,13 @@ rolling updates after its identity and drain semantics are proven
 
 `Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and delivery state has been published. It does not merely mean the object registered.
 
+`GatewayRulesReady=True` specifically means the serving gateway read back both
+the prerouting DNAT and forward-accept rules for the lease object UID, current
+`leaseGeneration`, protocol set, and exact UID-bound overlay target. A current
+provider mapping without those exact rules leaves the condition false. Target
+changes update gateway rules without rotating the provider mapping. `Delivered`
+remains a separate observation of the renewable application-facing record.
+
 Provider behavior is behind an observed capability interface describing
 supported protocols, simultaneous lease capacity, shared TCP/UDP port
 semantics, requested-port support, and minimum duration. Repeated ensure calls

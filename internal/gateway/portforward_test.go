@@ -79,6 +79,23 @@ func TestPortForwardManagerRejectsDuplicateInternalPorts(t *testing.T) {
 	}
 }
 
+func TestPortForwardManagerDoesNotRotateProviderMappingWhenOnlyTargetChanges(t *testing.T) {
+	driver := &fakePortForwardDriver{ports: []uint16{42000}}
+	manager := &PortForwardManager{Driver: driver, Now: func() time.Time { return time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC) }}
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}, TargetAddress: "172.30.99.10", TargetPort: 80, LeaseGeneration: 1}
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	intent.TargetAddress = "172.30.99.11"
+	intent.TargetPort = 8080
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.ensureRequests) != 1 || len(driver.releaseRequests) != 0 {
+		t.Fatalf("target-only change touched provider mapping: ensures=%#v releases=%#v", driver.ensureRequests, driver.releaseRequests)
+	}
+}
+
 type fakePortForwardDriver struct {
 	capabilityCalls int
 	ensureRequests  []provider.PortForwardLeaseRequest

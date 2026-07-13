@@ -179,7 +179,8 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		}
 		target := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionTargetReady)
 		provider := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionProviderLeaseReady)
-		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionTrue && provider.Reason == waystatus.ReasonProviderLeaseObservedReady && current.Status.Target != nil && current.Status.Target.PodRef.UID == pod.UID && current.Status.PublicPort == 42000 && current.Status.LeaseGeneration == 1
+		rules := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionGatewayRulesReady)
+		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionTrue && provider.Reason == waystatus.ReasonProviderLeaseObservedReady && rules != nil && rules.Status == metav1.ConditionTrue && rules.Reason == waystatus.ReasonGatewayRulesObservedReady && current.Status.Target != nil && current.Status.Target.PodRef.UID == pod.UID && current.Status.PublicPort == 42000 && current.Status.LeaseGeneration == 1
 	})
 	invalidLease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: nsName}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP}}}
 	if err := mgr.GetClient().Create(ctx, invalidLease); err == nil {
@@ -227,7 +228,7 @@ type integrationLeaseObserver struct{}
 
 func (observer *integrationLeaseObserver) ObserveLease(_ context.Context, _ string, identity string) (waygateway.PortForwardObservation, error) {
 	now := time.Now().UTC()
-	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(time.Second), ExpiresAt: now.Add(2 * time.Second), Ready: true}, nil
+	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(time.Second), ExpiresAt: now.Add(2 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
 }
 
 func waitFor(t *testing.T, timeout time.Duration, f func() bool) {

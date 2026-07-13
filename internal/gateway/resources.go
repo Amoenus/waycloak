@@ -52,6 +52,9 @@ type PortForwardLeaseIntent struct {
 	InternalPort          uint16                         `json:"internalPort"`
 	SuggestedExternalPort uint16                         `json:"suggestedExternalPort,omitempty"`
 	Protocols             []provider.PortForwardProtocol `json:"protocols"`
+	TargetAddress         string                         `json:"targetAddress"`
+	TargetPort            uint16                         `json:"targetPort"`
+	LeaseGeneration       int64                          `json:"leaseGeneration,omitempty"`
 }
 
 type DesiredState struct {

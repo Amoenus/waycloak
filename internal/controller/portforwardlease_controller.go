@@ -194,7 +194,11 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		lease.Status.LeaseGeneration++
 	}
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "A current provider mapping is observed through the serving gateway Pod")
-	r.downstreamPending(&lease)
+	if observation.GatewayRulesReady && observation.GatewayRulesGeneration == lease.Status.LeaseGeneration && lease.Status.Target != nil && observation.TargetAddress == lease.Status.Target.OverlayAddress && observation.TargetPort == uint16(lease.Status.Target.Port) {
+		r.rulesObserved(&lease)
+	} else {
+		r.downstreamPending(&lease)
+	}
 	return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
 }
 
@@ -328,6 +332,12 @@ func (r *PortForwardLeaseReconciler) downstreamPending(lease *wayv1.PortForwardL
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonLeaseComponentsNotReady, "Gateway rules, target, and delivery must all be observed ready")
 }
 
+func (r *PortForwardLeaseReconciler) rulesObserved(lease *wayv1.PortForwardLease) {
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady, "Gateway TCP/UDP DNAT is observed for the current lease generation and UID-bound target")
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending, "The current lease generation has not been delivered")
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonLeaseComponentsNotReady, "Lease delivery must be observed before the lease is ready")
+}
+
 func (r *PortForwardLeaseReconciler) updateStatus(ctx context.Context, lease *wayv1.PortForwardLease, previous *wayv1.PortForwardLeaseStatus) error {
 	if apiequality.Semantic.DeepEqual(*previous, lease.Status) {
 		return nil
@@ -336,7 +346,7 @@ func (r *PortForwardLeaseReconciler) updateStatus(ctx context.Context, lease *wa
 		return err
 	}
 	if r.Recorder != nil {
-		for _, conditionType := range []string{waystatus.ConditionAccepted, waystatus.ConditionTargetReady, waystatus.ConditionProviderLeaseReady, waystatus.ConditionReady} {
+		for _, conditionType := range []string{waystatus.ConditionAccepted, waystatus.ConditionTargetReady, waystatus.ConditionProviderLeaseReady, waystatus.ConditionGatewayRulesReady, waystatus.ConditionReady} {
 			before := apiMeta.FindStatusCondition(previous.Conditions, conditionType)
 			after := apiMeta.FindStatusCondition(lease.Status.Conditions, conditionType)
 			if after == nil || before != nil && before.Status == after.Status && before.Reason == after.Reason {

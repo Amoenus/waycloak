@@ -84,7 +84,7 @@ func TestPortForwardLeaseRejectsAmbiguousReadyTargets(t *testing.T) {
 func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
-	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true}}
+	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
 	reconciler.Observer = observer
 	reconciler.Now = func() time.Time { return now }
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}}
@@ -104,6 +104,7 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
 	if got.Status.PublicPort != 42000 || got.Status.LeaseGeneration != 1 {
 		t.Fatalf("provider status = %#v", got.Status)
 	}
@@ -120,6 +121,15 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.PublicPort != 42001 || got.Status.LeaseGeneration != 2 {
 		t.Fatalf("rotated generation status=%#v error=%v", got.Status, err)
 	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionFalse, waystatus.ReasonGatewayRulesPending)
+	observer.observation.GatewayRulesGeneration = 2
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Get(context.Background(), key, &got); err != nil {
+		t.Fatal(err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
 }
 
 func TestPortForwardInternalPortsStayStableAsLeasesChange(t *testing.T) {

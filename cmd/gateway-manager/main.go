@@ -196,7 +196,7 @@ func managerHandler(manager *waygateway.HealthManager) http.Handler {
 			return
 		}
 		var selected *waygateway.PortForwardObservation
-		for _, observation := range manager.PortForwarding.Snapshot() {
+		for _, observation := range manager.PortForwardingSnapshot() {
 			if observation.Identity == identity {
 				copy := observation
 				selected = &copy

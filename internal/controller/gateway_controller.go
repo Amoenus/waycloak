@@ -124,7 +124,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	if err != nil {
 		return err
 	}
-	portForwardLeases, err := r.portForwardLeases(ctx, gateway)
+	portForwardLeases, err := r.portForwardLeases(ctx, gateway, members)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	return nil
 }
 
-func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv1.VPNGateway) ([]waygateway.PortForwardLeaseIntent, error) {
+func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv1.VPNGateway, members []waygateway.Member) ([]waygateway.PortForwardLeaseIntent, error) {
 	if !gateway.Spec.PortForwarding.Enabled {
 		return nil, nil
 	}
@@ -202,6 +202,10 @@ func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv
 		return nil, fmt.Errorf("list gateway port-forward leases: %w", err)
 	}
 	intents := make([]waygateway.PortForwardLeaseIntent, 0)
+	memberAddresses := make(map[string]struct{}, len(members))
+	for _, member := range members {
+		memberAddresses[member.OverlayAddress] = struct{}{}
+	}
 	for i := range leases.Items {
 		lease := &leases.Items[i]
 		namespace := lease.Spec.GatewayRef.Namespace
@@ -221,7 +225,21 @@ func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv
 		if lease.Status.PublicPort > 0 && lease.Status.PublicPort <= 65535 {
 			suggested = uint16(lease.Status.PublicPort)
 		}
-		intents = append(intents, waygateway.PortForwardLeaseIntent{Identity: string(lease.UID), InternalPort: uint16(lease.Status.ProviderInternalPort), SuggestedExternalPort: suggested, Protocols: protocols})
+		if lease.Status.Target == nil || lease.Status.Target.Port < 1 || lease.Status.Target.Port > 65535 {
+			continue
+		}
+		if _, exists := memberAddresses[lease.Status.Target.OverlayAddress]; !exists {
+			continue
+		}
+		intents = append(intents, waygateway.PortForwardLeaseIntent{
+			Identity:              string(lease.UID),
+			InternalPort:          uint16(lease.Status.ProviderInternalPort),
+			SuggestedExternalPort: suggested,
+			Protocols:             protocols,
+			TargetAddress:         lease.Status.Target.OverlayAddress,
+			TargetPort:            uint16(lease.Status.Target.Port),
+			LeaseGeneration:       lease.Status.LeaseGeneration,
+		})
 	}
 	sort.Slice(intents, func(i, j int) bool { return intents[i].Identity < intents[j].Identity })
 	return intents, nil

@@ -55,6 +55,7 @@ const (
 	ReasonProviderLeaseObservationFailed  = "ProviderLeaseObservationFailed"
 	ReasonProviderLeaseExpired            = "ProviderLeaseExpired"
 	ReasonGatewayRulesPending             = "GatewayRulesPending"
+	ReasonGatewayRulesObservedReady       = "GatewayRulesObservedReady"
 	ReasonDeliveryPending                 = "DeliveryPending"
 	ReasonLeaseComponentsNotReady         = "LeaseComponentsNotReady"
 	ReasonGatewayReady                    = "GatewayReady"

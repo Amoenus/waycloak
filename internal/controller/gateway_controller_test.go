@@ -166,21 +166,28 @@ func TestGatewayPublishesOnlyObservedPortForwardLeaseIdentities(t *testing.T) {
 	lease := &wayv1.PortForwardLease{
 		ObjectMeta: metav1.ObjectMeta{Name: "torrent", Namespace: "apps", UID: types.UID("lease-uid")},
 		Spec:       wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolUDP, wayv1.PortForwardProtocolTCP}},
-		Status:     wayv1.PortForwardLeaseStatus{ProviderInternalPort: 7, PublicPort: 42000, Conditions: []metav1.Condition{{Type: waystatus.ConditionTargetReady, Status: metav1.ConditionTrue, Reason: waystatus.ReasonTargetObservedReady}}},
+		Status: wayv1.PortForwardLeaseStatus{
+			ProviderInternalPort: 7,
+			PublicPort:           42000,
+			LeaseGeneration:      3,
+			Target:               &wayv1.PortForwardTargetStatus{OverlayAddress: "172.30.99.10", Port: 6881},
+			Conditions:           []metav1.Condition{{Type: waystatus.ConditionTargetReady, Status: metav1.ConditionTrue, Reason: waystatus.ReasonTargetObservedReady}},
+		},
 	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lease).Build()
 	reconciler := &GatewayReconciler{Client: client}
-	intents, err := reconciler.portForwardLeases(context.Background(), gateway)
+	members := []waygateway.Member{{OverlayAddress: "172.30.99.10"}}
+	intents, err := reconciler.portForwardLeases(context.Background(), gateway, members)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(intents) != 1 || intents[0].Identity != "lease-uid" || intents[0].InternalPort != 7 || intents[0].SuggestedExternalPort != 42000 || len(intents[0].Protocols) != 2 || intents[0].Protocols[0] != "TCP" {
+	if len(intents) != 1 || intents[0].Identity != "lease-uid" || intents[0].InternalPort != 7 || intents[0].SuggestedExternalPort != 42000 || len(intents[0].Protocols) != 2 || intents[0].Protocols[0] != "TCP" || intents[0].TargetAddress != "172.30.99.10" || intents[0].TargetPort != 6881 || intents[0].LeaseGeneration != 3 {
 		t.Fatalf("published intents = %#v", intents)
 	}
 	if err := client.Delete(context.Background(), lease); err != nil {
 		t.Fatal(err)
 	}
-	intents, err = reconciler.portForwardLeases(context.Background(), gateway)
+	intents, err = reconciler.portForwardLeases(context.Background(), gateway, members)
 	if err != nil || len(intents) != 0 {
 		t.Fatalf("deleting intents=%#v error=%v", intents, err)
 	}

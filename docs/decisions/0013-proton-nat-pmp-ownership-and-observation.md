@@ -29,8 +29,8 @@ returned lifetime, and sends a zero-lifetime request on release.
 The controller persists a unique `providerInternalPort` in each
 `PortForwardLease` status. Existing allocations are never recomputed. The
 gateway desired-state ConfigMap publishes the lease object UID, internal port,
-previous public-port suggestion, and protocols only after exact target-UID
-readiness is observed. The manager exposes one current observation at a
+previous public-port suggestion, protocols, exact overlay target, and current
+public-port generation only after exact target-UID readiness is observed. The manager exposes one current observation at a
 versioned, identity-addressed, read-only HTTP endpoint on the serving gateway
 Pod; it provides no enumeration endpoint. The controller reads that exact Pod
 IP and persists public port and timestamps. `leaseGeneration`
@@ -47,9 +47,9 @@ one final 60-second provider lifetime, and release retry without allowing an
 external outage to block deletion indefinitely. Test deployments may shorten
 the interval explicitly.
 
-Provider acquisition does not imply inbound readiness. `GatewayRulesReady`,
-`Delivered`, and overall `Ready` remain false until later slices install and
-observe DNAT and workload delivery.
+Provider acquisition does not imply inbound readiness. `GatewayRulesReady`
+requires the separate exact DNAT observation defined by ADR 0014. `Delivered`
+and overall `Ready` remain false until workload delivery is observed.
 
 ## Consequences
 
@@ -61,7 +61,8 @@ observe DNAT and workload delivery.
   checked against lease UID, internal port, protocols, and expiry.
 - OpenVPN credentials without `+pmp` fail explicitly as provider acquisition
   failure rather than silently enabling a non-VPN path.
-- Atomic DNAT and application delivery remain separate required observations.
+- Atomic DNAT and application delivery remain separate required observations;
+  ADR 0014 defines the former.
 
 ## Alternatives rejected
 

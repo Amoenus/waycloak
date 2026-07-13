@@ -16,16 +16,20 @@ import (
 )
 
 type PortForwardObservation struct {
-	Identity     string                         `json:"identity"`
-	InternalPort uint16                         `json:"internalPort"`
-	Protocols    []provider.PortForwardProtocol `json:"protocols"`
-	PublicPort   uint16                         `json:"publicPort,omitempty"`
-	IssuedAt     time.Time                      `json:"issuedAt,omitempty"`
-	RenewAfter   time.Time                      `json:"renewAfter,omitempty"`
-	ExpiresAt    time.Time                      `json:"expiresAt,omitempty"`
-	Ready        bool                           `json:"ready"`
-	Releasing    bool                           `json:"releasing,omitempty"`
-	Message      string                         `json:"message,omitempty"`
+	Identity               string                         `json:"identity"`
+	InternalPort           uint16                         `json:"internalPort"`
+	Protocols              []provider.PortForwardProtocol `json:"protocols"`
+	PublicPort             uint16                         `json:"publicPort,omitempty"`
+	IssuedAt               time.Time                      `json:"issuedAt,omitempty"`
+	RenewAfter             time.Time                      `json:"renewAfter,omitempty"`
+	ExpiresAt              time.Time                      `json:"expiresAt,omitempty"`
+	Ready                  bool                           `json:"ready"`
+	GatewayRulesReady      bool                           `json:"gatewayRulesReady"`
+	GatewayRulesGeneration int64                          `json:"gatewayRulesGeneration,omitempty"`
+	TargetAddress          string                         `json:"targetAddress,omitempty"`
+	TargetPort             uint16                         `json:"targetPort,omitempty"`
+	Releasing              bool                           `json:"releasing,omitempty"`
+	Message                string                         `json:"message,omitempty"`
 }
 
 const PortForwardObservationAPIVersion = "networking.waycloak.io/v1alpha1"
@@ -111,7 +115,7 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 	now := manager.now()
 	for _, intent := range desired {
 		managed, exists := manager.leases[intent.Identity]
-		intentChanged := exists && !reflect.DeepEqual(managed.intent, intent)
+		intentChanged := exists && !reflect.DeepEqual(providerRequest(managed.intent, 0), providerRequest(intent, 0))
 		if intentChanged {
 			if err := manager.Driver.ReleaseLease(ctx, providerRequest(managed.intent, managed.observation.PublicPort)); err != nil {
 				managed.observation.Ready = false
@@ -124,6 +128,8 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 		}
 		needsEnsure := !exists || !managed.observation.Ready || !now.Before(managed.observation.RenewAfter)
 		if !needsEnsure {
+			managed.intent = intent
+			manager.leases[intent.Identity] = managed
 			continue
 		}
 		suggestedPort := intent.SuggestedExternalPort
