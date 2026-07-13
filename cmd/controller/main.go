@@ -8,6 +8,8 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	wayadmission "github.com/Amoenus/waycloak/internal/admission"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/delivery"
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -27,7 +29,7 @@ func main() {
 	var metricsAddr, probeAddr, agentImage, gatewayManagerImage, webhookCertDir string
 	var webhookPort int
 	var leader, controllersEnabled bool
-	var allocationQuarantine time.Duration
+	var allocationQuarantine, portForwardDeletionQuarantine time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "")
 	flag.StringVar(&agentImage, "agent-image", "", "immutable agent image reference injected into protected Pods")
@@ -37,6 +39,7 @@ func main() {
 	flag.BoolVar(&leader, "leader-elect", true, "")
 	flag.BoolVar(&controllersEnabled, "controllers-enabled", true, "run reconcilers in addition to admission webhooks")
 	flag.DurationVar(&allocationQuarantine, "allocation-quarantine", 5*time.Minute, "delay before a released overlay address may be reused")
+	flag.DurationVar(&portForwardDeletionQuarantine, "port-forward-deletion-quarantine", 3*time.Minute, "delay before a released provider mapping identity may be reused")
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -67,6 +70,11 @@ func main() {
 		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
 		if err = (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-gateway"), ManagerImage: gatewayManagerImage}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "setup gateway controller")
+			os.Exit(1)
+		}
+		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
+		if err = (&waycontroller.PortForwardLeaseReconciler{Client: mgr.GetClient(), Recorder: mgr.GetEventRecorderFor("waycloak-port-forward-lease"), Observer: &waygateway.HTTPPortForwardObserver{}, DeliveryObserver: &delivery.HTTPObserver{}, DeletionQuarantine: portForwardDeletionQuarantine}).SetupWithManager(mgr); err != nil {
+			log.Error(err, "setup port-forward lease controller")
 			os.Exit(1)
 		}
 		if err = (&waycontroller.WorkloadGCReconciler{Client: mgr.GetClient(), Quarantine: allocationQuarantine}).SetupWithManager(mgr); err != nil {

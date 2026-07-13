@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+
+	"github.com/Amoenus/waycloak/internal/provider"
 )
 
 var interfaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
@@ -52,6 +54,7 @@ func (desired DesiredState) Validate() error {
 	}
 	identities := map[string]struct{}{}
 	addresses := map[netip.Addr]struct{}{gatewayAddress: {}}
+	memberAddresses := map[netip.Addr]struct{}{}
 	for _, member := range desired.Members {
 		address, addressErr := netip.ParseAddr(member.OverlayAddress)
 		underlay, underlayErr := netip.ParseAddr(member.UnderlayIP)
@@ -66,6 +69,36 @@ func (desired DesiredState) Validate() error {
 		}
 		identities[member.ID] = struct{}{}
 		addresses[address] = struct{}{}
+		memberAddresses[address] = struct{}{}
+	}
+	leaseIdentities := map[string]struct{}{}
+	internalPorts := map[uint16]struct{}{}
+	for _, lease := range desired.PortForwardLeases {
+		target, targetErr := netip.ParseAddr(lease.TargetAddress)
+		if lease.Identity == "" || lease.InternalPort == 0 || len(lease.Protocols) == 0 || targetErr != nil || !target.Is4() || !prefix.Contains(target) || lease.TargetPort == 0 || lease.LeaseGeneration < 0 {
+			return errors.New("gateway port-forward lease is invalid")
+		}
+		if _, exists := memberAddresses[target]; !exists {
+			return errors.New("gateway port-forward target is not an observed member")
+		}
+		if _, exists := leaseIdentities[lease.Identity]; exists {
+			return errors.New("gateway port-forward lease identity is duplicated")
+		}
+		if _, exists := internalPorts[lease.InternalPort]; exists {
+			return errors.New("gateway port-forward internal port is duplicated")
+		}
+		seenProtocols := map[provider.PortForwardProtocol]struct{}{}
+		for _, protocol := range lease.Protocols {
+			if protocol != provider.ProtocolTCP && protocol != provider.ProtocolUDP {
+				return errors.New("gateway port-forward protocol is invalid")
+			}
+			if _, exists := seenProtocols[protocol]; exists {
+				return errors.New("gateway port-forward protocol is duplicated")
+			}
+			seenProtocols[protocol] = struct{}{}
+		}
+		leaseIdentities[lease.Identity] = struct{}{}
+		internalPorts[lease.InternalPort] = struct{}{}
 	}
 	return nil
 }

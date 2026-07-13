@@ -14,8 +14,10 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"sort"
 	"strings"
 
+	"github.com/Amoenus/waycloak/internal/provider"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -61,6 +63,56 @@ func (linuxForwarding) Reconcile(_ context.Context, desired DesiredState) error 
 	return replaceVXLANIngressPolicy(desired)
 }
 
+func (linuxForwarding) ObservePortForwardRules(_ context.Context, desired DesiredState) ([]PortForwardRuleObservation, error) {
+	if err := desired.Validate(); err != nil {
+		return nil, err
+	}
+	observations := make([]PortForwardRuleObservation, 0, len(desired.PortForwardLeases))
+	conn := &nftables.Conn{}
+	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return nil, fmt.Errorf("list gateway forwarding tables for observation: %w", err)
+	}
+	var table *nftables.Table
+	for _, candidate := range tables {
+		if candidate.Name == forwardingTableName(desired.GatewayName) {
+			table = candidate
+			break
+		}
+	}
+	markers := map[string]struct{}{}
+	if table != nil {
+		chains, listErr := conn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+		if listErr != nil {
+			return nil, fmt.Errorf("list gateway forwarding chains for observation: %w", listErr)
+		}
+		for _, chain := range chains {
+			if chain.Table == nil || chain.Table.Name != table.Name {
+				continue
+			}
+			rules, rulesErr := conn.GetRules(table, chain)
+			if rulesErr != nil {
+				return nil, fmt.Errorf("list gateway forwarding rules for observation: %w", rulesErr)
+			}
+			for _, rule := range rules {
+				markers[chain.Name+"\x00"+string(rule.UserData)] = struct{}{}
+			}
+		}
+	}
+	for _, lease := range sortedPortForwardLeases(desired.PortForwardLeases) {
+		observation := PortForwardRuleObservation{Identity: lease.Identity, LeaseGeneration: lease.LeaseGeneration, TargetAddress: lease.TargetAddress, TargetPort: lease.TargetPort, Ready: lease.LeaseGeneration > 0}
+		for _, protocol := range sortedProtocols(lease.Protocols) {
+			for kind, chain := range map[string]string{"dnat": "prerouting", "forward": "forward"} {
+				if _, exists := markers[chain+"\x00"+string(portForwardRuleMarker(kind, lease, protocol))]; !exists {
+					observation.Ready = false
+				}
+			}
+		}
+		observations = append(observations, observation)
+	}
+	return observations, nil
+}
+
 func ensureIPv4Forwarding() error {
 	const path = "/proc/sys/net/ipv4/ip_forward"
 	value, err := os.ReadFile(path)
@@ -102,6 +154,7 @@ func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName strin
 	table := conn.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: tableName})
 	drop := nftables.ChainPolicyDrop
 	forward := conn.AddChain(&nftables.Chain{Table: table, Name: "forward", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &drop})
+	prerouting := conn.AddChain(&nftables.Chain{Table: table, Name: "prerouting", Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPrerouting, Priority: nftables.ChainPriorityNATDest})
 	marker := []byte("waycloak-gateway:" + desired.GatewayName)
 	prefix := netip.MustParsePrefix(desired.OverlayCIDR).Masked()
 	conn.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: marker, Exprs: append([]expr.Any{
@@ -122,6 +175,16 @@ func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName strin
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: fixedInterfaceName(tunnelName)},
 		&expr.Verdict{Kind: expr.VerdictAccept},
 	)})
+	for _, lease := range sortedPortForwardLeases(desired.PortForwardLeases) {
+		if lease.LeaseGeneration == 0 {
+			continue
+		}
+		target := netip.MustParseAddr(lease.TargetAddress)
+		for _, protocol := range sortedProtocols(lease.Protocols) {
+			conn.AddRule(&nftables.Rule{Table: table, Chain: prerouting, UserData: portForwardRuleMarker("dnat", lease, protocol), Exprs: portForwardDNATExpressions(tunnelName, lease, protocol, target)})
+			conn.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: portForwardRuleMarker("forward", lease, protocol), Exprs: portForwardAcceptExpressions(tunnelName, overlayName, lease, protocol, target)})
+		}
+	}
 	postrouting := conn.AddChain(&nftables.Chain{Table: table, Name: "postrouting", Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
 	conn.AddRule(&nftables.Rule{Table: table, Chain: postrouting, UserData: marker, Exprs: append(sourcePrefixExpressions(prefix),
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
@@ -132,6 +195,71 @@ func replaceForwardingPolicy(desired DesiredState, overlayName, tunnelName strin
 		return fmt.Errorf("replace gateway forwarding policy: %w", err)
 	}
 	return nil
+}
+
+func portForwardDNATExpressions(tunnelName string, lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol, target netip.Addr) []expr.Any {
+	return append(portForwardMatchExpressions(tunnelName, "", lease.InternalPort, protocol, netip.Addr{}),
+		&expr.Immediate{Register: 1, Data: target.AsSlice()},
+		&expr.Immediate{Register: 2, Data: encodedPort(lease.TargetPort)},
+		&expr.NAT{Type: expr.NATTypeDestNAT, Family: unix.NFPROTO_IPV4, RegAddrMin: 1, RegProtoMin: 2},
+	)
+}
+
+func portForwardAcceptExpressions(tunnelName, overlayName string, lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol, target netip.Addr) []expr.Any {
+	return append(portForwardMatchExpressions(tunnelName, overlayName, lease.TargetPort, protocol, target), &expr.Verdict{Kind: expr.VerdictAccept})
+}
+
+func portForwardMatchExpressions(inputName, outputName string, destinationPort uint16, protocol provider.PortForwardProtocol, destination netip.Addr) []expr.Any {
+	protocolNumber := byte(unix.IPPROTO_TCP)
+	if protocol == provider.ProtocolUDP {
+		protocolNumber = unix.IPPROTO_UDP
+	}
+	expressions := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: fixedInterfaceName(inputName)},
+	}
+	if outputName != "" {
+		expressions = append(expressions,
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: fixedInterfaceName(outputName)},
+		)
+	}
+	expressions = append(expressions,
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protocolNumber}},
+	)
+	if destination.IsValid() {
+		expressions = append(expressions,
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: destination.AsSlice()},
+		)
+	}
+	return append(expressions,
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: encodedPort(destinationPort)},
+	)
+}
+
+func encodedPort(port uint16) []byte {
+	data := make([]byte, 2)
+	binary.BigEndian.PutUint16(data, port)
+	return data
+}
+
+func sortedPortForwardLeases(leases []PortForwardLeaseIntent) []PortForwardLeaseIntent {
+	result := append([]PortForwardLeaseIntent(nil), leases...)
+	sort.Slice(result, func(i, j int) bool { return result[i].Identity < result[j].Identity })
+	return result
+}
+
+func sortedProtocols(protocols []provider.PortForwardProtocol) []provider.PortForwardProtocol {
+	result := append([]provider.PortForwardProtocol(nil), protocols...)
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result
+}
+
+func portForwardRuleMarker(kind string, lease PortForwardLeaseIntent, protocol provider.PortForwardProtocol) []byte {
+	return []byte(fmt.Sprintf("waycloak-port-forward:%s:%s:%d:%s:%s:%d", kind, lease.Identity, lease.LeaseGeneration, protocol, lease.TargetAddress, lease.TargetPort))
 }
 
 func ensureForwardingLockdown(gatewayName string) error {

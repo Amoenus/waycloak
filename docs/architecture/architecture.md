@@ -58,7 +58,19 @@ Waycloak does not assume that all providers or protocols support port forwarding
 
 ### Lease delivery agent
 
-Makes the neutral `PortForwardLease` record available inside the workload Pod without granting Kubernetes API access to the application. It may share the routing-agent binary and exposes a read-only loopback endpoint plus an atomically updated file. Environment-only applications opt into a supervisor that stops its child on lease loss or generation change and restarts it only with a current ready record; the controller does not roll arbitrary workload owners. ADR 0011 defines the delivery and ownership boundary.
+The existing routing agent validates the Pod-UID-bound lease document from the controller-owned allocation ConfigMap, rejects malformed or expired records, and exposes the current document read-only on Pod loopback port 9809. Admission can project only `port-forward-leases.json` into one explicitly selected application container; allocation internals and Kubernetes credentials remain unavailable there. The controller reads an identity-specific observation from the agent health port and requires the exact Pod UID, lease UID, generation, and expiry before reporting delivery ready. A deterministic digest annotation prompts kubelet projection refresh during short provider renewals without a workload restart. Environment-only applications opt into a supervisor that stops its child on lease loss or generation change and restarts it only with a current ready record; the controller does not roll arbitrary workload owners. ADR 0011 defines the delivery and ownership boundary.
+
+The initial lease controller accepts only a non-empty Pod selector resolving to
+exactly one Ready Pod. It binds status to that Pod UID and the same-gateway
+`VPNWorkload` overlay allocation; it never treats labels alone as a packet
+target. ADR 0012 defines this stable identity and cardinality boundary.
+
+For Proton/OpenVPN, the tokenless gateway manager owns the renewable NAT-PMP
+mapping because its Linux socket is bound to the VPN interface. The controller
+publishes stable UID/internal-port intents through the gateway ConfigMap and
+reads a limited observation from the exact serving gateway Pod. This channel
+contains no credentials and cannot make `GatewayRulesReady` or `Delivered`
+true. ADR 0013 defines renewal, rotation, and deletion quarantine.
 
 ## Resource ownership
 

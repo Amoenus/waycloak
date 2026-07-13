@@ -72,6 +72,10 @@ Optional request:
 networking.waycloak.io/port-forward: tcp,udp
 ```
 
+This annotation is reserved as future workload-template convenience. The first
+Phase 4 control-plane slice uses an explicit `PortForwardLease`; admission does
+not create lease intent from the annotation yet.
+
 Injection markers are reserved under `internal.networking.waycloak.io/*` and are controller-owned.
 
 ## VPNWorkload
@@ -130,6 +134,7 @@ spec:
     - TCP
     - UDP
 status:
+  providerInternalPort: 1
   publicPort: 52197
   issuedAt: "2026-07-13T11:30:00Z"
   renewAfter: "2026-07-13T12:30:00Z"
@@ -138,7 +143,17 @@ status:
   conditions: []
 ```
 
-Selector cardinality must be defined. The initial implementation should require exactly one Ready target Pod and mark the lease ambiguous otherwise. A future Service target may support controlled handoff during rolling updates.
+The selector must be non-empty. The initial implementation requires exactly
+one Ready target Pod and marks the lease ambiguous otherwise. The target is
+accepted only when that Pod selects the same gateway and its controller-owned
+`VPNWorkload` binds the exact Pod UID to a persisted overlay allocation.
+Status records that observed Pod UID, workload reference, overlay address, and
+local port. The `PortForwardLease` object UID is the stable provider-facing
+lease identity. The controller also persists a unique NAT-PMP internal port;
+neither value is derived from list order, and deletion quarantines the mapping
+identity across provider expiry. A future Service target may support controlled handoff during
+rolling updates after its identity and drain semantics are proven
+([ADR 0012](../decisions/0012-port-forward-lease-identity-and-target-binding.md)).
 
 ### Lease conditions
 
@@ -149,17 +164,54 @@ Selector cardinality must be defined. The initial implementation should require 
 - `Delivered`
 - `Ready`
 
-`Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and delivery state has been published. It does not merely mean the object registered.
+`Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and the exact renewable delivery record has been acknowledged by the target Pod agent. ConfigMap publication or object registration alone is insufficient.
+
+`GatewayRulesReady=True` specifically means the serving gateway read back both
+the prerouting DNAT and forward-accept rules for the lease object UID, current
+`leaseGeneration`, protocol set, and exact UID-bound overlay target. A current
+provider mapping without those exact rules leaves the condition false. Target
+changes update gateway rules without rotating the provider mapping. `Delivered`
+remains a separate observation of the renewable application-facing record.
+
+Provider behavior is behind an observed capability interface describing
+supported protocols, simultaneous lease capacity, shared TCP/UDP port
+semantics, requested-port support, and minimum duration. Repeated ensure calls
+carry the stable lease identity and are idempotent. Provider acquisition never
+owns gateway DNAT or application delivery state.
+
+The initial `ProtonNatPmp` driver is supported with `provider.name:
+protonvpn` and `provider.protocol: openvpn`. Proton requires the referenced
+OpenVPN username to include `+pmp`; Waycloak does not read or rewrite that
+Secret value. Gluetun selects port-forward-capable servers but its own
+port-forward loop is disabled so the gateway manager remains the only mapping
+owner. Provider acquisition is observed through the exact serving gateway Pod
+and increments `leaseGeneration` only when the public port changes
+([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md)).
 
 The canonical renewable delivery record is versioned JSON exposed through an
-atomically replaced read-only file and a read-only Pod-loopback endpoint.
+atomically replaced read-only file and a read-only Pod-loopback endpoint. A Pod
+may select exactly one application container with
+`networking.waycloak.io/port-forward-container: <container>`. Admission then
+projects only `port-forward-leases.json` from the UID-bound allocation
+ConfigMap into `/run/waycloak/port-forward`; the application does not receive
+the other allocation keys, Kubernetes credentials, or added capabilities. The
+same document is served on loopback port `9809` under
+`/v1/port-forward/leases` and `/v1/port-forward/leases/<identity>`.
+
+The controller reports `Delivered=True` only after the target agent readback
+matches the API version, lease object UID, target Pod UID, lease generation,
+and canonical unexpired expiry. A controller-owned content-digest Pod
+annotation prompts kubelet to refresh the short-lived projected record without
+restarting the Pod. Agent acknowledgement proves neutral record delivery, not
+application-specific configuration; adapters that support stronger
+acknowledgement add that observation at their own boundary.
+
 Kubernetes environment variables are not a renewable delivery surface. An
 environment-only application explicitly runs under a supervisor that stops its
 child when the current generation expires or changes and starts it again only
 after a ready record is available. The controller never rolls an arbitrary
 workload owner to refresh environment state. [ADR 0011](../decisions/0011-renewable-port-lease-delivery.md)
-fixes these semantics; Phase 4 defines the container-selection and
-adapter-packaging fields.
+fixes these semantics.
 
 ## Common condition conventions
 

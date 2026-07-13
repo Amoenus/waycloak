@@ -114,6 +114,34 @@ func (m *PodMutator) Mutate(ctx context.Context, pod *corev1.Pod) (bool, error) 
 	optional := false
 	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: contract.AllocationVolume, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: allocationName}, Optional: &optional}}})
 	mount := corev1.VolumeMount{Name: contract.AllocationVolume, MountPath: "/run/waycloak", ReadOnly: true}
+	if selected := pod.Annotations[contract.PortForwardContainerAnnotation]; selected != "" {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: contract.PortForwardVolume,
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: allocationName},
+				Optional:             &optional,
+				Items:                []corev1.KeyToPath{{Key: contract.PortForwardLeasesKey, Path: contract.PortForwardLeasesKey}},
+			}},
+		})
+		deliveryMount := corev1.VolumeMount{Name: contract.PortForwardVolume, MountPath: contract.ApplicationLeaseMountPath, ReadOnly: true}
+		found := false
+		for i := range pod.Spec.Containers {
+			if pod.Spec.Containers[i].Name != selected {
+				continue
+			}
+			for _, existing := range pod.Spec.Containers[i].VolumeMounts {
+				if existing.Name == contract.PortForwardVolume || existing.MountPath == contract.ApplicationLeaseMountPath {
+					return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: fmt.Sprintf("selected port-forward container %q already uses the Waycloak lease mount", selected)}
+				}
+			}
+			pod.Spec.Containers[i].VolumeMounts = append(pod.Spec.Containers[i].VolumeMounts, deliveryMount)
+			found = true
+			break
+		}
+		if !found {
+			return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: fmt.Sprintf("selected port-forward container %q does not exist", selected)}
+		}
+	}
 	pod.Spec.InitContainers = append([]corev1.Container{injectedContainer(contract.PrepareContainer, m.AgentImage, []string{"prepare"}, mount, true), injectedContainer(contract.VerifyContainer, m.AgentImage, []string{"verify"}, mount, true)}, pod.Spec.InitContainers...)
 	pod.Spec.Containers = append(pod.Spec.Containers, injectedContainer(contract.AgentContainer, m.AgentImage, []string{"run"}, mount, true))
 	return true, nil
@@ -150,7 +178,7 @@ func ParseGatewayReference(workloadNamespace, value string) (string, string, err
 
 func hasReservedNames(p *corev1.Pod) bool {
 	for _, v := range p.Spec.Volumes {
-		if v.Name == contract.AllocationVolume {
+		if v.Name == contract.AllocationVolume || v.Name == contract.PortForwardVolume {
 			return true
 		}
 	}
@@ -169,14 +197,36 @@ func validateInjected(p *corev1.Pod, allocationName, image string) error {
 	if p.Spec.AutomountServiceAccountToken == nil || *p.Spec.AutomountServiceAccountToken {
 		return fmt.Errorf("service account token automount is not disabled")
 	}
-	var volumeOK bool
+	var volumeOK, deliveryVolumeOK bool
 	for _, v := range p.Spec.Volumes {
 		if v.Name == contract.AllocationVolume && v.ConfigMap != nil && v.ConfigMap.Name == allocationName && v.ConfigMap.Optional != nil && !*v.ConfigMap.Optional {
 			volumeOK = true
 		}
+		if v.Name == contract.PortForwardVolume && v.ConfigMap != nil && v.ConfigMap.Name == allocationName && v.ConfigMap.Optional != nil && !*v.ConfigMap.Optional && len(v.ConfigMap.Items) == 1 && v.ConfigMap.Items[0].Key == contract.PortForwardLeasesKey && v.ConfigMap.Items[0].Path == contract.PortForwardLeasesKey {
+			deliveryVolumeOK = true
+		}
 	}
 	if !volumeOK {
 		return fmt.Errorf("required UID-bound allocation ConfigMap volume is missing or optional")
+	}
+	if selected := p.Annotations[contract.PortForwardContainerAnnotation]; selected != "" {
+		if !deliveryVolumeOK {
+			return fmt.Errorf("selected port-forward container %q is missing the filtered lease volume", selected)
+		}
+		selectedOK := false
+		for _, container := range p.Spec.Containers {
+			if container.Name != selected {
+				continue
+			}
+			for _, mount := range container.VolumeMounts {
+				if mount.Name == contract.PortForwardVolume && mount.MountPath == contract.ApplicationLeaseMountPath && mount.ReadOnly {
+					selectedOK = true
+				}
+			}
+		}
+		if !selectedOK {
+			return fmt.Errorf("selected port-forward container %q is missing the read-only lease mount", selected)
+		}
 	}
 	want := map[string]bool{contract.PrepareContainer: false, contract.VerifyContainer: false, contract.AgentContainer: false}
 	for _, c := range append(append([]corev1.Container{}, p.Spec.InitContainers...), p.Spec.Containers...) {

@@ -7,6 +7,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	waystatus "github.com/Amoenus/waycloak/internal/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -99,5 +100,45 @@ func TestExplicitServiceAccountTokenRejected(t *testing.T) {
 	r, ok := err.(*Rejection)
 	if !ok || r.Reason != "ApplicationCredentialsForbidden" {
 		t.Fatalf("got %#v", err)
+	}
+}
+
+func TestPortForwardFileMountTargetsOnlyExplicitApplicationContainer(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.PortForwardContainerAnnotation: "torrent"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "metrics", Image: "metrics"}, {Name: "torrent", Image: "torrent"}}}}
+	changed, err := m.Mutate(context.Background(), pod)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v error=%v", changed, err)
+	}
+	if len(pod.Spec.Containers[0].VolumeMounts) != 0 {
+		t.Fatalf("unselected container mounts = %#v", pod.Spec.Containers[0].VolumeMounts)
+	}
+	selected := pod.Spec.Containers[1]
+	if len(selected.VolumeMounts) != 1 || selected.VolumeMounts[0].Name != contract.PortForwardVolume || selected.VolumeMounts[0].MountPath != contract.ApplicationLeaseMountPath || !selected.VolumeMounts[0].ReadOnly {
+		t.Fatalf("selected container mounts = %#v", selected.VolumeMounts)
+	}
+	if selected.SecurityContext != nil {
+		t.Fatalf("application security context was modified: %#v", selected.SecurityContext)
+	}
+	var deliveryVolume *corev1.ConfigMapVolumeSource
+	for i := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[i].Name == contract.PortForwardVolume {
+			deliveryVolume = pod.Spec.Volumes[i].ConfigMap
+		}
+	}
+	if deliveryVolume == nil || deliveryVolume.Name != contract.AllocationConfigMapName("apps", "app") || deliveryVolume.Optional == nil || *deliveryVolume.Optional || !reflect.DeepEqual(deliveryVolume.Items, []corev1.KeyToPath{{Key: contract.PortForwardLeasesKey, Path: contract.PortForwardLeasesKey}}) {
+		t.Fatalf("filtered delivery volume = %#v", deliveryVolume)
+	}
+	if changed, err := m.Mutate(context.Background(), pod); err != nil || changed {
+		t.Fatalf("idempotent mutation changed=%v error=%v", changed, err)
+	}
+}
+
+func TestPortForwardFileMountRejectsMissingContainer(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.PortForwardContainerAnnotation: "missing"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "app"}}}}
+	_, err := m.Mutate(context.Background(), pod)
+	if rejection, ok := err.(*Rejection); !ok || rejection.Reason != waystatus.ReasonAdmissionVersionConflict {
+		t.Fatalf("error = %#v", err)
 	}
 }

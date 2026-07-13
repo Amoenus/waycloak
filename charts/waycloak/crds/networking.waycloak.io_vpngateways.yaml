@@ -87,10 +87,15 @@ spec:
               portForwarding:
                 properties:
                   driver:
+                    enum:
+                    - ProtonNatPmp
                     type: string
                   enabled:
                     type: boolean
                 type: object
+                x-kubernetes-validations:
+                - message: enabled port forwarding requires driver ProtonNatPmp
+                  rule: '!self.enabled || (has(self.driver) && self.driver == ''ProtonNatPmp'')'
               provider:
                 properties:
                   credentialsSecretRef:
@@ -179,6 +184,11 @@ spec:
             - provider
             - workloadAccess
             type: object
+            x-kubernetes-validations:
+            - message: ProtonNatPmp requires provider.name protonvpn and provider.protocol
+                openvpn
+              rule: '!self.portForwarding.enabled || (self.provider.name == ''protonvpn''
+                && self.provider.protocol == ''openvpn'')'
           status:
             properties:
               clientCount:

@@ -2,10 +2,14 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	"github.com/Amoenus/waycloak/internal/delivery"
+	waystatus "github.com/Amoenus/waycloak/internal/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,7 +25,10 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	_ = wayv1.AddToScheme(scheme)
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", UID: types.UID("pod-uid-1"), Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}}
 	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Gateway"}}, Status: wayv1.VPNGatewayStatus{Overlay: wayv1.GatewayOverlayStatus{Endpoint: "10.42.0.2:4789", HealthPort: 18080}}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNWorkload{}).WithObjects(pod, gw).Build()
+	now := time.Now().UTC()
+	issuedAt, renewAfter, expiresAt := metav1.NewTime(now.Add(-time.Minute)), metav1.NewTime(now.Add(30*time.Minute)), metav1.NewTime(now.Add(time.Hour))
+	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "torrent", Namespace: "apps", UID: types.UID("lease-uid")}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Namespace: "egress", Name: "private"}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolUDP, wayv1.PortForwardProtocolTCP}}, Status: wayv1.PortForwardLeaseStatus{Target: &wayv1.PortForwardTargetStatus{PodRef: wayv1.PodReference{Name: pod.Name, UID: pod.UID}, Port: 6881}, PublicPort: 42000, LeaseGeneration: 4, IssuedAt: &issuedAt, RenewAfter: &renewAfter, ExpiresAt: &expiresAt, Conditions: []metav1.Condition{{Type: waystatus.ConditionTargetReady, Status: metav1.ConditionTrue}, {Type: waystatus.ConditionProviderLeaseReady, Status: metav1.ConditionTrue}, {Type: waystatus.ConditionGatewayRulesReady, Status: metav1.ConditionTrue}}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNWorkload{}).WithObjects(pod, gw, lease).Build()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "apps", Name: "app"}}
 	r := &PodReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(20)}
 	for i := 0; i < 3; i++ {
@@ -48,6 +55,21 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 		if cm.Data[key] != want {
 			t.Fatalf("ConfigMap %s=%q, want %q", key, cm.Data[key], want)
 		}
+	}
+	var document delivery.Document
+	if err := json.Unmarshal([]byte(cm.Data[contract.PortForwardLeasesKey]), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.PodUID != string(pod.UID) || len(document.Leases) != 1 || document.Leases[0].Identity != string(lease.UID) || document.Leases[0].Generation != 4 || document.Leases[0].PublicPort != 42000 {
+		t.Fatalf("delivery document = %#v", document)
+	}
+	var publishedPod corev1.Pod
+	if err := c.Get(context.Background(), req.NamespacedName, &publishedPod); err != nil {
+		t.Fatal(err)
+	}
+	wantDigest := contract.DeliveryDigest(cm.Data[contract.PortForwardLeasesKey])
+	if publishedPod.Annotations[contract.DeliveryDigestAnnotation] != wantDigest {
+		t.Fatalf("delivery digest = %q, want %q", publishedPod.Annotations[contract.DeliveryDigestAnnotation], wantDigest)
 	}
 	restarted := &PodReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(20)}
 	if _, err := restarted.Reconcile(context.Background(), req); err != nil {

@@ -18,3 +18,7 @@ func (unsupportedForwarding) InstallLockdown(context.Context, DesiredState) erro
 func (unsupportedForwarding) Reconcile(context.Context, DesiredState) error {
 	return ErrForwardingUnsupported
 }
+
+func (unsupportedForwarding) ObservePortForwardRules(context.Context, DesiredState) ([]PortForwardRuleObservation, error) {
+	return nil, ErrForwardingUnsupported
+}

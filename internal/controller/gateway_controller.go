@@ -14,11 +14,13 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
+	"github.com/Amoenus/waycloak/internal/provider"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -84,6 +86,14 @@ func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, st
 	if err != nil || !prefix.Addr().Is4() || prefix.Bits() > 30 {
 		return waystatus.ReasonInvalidOverlay, "overlay.cidr must be an IPv4 prefix with client capacity"
 	}
+	if gateway.Spec.PortForwarding.Enabled {
+		if gateway.Spec.PortForwarding.Driver != "ProtonNatPmp" {
+			return waystatus.ReasonPortForwardUnsupported, "enabled port forwarding requires driver ProtonNatPmp"
+		}
+		if !strings.EqualFold(gateway.Spec.Provider.Name, "protonvpn") || !strings.EqualFold(gateway.Spec.Provider.Protocol, "openvpn") {
+			return waystatus.ReasonPortForwardUnsupported, "ProtonNatPmp requires the protonvpn provider with OpenVPN"
+		}
+	}
 	if managerImage == "" {
 		return "", ""
 	}
@@ -114,7 +124,11 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	if err != nil {
 		return err
 	}
-	desiredConfigMap := waygateway.DesiredConfigMap(gateway, members)
+	portForwardLeases, err := r.portForwardLeases(ctx, gateway, members)
+	if err != nil {
+		return err
+	}
+	desiredConfigMap := waygateway.DesiredConfigMap(gateway, members, portForwardLeases)
 	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: desiredConfigMap.Name, Namespace: desiredConfigMap.Namespace}}
 	operation, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
 		configMap.Labels = desiredConfigMap.Labels
@@ -177,6 +191,58 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayRolloutRequired", "Updated singleton gateway template %s; delete its serving Pod during an approved maintenance window to activate the change", statefulSet.Name)
 	}
 	return nil
+}
+
+func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv1.VPNGateway, members []waygateway.Member) ([]waygateway.PortForwardLeaseIntent, error) {
+	if !gateway.Spec.PortForwarding.Enabled {
+		return nil, nil
+	}
+	var leases wayv1.PortForwardLeaseList
+	if err := r.List(ctx, &leases); err != nil {
+		return nil, fmt.Errorf("list gateway port-forward leases: %w", err)
+	}
+	intents := make([]waygateway.PortForwardLeaseIntent, 0)
+	memberAddresses := make(map[string]struct{}, len(members))
+	for _, member := range members {
+		memberAddresses[member.OverlayAddress] = struct{}{}
+	}
+	for i := range leases.Items {
+		lease := &leases.Items[i]
+		namespace := lease.Spec.GatewayRef.Namespace
+		if namespace == "" {
+			namespace = lease.Namespace
+		}
+		targetReady := apiMeta.FindStatusCondition(lease.Status.Conditions, waystatus.ConditionTargetReady)
+		if !lease.DeletionTimestamp.IsZero() || lease.UID == "" || namespace != gateway.Namespace || lease.Spec.GatewayRef.Name != gateway.Name || lease.Status.ProviderInternalPort < 1 || lease.Status.ProviderInternalPort > 65535 || targetReady == nil || targetReady.Status != metav1.ConditionTrue {
+			continue
+		}
+		protocols := make([]provider.PortForwardProtocol, 0, len(lease.Spec.Protocols))
+		for _, protocol := range lease.Spec.Protocols {
+			protocols = append(protocols, provider.PortForwardProtocol(protocol))
+		}
+		sort.Slice(protocols, func(i, j int) bool { return protocols[i] < protocols[j] })
+		suggested := uint16(0)
+		if lease.Status.PublicPort > 0 && lease.Status.PublicPort <= 65535 {
+			suggested = uint16(lease.Status.PublicPort)
+		}
+		if lease.Status.Target == nil || lease.Status.Target.Port < 1 || lease.Status.Target.Port > 65535 {
+			continue
+		}
+		if _, exists := memberAddresses[lease.Status.Target.OverlayAddress]; !exists {
+			continue
+		}
+		intents = append(intents, waygateway.PortForwardLeaseIntent{
+			Identity:              string(lease.UID),
+			InternalPort:          uint16(lease.Status.ProviderInternalPort),
+			SuggestedExternalPort: suggested,
+			Protocols:             protocols,
+			TargetAddress:         lease.Status.Target.OverlayAddress,
+			TargetPort:            uint16(lease.Status.Target.Port),
+			LeaseGeneration:       lease.Status.LeaseGeneration,
+		})
+	}
+	sort.Slice(intents, func(i, j int) bool { return intents[i].Identity < intents[j].Identity })
+	return intents, nil
 }
 
 func (r *GatewayReconciler) members(ctx context.Context, gateway *wayv1.VPNGateway) ([]waygateway.Member, error) {
@@ -308,6 +374,17 @@ func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
 				return nil
 			}
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: workload.Spec.GatewayRef.Namespace, Name: workload.Spec.GatewayRef.Name}}}
+		})).
+		Watches(&wayv1.PortForwardLease{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			lease, ok := object.(*wayv1.PortForwardLease)
+			if !ok || lease.Spec.GatewayRef.Name == "" {
+				return nil
+			}
+			namespace := lease.Spec.GatewayRef.Namespace
+			if namespace == "" {
+				namespace = lease.Namespace
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: namespace, Name: lease.Spec.GatewayRef.Name}}}
 		})).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			name := object.GetAnnotations()[waygateway.GatewayNameAnnotation]

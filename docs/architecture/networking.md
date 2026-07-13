@@ -80,7 +80,27 @@ peer
   -> protected Pod overlay address:target-port
 ```
 
-Forward and reverse paths must remain symmetric. DNAT rules are keyed by lease UID, not list index. Removing one lease cannot rewrite another lease's identity. A lease is `Active` only after provider allocation, gateway rule installation, target reachability, and driver health are observed.
+Forward and reverse paths must remain symmetric. DNAT rules are keyed by lease UID, not list index. Removing one lease cannot rewrite another lease's identity. A lease is `Ready` only after provider allocation, gateway rule installation, target binding, and delivery are observed.
+
+The initial Proton/OpenVPN driver sends NAT-PMP to `10.2.0.1:5351` from a
+socket bound to `tunwaycloak`. Kubernetes status persists the unique NAT-PMP
+internal port; the provider-assigned public port may rotate independently.
+Waycloak renews at 75 percent of the returned lifetime and increments the
+public lease generation only on rotation. Gluetun's own NAT-PMP loop remains
+off to avoid competing owners. These mappings do not admit traffic until the
+separate UID-keyed DNAT generation is installed and observed.
+
+The gateway manager installs active generations in the same Waycloak-owned
+IPv4 nftables table as gateway forwarding. One transaction replaces the table
+with deterministically ordered rules. Prerouting matches the exact VPN tunnel
+interface, provider internal port, and TCP or UDP before DNAT to the current
+UID-bound overlay address and target port. The corresponding forward rule
+admits only that post-DNAT destination from the tunnel to the owned VXLAN
+interface. A target must remain in current observed gateway membership.
+Read-back markers include lease UID, generation, protocol, and target and must
+appear in their exact prerouting and forward chains before
+`GatewayRulesReady=True`. Removing a generation removes both rules atomically;
+unrelated nftables tables are outside this ownership boundary.
 
 ## Ports and NetworkPolicy
 

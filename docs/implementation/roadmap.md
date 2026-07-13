@@ -60,11 +60,11 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 
 ## Phase 4 — port forwarding (`v0.2.0`)
 
-- [ ] Define provider capability interface and `PortForwardLease` API.
-- [ ] Implement Proton NAT-PMP driver through the tunnel.
-- [ ] Persist stable lease identities and generations.
-- [ ] Reconcile TCP/UDP DNAT atomically.
-- [ ] Deliver neutral lease records to workloads.
+- [x] Define provider capability interface and `PortForwardLease` API.
+- [x] Implement Proton NAT-PMP driver through the tunnel.
+- [x] Persist stable lease identities and generations.
+- [x] Reconcile TCP/UDP DNAT atomically.
+- [x] Deliver neutral lease records to workloads.
 - [ ] Publish qBitTorrent adapter/example.
 - [ ] Validate Bitmagnet and Loadstone consumption.
 

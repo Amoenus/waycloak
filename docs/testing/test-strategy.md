@@ -49,8 +49,16 @@ Mandatory scenarios:
 
 ### Port-forward tests
 
-- fake provider lease acquisition, renewal, expiration, and conflict;
+- protocol-faithful NAT-PMP acquisition, paired TCP/UDP mapping, rotation,
+  renewal, expiration, release, timeout, and provider-result failures;
+- tunnel-interface binding on Linux and rejection of unsupported platforms;
+- stable provider internal-port allocation, generation persistence, and
+  deletion quarantine across controller restart and membership changes;
+- exact serving-gateway observation without gateway Kubernetes credentials;
 - TCP and UDP inbound delivery to the correct target;
+- deterministic UID/generation/expiry delivery readback, filtered application
+  projection, loopback parity, expiration rejection, and renewal without a Pod
+  restart;
 - no cross-delivery after target deletion/address reuse;
 - two or more simultaneous leases when capabilities permit;
 - explicit failure when provider only permits one lease;

@@ -26,16 +26,17 @@ All artifacts are published by digest. Human-friendly semantic-version tags are 
 
 ## Workflow outline
 
-1. typecheck, lint, unit, race, integration, and e2e tests;
-2. build amd64 and arm64 artifacts;
-3. construct and inspect OCI indexes/media types/platforms/annotations;
-4. generate SBOMs and provenance;
-5. vulnerability and secret scans;
-6. push immutable artifacts to GHCR;
-7. keyless Cosign sign images, Helm chart, KCL module, attestations, and release manifest;
-8. verify signatures from the registry;
-9. verify version tags resolve to recorded digests;
-10. create GitHub release with compatibility and upgrade notes.
+1. merge the verified source into `main` and create the release tag on a commit contained in `main`;
+2. typecheck, lint, unit, race, integration, and e2e tests;
+3. build amd64 and arm64 artifacts;
+4. construct and inspect OCI indexes/media types/platforms/annotations;
+5. generate SBOMs and provenance;
+6. vulnerability and secret scans;
+7. push immutable artifacts to GHCR;
+8. keyless Cosign sign images, Helm chart, KCL module, attestations, and release manifest;
+9. verify signatures from the registry;
+10. verify version tags resolve to recorded digests;
+11. create GitHub release with compatibility and upgrade notes.
 
 GitHub Actions are pinned by full commit SHA. Release workflows use GitHub OIDC and minimal permissions; no long-lived signing key is stored.
 
@@ -65,6 +66,7 @@ Use semantic versioning. Before `v1.0.0`, API changes are possible but must incl
 
 - No mutable base-image references.
 - No unpinned workflow Actions.
+- No release tag whose commit is not contained in the remote `main` branch.
 - No release from an unprotected or dirty source ref.
 - Critical vulnerabilities block release unless documented as unreachable with maintainer sign-off and a time-bounded issue.
 - Third-party license inventory accompanies releases.
