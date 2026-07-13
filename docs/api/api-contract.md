@@ -134,7 +134,7 @@ spec:
     - TCP
     - UDP
 status:
-  providerInternalPort: 1
+  providerInternalPort: 49152
   publicPort: 52197
   issuedAt: "2026-07-13T11:30:00Z"
   renewAfter: "2026-07-13T12:30:00Z"
@@ -187,6 +187,22 @@ port-forward loop is disabled so the gateway manager remains the only mapping
 owner. Provider acquisition is observed through the exact serving gateway Pod
 and increments `leaseGeneration` only when the public port changes
 ([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md)).
+
+`spec.target.port` is the stable gateway-to-Pod target and, in the default
+`Fixed` mode, the application listener. The public provider port in status may
+rotate; gateway DNAT absorbs that transport change. Applications
+that advertise an external endpoint still need the current public port through
+the generic mapping presentation or neutral delivery contract; packet-header
+translation alone cannot rewrite application protocol messages
+([ADR 0015](../decisions/0015-stable-target-port-translation.md)).
+
+`spec.target.applicationPortMode` defaults to `Fixed`. `ProviderAssigned`
+retains `spec.target.port` as the stable gateway-to-Pod target but requires the
+application to bind the delivery record's current `applicationPort`. The Pod
+agent publishes delivery only after an adapter acknowledges the exact lease
+generation and its native local redirect is reconciled. Generation change,
+expiry, or agent restart clears that observation fail closed
+([ADR 0016](../decisions/0016-provider-assigned-application-port-handoff.md)).
 
 The canonical renewable delivery record is versioned JSON exposed through an
 atomically replaced read-only file and a read-only Pod-loopback endpoint. A Pod

@@ -6,12 +6,14 @@ ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-agent
 GATEWAY_MANAGER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-manager
 CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-controller
+QBITTORRENT_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-qbittorrent-adapter
 OCI_LAYOUT ?= dist/agent
 GATEWAY_MANAGER_OCI_LAYOUT ?= dist/gateway-manager
 CONTROLLER_OCI_LAYOUT ?= dist/controller
+QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
 CHART_PACKAGE_DIR ?= dist/chart
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e image-oci gateway-manager-image-oci controller-image-oci chart-package verify-generated verify-chart-generated verify-workflows
+.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci chart-package verify-generated verify-chart-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
 
@@ -49,6 +51,10 @@ gateway-manager-image-oci:
 controller-image-oci:
 	mkdir -p $(dir $(CONTROLLER_OCI_LAYOUT))
 	KO_DOCKER_REPO=$(CONTROLLER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(CONTROLLER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/controller
+
+qbittorrent-adapter-image-oci:
+	mkdir -p $(dir $(QBITTORRENT_ADAPTER_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(QBITTORRENT_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(QBITTORRENT_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/qbittorrent-adapter
 
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)

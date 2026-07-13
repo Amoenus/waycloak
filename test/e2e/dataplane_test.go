@@ -75,6 +75,50 @@ func TestFailClosedLockdownInPodNetworkNamespace(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, "runner", "--", "env", "WAYCLOAK_E2E_NETNS=1", "/tmp/dataplane.test", "-test.run", "^TestLockdownDropsDirectPackets$", "-test.v")
 }
 
+func TestApplicationPortRedirectRotatesTCPAndUDP(t *testing.T) {
+	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
+	if !strings.HasPrefix(contextName, "kind-") && os.Getenv("WAYCLOAK_E2E_ALLOW_NON_KIND") != "1" {
+		t.Skip("set WAYCLOAK_E2E_ALLOW_NON_KIND=1 to authorize a non-Kind cluster")
+	}
+	binary := filepath.Join(t.TempDir(), "dataplane.test")
+	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", binary, "../../internal/dataplane")
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	direct, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	must(t, err)
+	namespace := fmt.Sprintf("waycloak-port-redirect-e2e-%d", time.Now().UnixNano())
+	must(t, direct.Create(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+	t.Cleanup(func() {
+		_ = direct.Delete(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
+	})
+	no, yes := false, true
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: namespace}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Privileged: &yes}}}}}
+	must(t, direct.Create(context.Background(), pod))
+	waitForPodReady(t, direct, pod)
+	copyTestBinary(t, binary, namespace, pod.Name)
+	setup := "set -eu; apk add --no-cache iproute2 >/dev/null; ip netns add source; ip netns add target; ip link add source0 type veth peer name target0; ip link set source0 netns source; ip link set target0 netns target; ip netns exec source ip link set lo up; ip netns exec source ip address add 172.31.0.1/24 dev source0; ip netns exec source ip link set source0 up; ip netns exec target ip link set lo up; ip netns exec target ip address add 172.31.0.2/24 dev target0; ip netns exec target ip link set target0 up"
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-c", setup)
+	for _, protocol := range []string{"tcp", "udp"} {
+		testName := "TestApplicationPortRedirect" + strings.ToUpper(protocol) + "Rotation"
+		logPath := "/tmp/application-port-" + protocol + "-test.log"
+		commandLine := fmt.Sprintf("nohup ip netns exec target env WAYCLOAK_E2E_PORT_REDIRECT=1 /tmp/dataplane.test -test.run '^%s$' -test.v >%s 2>&1 </dev/null &", testName, logPath)
+		command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-c", commandLine)
+		for generation := 1; generation <= 2; generation++ {
+			marker := fmt.Sprintf("/tmp/application-port-%s-ready-%d", protocol, generation)
+			waitFor(t, 30*time.Second, func() bool { return commandSucceeds(namespace, pod.Name, "test -f "+marker) })
+			payload := fmt.Sprintf("generation-%d", generation)
+			traffic := fmt.Sprintf("printf %s | ip netns exec source nc -w 3 172.31.0.2 6881", payload)
+			if protocol == "udp" {
+				traffic = fmt.Sprintf("printf %s | ip netns exec source nc -u -w 1 172.31.0.2 6881", payload)
+			}
+			command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-ec", traffic)
+		}
+		waitFor(t, 30*time.Second, func() bool {
+			return commandSucceeds(namespace, pod.Name, "grep -q -- '--- PASS: "+testName+"' "+logPath)
+		})
+	}
+}
+
 func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
 	if !strings.HasPrefix(contextName, "kind-") && os.Getenv("WAYCLOAK_E2E_ALLOW_NON_KIND") != "1" {

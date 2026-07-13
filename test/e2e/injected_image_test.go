@@ -293,14 +293,24 @@ func imageLoaderPod(namespace, node string) *corev1.Pod {
 
 func hostPathType(value corev1.HostPathType) *corev1.HostPathType { return &value }
 
-func copyLocalFile(t *testing.T, local, namespace, pod, remote string) {
+func copyLocalFile(t *testing.T, local, namespace, pod, remote string, container ...string) {
 	t.Helper()
 	workingDirectory, err := os.Getwd()
 	must(t, err)
 	relative, err := filepath.Rel(workingDirectory, local)
 	must(t, err)
-	command(t, nil, "kubectl", "cp", relative, namespace+"/"+pod+":"+remote)
-	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "chmod", "+x", remote)
+	copyArguments := []string{"cp", relative, namespace + "/" + pod + ":" + remote}
+	execArguments := []string{"exec", "-n", namespace, pod}
+	if len(container) > 1 {
+		t.Fatalf("copyLocalFile accepts at most one container, got %d", len(container))
+	}
+	if len(container) == 1 {
+		copyArguments = append(copyArguments, "-c", container[0])
+		execArguments = append(execArguments, "-c", container[0])
+	}
+	command(t, nil, "kubectl", copyArguments...)
+	execArguments = append(execArguments, "--", "chmod", "+x", remote)
+	command(t, nil, "kubectl", execArguments...)
 }
 
 func updateGatewayEndpoint(t *testing.T, c client.Client, gateway *wayv1.VPNGateway, endpoint string, port int32) {

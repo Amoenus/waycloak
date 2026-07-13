@@ -70,6 +70,75 @@ func TestLockdownDropsDirectPackets(t *testing.T) {
 	}
 }
 
+func TestApplicationPortRedirectTCPRotation(t *testing.T) {
+	testApplicationPortRedirectRotation(t, "TCP")
+}
+
+func TestApplicationPortRedirectUDPRotation(t *testing.T) {
+	testApplicationPortRedirectRotation(t, "UDP")
+}
+
+func testApplicationPortRedirectRotation(t *testing.T, protocol string) {
+	if os.Getenv("WAYCLOAK_E2E_PORT_REDIRECT") != "1" {
+		t.Skip("runs only in the isolated application network namespace")
+	}
+	const uid = "00000000-0000-0000-0000-000000000003"
+	address := netip.MustParseAddr("172.31.0.2")
+	for index, applicationPort := range []uint16{42000, 42001} {
+		redirect := ApplicationPortRedirect{Identity: "lease-uid", TargetPort: 6881, ApplicationPort: applicationPort, Protocols: []string{protocol}}
+		var listener net.Listener
+		var packetListener net.PacketConn
+		var err error
+		if protocol == "TCP" {
+			listener, err = net.Listen("tcp4", net.JoinHostPort(address.String(), fmt.Sprint(applicationPort)))
+		} else {
+			packetListener, err = (&net.ListenConfig{}).ListenPacket(context.Background(), "udp4", net.JoinHostPort(address.String(), fmt.Sprint(applicationPort)))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := replacePolicy(uid, "", netip.AddrPort{}, "target0", netip.Addr{}, address, ClusterTrafficGateway, nil, []ApplicationPortRedirect{redirect}); err != nil {
+			closeRedirectListener(listener, packetListener)
+			t.Fatal(err)
+		}
+		marker := fmt.Sprintf("/tmp/application-port-%s-ready-%d", strings.ToLower(protocol), index+1)
+		if err := os.WriteFile(marker, []byte("ready\n"), 0o600); err != nil {
+			closeRedirectListener(listener, packetListener)
+			t.Fatal(err)
+		}
+		var payload []byte
+		if listener != nil {
+			_ = listener.(*net.TCPListener).SetDeadline(time.Now().Add(30 * time.Second))
+			connection, acceptErr := listener.Accept()
+			if acceptErr == nil {
+				payload, err = io.ReadAll(io.LimitReader(connection, 64))
+				_ = connection.Close()
+			} else {
+				err = acceptErr
+			}
+		} else {
+			_ = packetListener.SetDeadline(time.Now().Add(30 * time.Second))
+			buffer := make([]byte, 64)
+			var length int
+			length, _, err = packetListener.ReadFrom(buffer)
+			payload = buffer[:length]
+		}
+		closeRedirectListener(listener, packetListener)
+		if err != nil || string(payload) != fmt.Sprintf("generation-%d", index+1) {
+			t.Fatalf("redirected payload=%q error=%v", payload, err)
+		}
+	}
+}
+
+func closeRedirectListener(listener net.Listener, packetListener net.PacketConn) {
+	if listener != nil {
+		_ = listener.Close()
+	}
+	if packetListener != nil {
+		_ = packetListener.Close()
+	}
+}
+
 func connect(target string, timeout time.Duration) error {
 	connection, err := net.DialTimeout("tcp", target, timeout)
 	if err == nil {

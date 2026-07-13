@@ -21,18 +21,26 @@ const (
 )
 
 type Config struct {
-	PodUID               string
-	Address              netip.Prefix
-	OverlayCIDR          netip.Prefix
-	GatewayAddress       netip.Addr
-	GatewayEndpoint      netip.AddrPort
-	GatewayHealthPort    uint16
-	VNI                  uint32
-	MTU                  int
-	ClusterTrafficMode   ClusterTrafficMode
-	ClusterCIDRs         []netip.Prefix
-	UnderlayInterface    string
-	OverlayInterfaceName string
+	PodUID                   string
+	Address                  netip.Prefix
+	OverlayCIDR              netip.Prefix
+	GatewayAddress           netip.Addr
+	GatewayEndpoint          netip.AddrPort
+	GatewayHealthPort        uint16
+	VNI                      uint32
+	MTU                      int
+	ClusterTrafficMode       ClusterTrafficMode
+	ClusterCIDRs             []netip.Prefix
+	UnderlayInterface        string
+	OverlayInterfaceName     string
+	ApplicationPortRedirects []ApplicationPortRedirect
+}
+
+type ApplicationPortRedirect struct {
+	Identity        string
+	TargetPort      uint16
+	ApplicationPort uint16
+	Protocols       []string
 }
 
 func (c Config) Validate() error {
@@ -65,6 +73,27 @@ func (c Config) Validate() error {
 	for _, prefix := range c.ClusterCIDRs {
 		if !prefix.IsValid() {
 			return errors.New("cluster CIDRs must be valid")
+		}
+	}
+	identities := map[string]struct{}{}
+	matches := map[string]struct{}{}
+	for _, redirect := range c.ApplicationPortRedirects {
+		if redirect.Identity == "" || redirect.TargetPort == 0 || redirect.ApplicationPort == 0 || redirect.TargetPort == redirect.ApplicationPort || len(redirect.Protocols) == 0 {
+			return errors.New("application port redirect is invalid")
+		}
+		if _, exists := identities[redirect.Identity]; exists {
+			return errors.New("application port redirect identity is duplicated")
+		}
+		identities[redirect.Identity] = struct{}{}
+		for _, protocol := range redirect.Protocols {
+			if protocol != "TCP" && protocol != "UDP" {
+				return errors.New("application port redirect protocol is invalid")
+			}
+			match := fmt.Sprintf("%d/%s", redirect.TargetPort, protocol)
+			if _, exists := matches[match]; exists {
+				return errors.New("application port redirect target is duplicated")
+			}
+			matches[match] = struct{}{}
 		}
 	}
 	return nil

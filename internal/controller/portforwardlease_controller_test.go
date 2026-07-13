@@ -42,7 +42,7 @@ func TestPortForwardLeaseObservesUIDBoundTargetWithoutClaimingProviderReadiness(
 	if got.Status.Target == nil || got.Status.Target.PodRef.UID != "pod-uid" || got.Status.Target.OverlayAddress != "172.30.99.12" || got.Status.Target.Port != 6881 {
 		t.Fatalf("target status = %#v", got.Status.Target)
 	}
-	if got.Status.ProviderInternalPort != 1 {
+	if got.Status.ProviderInternalPort != 49152 {
 		t.Fatalf("provider internal port = %d", got.Status.ProviderInternalPort)
 	}
 	before := got.Status.DeepCopy()
@@ -85,7 +85,7 @@ func TestPortForwardLeaseRejectsAmbiguousReadyTargets(t *testing.T) {
 func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
 	now := time.Date(2026, 7, 13, 12, 0, 0, 987654321, time.UTC)
-	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
+	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
 	reconciler.Observer = observer
 	deliveryObserver := &fakeDeliveryObserver{observation: delivery.Observation{APIVersion: delivery.APIVersion, Identity: string(lease.UID), PodUID: "pod-uid", Generation: 1, ExpiresAt: now.Add(60 * time.Second).Truncate(time.Second), Ready: true}}
 	reconciler.DeliveryObserver = deliveryObserver
@@ -143,6 +143,22 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
 }
 
+func TestProviderAssignedDeliveryRequiresCurrentApplicationPort(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	expires := metav1.NewTime(now.Add(time.Minute))
+	lease := &wayv1.PortForwardLease{Spec: wayv1.PortForwardLeaseSpec{Target: wayv1.PortForwardTargetSpec{Port: 6881, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned}}, Status: wayv1.PortForwardLeaseStatus{PublicPort: 42000, LeaseGeneration: 4, ExpiresAt: &expires}}
+	target := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")}}
+	observation := delivery.Observation{APIVersion: delivery.APIVersion, Identity: "lease-uid", PodUID: "pod-uid", Generation: 4, ExpiresAt: expires.Time, Ready: true, AppliedPort: 6881}
+	lease.UID = types.UID("lease-uid")
+	if mismatch := deliveryObservationMismatch(lease, target, observation, now); mismatch != "applied application port does not match the provider port" {
+		t.Fatalf("mismatch = %q", mismatch)
+	}
+	observation.AppliedPort = 42000
+	if mismatch := deliveryObservationMismatch(lease, target, observation, now); mismatch != "" {
+		t.Fatalf("current application port mismatch = %q", mismatch)
+	}
+}
+
 func TestPortForwardInternalPortsStayStableAsLeasesChange(t *testing.T) {
 	first, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
 	firstKey := types.NamespacedName{Namespace: first.Namespace, Name: first.Name}
@@ -165,13 +181,13 @@ func TestPortForwardInternalPortsStayStableAsLeasesChange(t *testing.T) {
 	if err := reconciler.Get(context.Background(), secondKey, &secondObserved); err != nil {
 		t.Fatal(err)
 	}
-	if firstObserved.Status.ProviderInternalPort != 1 || secondObserved.Status.ProviderInternalPort != 2 {
+	if firstObserved.Status.ProviderInternalPort != 49152 || secondObserved.Status.ProviderInternalPort != 49153 {
 		t.Fatalf("internal ports first=%d second=%d", firstObserved.Status.ProviderInternalPort, secondObserved.Status.ProviderInternalPort)
 	}
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: firstKey}); err != nil {
 		t.Fatal(err)
 	}
-	if err := reconciler.Get(context.Background(), firstKey, &firstObserved); err != nil || firstObserved.Status.ProviderInternalPort != 1 {
+	if err := reconciler.Get(context.Background(), firstKey, &firstObserved); err != nil || firstObserved.Status.ProviderInternalPort != 49152 {
 		t.Fatalf("first allocation changed: status=%#v error=%v", firstObserved.Status, err)
 	}
 }

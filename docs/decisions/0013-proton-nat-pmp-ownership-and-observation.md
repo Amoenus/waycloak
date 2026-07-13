@@ -27,7 +27,9 @@ TCP/UDP protocol set, accepts provider rotation, renews at 75 percent of the
 returned lifetime, and sends a zero-lifetime request on release.
 
 The controller persists a unique `providerInternalPort` in each
-`PortForwardLease` status. Existing allocations are never recomputed. The
+`PortForwardLease` status. New allocations use the IANA dynamic/private range
+49152-65535 so provider mapping identities do not consume privileged or
+well-known gateway ports. Existing allocations are never recomputed. The
 gateway desired-state ConfigMap publishes the lease object UID, internal port,
 previous public-port suggestion, protocols, exact overlay target, and current
 public-port generation only after exact target-UID readiness is observed. The manager exposes one current observation at a

@@ -1,0 +1,18 @@
+apiVersion: networking.waycloak.io/v1alpha1
+kind: PortForwardLease
+metadata:
+  name: qbittorrent
+  namespace: waycloak-qbittorrent
+spec:
+  gatewayRef:
+    namespace: waycloak-system
+    name: private-egress
+  target:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: qbittorrent
+    port: 6881
+    applicationPortMode: ProviderAssigned
+  protocols:
+    - TCP
+    - UDP

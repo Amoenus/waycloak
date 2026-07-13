@@ -57,6 +57,66 @@ func TestDocumentRejectsNondeterministicOrInvalidRecords(t *testing.T) {
 	}
 }
 
+func TestProviderAssignedDeliveryRequiresExactAppliedAcknowledgement(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	document := testDocument(now)
+	document.Leases[0].ApplicationPortMode = ApplicationPortModeProviderAssigned
+	document.Leases[0].ApplicationPort = document.Leases[0].PublicPort
+	serialized, err := Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	path := filepath.Join(directory, contract.PortForwardLeasesKey)
+	if err := os.WriteFile(path, []byte(serialized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{Now: func() time.Time { return now }}
+	if err := store.Refresh(directory); err != nil {
+		t.Fatal(err)
+	}
+	observation, err := store.Observe("lease-uid")
+	if err != nil || observation.Ready {
+		t.Fatalf("unacknowledged observation=%#v error=%v", observation, err)
+	}
+	if err := store.Acknowledge("lease-uid", ApplicationAcknowledgement{Generation: 3, ApplicationPort: 42000}); !errors.Is(err, ErrAcknowledgementMismatch) {
+		t.Fatalf("stale acknowledgement error = %v", err)
+	}
+	if err := store.Acknowledge("unknown", ApplicationAcknowledgement{Generation: 4, ApplicationPort: 42000}); !errors.Is(err, ErrRecordNotFound) {
+		t.Fatalf("unknown acknowledgement error = %v", err)
+	}
+	acknowledgement := ApplicationAcknowledgement{Generation: 4, ApplicationPort: 42000}
+	if err := store.Acknowledge("lease-uid", acknowledgement); err != nil {
+		t.Fatal(err)
+	}
+	redirects := store.RequestedRedirects()
+	if len(redirects) != 1 || redirects[0].TargetPort != 6881 || redirects[0].ApplicationPort != 42000 {
+		t.Fatalf("redirects = %#v", redirects)
+	}
+	if observation, _ := store.Observe("lease-uid"); observation.Ready {
+		t.Fatal("request acknowledgement became ready before kernel application")
+	}
+	store.MarkApplied(redirects)
+	observation, err = store.Observe("lease-uid")
+	if err != nil || !observation.Ready || observation.AppliedPort != 42000 {
+		t.Fatalf("applied observation=%#v error=%v", observation, err)
+	}
+	document.Leases[0].Generation = 5
+	document.Leases[0].PublicPort = 42001
+	document.Leases[0].ApplicationPort = 42001
+	serialized, _ = Marshal(document)
+	if err := os.WriteFile(path, []byte(serialized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Refresh(directory); err != nil {
+		t.Fatal(err)
+	}
+	observation, _ = store.Observe("lease-uid")
+	if observation.Ready || len(store.RequestedRedirects()) != 0 {
+		t.Fatal("rotation retained a stale application acknowledgement")
+	}
+}
+
 func TestHTTPObserverSelectsExactIdentityWithoutLeakingBodies(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

@@ -65,3 +65,23 @@ func TestPrepareRetainsLockdownWhenConfigurationFails(t *testing.T) {
 		t.Fatalf("calls = %v", b.calls)
 	}
 }
+
+func TestConfigValidatesApplicationPortRedirects(t *testing.T) {
+	cfg := validConfig()
+	cfg.ApplicationPortRedirects = []ApplicationPortRedirect{{Identity: "lease-uid", TargetPort: 6881, ApplicationPort: 42000, Protocols: []string{"TCP", "UDP"}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid application redirect: %v", err)
+	}
+	cfg.ApplicationPortRedirects[0].ApplicationPort = 6881
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("identity redirect was accepted")
+	}
+	cfg = validConfig()
+	cfg.ApplicationPortRedirects = []ApplicationPortRedirect{
+		{Identity: "lease-one", TargetPort: 6881, ApplicationPort: 42000, Protocols: []string{"TCP"}},
+		{Identity: "lease-two", TargetPort: 6881, ApplicationPort: 42001, Protocols: []string{"TCP"}},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("duplicate target-port/protocol redirect was accepted")
+	}
+}

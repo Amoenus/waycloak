@@ -4,6 +4,12 @@
 
 There is one source-of-truth marker on the workload Pod template. Higher-level tools translate their own syntax into that marker; they do not create parallel networking implementations.
 
+Waycloak is declaratively visible and operationally invisible. The gateway
+annotation is the ordinary egress opt-in; a `PortForwardLease` is the additional
+declaration for inbound reachability. Neither declaration should force an
+application image to understand a VPN provider or a Waycloak API when normal
+network translation can preserve its existing behavior.
+
 ## Plain Kubernetes
 
 ```yaml
@@ -90,6 +96,8 @@ Example mounted JSON:
     "gateway": "private-egress/proton-eu",
     "publicPort": 52197,
     "targetPort": 6881,
+    "applicationPort": 6881,
+    "applicationPortMode": "Fixed",
     "protocols": ["TCP", "UDP"],
     "generation": 4,
     "issuedAt": "2026-07-13T12:29:00Z",
@@ -101,7 +109,11 @@ Example mounted JSON:
 
 Set `networking.waycloak.io/port-forward-container: <container>` on the opted-in Pod template to mount only this document at `/run/waycloak/port-forward/port-forward-leases.json` in that application container. The same record is available read-only at `http://127.0.0.1:9809/v1/port-forward/leases` and `/v1/port-forward/leases/<identity>`. The application container receives neither the rest of the allocation ConfigMap nor Kubernetes credentials or added capabilities.
 
-An application adapter can watch the file or poll the local endpoint and call the application's API. `Delivered=True` currently means the target Pod agent loaded and acknowledged the exact unexpired UID/generation record; it does not claim that an arbitrary application has consumed it. Official examples include a qBitTorrent adapter with application-specific acknowledgement; Loadstone and Bitmagnet consume the neutral contract directly where possible.
+An application adapter can watch the file or poll the local endpoint when it genuinely needs provider metadata. In the default `Fixed` mode, `Delivered=True` means the target Pod agent loaded the exact unexpired UID/generation record; it does not claim that an arbitrary application consumed it. In `ProviderAssigned` mode, the adapter must additionally acknowledge the exact generation and applied application port, and the agent must reconcile the corresponding local redirect before delivery becomes observed.
+
+Ordinary listeners stay on the fixed `PortForwardLease.spec.target.port` while the gateway translates each provider public-port generation to that target. Applications may also advertise a peer port inside their own protocol; for those workloads Waycloak first tries a Pod-local standard such as NAT-PMP, PCP, or UPnP.
+
+qBitTorrent 5.2.3 is an evidence-backed exception. In the Phase 4 compatibility probe it accepted a PCP mapping from local port `6881` to external port `42000`, but its real HTTP tracker request still announced `port=6881`. The official integration therefore requires a narrow qBitTorrent sidecar that consumes only the neutral lease record and changes the application listener. It remains outside the controller, receives no Kubernetes or VPN credentials, and must acknowledge the exact lease generation before application delivery is considered observed.
 
 ## Failure experience
 

@@ -148,6 +148,11 @@ type PortForwardTargetSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port"`
+	// ApplicationPortMode controls whether the application listens on the stable
+	// target port or must follow the provider-assigned public port.
+	// +kubebuilder:default=Fixed
+	// +kubebuilder:validation:Enum=Fixed;ProviderAssigned
+	ApplicationPortMode string `json:"applicationPortMode,omitempty"`
 }
 
 type PortForwardLeaseSpec struct {
