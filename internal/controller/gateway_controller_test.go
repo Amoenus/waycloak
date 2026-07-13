@@ -31,7 +31,8 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	memberPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "member", Namespace: "apps", UID: types.UID("member-pod-uid")}, Status: corev1.PodStatus{PodIP: "10.42.0.12"}}
 	workload := &wayv1.VPNWorkload{ObjectMeta: metav1.ObjectMeta{Name: "pod-member", Namespace: "apps", UID: types.UID("workload-uid")}, Spec: wayv1.VPNWorkloadSpec{PodRef: wayv1.PodReference{Name: memberPod.Name, UID: memberPod.UID}, GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name}}, Status: wayv1.VPNWorkloadStatus{Allocation: wayv1.AllocationStatus{Address: "172.30.99.2"}}}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}, &corev1.Pod{}).WithObjects(gateway, memberPod, workload).Build()
-	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: record.NewFakeRecorder(10), ManagerImage: "registry.invalid/manager" + testDigest}
+	recorder := record.NewFakeRecorder(20)
+	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: recorder, ManagerImage: "registry.invalid/manager" + testDigest}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}}
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -106,6 +107,23 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
+
+	observed.Spec.Engine.Image = "registry.invalid/engine@sha256:" + strings.Repeat("b", 64)
+	if err := client.Update(context.Background(), &observed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	foundRolloutEvent := false
+	for !foundRolloutEvent {
+		select {
+		case event := <-recorder.Events:
+			foundRolloutEvent = strings.Contains(event, "GatewayRolloutRequired")
+		default:
+			t.Fatal("gateway template update did not emit GatewayRolloutRequired")
+		}
+	}
 }
 
 func TestGatewayRejectsMutableEngineImageWithoutCreatingResources(t *testing.T) {

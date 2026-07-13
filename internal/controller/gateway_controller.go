@@ -173,6 +173,9 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayStatefulSetCreated", "Created singleton gateway StatefulSet %s", statefulSet.Name)
 	}
+	if operation == controllerutil.OperationResultUpdated && r.Recorder != nil {
+		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayRolloutRequired", "Updated singleton gateway template %s; delete its serving Pod during an approved maintenance window to activate the change", statefulSet.Name)
+	}
 	return nil
 }
 

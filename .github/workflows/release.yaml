@@ -1,0 +1,225 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: release
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v4.2.1
+      - name: Set up Cosign
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with:
+          cosign-release: v2.6.1
+      - name: Install checksummed security tools
+        run: bash hack/install-security-tools.sh
+      - name: Verify release tag and source
+        id: release
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          source_version="$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
+          test "$version" = "$source_version"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --short)"
+          printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+      - name: Create pinned release-test Kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          cluster_name: waycloak-release
+          version: v0.31.0
+          node_image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+          wait: 120s
+      - name: Verify source before publication
+        run: |
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          go test ./...
+          go test -race ./...
+          go vet ./...
+          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+          make verify-generated verify-workflows
+          export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"
+          go test -tags=envtest ./test/integration/... -v -count=1
+          go test -tags=e2e ./test/e2e/... -v -count=1 -timeout=20m
+          gitleaks git --redact --no-banner
+          trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
+      - name: Log in to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push immutable images with SPDX SBOMs
+        id: images
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          build_image() {
+            local name="$1" package="$2"
+            KO_DOCKER_REPO="ghcr.io/$owner/waycloak-$name" \
+              go run github.com/google/ko@v0.19.1 build --bare --sbom=spdx \
+                --platform=linux/amd64,linux/arm64 --tags="$VERSION" "$package" | tail -n 1
+          }
+          controller="$(build_image controller ./cmd/controller)"
+          agent="$(build_image agent ./cmd/agent)"
+          manager="$(build_image gateway-manager ./cmd/gateway-manager)"
+          for entry in controller agent manager; do
+            ref="${!entry}"
+            [[ "$ref" =~ ^.+@sha256:[a-f0-9]{64}$ ]]
+            printf '%s=%s\n' "$entry" "$ref" >>"$GITHUB_OUTPUT"
+            printf '%s_name=%s\n' "$entry" "${ref%@*}" >>"$GITHUB_OUTPUT"
+            printf '%s_digest=%s\n' "$entry" "${ref##*@}" >>"$GITHUB_OUTPUT"
+          done
+      - name: Scan published images and emit release SBOMs
+        env:
+          CONTROLLER: ${{ steps.images.outputs.controller }}
+          AGENT: ${{ steps.images.outputs.agent }}
+          MANAGER: ${{ steps.images.outputs.manager }}
+        run: |
+          mkdir -p dist
+          for entry in CONTROLLER AGENT MANAGER; do
+            ref="${!entry}"
+            output="dist/$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]').spdx.json"
+            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$ref"
+            trivy image --format spdx-json --output "$output" "$ref"
+          done
+      - name: Prepare and publish immutable Helm OCI chart
+        id: chart
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CONTROLLER: ${{ steps.images.outputs.controller }}
+          AGENT: ${{ steps.images.outputs.agent }}
+          MANAGER: ${{ steps.images.outputs.manager }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          go run ./hack/releaseprep \
+            --version "$VERSION" --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER"
+          helm lint charts/waycloak \
+            --set webhook.tls.existingSecret=waycloak-webhook-tls \
+            --set-string webhook.tls.caBundle=Y2E=
+          trivy config --severity CRITICAL --exit-code 1 charts/waycloak
+          trivy fs --format spdx-json --output dist/helm-chart.spdx.json charts/waycloak
+          helm package charts/waycloak --destination dist
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          push_output="$(helm push "dist/waycloak-$VERSION.tgz" "oci://ghcr.io/$owner/charts")"
+          digest="$(awk '$1 == "Digest:" {print $2}' <<<"$push_output")"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          reference="ghcr.io/$owner/charts/waycloak@$digest"
+          printf 'reference=%s\nname=%s\ndigest=%s\n' "$reference" "${reference%@*}" "$digest" >>"$GITHUB_OUTPUT"
+      - name: Sign OCI artifacts and attach SBOM attestations
+        env:
+          CONTROLLER: ${{ steps.images.outputs.controller }}
+          AGENT: ${{ steps.images.outputs.agent }}
+          MANAGER: ${{ steps.images.outputs.manager }}
+          CHART: ${{ steps.chart.outputs.reference }}
+        run: |
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$CHART"; do
+            cosign sign --yes "$ref"
+          done
+          cosign attest --yes --type spdxjson --predicate dist/controller.spdx.json "$CONTROLLER"
+          cosign attest --yes --type spdxjson --predicate dist/agent.spdx.json "$AGENT"
+          cosign attest --yes --type spdxjson --predicate dist/manager.spdx.json "$MANAGER"
+          cosign attest --yes --type spdxjson --predicate dist/helm-chart.spdx.json "$CHART"
+      - name: Attest controller image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.images.outputs.controller_name }}
+          subject-digest: ${{ steps.images.outputs.controller_digest }}
+          push-to-registry: true
+      - name: Attest agent image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.images.outputs.agent_name }}
+          subject-digest: ${{ steps.images.outputs.agent_digest }}
+          push-to-registry: true
+      - name: Attest gateway-manager image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.images.outputs.manager_name }}
+          subject-digest: ${{ steps.images.outputs.manager_digest }}
+          push-to-registry: true
+      - name: Attest Helm chart provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.chart.outputs.name }}
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true
+      - name: Generate and sign release manifest
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CONTROLLER: ${{ steps.images.outputs.controller }}
+          AGENT: ${{ steps.images.outputs.agent }}
+          MANAGER: ${{ steps.images.outputs.manager }}
+          CHART: ${{ steps.chart.outputs.reference }}
+        run: |
+          go run ./hack/releasemanifest \
+            --output dist/release-manifest.json \
+            --version "$VERSION" \
+            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" \
+            --workflow-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER" --chart "$CHART"
+          cosign sign-blob --yes --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
+      - name: Verify signatures before release
+        env:
+          CONTROLLER: ${{ steps.images.outputs.controller }}
+          AGENT: ${{ steps.images.outputs.agent }}
+          MANAGER: ${{ steps.images.outputs.manager }}
+          CHART: ${{ steps.chart.outputs.reference }}
+        run: |
+          identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yaml@refs/tags/${GITHUB_REF_NAME}"
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$CHART"; do
+            cosign verify --certificate-identity "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
+          done
+          cosign verify-blob --bundle dist/release-manifest.sigstore.json \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/release-manifest.json
+      - name: Attest release files
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: 'dist/**'
+      - name: Upload release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: waycloak-${{ steps.release.outputs.version }}-release-evidence
+          path: dist/
+          if-no-files-found: error
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "Waycloak v$VERSION" --generate-notes

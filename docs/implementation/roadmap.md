@@ -51,8 +51,10 @@ The functional gateway path is complete. The controller-owned singleton Stateful
 - [x] Implement tunnel and public-egress health observations.
 - [x] Apply membership incrementally without tunnel restart.
 - [x] Add a deterministic Helm chart and multi-architecture controller image build.
-- [ ] Publish and sign the Helm OCI chart, images, SBOMs, provenance, and release manifest.
+- [x] Implement the pinned, keyless image/chart publication pipeline, SBOM/provenance gates, and signed release-manifest tooling.
+- [ ] Execute the protected tag workflow and verify the published OCI artifacts.
 - [x] Publish install, security-exception, troubleshooting, and uninstall guides.
+- [x] Prove zero-unavailable Helm upgrade/rollback, two-phase webhook certificate rotation, and operator-activated singleton gateway rollouts.
 
 Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed outage, DNS containment, and credential isolation on Kind and k3s/k3d.
 

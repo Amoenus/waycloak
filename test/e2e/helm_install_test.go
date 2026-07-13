@@ -118,6 +118,44 @@ func TestHelmInstallAndAdmissionBoundary(t *testing.T) {
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "gateway") {
 		t.Fatalf("annotated Pod did not fail closed through installed admission: %v", err)
 	}
+
+	command(t, nil, "helm", "upgrade", release, chartPath, "--namespace", namespace, "--reuse-values",
+		"--set-string", "podAnnotations.networking\\.waycloak\\.io/revision=upgrade", "--wait", "--timeout", "5m")
+	waitFor(t, 60*time.Second, func() bool { return deploymentReadyWithAnnotation(ctx, direct, keyName, "upgrade") })
+	command(t, nil, "helm", "rollback", release, "1", "--namespace", namespace, "--wait", "--timeout", "5m")
+	waitFor(t, 60*time.Second, func() bool { return deploymentReadyWithAnnotation(ctx, direct, keyName, "") })
+
+	rotatedCert, rotatedKey, rotatedCA := certificates(t, serviceHost)
+	combinedCA := append(append([]byte(nil), ca...), rotatedCA...)
+	command(t, nil, "helm", "upgrade", release, chartPath, "--namespace", namespace, "--reuse-values",
+		"--set-string", "webhook.tls.caBundle="+base64.StdEncoding.EncodeToString(combinedCA), "--wait", "--timeout", "5m")
+	var servingSecret corev1.Secret
+	must(t, direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "waycloak-webhook-tls"}, &servingSecret))
+	servingSecret.Data[corev1.TLSCertKey] = rotatedCert
+	servingSecret.Data[corev1.TLSPrivateKeyKey] = rotatedKey
+	must(t, direct.Update(ctx, &servingSecret))
+	command(t, nil, "helm", "upgrade", release, chartPath, "--namespace", namespace, "--reuse-values",
+		"--set-string", "podAnnotations.networking\\.waycloak\\.io/revision=certificate-rotation", "--wait", "--timeout", "5m")
+	waitFor(t, 60*time.Second, func() bool { return deploymentReadyWithAnnotation(ctx, direct, keyName, "certificate-rotation") })
+	command(t, nil, "helm", "upgrade", release, chartPath, "--namespace", namespace, "--reuse-values",
+		"--set-string", "webhook.tls.caBundle="+base64.StdEncoding.EncodeToString(rotatedCA), "--wait", "--timeout", "5m")
+	rotatedDenied := denied.DeepCopy()
+	rotatedDenied.Name = "missing-gateway-after-rotation"
+	err = direct.Create(ctx, rotatedDenied)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "gateway") || strings.Contains(strings.ToLower(err.Error()), "certificate") {
+		t.Fatalf("rotated webhook did not preserve fail-closed admission: %v", err)
+	}
+}
+
+func deploymentReadyWithAnnotation(ctx context.Context, c client.Client, key types.NamespacedName, revision string) bool {
+	var deployment appsv1.Deployment
+	if c.Get(ctx, key, &deployment) != nil {
+		return false
+	}
+	if deployment.Status.ObservedGeneration != deployment.Generation || deployment.Status.ReadyReplicas != 2 || deployment.Status.UpdatedReplicas != 2 || deployment.Status.AvailableReplicas != 2 {
+		return false
+	}
+	return deployment.Spec.Template.Annotations["networking.waycloak.io/revision"] == revision
 }
 
 func buildControllerTarball(t *testing.T, suffix string) (string, string) {

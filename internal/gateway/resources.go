@@ -187,6 +187,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 			ServiceName:         ResourceName(gateway.Name),
 			Replicas:            &one,
 			PodManagementPolicy: appsv1.OrderedReadyPodManagement,
+			UpdateStrategy:      appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
 			Selector:            &metav1.LabelSelector{MatchLabels: labels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: annotations},

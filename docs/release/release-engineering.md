@@ -39,6 +39,8 @@ All artifacts are published by digest. Human-friendly semantic-version tags are 
 
 GitHub Actions are pinned by full commit SHA. Release workflows use GitHub OIDC and minimal permissions; no long-lived signing key is stored.
 
+The implemented tag workflow also pins Helm, Cosign, Kind, and the Kind node image. Trivy and Gitleaks are installed from fixed release assets whose SHA-256 checksums are verified before execution; mutable action tags are not trusted for security scanners. A protected `release` environment provides the human authorization boundary before registry or GitHub Release mutation.
+
 ## Release manifest
 
 The signed manifest ties together:
@@ -52,6 +54,8 @@ The signed manifest ties together:
 - required capability and Pod Security profile;
 - completed test run identifiers;
 - known limitations.
+
+`hack/releasemanifest` emits the deterministic JSON document defined by `manifest.schema.json`. The workflow signs it as a blob, verifies the resulting Sigstore bundle, and publishes both with the release evidence. `hack/releaseprep` writes the just-published image digest identities into the ephemeral packaging worktree without changing the tagged commit or introducing mutable defaults.
 
 ## Versioning
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -18,6 +19,9 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager")})
 	if statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 1 {
 		t.Fatalf("replicas = %v", statefulSet.Spec.Replicas)
+	}
+	if statefulSet.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
+		t.Fatalf("gateway update strategy = %q", statefulSet.Spec.UpdateStrategy.Type)
 	}
 	if statefulSet.Spec.Template.Spec.AutomountServiceAccountToken == nil || *statefulSet.Spec.Template.Spec.AutomountServiceAccountToken {
 		t.Fatal("gateway Pod received a Kubernetes API token")

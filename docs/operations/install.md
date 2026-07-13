@@ -11,6 +11,8 @@ Waycloak is pre-release software. Until signed OCI artifacts are published, buil
 - a CNI and node policy that permit the documented UDP 4789 overlay;
 - explicit Pod Security exceptions described in [security exceptions](security-exceptions.md).
 
+See [upgrade and rollback](upgrade.md) before changing any released image digest or webhook CA.
+
 ## Prepare webhook TLS
 
 The chart deliberately does not generate random certificates and has no cert-manager dependency. It consumes an existing `kubernetes.io/tls` Secret plus the matching base64-encoded CA bundle. For release name `waycloak` in namespace `waycloak-system`, the serving certificate must include `waycloak-webhook.waycloak-system.svc`.
