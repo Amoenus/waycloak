@@ -51,7 +51,7 @@ Keep the CA private key in an approved secret-management system if certificates 
 
 Download and verify the signed manifest. Its exact workflow identity binds the
 artifact set to the protected `v0.1.0` tag. The chart referenced by that
-manifest already contains the three verified image repositories and manifest
+manifest already contains the four verified image repositories and manifest
 digests.
 
 ```sh
@@ -68,7 +68,7 @@ cosign verify-blob \
   --certificate-oidc-issuer "$issuer" \
   release-manifest.json
 
-jq -r '.artifacts | .controllerImage.reference, .agentImage.reference, .gatewayManagerImage.reference, .helmChart.reference' \
+jq -r '.artifacts | .controllerImage.reference, .agentImage.reference, .gatewayManagerImage.reference, .qbittorrentAdapterImage.reference, .helmChart.reference' \
   release-manifest.json | while IFS= read -r artifact; do
     cosign verify \
       --certificate-identity "$identity" \

@@ -13,7 +13,7 @@ CONTROLLER_OCI_LAYOUT ?= dist/controller
 QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
 CHART_PACKAGE_DIR ?= dist/chart
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci chart-package verify-generated verify-chart-generated verify-workflows
+.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci chart-package verify-generated verify-chart-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
 
@@ -39,6 +39,9 @@ envtest:
 
 e2e:
 	$(GO) test -tags=e2e ./test/e2e/... -v -count=1
+
+e2e-real-port-forward:
+	$(GO) test -tags=e2e ./test/e2e/... -run '^TestRealProviderQBittorrentPortForward$$' -v -count=1 -timeout=2h
 
 image-oci:
 	mkdir -p $(dir $(OCI_LAYOUT))

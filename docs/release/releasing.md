@@ -29,9 +29,10 @@ The workflow publishes these multi-architecture image repositories by digest:
 
 - `ghcr.io/amoenus/waycloak-controller`;
 - `ghcr.io/amoenus/waycloak-agent`;
-- `ghcr.io/amoenus/waycloak-gateway-manager`.
+- `ghcr.io/amoenus/waycloak-gateway-manager`;
+- `ghcr.io/amoenus/waycloak-qbittorrent-adapter`.
 
-The chart is published at `oci://ghcr.io/amoenus/charts/waycloak`. Before packaging, the workflow writes the exact three released image identities into the chart defaults. It never publishes `latest`.
+The chart is published at `oci://ghcr.io/amoenus/charts/waycloak`. Before packaging, the workflow writes the exact released controller, agent, gateway-manager, and adapter image identities into the chart defaults. It never publishes `latest`.
 
 `release-manifest.json` follows [the release manifest schema](manifest.schema.json). Its Sigstore bundle, chart package, and filesystem/image SBOMs are attached to the GitHub release. OCI signatures, SBOM attestations, and provenance remain alongside each registry artifact.
 
@@ -52,7 +53,9 @@ cosign verify-blob \
   release-manifest.json
 ```
 
-Repeat OCI verification for the agent, gateway manager, and Helm chart identities recorded in the manifest. GitHub attestations can additionally be verified with `gh attestation verify` against this repository.
+Repeat OCI verification for the agent, gateway manager, qBitTorrent adapter,
+and Helm chart identities recorded in the manifest. GitHub attestations can
+additionally be verified with `gh attestation verify` against this repository.
 
 ## Security-tool provenance
 
