@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+
+	"github.com/Amoenus/waycloak/internal/provider"
 )
 
 var interfaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
@@ -66,6 +68,31 @@ func (desired DesiredState) Validate() error {
 		}
 		identities[member.ID] = struct{}{}
 		addresses[address] = struct{}{}
+	}
+	leaseIdentities := map[string]struct{}{}
+	internalPorts := map[uint16]struct{}{}
+	for _, lease := range desired.PortForwardLeases {
+		if lease.Identity == "" || lease.InternalPort == 0 || len(lease.Protocols) == 0 {
+			return errors.New("gateway port-forward lease is invalid")
+		}
+		if _, exists := leaseIdentities[lease.Identity]; exists {
+			return errors.New("gateway port-forward lease identity is duplicated")
+		}
+		if _, exists := internalPorts[lease.InternalPort]; exists {
+			return errors.New("gateway port-forward internal port is duplicated")
+		}
+		seenProtocols := map[provider.PortForwardProtocol]struct{}{}
+		for _, protocol := range lease.Protocols {
+			if protocol != provider.ProtocolTCP && protocol != provider.ProtocolUDP {
+				return errors.New("gateway port-forward protocol is invalid")
+			}
+			if _, exists := seenProtocols[protocol]; exists {
+				return errors.New("gateway port-forward protocol is duplicated")
+			}
+			seenProtocols[protocol] = struct{}{}
+		}
+		leaseIdentities[lease.Identity] = struct{}{}
+		internalPorts[lease.InternalPort] = struct{}{}
 	}
 	return nil
 }

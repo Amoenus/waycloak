@@ -11,19 +11,21 @@ import (
 )
 
 type HealthManager struct {
-	Engine     provider.VPNEngine
-	Source     DesiredSource
-	Network    Network
-	Forwarding Forwarding
-	DNS        DNSService
+	Engine         provider.VPNEngine
+	Source         DesiredSource
+	Network        Network
+	Forwarding     Forwarding
+	DNS            DNSService
+	PortForwarding *PortForwardManager
 
-	mu            sync.RWMutex
-	observation   provider.EngineObservation
-	err           error
-	configErr     error
-	networkErr    error
-	forwardingErr error
-	dnsErr        error
+	mu                sync.RWMutex
+	observation       provider.EngineObservation
+	err               error
+	configErr         error
+	networkErr        error
+	forwardingErr     error
+	dnsErr            error
+	portForwardingErr error
 }
 
 func (manager *HealthManager) Reconcile(ctx context.Context) {
@@ -45,6 +47,10 @@ func (manager *HealthManager) Reconcile(ctx context.Context) {
 		}
 	}
 	observation, err := manager.Engine.Observe(ctx)
+	var portForwardingErr error
+	if manager.PortForwarding != nil && configErr == nil && err == nil && observation.TunnelReady {
+		portForwardingErr = manager.PortForwarding.Reconcile(ctx, desired.PortForwardLeases)
+	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.observation = observation
@@ -53,6 +59,13 @@ func (manager *HealthManager) Reconcile(ctx context.Context) {
 	manager.networkErr = networkErr
 	manager.forwardingErr = forwardingErr
 	manager.dnsErr = dnsErr
+	manager.portForwardingErr = portForwardingErr
+}
+
+func (manager *HealthManager) PortForwardingError() error {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	return manager.portForwardingErr
 }
 
 func (manager *HealthManager) Ready() bool {

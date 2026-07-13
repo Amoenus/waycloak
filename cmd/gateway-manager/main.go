@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	"github.com/Amoenus/waycloak/internal/provider"
 	"github.com/Amoenus/waycloak/internal/provider/gluetun"
+	"github.com/Amoenus/waycloak/internal/provider/proton"
 )
 
 func main() {
@@ -43,6 +45,9 @@ func run(args []string) error {
 	healthAddress := flags.String("health-address", fmt.Sprintf(":%d", waygateway.HealthPort), "readiness listen address")
 	engineHealthURL := flags.String("engine-health-url", "http://127.0.0.1:9999/", "engine health endpoint")
 	engineControlURL := flags.String("engine-control-url", "http://127.0.0.1:8000", "engine control endpoint")
+	portForwardDriver := flags.String("port-forward-driver", "", "provider port-forward driver")
+	tunnelInterface := flags.String("tunnel-interface", waygateway.TunnelInterface, "VPN tunnel interface")
+	natPMPGatewayAddress := flags.String("nat-pmp-gateway-address", proton.DefaultGatewayAddress, "Proton NAT-PMP gateway address")
 	configPath := flags.String("config-path", "", "gateway desired-state JSON path")
 	resolvConf := flags.String("resolv-conf", "/etc/resolv.conf", "captured Kubernetes resolver configuration")
 	_ = flags.String("overlay-cidr", "", "reserved for the overlay reconciler")
@@ -58,6 +63,13 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	manager := &waygateway.HealthManager{Engine: engine}
+	driver, err := portForwardDriverFor(*portForwardDriver, *tunnelInterface, *natPMPGatewayAddress)
+	if err != nil {
+		return err
+	}
+	if driver != nil {
+		manager.PortForwarding = &waygateway.PortForwardManager{Driver: driver}
+	}
 	if *configPath != "" {
 		dns, err := waygateway.NewDNSProxyFromResolvConf(*resolvConf)
 		if err != nil {
@@ -69,6 +81,18 @@ func run(args []string) error {
 		manager.DNS = dns
 	}
 	return serve(ctx, manager, *healthAddress, 2*time.Second)
+}
+
+func portForwardDriverFor(driverName, tunnelInterface, gatewayAddress string) (provider.PortForwardDriver, error) {
+	if driverName == "" {
+		return nil, nil
+	}
+	if !strings.EqualFold(driverName, "ProtonNatPmp") {
+		return nil, fmt.Errorf("unsupported port-forward driver %q", driverName)
+	}
+	driver := proton.New(tunnelInterface)
+	driver.GatewayAddress = gatewayAddress
+	return driver, nil
 }
 
 func renderEngineFirewall(args []string) error {
@@ -119,14 +143,7 @@ func engineFor(engineType, healthURL, controlURL string) (provider.VPNEngine, er
 }
 
 func serve(ctx context.Context, manager *waygateway.HealthManager, address string, interval time.Duration) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/readyz", func(response http.ResponseWriter, _ *http.Request) {
-		if !manager.Ready() {
-			http.Error(response, "engine path is not ready", http.StatusServiceUnavailable)
-			return
-		}
-		response.WriteHeader(http.StatusOK)
-	})
+	mux := managerHandler(manager)
 	server := &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: 2 * time.Second}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
@@ -136,6 +153,9 @@ func serve(ctx context.Context, manager *waygateway.HealthManager, address strin
 		manager.Reconcile(ctx)
 		if err := manager.Error(); err != nil {
 			log.Printf("engine observation failed: %v", err)
+		}
+		if err := manager.PortForwardingError(); err != nil {
+			log.Printf("port-forward reconciliation failed: %v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -150,4 +170,48 @@ func serve(ctx context.Context, manager *waygateway.HealthManager, address strin
 		case <-ticker.C:
 		}
 	}
+}
+
+func managerHandler(manager *waygateway.HealthManager) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/readyz", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !manager.Ready() {
+			http.Error(response, "engine path is not ready", http.StatusServiceUnavailable)
+			return
+		}
+		response.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/v1/port-forward/leases/", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		identity := strings.TrimPrefix(request.URL.Path, "/v1/port-forward/leases/")
+		if identity == "" || strings.Contains(identity, "/") || manager.PortForwarding == nil {
+			http.NotFound(response, request)
+			return
+		}
+		var selected *waygateway.PortForwardObservation
+		for _, observation := range manager.PortForwarding.Snapshot() {
+			if observation.Identity == identity {
+				copy := observation
+				selected = &copy
+				break
+			}
+		}
+		if selected == nil {
+			http.NotFound(response, request)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		document := waygateway.PortForwardObservationDocument{APIVersion: waygateway.PortForwardObservationAPIVersion, Lease: *selected}
+		if err := json.NewEncoder(response).Encode(document); err != nil {
+			log.Printf("encode port-forward observations: %v", err)
+		}
+	})
+	return mux
 }

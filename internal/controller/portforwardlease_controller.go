@@ -5,12 +5,17 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/admission"
 	"github.com/Amoenus/waycloak/internal/contract"
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -28,20 +34,32 @@ import (
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=vpngateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=vpnworkloads,verbs=get;list;watch
-// +kubebuilder:rbac:groups=networking.waycloak.io,resources=portforwardleases,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.waycloak.io,resources=portforwardleases,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=portforwardleases/status,verbs=get;update;patch
 
 type PortForwardLeaseReconciler struct {
 	client.Client
-	Recorder record.EventRecorder
+	Recorder           record.EventRecorder
+	Now                func() time.Time
+	Observer           waygateway.PortForwardObserver
+	DeletionQuarantine time.Duration
 }
+
+const (
+	providerDeletionQuarantine = 3 * time.Minute
+	providerObservationPoll    = 2 * time.Second
+)
 
 func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var lease wayv1.PortForwardLease
 	if err := r.Get(ctx, req.NamespacedName, &lease); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if !lease.DeletionTimestamp.IsZero() {
+		return r.reconcileDeletion(ctx, &lease)
 	}
 	previous := lease.Status.DeepCopy()
 	lease.Status.ObservedGeneration = lease.Generation
@@ -82,6 +100,17 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, r.updateStatus(ctx, &lease, previous)
 	}
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionAccepted, metav1.ConditionTrue, waystatus.ReasonLeaseAccepted, "Lease intent is valid and gateway use is authorized")
+	if !controllerutil.ContainsFinalizer(&lease, contract.PortForwardLeaseFinalizer) {
+		controllerutil.AddFinalizer(&lease, contract.PortForwardLeaseFinalizer)
+		return ctrl.Result{}, r.Update(ctx, &lease)
+	}
+	if lease.Status.ProviderInternalPort == 0 {
+		internalPort, allocationErr := r.allocateInternalPort(ctx, &lease, gatewayNamespace, gateway.Name)
+		if allocationErr != nil {
+			return ctrl.Result{}, allocationErr
+		}
+		lease.Status.ProviderInternalPort = int32(internalPort)
+	}
 
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods, client.InNamespace(lease.Namespace), client.MatchingLabelsSelector{Selector: targetSelector}); err != nil {
@@ -129,8 +158,141 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		r.componentsPending(&lease, waystatus.ReasonPortForwardUnsupported, "Provider lease acquisition is unavailable")
 		return ctrl.Result{}, r.updateStatus(ctx, &lease, previous)
 	}
-	r.componentsPending(&lease, waystatus.ReasonProviderLeasePending, "No provider lease has been observed; NAT-PMP is not implemented in this slice")
-	return ctrl.Result{}, r.updateStatus(ctx, &lease, previous)
+	if r.Observer == nil {
+		r.componentsPending(&lease, waystatus.ReasonProviderLeasePending, "No gateway provider-lease observer is configured")
+		return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
+	}
+	observation, observationErr := r.observeProviderLease(ctx, &gateway, &lease)
+	if observationErr != nil {
+		if lease.Status.PublicPort > 0 && lease.Status.ExpiresAt != nil && r.now().Before(lease.Status.ExpiresAt.Time) {
+			waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "The last provider mapping observation remains current while gateway refresh is unavailable")
+			r.downstreamPending(&lease)
+		} else {
+			r.componentsPending(&lease, waystatus.ReasonProviderLeaseObservationFailed, "Gateway provider-lease observation is unavailable")
+		}
+		return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
+	}
+	if !validProviderObservation(&lease, observation, r.now()) {
+		reason := waystatus.ReasonProviderLeaseObservationFailed
+		message := "Gateway provider-lease observation does not match this lease identity"
+		if !observation.ExpiresAt.IsZero() && !r.now().Before(observation.ExpiresAt) {
+			reason = waystatus.ReasonProviderLeaseExpired
+			message = "Gateway provider-lease observation has expired"
+		}
+		r.componentsPending(&lease, reason, message)
+		return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
+	}
+	previousPort := lease.Status.PublicPort
+	lease.Status.PublicPort = int32(observation.PublicPort)
+	issuedAt := metav1.NewTime(observation.IssuedAt)
+	renewAfter := metav1.NewTime(observation.RenewAfter)
+	expiresAt := metav1.NewTime(observation.ExpiresAt)
+	lease.Status.IssuedAt = &issuedAt
+	lease.Status.RenewAfter = &renewAfter
+	lease.Status.ExpiresAt = &expiresAt
+	if lease.Status.LeaseGeneration == 0 || previousPort != lease.Status.PublicPort {
+		lease.Status.LeaseGeneration++
+	}
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "A current provider mapping is observed through the serving gateway Pod")
+	r.downstreamPending(&lease)
+	return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
+}
+
+func (r *PortForwardLeaseReconciler) observeProviderLease(ctx context.Context, gateway *wayv1.VPNGateway, lease *wayv1.PortForwardLease) (waygateway.PortForwardObservation, error) {
+	var statefulSet appsv1.StatefulSet
+	if err := r.Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}, &statefulSet); err != nil {
+		return waygateway.PortForwardObservation{}, fmt.Errorf("read serving gateway StatefulSet: %w", err)
+	}
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, client.InNamespace(gateway.Namespace), client.MatchingLabels(waygateway.SelectorLabels(gateway))); err != nil {
+		return waygateway.PortForwardObservation{}, err
+	}
+	var selected *corev1.Pod
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		owner := metav1.GetControllerOf(pod)
+		if !pod.DeletionTimestamp.IsZero() || pod.Status.PodIP == "" || owner == nil || owner.APIVersion != appsv1.SchemeGroupVersion.String() || owner.Kind != "StatefulSet" || owner.UID != statefulSet.UID {
+			continue
+		}
+		if selected == nil || pod.CreationTimestamp.After(selected.CreationTimestamp.Time) {
+			selected = pod
+		}
+	}
+	if selected == nil {
+		return waygateway.PortForwardObservation{}, errors.New("serving gateway Pod is unavailable")
+	}
+	return r.Observer.ObserveLease(ctx, selected.Status.PodIP, string(lease.UID))
+}
+
+func validProviderObservation(lease *wayv1.PortForwardLease, observation waygateway.PortForwardObservation, now time.Time) bool {
+	if !observation.Ready || observation.Identity != string(lease.UID) || observation.InternalPort != uint16(lease.Status.ProviderInternalPort) || observation.PublicPort == 0 || observation.IssuedAt.IsZero() || observation.RenewAfter.IsZero() || observation.ExpiresAt.IsZero() || !observation.IssuedAt.Before(observation.ExpiresAt) || !observation.RenewAfter.Before(observation.ExpiresAt) || !now.Before(observation.ExpiresAt) {
+		return false
+	}
+	wanted := make([]string, 0, len(lease.Spec.Protocols))
+	for _, protocol := range lease.Spec.Protocols {
+		wanted = append(wanted, string(protocol))
+	}
+	got := make([]string, 0, len(observation.Protocols))
+	for _, protocol := range observation.Protocols {
+		got = append(got, string(protocol))
+	}
+	slices.Sort(wanted)
+	slices.Sort(got)
+	return slices.Equal(wanted, got)
+}
+
+func (r *PortForwardLeaseReconciler) allocateInternalPort(ctx context.Context, lease *wayv1.PortForwardLease, gatewayNamespace, gatewayName string) (uint16, error) {
+	var leases wayv1.PortForwardLeaseList
+	if err := r.List(ctx, &leases); err != nil {
+		return 0, err
+	}
+	used := make(map[uint16]struct{}, len(leases.Items))
+	for i := range leases.Items {
+		candidate := &leases.Items[i]
+		namespace := candidate.Spec.GatewayRef.Namespace
+		if namespace == "" {
+			namespace = candidate.Namespace
+		}
+		if candidate.UID == lease.UID || namespace != gatewayNamespace || candidate.Spec.GatewayRef.Name != gatewayName || candidate.Status.ProviderInternalPort < 1 || candidate.Status.ProviderInternalPort > 65535 {
+			continue
+		}
+		used[uint16(candidate.Status.ProviderInternalPort)] = struct{}{}
+	}
+	for port := uint32(1); port <= 65535; port++ {
+		if _, exists := used[uint16(port)]; !exists {
+			return uint16(port), nil
+		}
+	}
+	return 0, errors.New("provider internal-port allocation is exhausted")
+}
+
+func (r *PortForwardLeaseReconciler) reconcileDeletion(ctx context.Context, lease *wayv1.PortForwardLease) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(lease, contract.PortForwardLeaseFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	deadline := lease.DeletionTimestamp.Time.Add(r.deletionQuarantine())
+	if lease.Status.ExpiresAt != nil && lease.Status.ExpiresAt.Time.After(deadline) {
+		deadline = lease.Status.ExpiresAt.Time
+	}
+	if remaining := deadline.Sub(r.now()); remaining > 0 {
+		return ctrl.Result{RequeueAfter: remaining}, nil
+	}
+	controllerutil.RemoveFinalizer(lease, contract.PortForwardLeaseFinalizer)
+	return ctrl.Result{}, r.Update(ctx, lease)
+}
+
+func (r *PortForwardLeaseReconciler) deletionQuarantine() time.Duration {
+	if r.DeletionQuarantine > 0 {
+		return r.DeletionQuarantine
+	}
+	return providerDeletionQuarantine
+}
+
+func (r *PortForwardLeaseReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func podReady(pod *corev1.Pod) bool {
@@ -158,6 +320,12 @@ func (r *PortForwardLeaseReconciler) componentsPending(lease *wayv1.PortForwardL
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionGatewayRulesReady, metav1.ConditionFalse, waystatus.ReasonGatewayRulesPending, "Gateway DNAT for the observed lease generation is not ready")
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending, "The current lease generation has not been delivered")
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonLeaseComponentsNotReady, "Provider lease, gateway rules, target, and delivery must all be observed ready")
+}
+
+func (r *PortForwardLeaseReconciler) downstreamPending(lease *wayv1.PortForwardLease) {
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionGatewayRulesReady, metav1.ConditionFalse, waystatus.ReasonGatewayRulesPending, "Gateway DNAT for the observed lease generation is not ready")
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending, "The current lease generation has not been delivered")
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonLeaseComponentsNotReady, "Gateway rules, target, and delivery must all be observed ready")
 }
 
 func (r *PortForwardLeaseReconciler) updateStatus(ctx context.Context, lease *wayv1.PortForwardLease, previous *wayv1.PortForwardLeaseStatus) error {

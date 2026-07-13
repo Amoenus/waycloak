@@ -4,10 +4,17 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
+	"github.com/Amoenus/waycloak/internal/provider"
 )
 
 func TestEngineForRejectsUnsupportedTypes(t *testing.T) {
@@ -17,6 +24,61 @@ func TestEngineForRejectsUnsupportedTypes(t *testing.T) {
 	if _, err := engineFor("Gluetun", "http://127.0.0.1:9999/", "http://127.0.0.1:8000"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPortForwardDriverForIsExplicit(t *testing.T) {
+	if driver, err := portForwardDriverFor("", waygateway.TunnelInterface, ""); err != nil || driver != nil {
+		t.Fatalf("disabled driver=%#v error=%v", driver, err)
+	}
+	if _, err := portForwardDriverFor("ProtonNatPmp", waygateway.TunnelInterface, "10.2.0.1:5351"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := portForwardDriverFor("unknown", waygateway.TunnelInterface, ""); err == nil {
+		t.Fatal("unknown provider driver was accepted")
+	}
+}
+
+func TestManagerHandlerPublishesReadOnlyLeaseObservations(t *testing.T) {
+	driver := &handlerPortForwardDriver{}
+	portForwarding := &waygateway.PortForwardManager{Driver: driver}
+	intent := waygateway.PortForwardLeaseIntent{Identity: "lease-uid", InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}
+	if err := portForwarding.Reconcile(context.Background(), []waygateway.PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	manager := &waygateway.HealthManager{PortForwarding: portForwarding}
+	request := httptest.NewRequest(http.MethodGet, "/v1/port-forward/leases/lease-uid", nil)
+	response := httptest.NewRecorder()
+	managerHandler(manager).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"identity":"lease-uid"`) || !strings.Contains(response.Body.String(), `"publicPort":42000`) {
+		t.Fatalf("response code=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/lease-uid", nil)
+	response = httptest.NewRecorder()
+	managerHandler(manager).ServeHTTP(response, request)
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST response code = %d", response.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/v1/port-forward/leases/", nil)
+	response = httptest.NewRecorder()
+	managerHandler(manager).ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("lease enumeration response code = %d", response.Code)
+	}
+}
+
+type handlerPortForwardDriver struct{}
+
+func (*handlerPortForwardDriver) ObserveCapabilities(context.Context) (provider.PortForwardCapabilities, error) {
+	return provider.PortForwardCapabilities{}, nil
+}
+
+func (*handlerPortForwardDriver) EnsureLease(context.Context, provider.PortForwardLeaseRequest) (provider.PortForwardLeaseObservation, error) {
+	now := time.Now().UTC()
+	return provider.PortForwardLeaseObservation{PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second)}, nil
+}
+
+func (*handlerPortForwardDriver) ReleaseLease(context.Context, provider.PortForwardLeaseRequest) error {
+	return nil
 }
 
 func TestRenderEngineFirewallCommand(t *testing.T) {

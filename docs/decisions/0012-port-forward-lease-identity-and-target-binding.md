@@ -32,8 +32,8 @@ readiness are separate conditions. Desired registration or a remembered
 public port does not make any of them ready.
 
 Service targets and controlled rolling handoff are deferred until their
-identity and drain semantics are proven. No lease finalizer is added before a
-provider driver has a bounded, tested release/expiry contract.
+identity and drain semantics are proven. ADR 0013 adds a bounded finalizer only
+after defining and testing the provider release/expiry contract.
 
 ## Consequences
 

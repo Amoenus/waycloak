@@ -22,6 +22,10 @@ type fakeSource struct{ err error }
 
 func (source fakeSource) Load() (DesiredState, error) { return DesiredState{}, source.err }
 
+type staticSource struct{ desired DesiredState }
+
+func (source staticSource) Load() (DesiredState, error) { return source.desired, nil }
+
 type fakeNetwork struct{ err error }
 
 func (network fakeNetwork) Reconcile(context.Context, DesiredState) error { return network.err }
@@ -127,5 +131,23 @@ func TestHealthManagerInstallsGatewayLockdownBeforeOverlay(t *testing.T) {
 	want := []string{"lockdown", "network", "forwarding", "dns"}
 	if !reflect.DeepEqual(steps, want) {
 		t.Fatalf("gateway reconciliation order = %#v, want %#v", steps, want)
+	}
+}
+
+func TestHealthManagerAcquiresProviderLeaseOnlyThroughObservedTunnel(t *testing.T) {
+	engine := &fakeEngine{err: errors.New("tunnel down")}
+	driver := &fakePortForwardDriver{ports: []uint16{42000}}
+	portForwarding := &PortForwardManager{Driver: driver}
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}
+	manager := &HealthManager{Engine: engine, Source: staticSource{desired: DesiredState{PortForwardLeases: []PortForwardLeaseIntent{intent}}}, PortForwarding: portForwarding}
+	manager.Reconcile(context.Background())
+	if len(driver.ensureRequests) != 0 {
+		t.Fatal("provider lease was attempted without an observed tunnel")
+	}
+	engine.err = nil
+	engine.observation = provider.EngineObservation{TunnelReady: true, DNSReady: true, PublicIP: netip.MustParseAddr("203.0.113.10")}
+	manager.Reconcile(context.Background())
+	if len(driver.ensureRequests) != 1 || manager.PortForwardingError() != nil {
+		t.Fatalf("provider requests=%#v error=%v", driver.ensureRequests, manager.PortForwardingError())
 	}
 }

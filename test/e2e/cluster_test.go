@@ -198,7 +198,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		}
 		target := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionTargetReady)
 		provider := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionProviderLeaseReady)
-		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeasePending && current.Status.Target != nil && current.Status.Target.PodRef.UID == protected.UID
+		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeaseObservationFailed && current.Status.Target != nil && current.Status.Target.PodRef.UID == protected.UID && current.Status.ProviderInternalPort == 1
 	})
 	invalidLease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: namespace}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP}}}
 	if err := direct.Create(ctx, invalidLease); err == nil {
@@ -241,6 +241,10 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		return condition != nil && condition.Status == metav1.ConditionFalse && current.Status.Target == nil
 	})
 	must(t, direct.Delete(ctx, lease))
+	waitFor(t, 10*time.Second, func() bool {
+		var current wayv1.PortForwardLease
+		return apierrors.IsNotFound(direct.Get(ctx, client.ObjectKeyFromObject(lease), &current))
+	})
 	stopController(t, namespace)
 	plainOutage := pod("plain-outage", namespace, nil)
 	must(t, direct.Create(ctx, plainOutage, client.DryRunAll))
@@ -273,7 +277,7 @@ func createInfrastructure(t *testing.T, c client.Client, namespace, deniedNamesp
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpngateways"}, Verbs: []string{"get", "list", "watch", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpngateways/status", "vpnworkloads/status"}, Verbs: []string{"get", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpnworkloads"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
-		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"portforwardleases"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"portforwardleases"}, Verbs: []string{"get", "list", "watch", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"portforwardleases/status"}, Verbs: []string{"get", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpnworkloads/finalizers"}, Verbs: []string{"update"}},
 	}
@@ -295,7 +299,7 @@ func startController(t *testing.T, namespace string, controllers bool) {
 func startControllerWithImage(t *testing.T, namespace string, controllers bool, agentImage string) {
 	t.Helper()
 	stopController(t, namespace)
-	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-cert-dir=/certs --allocation-quarantine=1s --agent-image=%s >/tmp/controller.log 2>&1 &", controllers, agentImage)
+	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-cert-dir=/certs --allocation-quarantine=1s --port-forward-deletion-quarantine=1s --agent-image=%s >/tmp/controller.log 2>&1 &", controllers, agentImage)
 	command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", commandLine)
 	time.Sleep(2 * time.Second)
 }
@@ -321,7 +325,7 @@ func webhookConfigurations(mutatingName, validatingName, namespace string, ca []
 }
 
 func gateway(namespace string) *wayv1.VPNGateway {
-	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test"}, Provider: wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "unused"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "Test"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{"waycloak-e2e": "allowed"}}}}}
+	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "unused"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{"waycloak-e2e": "allowed"}}}}}
 }
 
 func certificates(t *testing.T, host string) ([]byte, []byte, []byte) {

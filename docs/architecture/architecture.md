@@ -63,9 +63,14 @@ Makes the neutral `PortForwardLease` record available inside the workload Pod wi
 The initial lease controller accepts only a non-empty Pod selector resolving to
 exactly one Ready Pod. It binds status to that Pod UID and the same-gateway
 `VPNWorkload` overlay allocation; it never treats labels alone as a packet
-target. Until a provider driver observes an actual lease, provider, gateway
-rule, delivery, and overall conditions remain false. ADR 0012 defines this
-stable identity and cardinality boundary.
+target. ADR 0012 defines this stable identity and cardinality boundary.
+
+For Proton/OpenVPN, the tokenless gateway manager owns the renewable NAT-PMP
+mapping because its Linux socket is bound to the VPN interface. The controller
+publishes stable UID/internal-port intents through the gateway ConfigMap and
+reads a limited observation from the exact serving gateway Pod. This channel
+contains no credentials and cannot make `GatewayRulesReady` or `Delivered`
+true. ADR 0013 defines renewal, rotation, and deletion quarantine.
 
 ## Resource ownership
 

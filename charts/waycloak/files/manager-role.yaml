@@ -57,9 +57,12 @@ rules:
   - networking.waycloak.io
   resources:
   - portforwardleases
+  - vpngateways
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - networking.waycloak.io
@@ -71,16 +74,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - networking.waycloak.io
-  resources:
-  - vpngateways
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - networking.waycloak.io
   resources:

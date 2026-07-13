@@ -39,14 +39,18 @@ type DNSSpec struct {
 type ClusterTrafficSpec struct {
 	Mode string `json:"mode,omitempty"`
 }
+
+// +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.driver) && self.driver == 'ProtonNatPmp')",message="enabled port forwarding requires driver ProtonNatPmp"
 type PortForwardingSpec struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Driver  string `json:"driver,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
+	// +kubebuilder:validation:Enum=ProtonNatPmp
+	Driver string `json:"driver,omitempty"`
 }
 type WorkloadAccessSpec struct {
 	NamespaceSelector metav1.LabelSelector `json:"namespaceSelector"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!self.portForwarding.enabled || (self.provider.name == 'protonvpn' && self.provider.protocol == 'openvpn')",message="ProtonNatPmp requires provider.name protonvpn and provider.protocol openvpn"
 type VPNGatewaySpec struct {
 	Engine         EngineSpec         `json:"engine"`
 	Provider       ProviderSpec       `json:"provider"`
@@ -167,12 +171,15 @@ type PortForwardTargetStatus struct {
 type PortForwardLeaseStatus struct {
 	ObservedGeneration int64                    `json:"observedGeneration,omitempty"`
 	Target             *PortForwardTargetStatus `json:"target,omitempty"`
-	PublicPort         int32                    `json:"publicPort,omitempty"`
-	IssuedAt           *metav1.Time             `json:"issuedAt,omitempty"`
-	RenewAfter         *metav1.Time             `json:"renewAfter,omitempty"`
-	ExpiresAt          *metav1.Time             `json:"expiresAt,omitempty"`
-	LeaseGeneration    int64                    `json:"leaseGeneration,omitempty"`
-	Conditions         []metav1.Condition       `json:"conditions,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	ProviderInternalPort int32              `json:"providerInternalPort,omitempty"`
+	PublicPort           int32              `json:"publicPort,omitempty"`
+	IssuedAt             *metav1.Time       `json:"issuedAt,omitempty"`
+	RenewAfter           *metav1.Time       `json:"renewAfter,omitempty"`
+	ExpiresAt            *metav1.Time       `json:"expiresAt,omitempty"`
+	LeaseGeneration      int64              `json:"leaseGeneration,omitempty"`
+	Conditions           []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // PortForwardLease is user-authored lease intent. Provider allocation,

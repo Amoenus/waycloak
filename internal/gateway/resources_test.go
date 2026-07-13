@@ -116,6 +116,27 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 	}
 }
 
+func TestGluetunDelegatesProtonNATPMPToGatewayManager(t *testing.T) {
+	gateway := testGateway()
+	gateway.Spec.Engine.Type = "Gluetun"
+	gateway.Spec.Provider.Name = "protonvpn"
+	gateway.Spec.Provider.Protocol = "openvpn"
+	gateway.Spec.PortForwarding = wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}
+	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager")})
+	engine := statefulSet.Spec.Template.Spec.Containers[0]
+	manager := statefulSet.Spec.Template.Spec.Containers[1]
+	if !containsArgument(manager.Args, "--port-forward-driver=ProtonNatPmp") || !containsArgument(manager.Args, "--tunnel-interface="+TunnelInterface) {
+		t.Fatalf("manager arguments = %#v", manager.Args)
+	}
+	environment := map[string]string{}
+	for _, variable := range engine.Env {
+		environment[variable.Name] = variable.Value
+	}
+	if environment["PORT_FORWARD_ONLY"] != "on" || environment["VPN_PORT_FORWARDING"] != "off" {
+		t.Fatalf("port-forward ownership environment = %#v", environment)
+	}
+}
+
 func hasMount(container corev1.Container, name string) bool {
 	for _, mount := range container.VolumeMounts {
 		if mount.Name == name {

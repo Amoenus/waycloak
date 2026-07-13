@@ -15,6 +15,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/contract"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
+	"github.com/Amoenus/waycloak/internal/provider"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +26,7 @@ import (
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -58,7 +60,8 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	recorder := record.NewFakeRecorder(100)
 	must(t, (&waycontroller.PodReconciler{Client: mgr.GetClient(), Scheme: scheme, Recorder: recorder}).SetupWithManager(mgr))
 	must(t, (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: scheme, Recorder: recorder, ManagerImage: "registry.invalid/manager@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}).SetupWithManager(mgr))
-	must(t, (&waycontroller.PortForwardLeaseReconciler{Client: mgr.GetClient(), Recorder: recorder}).SetupWithManager(mgr))
+	leaseObserver := &integrationLeaseObserver{}
+	must(t, (&waycontroller.PortForwardLeaseReconciler{Client: mgr.GetClient(), Recorder: recorder, Observer: leaseObserver, DeletionQuarantine: time.Second}).SetupWithManager(mgr))
 	must(t, (&waycontroller.WorkloadGCReconciler{Client: mgr.GetClient(), Quarantine: time.Second}).SetupWithManager(mgr))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -113,8 +116,16 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		_ = apiClient.Delete(cleanupCtx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}})
 	})
 	must(t, mgr.GetClient().Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: nsName}, StringData: map[string]string{"test": "not-a-real-credential"}}))
-	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "Test"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
+	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
 	must(t, mgr.GetClient().Create(ctx, gw))
+	invalidGateway := gw.DeepCopy()
+	invalidGateway.Name = "invalid-provider"
+	invalidGateway.ResourceVersion = ""
+	invalidGateway.UID = ""
+	invalidGateway.Spec.Provider.Name = "unsupported"
+	if err := mgr.GetClient().Create(ctx, invalidGateway); err == nil {
+		t.Fatal("API server accepted ProtonNatPmp with an unsupported provider")
+	}
 	waitFor(t, 10*time.Second, func() bool {
 		var statefulSet appsv1.StatefulSet
 		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &statefulSet) == nil
@@ -124,6 +135,18 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	if service.Spec.ClusterIP != corev1.ClusterIPNone {
 		t.Fatalf("gateway Service clusterIP = %q", service.Spec.ClusterIP)
 	}
+	var gatewayStatefulSet appsv1.StatefulSet
+	must(t, apiClient.Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &gatewayStatefulSet))
+	yes := true
+	observerPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "gateway-observer", Namespace: nsName, Labels: waygateway.SelectorLabels(gw), OwnerReferences: []metav1.OwnerReference{{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: "StatefulSet", Name: gatewayStatefulSet.Name, UID: gatewayStatefulSet.UID, Controller: &yes}}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "fixture", Image: "registry.invalid/fixture"}}}}
+	must(t, apiClient.Create(ctx, observerPod))
+	must(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := apiClient.Get(ctx, client.ObjectKeyFromObject(observerPod), observerPod); err != nil {
+			return err
+		}
+		observerPod.Status.PodIP = "127.0.0.1"
+		return apiClient.Status().Update(ctx, observerPod)
+	}))
 	var pdb policyv1.PodDisruptionBudget
 	must(t, mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &pdb))
 	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
@@ -156,7 +179,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		}
 		target := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionTargetReady)
 		provider := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionProviderLeaseReady)
-		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeasePending && current.Status.Target != nil && current.Status.Target.PodRef.UID == pod.UID
+		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionTrue && provider.Reason == waystatus.ReasonProviderLeaseObservedReady && current.Status.Target != nil && current.Status.Target.PodRef.UID == pod.UID && current.Status.PublicPort == 42000 && current.Status.LeaseGeneration == 1
 	})
 	invalidLease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: nsName}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP}}}
 	if err := mgr.GetClient().Create(ctx, invalidLease); err == nil {
@@ -188,12 +211,23 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		return condition != nil && condition.Status == metav1.ConditionFalse && current.Status.Target == nil
 	})
 	must(t, mgr.GetClient().Delete(ctx, lease))
+	waitFor(t, 5*time.Second, func() bool {
+		var current wayv1.PortForwardLease
+		return apierrors.IsNotFound(apiClient.Get(ctx, client.ObjectKeyFromObject(lease), &current))
+	})
 	must(t, apiClient.Delete(ctx, gw))
 	waitFor(t, 10*time.Second, func() bool {
 		var item wayv1.VPNGateway
 		return apierrors.IsNotFound(apiClient.Get(ctx, client.ObjectKeyFromObject(gw), &item))
 	})
 	must(t, apiClient.Delete(ctx, ns))
+}
+
+type integrationLeaseObserver struct{}
+
+func (observer *integrationLeaseObserver) ObserveLease(_ context.Context, _ string, identity string) (waygateway.PortForwardObservation, error) {
+	now := time.Now().UTC()
+	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(time.Second), ExpiresAt: now.Add(2 * time.Second), Ready: true}, nil
 }
 
 func waitFor(t *testing.T, timeout time.Duration, f func() bool) {

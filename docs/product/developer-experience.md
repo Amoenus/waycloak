@@ -34,6 +34,12 @@ protected workloads only need egress. It must not encode provider-specific
 details. The first Phase 4 control-plane slice requires an explicit
 `PortForwardLease`; admission does not derive one from this annotation yet.
 
+For the initial `ProtonNatPmp` path, use Proton/OpenVPN credentials whose
+username already contains Proton's `+pmp` suffix. Waycloak mounts that Secret
+only in Gluetun, disables Gluetun's own port-forward loop, and reports provider
+acquisition separately from the still-pending gateway-rule and delivery
+conditions. A public port in status is not yet proof of inbound reachability.
+
 ## KCL integration
 
 KCL is an adapter over the Kubernetes contract:

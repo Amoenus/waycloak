@@ -20,6 +20,7 @@ const (
 	AgentHealthPort            = 9808
 	GatewayDNSPort             = 1053
 	WorkloadFinalizer          = "networking.waycloak.io/allocation-quarantine"
+	PortForwardLeaseFinalizer  = "networking.waycloak.io/provider-lease-quarantine"
 )
 
 func AllocationConfigMapName(namespace, pod string) string {

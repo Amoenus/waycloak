@@ -159,6 +159,33 @@ func TestGatewayReadyRequiresEnabledComponents(t *testing.T) {
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
 }
 
+func TestGatewayPublishesOnlyObservedPortForwardLeaseIdentities(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := controllerTestGateway()
+	gateway.Spec.PortForwarding = wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}
+	lease := &wayv1.PortForwardLease{
+		ObjectMeta: metav1.ObjectMeta{Name: "torrent", Namespace: "apps", UID: types.UID("lease-uid")},
+		Spec:       wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolUDP, wayv1.PortForwardProtocolTCP}},
+		Status:     wayv1.PortForwardLeaseStatus{ProviderInternalPort: 7, PublicPort: 42000, Conditions: []metav1.Condition{{Type: waystatus.ConditionTargetReady, Status: metav1.ConditionTrue, Reason: waystatus.ReasonTargetObservedReady}}},
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lease).Build()
+	reconciler := &GatewayReconciler{Client: client}
+	intents, err := reconciler.portForwardLeases(context.Background(), gateway)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intents) != 1 || intents[0].Identity != "lease-uid" || intents[0].InternalPort != 7 || intents[0].SuggestedExternalPort != 42000 || len(intents[0].Protocols) != 2 || intents[0].Protocols[0] != "TCP" {
+		t.Fatalf("published intents = %#v", intents)
+	}
+	if err := client.Delete(context.Background(), lease); err != nil {
+		t.Fatal(err)
+	}
+	intents, err = reconciler.portForwardLeases(context.Background(), gateway)
+	if err != nil || len(intents) != 0 {
+		t.Fatalf("deleting intents=%#v error=%v", intents, err)
+	}
+}
+
 func gatewayTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()

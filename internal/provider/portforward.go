@@ -18,18 +18,20 @@ const (
 // PortForwardCapabilities is observed provider behavior, not desired gateway
 // registration. A zero MaxLeases means no lease capacity was observed.
 type PortForwardCapabilities struct {
-	Protocols            []PortForwardProtocol
-	MaxLeases            int32
-	SharedPort           bool
+	Protocols             []PortForwardProtocol
+	MaxLeases             int32
+	SharedPort            bool
 	SupportsRequestedPort bool
-	MinimumLeaseDuration time.Duration
+	MinimumLeaseDuration  time.Duration
 }
 
 // PortForwardLeaseRequest carries a stable Kubernetes-object identity. Drivers
 // must treat repeated EnsureLease calls for the same identity as idempotent.
 type PortForwardLeaseRequest struct {
-	Identity  string
-	Protocols []PortForwardProtocol
+	Identity              string
+	InternalPort          uint16
+	SuggestedExternalPort uint16
+	Protocols             []PortForwardProtocol
 }
 
 type PortForwardLeaseObservation struct {
@@ -37,7 +39,6 @@ type PortForwardLeaseObservation struct {
 	IssuedAt   time.Time
 	RenewAfter time.Time
 	ExpiresAt  time.Time
-	Generation int64
 }
 
 // PortForwardDriver owns provider-specific acquisition and renewal only.
@@ -45,5 +46,5 @@ type PortForwardLeaseObservation struct {
 type PortForwardDriver interface {
 	ObserveCapabilities(context.Context) (PortForwardCapabilities, error)
 	EnsureLease(context.Context, PortForwardLeaseRequest) (PortForwardLeaseObservation, error)
-	ReleaseLease(context.Context, string) error
+	ReleaseLease(context.Context, PortForwardLeaseRequest) error
 }

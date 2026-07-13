@@ -12,6 +12,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	"github.com/Amoenus/waycloak/internal/provider"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
@@ -46,15 +47,23 @@ type Member struct {
 	UnderlayIP     string `json:"underlayIP"`
 }
 
+type PortForwardLeaseIntent struct {
+	Identity              string                         `json:"identity"`
+	InternalPort          uint16                         `json:"internalPort"`
+	SuggestedExternalPort uint16                         `json:"suggestedExternalPort,omitempty"`
+	Protocols             []provider.PortForwardProtocol `json:"protocols"`
+}
+
 type DesiredState struct {
-	GatewayName     string   `json:"gatewayName"`
-	OverlayCIDR     string   `json:"overlayCIDR"`
-	GatewayAddress  string   `json:"gatewayAddress"`
-	VNI             int32    `json:"vni"`
-	MTU             int32    `json:"mtu"`
-	VXLANPort       int      `json:"vxlanPort"`
-	TunnelInterface string   `json:"tunnelInterface"`
-	Members         []Member `json:"members"`
+	GatewayName       string                   `json:"gatewayName"`
+	OverlayCIDR       string                   `json:"overlayCIDR"`
+	GatewayAddress    string                   `json:"gatewayAddress"`
+	VNI               int32                    `json:"vni"`
+	MTU               int32                    `json:"mtu"`
+	VXLANPort         int                      `json:"vxlanPort"`
+	TunnelInterface   string                   `json:"tunnelInterface"`
+	Members           []Member                 `json:"members"`
+	PortForwardLeases []PortForwardLeaseIntent `json:"portForwardLeases,omitempty"`
 }
 
 func ResourceName(name string) string {
@@ -101,9 +110,13 @@ func DesiredPodDisruptionBudget(gateway *wayv1.VPNGateway) *policyv1.PodDisrupti
 	}
 }
 
-func DesiredConfigMap(gateway *wayv1.VPNGateway, members []Member) *corev1.ConfigMap {
+func DesiredConfigMap(gateway *wayv1.VPNGateway, members []Member, leaseSets ...[]PortForwardLeaseIntent) *corev1.ConfigMap {
 	prefix, _ := netip.ParsePrefix(gateway.Spec.Overlay.CIDR)
-	desired := DesiredState{GatewayName: gateway.Name, OverlayCIDR: gateway.Spec.Overlay.CIDR, GatewayAddress: prefix.Masked().Addr().Next().String(), VNI: gateway.Spec.Overlay.VNI, MTU: gateway.Spec.Overlay.MTU, VXLANPort: VXLANPort, TunnelInterface: TunnelInterface, Members: members}
+	var leases []PortForwardLeaseIntent
+	if len(leaseSets) != 0 {
+		leases = leaseSets[0]
+	}
+	desired := DesiredState{GatewayName: gateway.Name, OverlayCIDR: gateway.Spec.Overlay.CIDR, GatewayAddress: prefix.Masked().Addr().Next().String(), VNI: gateway.Spec.Overlay.VNI, MTU: gateway.Spec.Overlay.MTU, VXLANPort: VXLANPort, TunnelInterface: TunnelInterface, Members: members, PortForwardLeases: leases}
 	serialized, _ := json.Marshal(desired)
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
@@ -139,6 +152,9 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(HealthPort)}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1},
 		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
 		VolumeMounts:    []corev1.VolumeMount{{Name: "runtime", MountPath: "/run/waycloak/runtime"}, {Name: "gateway-config", MountPath: "/run/waycloak/config", ReadOnly: true}},
+	}
+	if gateway.Spec.PortForwarding.Enabled {
+		manager.Args = append(manager.Args, "--port-forward-driver="+gateway.Spec.PortForwarding.Driver, "--tunnel-interface="+TunnelInterface)
 	}
 	noCapabilities := &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}
 	init := corev1.Container{
@@ -179,6 +195,12 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 			{Name: "PUBLICIP_ENABLED", Value: "on"},
 			{Name: "VPN_INTERFACE", Value: TunnelInterface},
 			{Name: "FIREWALL_INPUT_PORTS", Value: fmt.Sprint(HealthPort)},
+		}
+		if gateway.Spec.PortForwarding.Enabled {
+			engine.Env = append(engine.Env,
+				corev1.EnvVar{Name: "PORT_FORWARD_ONLY", Value: "on"},
+				corev1.EnvVar{Name: "VPN_PORT_FORWARDING", Value: "off"},
+			)
 		}
 	}
 	return &appsv1.StatefulSet{

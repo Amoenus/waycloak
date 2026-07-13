@@ -212,6 +212,11 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              providerInternalPort:
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
               publicPort:
                 format: int32
                 type: integer

@@ -134,6 +134,7 @@ spec:
     - TCP
     - UDP
 status:
+  providerInternalPort: 1
   publicPort: 52197
   issuedAt: "2026-07-13T11:30:00Z"
   renewAfter: "2026-07-13T12:30:00Z"
@@ -148,7 +149,9 @@ accepted only when that Pod selects the same gateway and its controller-owned
 `VPNWorkload` binds the exact Pod UID to a persisted overlay allocation.
 Status records that observed Pod UID, workload reference, overlay address, and
 local port. The `PortForwardLease` object UID is the stable provider-facing
-lease identity. A future Service target may support controlled handoff during
+lease identity. The controller also persists a unique NAT-PMP internal port;
+neither value is derived from list order, and deletion quarantines the mapping
+identity across provider expiry. A future Service target may support controlled handoff during
 rolling updates after its identity and drain semantics are proven
 ([ADR 0012](../decisions/0012-port-forward-lease-identity-and-target-binding.md)).
 
@@ -168,6 +171,15 @@ supported protocols, simultaneous lease capacity, shared TCP/UDP port
 semantics, requested-port support, and minimum duration. Repeated ensure calls
 carry the stable lease identity and are idempotent. Provider acquisition never
 owns gateway DNAT or application delivery state.
+
+The initial `ProtonNatPmp` driver is supported with `provider.name:
+protonvpn` and `provider.protocol: openvpn`. Proton requires the referenced
+OpenVPN username to include `+pmp`; Waycloak does not read or rewrite that
+Secret value. Gluetun selects port-forward-capable servers but its own
+port-forward loop is disabled so the gateway manager remains the only mapping
+owner. Provider acquisition is observed through the exact serving gateway Pod
+and increments `leaseGeneration` only when the public port changes
+([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md)).
 
 The canonical renewable delivery record is versioned JSON exposed through an
 atomically replaced read-only file and a read-only Pod-loopback endpoint.
