@@ -129,7 +129,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		Name:            EngineContainer,
 		Image:           gateway.Spec.Engine.Image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
+		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER", "NET_ADMIN", "SETGID", "SETUID"}}},
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "credentials", MountPath: "/run/waycloak/credentials", ReadOnly: true},
 			{Name: "engine-auth", MountPath: "/run/waycloak/engine-auth", ReadOnly: true},
@@ -142,7 +142,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		engine.Env = []corev1.EnvVar{
 			{Name: "VPN_SERVICE_PROVIDER", Value: gateway.Spec.Provider.Name},
 			{Name: "VPN_TYPE", Value: strings.ToLower(gateway.Spec.Provider.Protocol)},
-			{Name: "SERVER_REGIONS", Value: gateway.Spec.Provider.Region},
+			{Name: "SERVER_COUNTRIES", Value: gateway.Spec.Provider.Region},
 			{Name: "OPENVPN_USER_SECRETFILE", Value: "/run/waycloak/credentials/username"},
 			{Name: "OPENVPN_PASSWORD_SECRETFILE", Value: "/run/waycloak/credentials/password"},
 			{Name: "HEALTH_SERVER_ADDRESS", Value: "127.0.0.1:9999"},

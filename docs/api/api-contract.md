@@ -40,7 +40,7 @@ spec:
     namespaceSelector: {}
 ```
 
-The actual image API should separate chart-tested defaults from explicit user override while still recording an immutable resolved digest in status.
+The actual image API should separate chart-tested defaults from explicit user override while still recording an immutable resolved digest in status. For the initial Gluetun adapter, `provider.region` is a country selector and maps to Gluetun's `SERVER_COUNTRIES`; the field remains provider-neutral at the Kubernetes API boundary.
 
 For the initial Proton/OpenVPN Gluetun integration, `credentialsSecretRef` names a Secret in the gateway namespace with `username` and `password` keys. Waycloak mounts the Secret only into the engine container and configures Gluetun's secret-file settings; it does not copy values into status, manager configuration, or protected workloads. Additional protocol-specific keys require a documented API addition.
 

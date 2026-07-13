@@ -82,7 +82,8 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionScheduled, metav1.ConditionTrue, waystatus.ReasonGatewayPodScheduled)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionTunnelReady, metav1.ConditionTrue, waystatus.ReasonTunnelObservedReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady)
-	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady)
 
 	if err := client.Delete(context.Background(), pod); err != nil {
 		t.Fatal(err)
@@ -95,6 +96,8 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	}
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotReady)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
 }
 
 func TestGatewayRejectsMutableEngineImageWithoutCreatingResources(t *testing.T) {
@@ -119,6 +122,15 @@ func TestGatewayRejectsMutableEngineImageWithoutCreatingResources(t *testing.T) 
 	if len(statefulSets.Items) != 0 {
 		t.Fatal("mutable engine image produced a gateway workload")
 	}
+}
+
+func TestGatewayReadyRequiresEnabledComponents(t *testing.T) {
+	gateway := controllerTestGateway()
+	gateway.Spec.PortForwarding.Enabled = true
+	setRemainingGatewayConditions(gateway, true)
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady)
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotImplemented)
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
 }
 
 func gatewayTestScheme(t *testing.T) *runtime.Scheme {

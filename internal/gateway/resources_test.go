@@ -33,7 +33,7 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	if hasMount(manager, "credentials") {
 		t.Fatal("gateway manager receives provider credentials")
 	}
-	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || !reflect.DeepEqual(engine.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN"}) {
+	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || !reflect.DeepEqual(engine.SecurityContext.Capabilities.Drop, []corev1.Capability{"ALL"}) || !reflect.DeepEqual(engine.SecurityContext.Capabilities.Add, []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER", "NET_ADMIN", "SETGID", "SETUID"}) {
 		t.Fatalf("engine capabilities = %#v", engine.SecurityContext)
 	}
 	if manager.SecurityContext == nil || manager.SecurityContext.Capabilities == nil || !reflect.DeepEqual(manager.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN", "NET_BIND_SERVICE"}) {
@@ -69,6 +69,7 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 		"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH": "/run/waycloak/engine-auth/config.toml",
 		"VPN_INTERFACE":                            TunnelInterface,
 		"FIREWALL_INPUT_PORTS":                     "18080",
+		"SERVER_COUNTRIES":                         gateway.Spec.Provider.Region,
 	} {
 		if environment[key] != want {
 			t.Fatalf("environment %s = %q", key, environment[key])

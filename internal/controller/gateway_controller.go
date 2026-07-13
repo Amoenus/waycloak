@@ -220,7 +220,7 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "Gateway manager has not observed a healthy engine tunnel")
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady, "Gateway manager has not reported the overlay ready")
 	}
-	setRemainingGatewayConditions(gateway)
+	setRemainingGatewayConditions(gateway, managerReady)
 	return nil
 }
 
@@ -228,17 +228,25 @@ func setGatewayPending(gateway *wayv1.VPNGateway, message string) {
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionFalse, waystatus.ReasonGatewayPodPending, message)
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "No serving gateway Pod is available")
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady, "No serving gateway Pod is available")
-	setRemainingGatewayConditions(gateway)
+	setRemainingGatewayConditions(gateway, false)
 }
 
-func setRemainingGatewayConditions(gateway *wayv1.VPNGateway) {
-	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotImplemented, "Gateway DNS forwarding is not implemented yet")
+func setRemainingGatewayConditions(gateway *wayv1.VPNGateway, managerReady bool) {
+	if managerReady {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady, "Gateway manager reports DNS forwarding healthy")
+	} else {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotReady, "Gateway manager has not reported DNS forwarding ready")
+	}
 	if gateway.Spec.PortForwarding.Enabled {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotImplemented, "Gateway port forwarding is not implemented yet")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardDisabled, "Gateway port forwarding is disabled")
 	}
-	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "Gateway overlay and DNS components are not ready")
+	if managerReady && !gateway.Spec.PortForwarding.Enabled {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady, "All enabled gateway components are observed ready")
+	} else {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "One or more enabled gateway components are not ready")
+	}
 }
 
 func podCondition(pod *corev1.Pod, conditionType corev1.PodConditionType) corev1.ConditionStatus {
