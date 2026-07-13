@@ -58,13 +58,14 @@ jobs:
           wait: 120s
       - name: Verify source before publication
         run: |
-          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          test -z "$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           go test ./...
           go test -race ./...
           go vet ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
           make verify-generated verify-workflows
-          export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"
+          KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"
+          export KUBEBUILDER_ASSETS
           go test -tags=envtest ./test/integration/... -v -count=1
           go test -tags=e2e ./test/e2e/... -v -count=1 -timeout=20m
           gitleaks git --redact --no-banner
@@ -83,21 +84,21 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           build_image() {
-            local name="$1" package="$2"
-            KO_DOCKER_REPO="ghcr.io/$owner/waycloak-$name" \
+            local key="$1" name="$2" package="$3"
+            local ref
+            ref="$(KO_DOCKER_REPO="ghcr.io/$owner/waycloak-$name" \
               go run github.com/google/ko@v0.19.1 build --bare --sbom=spdx \
-                --platform=linux/amd64,linux/arm64 --tags="$VERSION" "$package" | tail -n 1
-          }
-          controller="$(build_image controller ./cmd/controller)"
-          agent="$(build_image agent ./cmd/agent)"
-          manager="$(build_image gateway-manager ./cmd/gateway-manager)"
-          for entry in controller agent manager; do
-            ref="${!entry}"
+                --platform=linux/amd64,linux/arm64 --tags="$VERSION" "$package" | tail -n 1)"
             [[ "$ref" =~ ^.+@sha256:[a-f0-9]{64}$ ]]
-            printf '%s=%s\n' "$entry" "$ref" >>"$GITHUB_OUTPUT"
-            printf '%s_name=%s\n' "$entry" "${ref%@*}" >>"$GITHUB_OUTPUT"
-            printf '%s_digest=%s\n' "$entry" "${ref##*@}" >>"$GITHUB_OUTPUT"
-          done
+            {
+              printf '%s=%s\n' "$key" "$ref"
+              printf '%s_name=%s\n' "$key" "${ref%@*}"
+              printf '%s_digest=%s\n' "$key" "${ref##*@}"
+            } >>"$GITHUB_OUTPUT"
+          }
+          build_image controller controller ./cmd/controller
+          build_image agent agent ./cmd/agent
+          build_image manager gateway-manager ./cmd/gateway-manager
       - name: Scan published images and emit release SBOMs
         env:
           CONTROLLER: ${{ steps.images.outputs.controller }}

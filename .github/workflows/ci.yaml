@@ -34,7 +34,7 @@ jobs:
         run: bash hack/install-security-tools.sh
       - name: Verify formatting, tests, race detector, vet, and static analysis
         run: |
-          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          test -z "$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           go test ./...
           go test -race ./...
           go vet ./...
@@ -68,7 +68,8 @@ jobs:
           cmp "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" "$RUNNER_TEMP/chart-2/waycloak-$chart_version.tgz"
       - name: Run envtest reconciliation
         run: |
-          export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"
+          KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"
+          export KUBEBUILDER_ASSETS
           go test -tags=envtest ./test/integration/... -v -count=1
       - name: Scan source and dependencies
         run: |
