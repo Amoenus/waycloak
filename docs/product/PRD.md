@@ -1,0 +1,200 @@
+# Product requirements document
+
+Status: Draft for implementation
+Owner: Waycloak maintainers
+Last updated: 2026-07-13
+
+## Summary
+
+Waycloak gives Kubernetes workloads declarative, fail-closed egress through shared VPN gateways. A developer marks a Pod template with one named-gateway annotation. Waycloak injects the required networking agent, routes the Pod through that gateway, prevents ordinary-egress fallback, and exposes observed health through Kubernetes status.
+
+Waycloak also coordinates inbound VPN-provider port forwarding for peer-to-peer and server workloads. A single VPN tunnel may provide multiple forwarded ports when the provider supports it; each lease is bound to a stable workload identity and reconciled into gateway DNAT rules.
+
+## Problem
+
+Common Kubernetes VPN patterns force each application to carry a VPN sidecar. This duplicates tunnels and credentials, consumes homelab resources, entangles application manifests with provider details, and makes shared port forwarding difficult. A standalone proxy is insufficient for UDP-heavy protocols such as DHT and does not transparently protect arbitrary Pod traffic.
+
+Existing shared-gateway projects solve portions of routing but generally do not provide the complete product contract required here: explicit workload opt-in, admission-time injection, fail-closed lifecycle, provider-backed multi-workload port leases, application-neutral APIs, and meaningful observed status.
+
+## Users
+
+### Platform operator
+
+Installs Waycloak, defines gateways, references credentials, selects provider drivers, grants the minimum necessary security exception, and monitors gateway health.
+
+### Application developer
+
+Selects a gateway on a Pod template. The developer should not need to understand VXLAN, VPN credentials, NAT-PMP, tunnel interfaces, or provider APIs.
+
+### Application integrator
+
+For software that must learn its provider-assigned public port, consumes the Waycloak lease contract through a mounted file, environment-compatible launcher, or local HTTP endpoint.
+
+## Goals
+
+1. Route opted-in Pod traffic through a named, shared VPN gateway.
+2. Fail closed before application startup and throughout tunnel or gateway failure.
+3. Preserve normal Kubernetes scheduling; protected applications do not share a Pod with the VPN engine.
+4. Keep VPN credentials only on the gateway.
+5. Support TCP and UDP, including DHT traffic.
+6. Allocate stable client identities and, where supported, durable forwarded-port leases.
+7. Make plain Kubernetes annotations and CRDs the universal API.
+8. Publish hardened, signed OCI artifacts with reproducible metadata.
+9. Make routing and lease health visible as conditions, events, logs, and metrics.
+10. Support lightweight homelab clusters without requiring a service mesh or replacement CNI.
+
+## Non-goals
+
+- Providing VPN accounts or operating a public VPN service.
+- Guaranteeing anonymity against node administrators, privileged workloads, the VPN provider, destination services, or global traffic analysis.
+- Protecting a malicious application granted capabilities sufficient to change its own network namespace.
+- Replacing Kubernetes NetworkPolicy, the cluster CNI, or a full service mesh.
+- Routing host-network Pods in the initial releases.
+- Transparent high availability for a single provider tunnel in `v0.1`.
+- Supporting Windows nodes.
+- Automatically modifying already-running Pod network namespaces after annotations change.
+- Configuring every application's proprietary listen-port API in core Waycloak.
+
+## Core user stories
+
+### Select private egress
+
+As an application developer, I annotate a Deployment Pod template with a gateway name. Every replacement Pod uses that gateway or remains unable to reach external networks.
+
+### Remove private egress
+
+As an application developer, I remove the annotation and roll the workload. New Pods use ordinary cluster networking. Existing Pods are not mutated in place.
+
+### Share one tunnel
+
+As a platform operator, I route qBitTorrent, Bitmagnet, and a DHT crawler through one gateway without placing them in one Pod and without copying VPN credentials.
+
+### Receive a forwarded port
+
+As an application integrator, I request a port lease and receive a stable local representation of the current public TCP/UDP port. If the provider changes the port, Waycloak updates the representation and status.
+
+### Observe a failure
+
+As a platform operator, I can distinguish admission failure, route setup failure, gateway reachability, tunnel health, external-IP verification, lease acquisition, and application delivery failures.
+
+## Functional requirements
+
+### FR-1: Gateway declaration
+
+The `VPNGateway` CRD describes a gateway implementation, driver, network pool, credential Secret reference, DNS mode, port-forward capabilities, placement, resource policy, and allowed workload namespaces. Secrets are referenced, not copied into the resource or workloads.
+
+### FR-2: Workload opt-in
+
+The annotation `networking.waycloak.io/gateway: <namespace>/<name>` on a Pod template is the canonical opt-in. The webhook only mutates Pods that carry it. The referenced gateway's `workloadAccess.namespaceSelector` must authorize the workload namespace. The namespace may be omitted only when the gateway is in the workload namespace.
+
+### FR-3: Admission mutation
+
+Before scheduling, Waycloak injects an initial route setup component and a long-running health/reconnect agent. Mutation is idempotent and versioned. Conflicting manual network configuration is rejected with a useful event.
+
+### FR-4: Fail-closed routing
+
+An injected, required allocation ConfigMap keeps the Pod from starting until the controller has persisted its registration. The init component then installs deny rules before enabling the gateway route or allowing application containers to start. External traffic is permitted only through the Waycloak overlay. Required control traffic is narrowly allowed: gateway overlay, cluster-local traffic according to configured policy, and DNS through the selected resolver. Tunnel loss never restores the node or CNI default route for external traffic.
+
+### FR-5: Shared gateway
+
+One gateway can serve multiple Pods across namespaces subject to policy. Each client receives a stable allocation recorded in Kubernetes state. Adding or removing a client must not renumber existing clients.
+
+### FR-6: DNS containment
+
+Protected Pods resolve external names through the gateway or an explicitly trusted cluster DNS path whose upstream egress is protected. Tests must prove that direct external DNS and fallback resolvers cannot bypass the VPN.
+
+### FR-7: Port-forward leases
+
+The `PortForwardLease` API binds one requested protocol set to one target Pod or Service identity. The provider driver reports its capabilities. Unsupported multi-port or protocol requests fail explicitly. Leases survive controller restarts and are reconciled after gateway replacement.
+
+### FR-8: Lease delivery
+
+Waycloak provides an application-neutral lease representation containing public port, protocols, gateway, generation, issued time, renewal time, and state. The initial mechanisms are a projected/mounted file and a Pod-local HTTP endpoint. Application-specific adapters remain separate packages or examples.
+
+### FR-9: Status
+
+Resources expose `observedGeneration`, conditions with stable reason codes, allocated client address, gateway reference, verified public IP where safe, active lease details, and last transition times. Registration alone is not readiness.
+
+### FR-10: Safe reconciliation
+
+Membership changes should update gateway state without restarting the VPN tunnel. If a disruptive change is unavoidable, status and events must state it and protected workloads must remain fail-closed.
+
+### FR-11: Uninstall safety
+
+Uninstall documentation must state ordering. The webhook is removed without trapping unrelated Pods, while annotated workloads cannot be recreated unprotected. Finalizers must not indefinitely block namespace deletion.
+
+## Non-functional requirements
+
+### Security
+
+- Least-privilege RBAC and capability assignment.
+- No default ServiceAccount token mount where not needed.
+- Read-only root filesystems and non-root execution wherever kernel operations allow it.
+- Credentials never logged, surfaced in status, or copied to application namespaces.
+- Admission and control APIs authenticated and encrypted.
+- Explicit network policy examples.
+
+### Reliability
+
+- Controller reconciliation is idempotent.
+- Controller restart does not change client addresses or leases.
+- Agent reconnect rereads current configuration without requiring application restart where feasible.
+- Gateway/tunnel recovery is automatic and observable.
+
+### Performance
+
+- One tunnel must support at least 50 low-throughput protected Pods in a reference Kind/k3d test without per-workload VPN processes.
+- The agent target is less than 25 MiB resident memory per protected Pod in `v0.1`; optimize further after measurement.
+- Reconciliation must not poll the Kubernetes API per packet or per DNS query.
+
+### Compatibility
+
+- Publish an explicit Kubernetes support matrix.
+- Initial target: current Kubernetes minor and the two preceding minors at release time.
+- Support common iptables-nft Linux environments first; document legacy iptables limitations.
+- Test at least Kind and k3s/k3d.
+
+## Release acceptance
+
+### v0.1.0 — private egress foundation
+
+- Installable signed Helm OCI chart and signed images.
+- One Gluetun-backed gateway.
+- Annotation-based injection.
+- Stable client allocation.
+- TCP/UDP egress and contained DNS.
+- Fail-closed startup, tunnel loss, gateway loss, and agent recovery tests.
+- Meaningful CRD status and Kubernetes events.
+- No dependency on the homelab composition stack.
+
+### v0.2.0 — provider port forwarding
+
+- Capability-aware provider interface.
+- Proton/OpenVPN NAT-PMP implementation through Gluetun.
+- Multiple stable leases on one tunnel when the provider permits it.
+- TCP and UDP DNAT to separate workloads.
+- qBitTorrent reference integration and sustained DHT proof.
+- Lease renewal without leaking traffic or silently changing the application contract.
+
+### v0.3.0 — operational maturity
+
+- Multiple named gateways.
+- Deliberate sharding/failover design.
+- Upgrade and rollback tests.
+- Prometheus metrics and dashboards as optional artifacts.
+- Additional provider validation.
+
+## Success measures
+
+- One-line opt-in is sufficient for application teams.
+- Zero observed direct-egress packets from protected Pods during forced failure tests.
+- No VPN credential material exists in application Pods.
+- Adding a client does not restart the tunnel or renumber existing clients.
+- qBitTorrent DHT remains healthy through a sustained test and lease renewal.
+- Fresh users can install and validate protected egress using only Kubernetes, Helm, and a compatible VPN account.
+
+## Open questions
+
+- Whether the initial agent uses nftables exclusively or supports an iptables compatibility backend.
+- Whether webhook certificates are self-managed or use an optional cert-manager integration.
+- Exact safe mechanism for delivering changing lease values to applications that only read environment variables at startup.

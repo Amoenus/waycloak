@@ -1,0 +1,24 @@
+# Binaries and test output
+/bin/
+/dist/
+/coverage.out
+*.test
+
+# Generated local state
+/.env
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+
+# Kubernetes tooling
+/.kube/
+/.kind/
+/charts/*.tgz
+
+# Secrets and local overrides
+*.key
+*.pem
+*.p12
+*.secret.yaml
+values.local.yaml

@@ -1,0 +1,42 @@
+name: Bug report
+description: Report incorrect Waycloak behavior without including credentials.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include VPN credentials, Secret data, or identifying public-IP history.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Observed outcome
+      description: What happened, including relevant condition reasons and redacted events.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected outcome
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Waycloak, Kubernetes, CNI, kernel, VPN engine/provider/protocol, and installation versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal redacted manifests and steps.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed credentials, tokens, and identifying network data.
+          required: true
