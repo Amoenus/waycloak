@@ -85,14 +85,16 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           build_image() {
             local key="$1" name="$2" package="$3"
-            local ref
+            local ref tagged_name repository_name
             ref="$(KO_DOCKER_REPO="ghcr.io/$owner/waycloak-$name" \
               go run github.com/google/ko@v0.19.1 build --bare --sbom=spdx \
                 --platform=linux/amd64,linux/arm64 --tags="$VERSION" "$package" | tail -n 1)"
             [[ "$ref" =~ ^.+@sha256:[a-f0-9]{64}$ ]]
+            tagged_name="${ref%@*}"
+            repository_name="${tagged_name%:*}"
             {
               printf '%s=%s\n' "$key" "$ref"
-              printf '%s_name=%s\n' "$key" "${ref%@*}"
+              printf '%s_name=%s\n' "$key" "$repository_name"
               printf '%s_digest=%s\n' "$key" "${ref##*@}"
             } >>"$GITHUB_OUTPUT"
           }
