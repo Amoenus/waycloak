@@ -58,7 +58,7 @@ Waycloak does not assume that all providers or protocols support port forwarding
 
 ### Lease delivery agent
 
-Makes the neutral `PortForwardLease` record available inside the workload Pod without granting Kubernetes API access to the application. It may share the routing-agent binary and expose a read-only loopback endpoint plus an atomically updated file.
+Makes the neutral `PortForwardLease` record available inside the workload Pod without granting Kubernetes API access to the application. It may share the routing-agent binary and exposes a read-only loopback endpoint plus an atomically updated file. Environment-only applications opt into a supervisor that stops its child on lease loss or generation change and restarts it only with a current ready record; the controller does not roll arbitrary workload owners. ADR 0011 defines the delivery and ownership boundary.
 
 ## Resource ownership
 

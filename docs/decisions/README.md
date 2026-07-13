@@ -11,5 +11,7 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0007: Transparent gateway-routed DNS](0007-transparent-gateway-dns.md)
 - [0008: Gateway credential and engine-control boundary](0008-gateway-credential-and-engine-control-boundary.md)
 - [0009: Gluetun firewall and Waycloak forwarding ownership](0009-gluetun-firewall-forwarding-boundary.md)
+- [0010: External ownership of admission webhook certificates](0010-external-webhook-certificate-ownership.md)
+- [0011: Renewable port-lease delivery and environment-only applications](0011-renewable-port-lease-delivery.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

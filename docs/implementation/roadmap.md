@@ -9,7 +9,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] Proposed API contract.
 - [x] Test and release requirements.
 - [x] Homelab prototype provenance.
-- [ ] Resolve remaining open API questions through ADRs.
+- [x] Resolve remaining open API questions through ADRs (ADRs 0006, 0010, and 0011).
 - [x] Scaffold Go module, controller-runtime project, and generated CRDs.
 
 Exit: `go test ./...` runs on a minimal controller scaffold and generated manifests are reproducible.

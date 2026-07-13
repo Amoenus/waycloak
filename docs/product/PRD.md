@@ -193,8 +193,8 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - qBitTorrent DHT remains healthy through a sustained test and lease renewal.
 - Fresh users can install and validate protected egress using only Kubernetes, Helm, and a compatible VPN account.
 
-## Open questions
+## Resolved design questions
 
-- Whether the initial agent uses nftables exclusively or supports an iptables compatibility backend.
-- Whether webhook certificates are self-managed or use an optional cert-manager integration.
-- Exact safe mechanism for delivering changing lease values to applications that only read environment variables at startup.
+- The initial agent uses native nftables and netlink exclusively and rejects unsupported kernels; it has no permissive iptables fallback ([ADR 0006](../decisions/0006-native-linux-data-plane.md)).
+- The chart consumes an externally managed webhook TLS Secret and CA bundle. Optional certificate automation may produce those inputs but is not a runtime dependency ([ADR 0010](../decisions/0010-external-webhook-certificate-ownership.md)).
+- Renewable leases use the mounted file and Pod-loopback endpoint as canonical live state. Environment-only applications explicitly use a fail-closed supervisor that restarts its child on generation changes; the controller does not restart arbitrary workload owners ([ADR 0011](../decisions/0011-renewable-port-lease-delivery.md)).

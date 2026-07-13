@@ -151,6 +151,16 @@ Selector cardinality must be defined. The initial implementation should require 
 
 `Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and delivery state has been published. It does not merely mean the object registered.
 
+The canonical renewable delivery record is versioned JSON exposed through an
+atomically replaced read-only file and a read-only Pod-loopback endpoint.
+Kubernetes environment variables are not a renewable delivery surface. An
+environment-only application explicitly runs under a supervisor that stops its
+child when the current generation expires or changes and starts it again only
+after a ready record is available. The controller never rolls an arbitrary
+workload owner to refresh environment state. [ADR 0011](../decisions/0011-renewable-port-lease-delivery.md)
+fixes these semantics; Phase 4 defines the container-selection and
+adapter-packaging fields.
+
 ## Common condition conventions
 
 All APIs use Kubernetes-style conditions with:
