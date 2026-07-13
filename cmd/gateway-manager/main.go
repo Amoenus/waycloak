@@ -52,8 +52,14 @@ func run(args []string) error {
 	defer stop()
 	manager := &waygateway.HealthManager{Engine: engine}
 	if *configPath != "" {
+		dns, err := waygateway.NewDNSProxyFromResolvConf("/etc/resolv.conf")
+		if err != nil {
+			return err
+		}
 		manager.Source = waygateway.FileSource{Path: *configPath}
 		manager.Network = waygateway.NewNetwork()
+		manager.Forwarding = waygateway.NewForwarding()
+		manager.DNS = dns
 	}
 	return serve(ctx, manager, *healthAddress, 2*time.Second)
 }

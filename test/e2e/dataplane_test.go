@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -96,12 +97,17 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 
 	gateway := netnsRunner("gateway", namespace)
 	protected := netnsRunner("protected", namespace)
+	external := externalHTTPRunner(namespace)
 	must(t, direct.Create(ctx, gateway))
 	must(t, direct.Create(ctx, protected))
+	must(t, direct.Create(ctx, external))
 	waitForPodReady(t, direct, gateway)
 	waitForPodReady(t, direct, protected)
+	waitForPodReady(t, direct, external)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(gateway), gateway))
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(external), external))
+	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "wget", "-qO-", "-T", "3", "http://"+external.Status.PodIP+":8080")
 	var clusterDNS corev1.Service
 	must(t, direct.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "kube-dns"}, &clusterDNS))
 	copyTestBinary(t, binary, namespace, gateway.Name)
@@ -109,7 +115,12 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	copyLocalFile(t, gatewayBinary, namespace, gateway.Name, "/tmp/gateway.test")
 
 	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "env", "WAYCLOAK_E2E_GATEWAY_NETWORK=1", "WAYCLOAK_E2E_REMOTE_IP="+protected.Status.PodIP, "/tmp/gateway.test", "-test.run", "^TestConfigureGatewayVXLAN$", "-test.v")
-	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_SKIP_GATEWAY_VXLAN=1 WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", clusterDNS.Spec.ClusterIP)
+	dnsCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY_DNS=1 WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/gateway.test -test.run '^TestServeGatewayDNS$' -test.v >/tmp/gateway-dns.log 2>&1 &", protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "sh", "-c", dnsCommand)
+	waitFor(t, 20*time.Second, func() bool {
+		return exec.Command("kubectl", "exec", "-n", namespace, gateway.Name, "--", "test", "-f", "/tmp/gateway-dns-ready").Run() == nil
+	})
+	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_SKIP_GATEWAY_VXLAN=1 WAYCLOAK_E2E_SKIP_GATEWAY_DNS=1 WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "sh", "-c", gatewayCommand)
 	deadline := time.Now().Add(20 * time.Second)
 	ready := false
@@ -127,6 +138,12 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 
 	clientEnv := []string{"WAYCLOAK_E2E_CLIENT=1", "WAYCLOAK_E2E_REMOTE_IP=" + gateway.Status.PodIP}
 	runInPod(t, namespace, protected.Name, clientEnv, "^TestConfigureVXLANProtectedPath$")
+	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "env", "WAYCLOAK_E2E_GATEWAY_NETWORK=1", "WAYCLOAK_E2E_REMOTE_IP="+protected.Status.PodIP, "/tmp/gateway.test", "-test.run", "^TestConfigureGatewayForwarding$", "-test.v")
+	clientEnv = append(clientEnv, "WAYCLOAK_E2E_GATEWAY_FORWARDING=1", "WAYCLOAK_E2E_FORWARD_TARGET="+external.Status.PodIP+":8080")
+	response := command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "--", "wget", "-qO-", "-T", "3", "http://"+external.Status.PodIP+":8080")
+	if strings.TrimSpace(response) != "ok" {
+		t.Fatalf("gateway-forwarded response = %q", response)
+	}
 	runInPod(t, namespace, protected.Name, clientEnv, "^TestRepairOwnedFirewallAndLinkDrift$")
 	runInPod(t, namespace, protected.Name, clientEnv, "^TestClusterTrafficModes$")
 	runInPod(t, namespace, protected.Name, append(clientEnv, "WAYCLOAK_E2E_EXPECT_GATEWAY=1"), "^TestProtectedStateSurvivesAgentExit$")
@@ -136,6 +153,19 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 		return direct.Get(ctx, client.ObjectKeyFromObject(gateway), &current) != nil
 	})
 	runInPod(t, namespace, protected.Name, append(clientEnv, "WAYCLOAK_E2E_EXPECT_GATEWAY=0"), "^TestProtectedStateSurvivesAgentExit$")
+}
+
+func externalHTTPRunner(namespace string) *corev1.Pod {
+	no := false
+	yes := true
+	root := int64(0)
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: namespace}, Spec: corev1.PodSpec{
+		AutomountServiceAccountToken: &no,
+		NodeSelector:                 map[string]string{"kubernetes.io/arch": "amd64"},
+		Containers: []corev1.Container{{Name: "server", Image: "alpine:3.22.1", Command: []string{"sh", "-c", "while true; do printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok' | nc -l -p 8080; done"}, Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt(8080)}}, PeriodSeconds: 1}, SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		}}},
+	}}
 }
 
 func netnsRunner(name, namespace string) *corev1.Pod {

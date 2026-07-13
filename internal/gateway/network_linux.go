@@ -7,7 +7,6 @@ package gateway
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -38,7 +37,7 @@ func (linuxNetwork) Reconcile(_ context.Context, desired DesiredState) error {
 	if err != nil {
 		return fmt.Errorf("resolve gateway underlay interface: %w", err)
 	}
-	name := gatewayOverlayName(desired.GatewayName)
+	name := OverlayInterfaceName(desired.GatewayName)
 	link, err := ensureGatewayVXLAN(name, desired, underlay, route)
 	if err != nil {
 		return err
@@ -98,9 +97,4 @@ func reconcileGatewayPeers(link netlink.Link, members []Member) error {
 		}
 	}
 	return nil
-}
-
-func gatewayOverlayName(name string) string {
-	sum := sha256.Sum256([]byte(name))
-	return fmt.Sprintf("wcg%x", sum[:5])
 }

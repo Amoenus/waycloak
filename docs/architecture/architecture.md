@@ -89,6 +89,8 @@ For Gluetun, the manager observes the engine through its loopback-only external-
 
 The same ConfigMap carries deterministic gateway desired-state JSON. Each member record joins a persisted `VPNWorkload` identity and overlay allocation to the UID-matched Pod's observed underlay IP. The manager has no Kubernetes credentials and validates the entire snapshot before applying it. Ordering is deterministic only for reproducible serialization; identities and addresses remain persisted values and are never derived from list position.
 
+Gateway packet policy is deny-first. The manager installs a Waycloak-owned nftables forward-drop chain before creating VXLAN, then activates only overlay-to-VPN forwarding, connection-tracked return traffic, and VPN-interface masquerade. Gluetun continues to own local input/output containment. Its supported static post-rules hook delegates only the shared namespace's forward policy and narrowly opens overlay DNS/readiness input; ADR 0009 records this engine boundary. The production DNS proxy sends cluster search zones to the observed Kubernetes resolver and every other query to Gluetun's loopback protected resolver.
+
 ## Lifecycle
 
 ### Adding protection

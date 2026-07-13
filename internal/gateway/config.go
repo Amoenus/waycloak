@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"regexp"
 )
+
+var interfaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
 
 type DesiredSource interface {
 	Load() (DesiredState, error)
@@ -43,6 +46,9 @@ func (desired DesiredState) Validate() error {
 	}
 	if desired.VNI < 1 || desired.VNI > 16777215 || desired.MTU < 576 || desired.VXLANPort < 1 || desired.VXLANPort > 65535 {
 		return errors.New("gateway VXLAN settings are invalid")
+	}
+	if !interfaceNamePattern.MatchString(desired.TunnelInterface) {
+		return errors.New("gateway tunnel interface is invalid")
 	}
 	identities := map[string]struct{}{}
 	addresses := map[netip.Addr]struct{}{gatewayAddress: {}}

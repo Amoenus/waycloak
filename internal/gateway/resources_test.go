@@ -33,10 +33,11 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	if hasMount(manager, "credentials") {
 		t.Fatal("gateway manager receives provider credentials")
 	}
-	for _, container := range []corev1.Container{engine, manager} {
-		if container.SecurityContext == nil || container.SecurityContext.Capabilities == nil || !reflect.DeepEqual(container.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN"}) {
-			t.Fatalf("%s capabilities = %#v", container.Name, container.SecurityContext)
-		}
+	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || !reflect.DeepEqual(engine.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN"}) {
+		t.Fatalf("engine capabilities = %#v", engine.SecurityContext)
+	}
+	if manager.SecurityContext == nil || manager.SecurityContext.Capabilities == nil || !reflect.DeepEqual(manager.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN", "NET_BIND_SERVICE"}) {
+		t.Fatalf("manager capabilities = %#v", manager.SecurityContext)
 	}
 	if manager.ReadinessProbe == nil || manager.ReadinessProbe.HTTPGet == nil || manager.ReadinessProbe.HTTPGet.Port.IntValue() != HealthPort {
 		t.Fatalf("manager readiness probe = %#v", manager.ReadinessProbe)
@@ -66,6 +67,8 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 		"OPENVPN_PASSWORD_SECRETFILE":              "/run/waycloak/credentials/password",
 		"HTTP_CONTROL_SERVER_ADDRESS":              "127.0.0.1:8000",
 		"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH": "/run/waycloak/engine-auth/config.toml",
+		"VPN_INTERFACE":                            TunnelInterface,
+		"FIREWALL_INPUT_PORTS":                     "18080",
 	} {
 		if environment[key] != want {
 			t.Fatalf("environment %s = %q", key, environment[key])
@@ -74,6 +77,13 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 	config := DesiredConfigMap(gateway, nil).Data[EngineAuthKey]
 	if !strings.Contains(config, `routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]`) || strings.Contains(config, "PUT ") {
 		t.Fatalf("control-server role is not read-only: %s", config)
+	}
+	postRules := DesiredConfigMap(gateway, nil).Data[EnginePostRulesKey]
+	if !strings.Contains(postRules, "iptables --policy FORWARD ACCEPT") || !strings.Contains(postRules, "--in-interface "+OverlayInterfaceName(gateway.Name)) || !strings.Contains(postRules, "--source "+gateway.Spec.Overlay.CIDR) {
+		t.Fatalf("Gluetun forwarding adapter is not gateway-scoped: %s", postRules)
+	}
+	if !hasMount(engine, "engine-firewall") {
+		t.Fatal("Gluetun does not receive its forwarding-policy adapter")
 	}
 }
 

@@ -11,7 +11,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"time"
 
@@ -120,16 +122,28 @@ func (*linuxBackend) Verify(ctx context.Context, cfg Config) error {
 	}
 	for _, route := range routes {
 		if route.LinkIndex == link.Attrs().Index && addrEqual(route.Gw, cfg.GatewayAddress) {
-			dialer := net.Dialer{Timeout: 2 * time.Second}
-			connection, dialErr := dialer.DialContext(ctx, "tcp", netip.AddrPortFrom(cfg.GatewayAddress, cfg.GatewayHealthPort).String())
-			if dialErr != nil {
-				return fmt.Errorf("probe observed gateway overlay health endpoint: %w", dialErr)
-			}
-			_ = connection.Close()
-			return nil
+			return probeGatewayReadiness(ctx, netip.AddrPortFrom(cfg.GatewayAddress, cfg.GatewayHealthPort))
 		}
 	}
 	return errors.New("protected default route is not installed")
+}
+
+func probeGatewayReadiness(ctx context.Context, endpoint netip.AddrPort) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+endpoint.String()+"/readyz", nil)
+	if err != nil {
+		return fmt.Errorf("build gateway readiness probe: %w", err)
+	}
+	client := http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("probe observed gateway readiness endpoint: %w", err)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("gateway readiness endpoint returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {

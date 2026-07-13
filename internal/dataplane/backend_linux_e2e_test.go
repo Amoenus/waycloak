@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"strings"
@@ -99,30 +100,29 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 			t.Fatalf("bring fake gateway VXLAN up: %v", err)
 		}
 	}
-	stopDNS := startFakeDNSProxy(t, net.JoinHostPort(os.Getenv("WAYCLOAK_E2E_CLUSTER_DNS"), "53"))
-	defer stopDNS()
+	if os.Getenv("WAYCLOAK_E2E_SKIP_GATEWAY_DNS") != "1" {
+		stopDNS := startFakeDNSProxy(t, net.JoinHostPort(os.Getenv("WAYCLOAK_E2E_CLUSTER_DNS"), "53"))
+		defer stopDNS()
+	}
 	listener, err := net.Listen("tcp4", "172.30.99.1:18080")
 	if err != nil {
 		t.Fatalf("listen on fake protected endpoint: %v", err)
 	}
-	defer listener.Close()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/readyz", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
+	serverErrors := make(chan error, 1)
+	go func() { serverErrors <- server.Serve(listener) }()
+	defer func() { _ = server.Close() }()
 	if err := os.WriteFile("/tmp/gateway-ready", []byte("ready\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Minute)
-	for time.Now().Before(deadline) {
-		if tcp, ok := listener.(*net.TCPListener); ok {
-			_ = tcp.SetDeadline(time.Now().Add(time.Second))
+	select {
+	case err := <-serverErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("serve protected health endpoint: %v", err)
 		}
-		connection, acceptErr := listener.Accept()
-		if acceptErr == nil {
-			_ = connection.Close()
-			continue
-		}
-		if timeout, ok := acceptErr.(net.Error); ok && timeout.Timeout() {
-			continue
-		}
-		t.Fatalf("accept protected connection: %v", acceptErr)
+	case <-time.After(2 * time.Minute):
 	}
 }
 
@@ -142,7 +142,7 @@ func TestConfigureVXLANProtectedPath(t *testing.T) {
 		t.Fatalf("reach fake gateway over VXLAN: %v", err)
 	}
 	assertDNSReachability(t, true)
-	assertDirectPathBlocked(t)
+	assertGatewayClusterPath(t, true)
 }
 
 func TestProtectedStateSurvivesAgentExit(t *testing.T) {
@@ -165,7 +165,7 @@ func TestProtectedStateSurvivesAgentExit(t *testing.T) {
 		}
 	}
 	assertDNSReachability(t, wantGateway)
-	assertDirectPathBlocked(t)
+	assertForwardedTarget(t, wantGateway)
 }
 
 func startFakeDNSProxy(t *testing.T, upstream string) func() {
@@ -361,7 +361,7 @@ func TestRepairOwnedFirewallAndLinkDrift(t *testing.T) {
 		t.Fatalf("protected path after drift repair: %v", err)
 	}
 	assertDNSReachability(t, true)
-	assertDirectPathBlocked(t)
+	assertGatewayClusterPath(t, true)
 }
 
 func TestClusterTrafficModes(t *testing.T) {
@@ -396,7 +396,7 @@ func TestClusterTrafficModes(t *testing.T) {
 	if err := agent.Repair(context.Background(), cfg); err != nil {
 		t.Fatalf("restore Gateway mode: %v", err)
 	}
-	assertDirectPathBlocked(t)
+	assertGatewayClusterPath(t, true)
 	if err := connect("172.30.99.1:18080", 2*time.Second); err != nil {
 		t.Fatalf("Gateway mode lost protected connectivity: %v", err)
 	}
@@ -418,10 +418,30 @@ func e2eClientConfig() Config {
 	}
 }
 
-func assertDirectPathBlocked(t *testing.T) {
+func assertGatewayClusterPath(t *testing.T, gatewayAvailable bool) {
 	t.Helper()
 	target := net.JoinHostPort(os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT_HTTPS"))
-	if err := connect(target, 500*time.Millisecond); err == nil {
-		t.Fatal("ordinary Kubernetes Service path bypassed the protected route")
+	err := connect(target, 2*time.Second)
+	wantReachable := gatewayAvailable && os.Getenv("WAYCLOAK_E2E_GATEWAY_FORWARDING") == "1"
+	if wantReachable && err != nil {
+		t.Fatalf("Gateway mode did not route the Kubernetes Service through the gateway: %v", err)
+	}
+	if !wantReachable && err == nil {
+		t.Fatal("Kubernetes Service remained reachable without the protected gateway path")
+	}
+}
+
+func assertForwardedTarget(t *testing.T, want bool) {
+	t.Helper()
+	target := os.Getenv("WAYCLOAK_E2E_FORWARD_TARGET")
+	if target == "" {
+		return
+	}
+	err := connect(target, 2*time.Second)
+	if want && err != nil {
+		t.Fatalf("gateway-forwarded target is unreachable: %v", err)
+	}
+	if !want && err == nil {
+		t.Fatal("gateway-forwarded target bypassed the unavailable gateway")
 	}
 }

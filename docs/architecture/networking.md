@@ -65,6 +65,8 @@ Default behavior transparently destination-NATs every UDP/TCP port 53 request to
 
 The gateway resolver forwards Kubernetes cluster zones to cluster DNS and external zones through the protected upstream. Acceptance covers service names, search domains, UDP, TCP fallback, and gateway outage. Missing resolver state is fail-closed and is repaired with the rest of the Pod-UID-owned nftables table.
 
+The initial Gluetun integration fixes the engine tunnel interface name to `wayvpn0`. Gateway forwarding is installed deny-first in a dedicated IPv4 nftables table: a drop-policy forward chain exists before VXLAN, activation permits only owned-overlay source traffic toward `wayvpn0`, return traffic must be connection-tracked, and masquerade applies only on `wayvpn0`. Gluetun retains local input/output kill-switch ownership as defined by ADR 0009.
+
 ## Inbound port forwarding
 
 When a provider lease is active:
