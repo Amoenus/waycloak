@@ -3,8 +3,9 @@
 This gated suite proves the Phase 4 behavior that a local NAT-PMP fixture
 cannot: actual Proton ingress, renewal, provider port rotation, qBitTorrent
 advertisement, DHT health, and fail-closed recovery. It is destructive only to
-resources it creates under the `waycloak-real-pf-` prefix. It never reads or
-prints VPN Secret data or public endpoint values.
+resources it creates under the `waycloak-real-pf-` prefix. The test process
+never reads VPN Secret data. Public endpoint values are held in memory only for
+assertions and are never printed, persisted, or published.
 
 Run it only from a reviewed commit already contained in `main`, using a signed
 pre-release produced by the protected tag workflow. A locally built controller,
@@ -27,12 +28,7 @@ this release gate.
 
 Do not pass credential values through environment variables, command-line
 arguments, test logs, or repository files. Provision the Secret from secure
-files or the cluster's approved secret manager. Confirm only its object name:
-
-```sh
-kubectl get secret -n "$WAYCLOAK_REAL_VPN_NAMESPACE" \
-  "$WAYCLOAK_REAL_VPN_SECRET" -o name
-```
+files or the cluster's approved secret manager.
 
 ## Verify and install the pre-release
 
@@ -61,6 +57,8 @@ export WAYCLOAK_REAL_QBITTORRENT_ADAPTER_IMAGE="$(
 export WAYCLOAK_REAL_PORT_FORWARD_SOAK=10m
 export WAYCLOAK_REAL_PORT_ROTATION_TIMEOUT=1h
 
+kubectl get secret -n "$WAYCLOAK_REAL_VPN_NAMESPACE" \
+  "$WAYCLOAK_REAL_VPN_SECRET" -o name
 make e2e-real-port-forward
 ```
 
