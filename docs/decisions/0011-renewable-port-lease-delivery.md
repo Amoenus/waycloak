@@ -44,9 +44,29 @@ and `Ready` are based on acknowledgement of the current generation where the
 selected adapter supports acknowledgement; merely writing desired lease state
 does not imply readiness.
 
-The Phase 4 API must preserve these semantics while defining the exact
-container selection and adapter packaging. It must not add a static
-environment-variable projection that can silently become stale.
+The Phase 4 API preserves these semantics through explicit container selection
+and neutral adapter surfaces. It does not add a static environment-variable
+projection that can silently become stale.
+
+## Implementation
+
+The Phase 4 neutral surface uses the optional Pod annotation
+`networking.waycloak.io/port-forward-container: <container>`. Admission mounts
+a dedicated ConfigMap volume filtered to `port-forward-leases.json` at
+`/run/waycloak/port-forward` in only that application container. The shared
+routing agent mounts the complete allocation ConfigMap, validates the document,
+and serves it on loopback port 9809. Its existing health port exposes an
+identity-specific delivery observation to the controller.
+
+The controller publishes only records whose target Pod UID, provider mapping,
+and gateway rules are all currently observed. A deterministic internal digest
+annotation prompts kubelet to refresh the projected volume on renewal without
+restarting the Pod. `Delivered=True` requires an exact readback of API version,
+lease UID, Pod UID, generation, and unexpired Kubernetes-canonical expiry from
+the target agent. This acknowledges the neutral delivery transport; application
+adapters may add stronger application-specific acknowledgement. The
+application container receives no allocation internals, capabilities, or
+Kubernetes API token.
 
 ## Consequences
 

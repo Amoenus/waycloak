@@ -10,6 +10,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	"github.com/Amoenus/waycloak/internal/delivery"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	"github.com/Amoenus/waycloak/internal/provider"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
@@ -83,9 +84,11 @@ func TestPortForwardLeaseRejectsAmbiguousReadyTargets(t *testing.T) {
 
 func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
-	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 987654321, time.UTC)
 	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
 	reconciler.Observer = observer
+	deliveryObserver := &fakeDeliveryObserver{observation: delivery.Observation{APIVersion: delivery.APIVersion, Identity: string(lease.UID), PodUID: "pod-uid", Generation: 1, ExpiresAt: now.Add(60 * time.Second).Truncate(time.Second), Ready: true}}
+	reconciler.DeliveryObserver = deliveryObserver
 	reconciler.Now = func() time.Time { return now }
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}}
 	yes := true
@@ -105,8 +108,13 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonLeaseReady)
 	if got.Status.PublicPort != 42000 || got.Status.LeaseGeneration != 1 {
 		t.Fatalf("provider status = %#v", got.Status)
+	}
+	if got.Status.ExpiresAt == nil || got.Status.ExpiresAt.Nanosecond() != 0 {
+		t.Fatalf("provider expiry was not canonicalized to Kubernetes precision: %#v", got.Status.ExpiresAt)
 	}
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
@@ -122,7 +130,9 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 		t.Fatalf("rotated generation status=%#v error=%v", got.Status, err)
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionFalse, waystatus.ReasonGatewayRulesPending)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending)
 	observer.observation.GatewayRulesGeneration = 2
+	deliveryObserver.observation.Generation = 2
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +140,7 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
 }
 
 func TestPortForwardInternalPortsStayStableAsLeasesChange(t *testing.T) {
@@ -215,7 +226,7 @@ func leaseFixture(t *testing.T, access metav1.LabelSelector, targets int) (*wayv
 			name = "torrent-1"
 			address = "172.30.99.13"
 		}
-		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "apps", UID: uid, Labels: map[string]string{"app": "torrent"}, Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "apps", UID: uid, Labels: map[string]string{"app": "torrent"}, Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}, Status: corev1.PodStatus{PodIP: "10.42.0.20", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}
 		workload := &wayv1.VPNWorkload{ObjectMeta: metav1.ObjectMeta{Name: contract.WorkloadName(string(uid)), Namespace: "apps"}, Spec: wayv1.VPNWorkloadSpec{PodRef: wayv1.PodReference{Name: name, UID: uid}, GatewayRef: wayv1.NamespacedNameReference{Namespace: "egress", Name: "private"}}, Status: wayv1.VPNWorkloadStatus{Allocation: wayv1.AllocationStatus{Address: address, Generation: 1}}}
 		objects = append(objects, pod, workload)
 	}
@@ -246,5 +257,14 @@ type fakeLeaseObserver struct {
 }
 
 func (observer *fakeLeaseObserver) ObserveLease(context.Context, string, string) (waygateway.PortForwardObservation, error) {
+	return observer.observation, observer.err
+}
+
+type fakeDeliveryObserver struct {
+	observation delivery.Observation
+	err         error
+}
+
+func (observer *fakeDeliveryObserver) ObserveDelivery(context.Context, string, string) (delivery.Observation, error) {
 	return observer.observation, observer.err
 }

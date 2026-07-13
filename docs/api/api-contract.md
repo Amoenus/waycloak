@@ -164,7 +164,7 @@ rolling updates after its identity and drain semantics are proven
 - `Delivered`
 - `Ready`
 
-`Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and delivery state has been published. It does not merely mean the object registered.
+`Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and the exact renewable delivery record has been acknowledged by the target Pod agent. ConfigMap publication or object registration alone is insufficient.
 
 `GatewayRulesReady=True` specifically means the serving gateway read back both
 the prerouting DNAT and forward-accept rules for the lease object UID, current
@@ -189,14 +189,29 @@ and increments `leaseGeneration` only when the public port changes
 ([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md)).
 
 The canonical renewable delivery record is versioned JSON exposed through an
-atomically replaced read-only file and a read-only Pod-loopback endpoint.
+atomically replaced read-only file and a read-only Pod-loopback endpoint. A Pod
+may select exactly one application container with
+`networking.waycloak.io/port-forward-container: <container>`. Admission then
+projects only `port-forward-leases.json` from the UID-bound allocation
+ConfigMap into `/run/waycloak/port-forward`; the application does not receive
+the other allocation keys, Kubernetes credentials, or added capabilities. The
+same document is served on loopback port `9809` under
+`/v1/port-forward/leases` and `/v1/port-forward/leases/<identity>`.
+
+The controller reports `Delivered=True` only after the target agent readback
+matches the API version, lease object UID, target Pod UID, lease generation,
+and canonical unexpired expiry. A controller-owned content-digest Pod
+annotation prompts kubelet to refresh the short-lived projected record without
+restarting the Pod. Agent acknowledgement proves neutral record delivery, not
+application-specific configuration; adapters that support stronger
+acknowledgement add that observation at their own boundary.
+
 Kubernetes environment variables are not a renewable delivery surface. An
 environment-only application explicitly runs under a supervisor that stops its
 child when the current generation expires or changes and starts it again only
 after a ready record is available. The controller never rolls an arbitrary
 workload owner to refresh environment state. [ADR 0011](../decisions/0011-renewable-port-lease-delivery.md)
-fixes these semantics; Phase 4 defines the container-selection and
-adapter-packaging fields.
+fixes these semantics.
 
 ## Common condition conventions
 

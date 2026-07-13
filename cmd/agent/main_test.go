@@ -9,11 +9,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/Amoenus/waycloak/internal/dataplane"
+	"github.com/Amoenus/waycloak/internal/delivery"
 )
 
 type loopBackend struct{ repairs int }
@@ -79,5 +83,42 @@ func TestLocalReadinessProbeRequiresHTTP200(t *testing.T) {
 	defer readyServer.Close()
 	if err := probeReadiness(context.Background(), readyServer.URL); err != nil {
 		t.Fatalf("ready HTTP response failed the local probe: %v", err)
+	}
+}
+
+func TestLeaseHandlersExposeValidatedReadOnlyPodRecord(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 42000, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+	serialized, err := delivery.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, contract.PortForwardLeasesKey), []byte(serialized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &delivery.Store{Now: func() time.Time { return now }}
+	if err := store.Refresh(directory); err != nil {
+		t.Fatal(err)
+	}
+	ready := &atomic.Bool{}
+	for _, test := range []struct {
+		handler http.Handler
+		path    string
+	}{
+		{handler: agentHandler(ready, store), path: "/v1/port-forward/deliveries/lease-uid"},
+		{handler: leaseHandler(store), path: "/v1/port-forward/leases"},
+		{handler: leaseHandler(store), path: "/v1/port-forward/leases/lease-uid"},
+	} {
+		response := httptest.NewRecorder()
+		test.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s returned %d: %s", test.path, response.Code, response.Body.String())
+		}
+	}
+	response := httptest.NewRecorder()
+	leaseHandler(store).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/lease-uid", nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("write method returned %d", response.Code)
 	}
 }

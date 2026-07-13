@@ -80,16 +80,28 @@ Example mounted JSON:
 
 ```json
 {
-  "state": "Active",
-  "gateway": "private-egress/proton-eu",
-  "publicPort": 52197,
-  "protocols": ["TCP", "UDP"],
-  "generation": 4,
-  "renewAfter": "2026-07-13T12:30:00Z"
+  "apiVersion": "networking.waycloak.io/v1alpha1",
+  "podUID": "5c2d2a4e-63be-4b57-a27b-8d7803f9aa15",
+  "leases": [{
+    "identity": "90c8629c-f9cd-49a5-bc91-4471ce3e914e",
+    "namespace": "downloads",
+    "name": "torrent",
+    "state": "Active",
+    "gateway": "private-egress/proton-eu",
+    "publicPort": 52197,
+    "targetPort": 6881,
+    "protocols": ["TCP", "UDP"],
+    "generation": 4,
+    "issuedAt": "2026-07-13T12:29:00Z",
+    "renewAfter": "2026-07-13T12:29:45Z",
+    "expiresAt": "2026-07-13T12:30:00Z"
+  }]
 }
 ```
 
-An application adapter can watch the file or local endpoint and call the application's API. Official examples should include qBitTorrent; Loadstone and Bitmagnet can consume the neutral contract directly where possible.
+Set `networking.waycloak.io/port-forward-container: <container>` on the opted-in Pod template to mount only this document at `/run/waycloak/port-forward/port-forward-leases.json` in that application container. The same record is available read-only at `http://127.0.0.1:9809/v1/port-forward/leases` and `/v1/port-forward/leases/<identity>`. The application container receives neither the rest of the allocation ConfigMap nor Kubernetes credentials or added capabilities.
+
+An application adapter can watch the file or poll the local endpoint and call the application's API. `Delivered=True` currently means the target Pod agent loaded and acknowledged the exact unexpired UID/generation record; it does not claim that an arbitrary application has consumed it. Official examples include a qBitTorrent adapter with application-specific acknowledgement; Loadstone and Bitmagnet consume the neutral contract directly where possible.
 
 ## Failure experience
 

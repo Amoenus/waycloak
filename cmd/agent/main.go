@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/agentconfig"
 	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/Amoenus/waycloak/internal/dataplane"
+	"github.com/Amoenus/waycloak/internal/delivery"
 )
 
 func main() {
@@ -43,6 +46,9 @@ func run(args []string) error {
 		return backend.Preflight(ctx)
 	}
 	directory := os.Getenv("WAYCLOAK_ALLOCATION_DIR")
+	if directory == "" {
+		directory = agentconfig.DefaultDirectory
+	}
 	load := func() (dataplane.Config, error) { return agentconfig.Load(directory) }
 	switch args[0] {
 	case "prepare":
@@ -58,7 +64,7 @@ func run(args []string) error {
 		}
 		return agent.Verify(ctx, cfg)
 	case "run":
-		return runAgent(ctx, agent, load, 2*time.Second)
+		return runAgent(ctx, agent, load, directory, 2*time.Second)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -82,18 +88,27 @@ func probeReadiness(ctx context.Context, endpoint string) error {
 	return nil
 }
 
-func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration) error {
+func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), deliveryDirectory string, interval time.Duration) error {
 	ready := &atomic.Bool{}
+	deliveries := &delivery.Store{}
+	_ = deliveries.Refresh(deliveryDirectory)
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", contract.AgentHealthPort))
 	if err != nil {
 		return fmt.Errorf("listen for readiness: %w", err)
 	}
-	server := &http.Server{Handler: readinessHandler(ready), ReadHeaderTimeout: 2 * time.Second}
+	loopbackListener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", contract.AgentLeasePort))
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("listen for Pod-loopback lease delivery: %w", err)
+	}
+	server := &http.Server{Handler: agentHandler(ready, deliveries), ReadHeaderTimeout: 2 * time.Second}
+	loopbackServer := &http.Server{Handler: leaseHandler(deliveries), ReadHeaderTimeout: 2 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
+		_ = loopbackServer.Shutdown(shutdownCtx)
 	}()
 	go func() {
 		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -101,7 +116,90 @@ func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane
 			ready.Store(false)
 		}
 	}()
+	go func() {
+		if serveErr := loopbackServer.Serve(loopbackListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.Printf("Pod-loopback lease server failed: %v", serveErr)
+		}
+	}()
+	go refreshDeliveries(ctx, deliveries, deliveryDirectory, interval)
 	return reconcileLoop(ctx, agent, load, interval, ready)
+}
+
+func agentHandler(ready *atomic.Bool, deliveries *delivery.Store) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/readyz", readinessHandler(ready))
+	mux.HandleFunc("/v1/port-forward/deliveries/", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		identity := request.URL.Path[len("/v1/port-forward/deliveries/"):]
+		if identity == "" || strings.Contains(identity, "/") {
+			http.NotFound(response, request)
+			return
+		}
+		observation, err := deliveries.Observe(identity)
+		if err != nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, observation)
+	})
+	return mux
+}
+
+func leaseHandler(deliveries *delivery.Store) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/port-forward/leases", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		document, err := deliveries.Document()
+		if err != nil {
+			http.Error(response, "lease delivery is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, document)
+	})
+	mux.HandleFunc("/v1/port-forward/leases/", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		identity := request.URL.Path[len("/v1/port-forward/leases/"):]
+		if identity == "" || strings.Contains(identity, "/") {
+			http.NotFound(response, request)
+			return
+		}
+		record, err := deliveries.Record(identity)
+		if err != nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, record)
+	})
+	return mux
+}
+
+func writeJSON(response http.ResponseWriter, value any) {
+	response.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(response).Encode(value); err != nil {
+		log.Printf("encode local delivery response: %v", err)
+	}
+}
+
+func refreshDeliveries(ctx context.Context, store *delivery.Store, directory string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		_ = store.Refresh(directory)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func readinessHandler(ready *atomic.Bool) http.Handler {

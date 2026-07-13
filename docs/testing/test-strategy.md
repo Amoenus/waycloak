@@ -56,6 +56,9 @@ Mandatory scenarios:
   deletion quarantine across controller restart and membership changes;
 - exact serving-gateway observation without gateway Kubernetes credentials;
 - TCP and UDP inbound delivery to the correct target;
+- deterministic UID/generation/expiry delivery readback, filtered application
+  projection, loopback parity, expiration rejection, and renewal without a Pod
+  restart;
 - no cross-delivery after target deletion/address reuse;
 - two or more simultaneous leases when capabilities permit;
 - explicit failure when provider only permits one lease;

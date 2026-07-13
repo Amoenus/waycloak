@@ -17,6 +17,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	"github.com/Amoenus/waycloak/internal/delivery"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -139,7 +140,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitFor(t, 20*time.Second, func() bool { return direct.Get(ctx, client.ObjectKeyFromObject(gw), gw) == nil })
 	updateGatewayEndpoint(t, direct, gw, gatewayPod.Status.PodIP+":4789", 18080)
 
-	protected := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: namespace, Annotations: map[string]string{contract.GatewayAnnotation: namespace + "/private"}}, Spec: corev1.PodSpec{NodeName: nodeName, AutomountServiceAccountToken: boolPtr(false), Containers: []corev1.Container{{Name: "app", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}}}}}
+	protected := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: namespace, Annotations: map[string]string{contract.GatewayAnnotation: namespace + "/private", contract.PortForwardContainerAnnotation: "app"}}, Spec: corev1.PodSpec{NodeName: nodeName, AutomountServiceAccountToken: boolPtr(false), Containers: []corev1.Container{{Name: "app", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}}}}}
 	must(t, direct.Create(ctx, protected))
 	waitFor(t, 30*time.Second, func() bool {
 		return direct.Get(ctx, client.ObjectKeyFromObject(protected), protected) == nil && protected.Status.PodIP != ""
@@ -152,6 +153,21 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitForPodReady(t, direct, protected)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
 	assertInjectedRuntime(t, protected, imageRef)
+	assertFilteredDeliveryMount(t, protected)
+	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "sh", "-c", "test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token && set -- /run/waycloak/port-forward/* && test $# -eq 1 && test $(basename \"$1\") = port-forward-leases.json")
+	stopController(t, namespace)
+	identity := "e2e-renewable-lease"
+	publishDeliveryDocument(t, direct, protected, identity, 1, 42000)
+	waitFor(t, 30*time.Second, func() bool {
+		output, readErr := exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "wget", "-qO-", "http://127.0.0.1:9809/v1/port-forward/leases/"+identity).CombinedOutput()
+		return readErr == nil && strings.Contains(string(output), `"generation":1`) && strings.Contains(string(output), `"publicPort":42000`)
+	})
+	publishDeliveryDocument(t, direct, protected, identity, 2, 42001)
+	waitFor(t, 30*time.Second, func() bool {
+		fileOutput, fileErr := exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "cat", contract.ApplicationLeaseMountPath+"/"+contract.PortForwardLeasesKey).CombinedOutput()
+		apiOutput, apiErr := exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "wget", "-qO-", "http://127.0.0.1:9809/v1/port-forward/leases/"+identity).CombinedOutput()
+		return fileErr == nil && apiErr == nil && strings.Contains(string(fileOutput), `"generation":2`) && strings.Contains(string(apiOutput), `"generation":2`) && strings.Contains(string(apiOutput), `"publicPort":42001`)
+	})
 	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "getent", "hosts", "kubernetes.default")
 
 	must(t, direct.Delete(ctx, gatewayPod, client.GracePeriodSeconds(0)))
@@ -314,6 +330,38 @@ func assertInjectedRuntime(t *testing.T, pod *corev1.Pod, image string) {
 			t.Fatalf("injected container %s image=%s", container.Name, container.Image)
 		}
 	}
+}
+
+func assertFilteredDeliveryMount(t *testing.T, pod *corev1.Pod) {
+	t.Helper()
+	for _, volume := range pod.Spec.Volumes {
+		if volume.Name == contract.PortForwardVolume {
+			if volume.ConfigMap == nil || len(volume.ConfigMap.Items) != 1 || volume.ConfigMap.Items[0].Key != contract.PortForwardLeasesKey || volume.ConfigMap.Items[0].Path != contract.PortForwardLeasesKey {
+				t.Fatalf("port-forward delivery volume is not filtered: %#v", volume.ConfigMap)
+			}
+			return
+		}
+	}
+	t.Fatal("filtered port-forward delivery volume is missing")
+}
+
+func publishDeliveryDocument(t *testing.T, c client.Client, pod *corev1.Pod, identity string, generation int64, publicPort uint16) {
+	t.Helper()
+	now := time.Now().UTC()
+	document, err := delivery.Marshal(delivery.Document{APIVersion: delivery.APIVersion, PodUID: string(pod.UID), Leases: []delivery.Record{{Identity: identity, Namespace: pod.Namespace, Name: "e2e", State: "Active", Gateway: pod.Namespace + "/private", PublicPort: publicPort, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(time.Minute), ExpiresAt: now.Add(2 * time.Minute)}}})
+	must(t, err)
+	ctx := context.Background()
+	var cm corev1.ConfigMap
+	must(t, c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: contract.AllocationConfigMapName(pod.Namespace, pod.Name)}, &cm))
+	cm.Data[contract.PortForwardLeasesKey] = document
+	must(t, c.Update(ctx, &cm))
+	var current corev1.Pod
+	must(t, c.Get(ctx, client.ObjectKeyFromObject(pod), &current))
+	if current.Annotations == nil {
+		current.Annotations = map[string]string{}
+	}
+	current.Annotations[contract.DeliveryDigestAnnotation] = contract.DeliveryDigest(document)
+	must(t, c.Update(ctx, &current))
 }
 
 func podReady(t *testing.T, c client.Client, pod *corev1.Pod) bool {

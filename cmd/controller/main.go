@@ -8,6 +8,7 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	wayadmission "github.com/Amoenus/waycloak/internal/admission"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/delivery"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -72,7 +73,7 @@ func main() {
 			os.Exit(1)
 		}
 		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
-		if err = (&waycontroller.PortForwardLeaseReconciler{Client: mgr.GetClient(), Recorder: mgr.GetEventRecorderFor("waycloak-port-forward-lease"), Observer: &waygateway.HTTPPortForwardObserver{}, DeletionQuarantine: portForwardDeletionQuarantine}).SetupWithManager(mgr); err != nil {
+		if err = (&waycontroller.PortForwardLeaseReconciler{Client: mgr.GetClient(), Recorder: mgr.GetEventRecorderFor("waycloak-port-forward-lease"), Observer: &waygateway.HTTPPortForwardObserver{}, DeliveryObserver: &delivery.HTTPObserver{}, DeletionQuarantine: portForwardDeletionQuarantine}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "setup port-forward lease controller")
 			os.Exit(1)
 		}

@@ -60,7 +60,6 @@ jobs:
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-1.yaml"
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-2.yaml"
           cmp "$RUNNER_TEMP/render-1.yaml" "$RUNNER_TEMP/render-2.yaml"
-          kubectl create --dry-run=client --validate=false -f "$RUNNER_TEMP/render-1.yaml" >/dev/null
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

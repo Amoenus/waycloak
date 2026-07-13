@@ -13,6 +13,7 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/admission"
 	"github.com/Amoenus/waycloak/internal/contract"
+	"github.com/Amoenus/waycloak/internal/delivery"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,6 +46,7 @@ type PortForwardLeaseReconciler struct {
 	Recorder           record.EventRecorder
 	Now                func() time.Time
 	Observer           waygateway.PortForwardObserver
+	DeliveryObserver   delivery.Observer
 	DeletionQuarantine time.Duration
 }
 
@@ -184,9 +186,9 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	previousPort := lease.Status.PublicPort
 	lease.Status.PublicPort = int32(observation.PublicPort)
-	issuedAt := metav1.NewTime(observation.IssuedAt)
-	renewAfter := metav1.NewTime(observation.RenewAfter)
-	expiresAt := metav1.NewTime(observation.ExpiresAt)
+	issuedAt := metav1.NewTime(observation.IssuedAt.UTC().Truncate(time.Second))
+	renewAfter := metav1.NewTime(observation.RenewAfter.UTC().Truncate(time.Second))
+	expiresAt := metav1.NewTime(observation.ExpiresAt.UTC().Truncate(time.Second))
 	lease.Status.IssuedAt = &issuedAt
 	lease.Status.RenewAfter = &renewAfter
 	lease.Status.ExpiresAt = &expiresAt
@@ -196,10 +198,43 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "A current provider mapping is observed through the serving gateway Pod")
 	if observation.GatewayRulesReady && observation.GatewayRulesGeneration == lease.Status.LeaseGeneration && lease.Status.Target != nil && observation.TargetAddress == lease.Status.Target.OverlayAddress && observation.TargetPort == uint16(lease.Status.Target.Port) {
 		r.rulesObserved(&lease)
+		if r.DeliveryObserver != nil && target.Status.PodIP != "" {
+			deliveryObservation, deliveryErr := r.DeliveryObserver.ObserveDelivery(ctx, target.Status.PodIP, string(lease.UID))
+			if deliveryErr != nil {
+				r.deliveryPending(&lease, waystatus.ReasonDeliveryObservationFailed, "The target Pod has not acknowledged the current lease delivery record")
+			} else if mismatch := deliveryObservationMismatch(&lease, target, deliveryObservation, r.now()); mismatch == "" {
+				r.deliveryObserved(&lease)
+			} else {
+				r.deliveryPending(&lease, waystatus.ReasonDeliveryObservationFailed, "The target Pod delivery observation does not match the current lease generation: "+mismatch)
+			}
+		}
 	} else {
 		r.downstreamPending(&lease)
 	}
 	return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
+}
+
+func deliveryObservationMismatch(lease *wayv1.PortForwardLease, target *corev1.Pod, observation delivery.Observation, now time.Time) string {
+	switch {
+	case observation.APIVersion != delivery.APIVersion:
+		return "API version mismatch"
+	case !observation.Ready:
+		return "agent record is not ready"
+	case observation.Identity != string(lease.UID):
+		return "lease identity mismatch"
+	case observation.PodUID != string(target.UID):
+		return "Pod UID mismatch"
+	case observation.Generation != lease.Status.LeaseGeneration:
+		return "lease generation mismatch"
+	case lease.Status.ExpiresAt == nil:
+		return "lease expiry is absent"
+	case !observation.ExpiresAt.Equal(lease.Status.ExpiresAt.Time):
+		return "lease expiry mismatch"
+	case !now.Before(observation.ExpiresAt):
+		return "agent record is expired"
+	default:
+		return ""
+	}
 }
 
 func (r *PortForwardLeaseReconciler) observeProviderLease(ctx context.Context, gateway *wayv1.VPNGateway, lease *wayv1.PortForwardLease) (waygateway.PortForwardObservation, error) {
@@ -334,8 +369,17 @@ func (r *PortForwardLeaseReconciler) downstreamPending(lease *wayv1.PortForwardL
 
 func (r *PortForwardLeaseReconciler) rulesObserved(lease *wayv1.PortForwardLease) {
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady, "Gateway TCP/UDP DNAT is observed for the current lease generation and UID-bound target")
-	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending, "The current lease generation has not been delivered")
+	r.deliveryPending(lease, waystatus.ReasonDeliveryPending, "The current lease generation has not been acknowledged by the target Pod")
+}
+
+func (r *PortForwardLeaseReconciler) deliveryPending(lease *wayv1.PortForwardLease, reason, message string) {
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionDelivered, metav1.ConditionFalse, reason, message)
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonLeaseComponentsNotReady, "Lease delivery must be observed before the lease is ready")
+}
+
+func (r *PortForwardLeaseReconciler) deliveryObserved(lease *wayv1.PortForwardLease) {
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady, "The target Pod agent acknowledged the current renewable lease record")
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonLeaseReady, "Provider mapping, gateway rules, target binding, and renewable delivery are observed ready")
 }
 
 func (r *PortForwardLeaseReconciler) updateStatus(ctx context.Context, lease *wayv1.PortForwardLease, previous *wayv1.PortForwardLeaseStatus) error {
@@ -346,7 +390,7 @@ func (r *PortForwardLeaseReconciler) updateStatus(ctx context.Context, lease *wa
 		return err
 	}
 	if r.Recorder != nil {
-		for _, conditionType := range []string{waystatus.ConditionAccepted, waystatus.ConditionTargetReady, waystatus.ConditionProviderLeaseReady, waystatus.ConditionGatewayRulesReady, waystatus.ConditionReady} {
+		for _, conditionType := range []string{waystatus.ConditionAccepted, waystatus.ConditionTargetReady, waystatus.ConditionProviderLeaseReady, waystatus.ConditionGatewayRulesReady, waystatus.ConditionDelivered, waystatus.ConditionReady} {
 			before := apiMeta.FindStatusCondition(previous.Conditions, conditionType)
 			after := apiMeta.FindStatusCondition(lease.Status.Conditions, conditionType)
 			if after == nil || before != nil && before.Status == after.Status && before.Reason == after.Reason {
