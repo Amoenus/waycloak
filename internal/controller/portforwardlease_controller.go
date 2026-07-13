@@ -122,22 +122,22 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if err := r.List(ctx, &pods, client.InNamespace(lease.Namespace), client.MatchingLabelsSelector{Selector: targetSelector}); err != nil {
 		return ctrl.Result{}, err
 	}
-	ready := make([]*corev1.Pod, 0, 1)
+	eligible := make([]*corev1.Pod, 0, 1)
 	for i := range pods.Items {
 		pod := &pods.Items[i]
-		if pod.DeletionTimestamp.IsZero() && podReady(pod) {
-			ready = append(ready, pod)
+		if pod.DeletionTimestamp.IsZero() && portForwardTargetEligible(pod, lease.Spec.Target.ApplicationPortMode) {
+			eligible = append(eligible, pod)
 		}
 	}
-	if len(ready) == 0 {
-		r.targetPending(&lease, waystatus.ReasonTargetNotFound, "No Ready target Pod matches the selector")
+	if len(eligible) == 0 {
+		r.targetPending(&lease, waystatus.ReasonTargetNotFound, "No eligible target Pod matches the selector")
 		return ctrl.Result{}, r.updateStatus(ctx, &lease, previous)
 	}
-	if len(ready) != 1 {
-		r.targetPending(&lease, waystatus.ReasonTargetAmbiguous, fmt.Sprintf("Selector matches %d Ready target Pods; exactly one is required", len(ready)))
+	if len(eligible) != 1 {
+		r.targetPending(&lease, waystatus.ReasonTargetAmbiguous, fmt.Sprintf("Selector matches %d eligible target Pods; exactly one is required", len(eligible)))
 		return ctrl.Result{}, r.updateStatus(ctx, &lease, previous)
 	}
-	target := ready[0]
+	target := eligible[0]
 	selectedNamespace, selectedName, err := admission.ParseGatewayReference(target.Namespace, target.Annotations[contract.GatewayAnnotation])
 	if err != nil || selectedNamespace != gatewayNamespace || selectedName != gateway.Name {
 		r.targetPending(&lease, waystatus.ReasonTargetGatewayMismatch, "Ready target Pod is not protected by the selected gateway")
@@ -157,7 +157,7 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, r.updateStatus(ctx, &lease, previous)
 	}
 	lease.Status.Target = &wayv1.PortForwardTargetStatus{PodRef: wayv1.PodReference{Name: target.Name, UID: target.UID}, WorkloadRef: wayv1.NamespacedNameReference{Namespace: target.Namespace, Name: workload.Name}, OverlayAddress: workload.Status.Allocation.Address, Port: lease.Spec.Target.Port}
-	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionTargetReady, metav1.ConditionTrue, waystatus.ReasonTargetObservedReady, "Exactly one Ready UID-bound target and overlay allocation are observed")
+	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionTargetReady, metav1.ConditionTrue, waystatus.ReasonTargetObservedReady, "Exactly one eligible UID-bound target and overlay allocation are observed")
 
 	if !gateway.Spec.PortForwarding.Enabled {
 		waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, waystatus.ReasonPortForwardUnsupported, "The selected gateway has port forwarding disabled")
@@ -344,6 +344,21 @@ func podReady(pod *corev1.Pod) bool {
 	for _, condition := range pod.Status.Conditions {
 		if condition.Type == corev1.PodReady {
 			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func portForwardTargetEligible(pod *corev1.Pod, applicationPortMode string) bool {
+	if applicationPortMode != delivery.ApplicationPortModeProviderAssigned {
+		return podReady(pod)
+	}
+	if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
+		return false
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name == contract.AgentContainer {
+			return status.Ready
 		}
 	}
 	return false

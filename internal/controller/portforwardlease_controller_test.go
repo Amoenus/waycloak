@@ -82,6 +82,60 @@ func TestPortForwardLeaseRejectsAmbiguousReadyTargets(t *testing.T) {
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionTargetReady, metav1.ConditionFalse, waystatus.ReasonTargetAmbiguous)
 }
 
+func TestProviderAssignedTargetBootstrapsBeforeAdapterMakesPodReady(t *testing.T) {
+	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
+	ctx := context.Background()
+	lease.Spec.Target.ApplicationPortMode = delivery.ApplicationPortModeProviderAssigned
+	if err := reconciler.Update(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	var pod corev1.Pod
+	if err := reconciler.Get(ctx, types.NamespacedName{Namespace: "apps", Name: "torrent-0"}, &pod); err != nil {
+		t.Fatal(err)
+	}
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: contract.AgentContainer, Ready: true}}
+	if err := reconciler.Status().Update(ctx, &pod); err != nil {
+		t.Fatal(err)
+	}
+
+	key := types.NamespacedName{Namespace: lease.Namespace, Name: lease.Name}
+	reconcileLease(t, reconciler, key)
+	var got wayv1.PortForwardLease
+	if err := reconciler.Get(ctx, key, &got); err != nil {
+		t.Fatal(err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionTargetReady, metav1.ConditionTrue, waystatus.ReasonTargetObservedReady)
+}
+
+func TestProviderAssignedTargetWaitsForInjectedAgent(t *testing.T) {
+	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
+	ctx := context.Background()
+	lease.Spec.Target.ApplicationPortMode = delivery.ApplicationPortModeProviderAssigned
+	if err := reconciler.Update(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	var pod corev1.Pod
+	if err := reconciler.Get(ctx, types.NamespacedName{Namespace: "apps", Name: "torrent-0"}, &pod); err != nil {
+		t.Fatal(err)
+	}
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: contract.AgentContainer, Ready: false}}
+	if err := reconciler.Status().Update(ctx, &pod); err != nil {
+		t.Fatal(err)
+	}
+
+	key := types.NamespacedName{Namespace: lease.Namespace, Name: lease.Name}
+	reconcileLease(t, reconciler, key)
+	var got wayv1.PortForwardLease
+	if err := reconciler.Get(ctx, key, &got); err != nil {
+		t.Fatal(err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionTargetReady, metav1.ConditionFalse, waystatus.ReasonTargetNotFound)
+}
+
 func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
 	now := time.Date(2026, 7, 13, 12, 0, 0, 987654321, time.UTC)

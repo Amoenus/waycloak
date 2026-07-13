@@ -144,9 +144,13 @@ status:
 ```
 
 The selector must be non-empty. The initial implementation requires exactly
-one Ready target Pod and marks the lease ambiguous otherwise. The target is
-accepted only when that Pod selects the same gateway and its controller-owned
-`VPNWorkload` binds the exact Pod UID to a persisted overlay allocation.
+one eligible target Pod and marks the lease ambiguous otherwise. `Fixed`
+requires whole-Pod readiness. `ProviderAssigned` instead requires a Running Pod
+whose injected Waycloak agent is Ready; requiring whole-Pod readiness would
+deadlock an adapter whose readiness correctly waits for the first delivered
+lease. The target is accepted only when that Pod selects the same gateway and
+its controller-owned `VPNWorkload` binds the exact Pod UID to a persisted
+overlay allocation.
 Status records that observed Pod UID, workload reference, overlay address, and
 local port. The `PortForwardLease` object UID is the stable provider-facing
 lease identity. The controller also persists a unique NAT-PMP internal port;
