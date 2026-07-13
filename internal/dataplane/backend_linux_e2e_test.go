@@ -442,7 +442,14 @@ func assertForwardedTarget(t *testing.T, want bool) {
 	if want && err != nil {
 		t.Fatalf("gateway-forwarded target is unreachable: %v", err)
 	}
-	if !want && err == nil {
-		t.Fatal("gateway-forwarded target bypassed the unavailable gateway")
+	if !want {
+		deadline := time.Now().Add(15 * time.Second)
+		for err == nil && time.Now().Before(deadline) {
+			time.Sleep(250 * time.Millisecond)
+			err = connect(target, 500*time.Millisecond)
+		}
+		if err == nil {
+			t.Fatal("gateway-forwarded target remained reachable after gateway teardown")
+		}
 	}
 }

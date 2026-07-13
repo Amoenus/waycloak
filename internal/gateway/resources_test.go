@@ -65,6 +65,17 @@ func TestResourceNameIsStableAndBounded(t *testing.T) {
 	}
 }
 
+func TestDesiredPodDisruptionBudgetProtectsSingleton(t *testing.T) {
+	gateway := testGateway()
+	pdb := DesiredPodDisruptionBudget(gateway)
+	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
+		t.Fatalf("gateway minAvailable = %#v", pdb.Spec.MinAvailable)
+	}
+	if pdb.Spec.Selector == nil || !reflect.DeepEqual(pdb.Spec.Selector.MatchLabels, SelectorLabels(gateway)) {
+		t.Fatalf("gateway disruption selector = %#v", pdb.Spec.Selector)
+	}
+}
+
 func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 	gateway := testGateway()
 	gateway.Spec.Engine.Type = "Gluetun"

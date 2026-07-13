@@ -1,0 +1,45 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+images:
+  controller:
+    repository: ghcr.io/amoenus/waycloak-controller
+    digest: ""
+  agent:
+    repository: ghcr.io/amoenus/waycloak-agent
+    digest: ""
+  gatewayManager:
+    repository: ghcr.io/amoenus/waycloak-gateway-manager
+    digest: ""
+  pullPolicy: IfNotPresent
+
+webhook:
+  tls:
+    existingSecret: ""
+    caBundle: ""
+  timeoutSeconds: 5
+
+allocationQuarantine: 5m
+
+serviceAccount:
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podDisruptionBudget:
+  minAvailable: 1

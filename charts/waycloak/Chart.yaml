@@ -1,0 +1,12 @@
+apiVersion: v2
+name: waycloak
+description: Declarative, fail-closed private egress for Kubernetes
+type: application
+version: 0.1.0-alpha.1
+appVersion: 0.1.0-alpha.1
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/Amoenus/waycloak
+sources:
+  - https://github.com/Amoenus/waycloak
+annotations:
+  licenses: MIT

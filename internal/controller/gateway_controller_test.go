@@ -13,6 +13,7 @@ import (
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,6 +61,13 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	}
 	if len(statefulSet.OwnerReferences) != 1 || statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 1 {
 		t.Fatalf("StatefulSet ownership/shape = %#v", statefulSet)
+	}
+	var pdb policyv1.PodDisruptionBudget
+	if err := client.Get(context.Background(), key, &pdb); err != nil {
+		t.Fatal(err)
+	}
+	if len(pdb.OwnerReferences) != 1 || pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
+		t.Fatalf("PodDisruptionBudget ownership/shape = %#v", pdb)
 	}
 
 	pod := &corev1.Pod{
@@ -136,7 +144,7 @@ func TestGatewayReadyRequiresEnabledComponents(t *testing.T) {
 func gatewayTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, appsv1.AddToScheme, wayv1.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, appsv1.AddToScheme, policyv1.AddToScheme, wayv1.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}

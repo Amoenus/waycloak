@@ -17,6 +17,7 @@ import (
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,7 +32,9 @@ import (
 
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=vpngateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=vpngateways/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -139,6 +142,21 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	}
 	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayServiceCreated", "Created headless gateway Service %s", service.Name)
+	}
+
+	desiredPDB := waygateway.DesiredPodDisruptionBudget(gateway)
+	pdb := &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: desiredPDB.Name, Namespace: desiredPDB.Namespace}}
+	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, pdb, func() error {
+		pdb.Labels = desiredPDB.Labels
+		pdb.Annotations = desiredPDB.Annotations
+		pdb.Spec = desiredPDB.Spec
+		return ctrl.SetControllerReference(gateway, pdb, r.Scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile gateway PodDisruptionBudget: %w", err)
+	}
+	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
+		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayDisruptionBudgetCreated", "Created singleton gateway PodDisruptionBudget %s", pdb.Name)
 	}
 
 	desiredStatefulSet := waygateway.DesiredStatefulSet(gateway, waygateway.WorkloadOptions{ManagerImage: r.ManagerImage})
@@ -280,6 +298,7 @@ func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&policyv1.PodDisruptionBudget{}).
 		Watches(&wayv1.VPNWorkload{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			workload, ok := object.(*wayv1.VPNWorkload)
 			if !ok || workload.Spec.GatewayRef.Name == "" || workload.Spec.GatewayRef.Namespace == "" {

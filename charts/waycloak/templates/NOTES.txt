@@ -1,0 +1,8 @@
+Waycloak has been installed in namespace {{ .Release.Namespace }}.
+
+The admission webhooks use the pre-existing TLS Secret
+{{ .Values.webhook.tls.existingSecret }}. Keep that certificate valid for:
+  {{ include "waycloak.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+
+Create a provider credential Secret and then apply a VPNGateway. Workloads opt in
+only through networking.waycloak.io/gateway on their Pod template.

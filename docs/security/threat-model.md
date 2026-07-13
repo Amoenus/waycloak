@@ -100,7 +100,7 @@ This is a fail-closed routing guarantee within the boundaries below. It is not a
 
 **Threat:** one gateway outage interrupts all members.
 
-**Control:** explicit status, Pod disruption controls, safe singleton lifecycle, resource limits, and future operator-defined shards. HPA is not used to clone a tunnel.
+**Control:** explicit status, a controller-owned `minAvailable: 1` disruption budget for each singleton, resource limits on the admission/controller Deployment, and future operator-defined shards. The budget blocks voluntary eviction but does not claim seamless failover or prevent involuntary node loss. HPA is not used to clone a tunnel.
 
 ## Secret model
 

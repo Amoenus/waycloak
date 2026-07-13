@@ -17,6 +17,7 @@ import (
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
@@ -38,6 +39,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	scheme := kruntime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	must(t, appsv1.AddToScheme(scheme))
+	must(t, policyv1.AddToScheme(scheme))
 	must(t, wayv1.AddToScheme(scheme))
 	e := &envtest.Environment{Scheme: scheme, UseExistingCluster: &useExisting, CRDInstallOptions: envtest.CRDInstallOptions{Paths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, CleanUpAfterUse: true, MaxTime: 30 * time.Second, PollInterval: 250 * time.Millisecond}}
 	cfg, err := e.Start()
@@ -118,6 +120,11 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	must(t, mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &service))
 	if service.Spec.ClusterIP != corev1.ClusterIPNone {
 		t.Fatalf("gateway Service clusterIP = %q", service.Spec.ClusterIP)
+	}
+	var pdb policyv1.PodDisruptionBudget
+	must(t, mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &pdb))
+	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
+		t.Fatalf("gateway disruption budget = %#v", pdb.Spec)
 	}
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName, Annotations: map[string]string{contract.GatewayAnnotation: "private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
 	must(t, mgr.GetClient().Create(ctx, pod))

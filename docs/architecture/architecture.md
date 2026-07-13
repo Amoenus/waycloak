@@ -125,6 +125,8 @@ The allocation ConfigMap is deliberately non-optional. Controller failure leaves
 
 The initial gateway is a deliberate singleton because one VPN tunnel and its provider leases are stateful. HPA must not clone it blindly. Capacity grows through named gateways or explicit shards, each with its own tunnel identity, address pool, leases, and failure domain.
 
+Each gateway owns a `PodDisruptionBudget` with `minAvailable: 1`. It blocks voluntary eviction of the only tunnel Pod but cannot make the singleton highly available or prevent involuntary node loss. The admission/controller Deployment instead runs at least two replicas with leader election, a zero-unavailable rolling strategy, and its own disruption budget so unannotated admission remains outside the webhook path and opted-in admission remains available during one voluntary disruption.
+
 Future scheduling can assign clients to shards using stable hashing and disruption budgets. Seamless migration requires provider and application lease semantics and is not assumed.
 
 ## Packaging boundaries

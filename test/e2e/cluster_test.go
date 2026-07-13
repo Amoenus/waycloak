@@ -187,11 +187,18 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	secondCM := types.NamespacedName{Namespace: namespace, Name: contract.AllocationConfigMapName(namespace, second.Name)}
 	waitFor(t, 30*time.Second, func() bool { var item corev1.ConfigMap; return direct.Get(ctx, secondCM, &item) == nil })
 	assertAllocation(t, direct, firstKey, firstAddress)
-	must(t, direct.Delete(ctx, second))
-	time.Sleep(3 * time.Second)
+	must(t, direct.Delete(ctx, second, client.GracePeriodSeconds(0)))
+	waitFor(t, 20*time.Second, func() bool {
+		var item corev1.Pod
+		return apierrors.IsNotFound(direct.Get(ctx, client.ObjectKeyFromObject(second), &item))
+	})
 	assertAllocation(t, direct, firstKey, firstAddress)
 
-	must(t, direct.Delete(ctx, protected))
+	must(t, direct.Delete(ctx, protected, client.GracePeriodSeconds(0)))
+	waitFor(t, 20*time.Second, func() bool {
+		var item corev1.Pod
+		return apierrors.IsNotFound(direct.Get(ctx, client.ObjectKeyFromObject(protected), &item))
+	})
 	waitFor(t, 20*time.Second, func() bool {
 		var list wayv1.VPNWorkloadList
 		_ = direct.List(ctx, &list, client.InNamespace(namespace))
@@ -225,6 +232,7 @@ func createInfrastructure(t *testing.T, c client.Client, namespace, deniedNamesp
 		{APIGroups: []string{""}, Resources: []string{"configmaps", "services"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
 		{APIGroups: []string{""}, Resources: []string{"events"}, Verbs: []string{"create", "patch"}},
 		{APIGroups: []string{"apps"}, Resources: []string{"statefulsets"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
+		{APIGroups: []string{"policy"}, Resources: []string{"poddisruptionbudgets"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpngateways"}, Verbs: []string{"get", "list", "watch", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpngateways/status", "vpnworkloads/status"}, Verbs: []string{"get", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpnworkloads"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},

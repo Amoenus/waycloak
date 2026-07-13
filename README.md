@@ -37,7 +37,7 @@ Waycloak injects the routing agent before the Pod starts, installs fail-closed p
 
 ## Status
 
-**Pre-alpha. The Phase 1 control plane and Phase 2 deny-first agent/DNS packet proofs are implemented and cluster-tested; there are no released images or installable gateway yet.**
+**Pre-alpha. The control plane, deny-first agent, and integrated Gluetun gateway path are implemented and cluster-tested. There are no released images yet; the source chart is for development validation until signed OCI artifacts are published.**
 
 Implementation continues in roadmap order toward the first fail-closed data-plane proof. Start with:
 
@@ -46,6 +46,7 @@ Implementation continues in roadmap order toward the first fail-closed data-plan
 3. [Architecture](docs/architecture/architecture.md)
 4. [Implementation roadmap](docs/implementation/roadmap.md)
 5. [Project status](PROJECT_STATUS.md)
+6. [Development installation](docs/operations/install.md)
 
 ## Project boundaries
 

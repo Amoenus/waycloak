@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["images", "webhook"],
+  "properties": {
+    "replicaCount": {"type": "integer", "minimum": 2},
+    "images": {
+      "type": "object",
+      "required": ["controller", "agent", "gatewayManager"],
+      "properties": {
+        "controller": {"$ref": "#/$defs/image"},
+        "agent": {"$ref": "#/$defs/image"},
+        "gatewayManager": {"$ref": "#/$defs/image"}
+      }
+    },
+    "webhook": {
+      "type": "object",
+      "required": ["tls"],
+      "properties": {
+        "tls": {
+          "type": "object",
+          "required": ["existingSecret", "caBundle"],
+          "properties": {
+            "existingSecret": {"type": "string", "minLength": 1},
+            "caBundle": {"type": "string", "minLength": 1}
+          }
+        },
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 30}
+      }
+    },
+    "allocationQuarantine": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$"},
+    "podDisruptionBudget": {
+      "type": "object",
+      "required": ["minAvailable"],
+      "properties": {"minAvailable": {"type": "integer", "minimum": 1}}
+    }
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    }
+  }
+}
