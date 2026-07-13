@@ -57,9 +57,17 @@ type VPNGatewaySpec struct {
 	WorkloadAccess WorkloadAccessSpec `json:"workloadAccess"`
 }
 type VPNGatewayStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	ClientCount        int32              `json:"clientCount,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64                `json:"observedGeneration,omitempty"`
+	ClientCount        int32                `json:"clientCount,omitempty"`
+	Overlay            GatewayOverlayStatus `json:"overlay,omitempty"`
+	Conditions         []metav1.Condition   `json:"conditions,omitempty"`
+}
+
+// GatewayOverlayStatus contains observed data-plane state. Endpoint is an IP
+// address and UDP port suitable for netip.ParseAddrPort.
+type GatewayOverlayStatus struct {
+	Endpoint   string `json:"endpoint,omitempty"`
+	HealthPort int32  `json:"healthPort,omitempty"`
 }
 
 // +kubebuilder:object:root=true

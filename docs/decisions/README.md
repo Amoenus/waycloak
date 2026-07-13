@@ -7,5 +7,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0003: Gluetun as the first engine behind a provider interface](0003-gluetun-provider-interface.md)
 - [0004: Helm OCI as the primary distribution](0004-helm-oci-distribution.md)
 - [0005: Controller allocation with fail-closed Pod startup](0005-allocation-startup-handshake.md)
+- [0006: Native nftables and netlink data-plane backend](0006-native-linux-data-plane.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

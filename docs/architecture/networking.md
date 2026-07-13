@@ -32,7 +32,7 @@ The controller rejects overlapping overlay CIDRs and duplicate VNIs within its m
 
 ## Fail-closed policy
 
-The agent creates dedicated nftables tables/chains and policy-routing rules with recognizable ownership. The sequence is:
+The agent creates a Pod-UID-derived nftables table and protocol-tagged policy-routing rules with recognizable ownership. The main CNI routing table remains intact. A dedicated Waycloak table carries the protected default route, while higher-priority destination rules select the main table only for the observed VXLAN endpoint and declared `Preserve` CIDRs. The sequence is:
 
 1. install external-egress deny policy;
 2. permit overlay underlay traffic to the selected gateway endpoint;
@@ -44,6 +44,8 @@ The agent creates dedicated nftables tables/chains and policy-routing rules with
 8. report readiness.
 
 On any error, the deny policy stays in place. Cleanup only removes objects carrying the current Waycloak ownership identity and must not flush application or CNI firewall state.
+
+The init verifier requires both the owned kernel state and a successful TCP probe to the gateway's observed overlay health endpoint. Desired gateway registration, a present VXLAN link, or a reachable underlay endpoint alone cannot unblock application startup.
 
 ## Cluster-local modes
 

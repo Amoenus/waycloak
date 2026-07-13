@@ -36,10 +36,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	scheme := kruntime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	must(t, wayv1.AddToScheme(scheme))
-	e := &envtest.Environment{Scheme: scheme, UseExistingCluster: &useExisting}
-	if !useExisting {
-		e.CRDInstallOptions = envtest.CRDInstallOptions{Paths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, CleanUpAfterUse: true, MaxTime: 30 * time.Second, PollInterval: 250 * time.Millisecond}
-	}
+	e := &envtest.Environment{Scheme: scheme, UseExistingCluster: &useExisting, CRDInstallOptions: envtest.CRDInstallOptions{Paths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, CleanUpAfterUse: true, MaxTime: 30 * time.Second, PollInterval: 250 * time.Millisecond}}
 	cfg, err := e.Start()
 	must(t, err)
 	apiClient, err := client.New(cfg, client.Options{Scheme: scheme})

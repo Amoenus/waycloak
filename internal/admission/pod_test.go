@@ -40,7 +40,7 @@ func TestUnannotatedPodCompletelyUnchanged(t *testing.T) {
 
 func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 	m := testMutator(t, metav1.LabelSelector{MatchLabels: map[string]string{"waycloak": "allowed"}})
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "app"}}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}, Spec: corev1.PodSpec{InitContainers: []corev1.Container{{Name: "application-init", Image: "app"}}, Containers: []corev1.Container{{Name: "app", Image: "app"}}}}
 	originalApp := pod.Spec.Containers[0].DeepCopy()
 	changed, err := m.Mutate(context.Background(), pod)
 	if err != nil || !changed {
@@ -62,6 +62,13 @@ func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 	}
 	if pod.Spec.Volumes[len(pod.Spec.Volumes)-1].ConfigMap.Optional == nil || *pod.Spec.Volumes[len(pod.Spec.Volumes)-1].ConfigMap.Optional {
 		t.Fatal("allocation volume must be required")
+	}
+	names := make([]string, 0, len(pod.Spec.InitContainers))
+	for _, container := range pod.Spec.InitContainers {
+		names = append(names, container.Name)
+	}
+	if !reflect.DeepEqual(names, []string{contract.PrepareContainer, contract.VerifyContainer, "application-init"}) {
+		t.Fatalf("deny-first init ordering = %v", names)
 	}
 }
 

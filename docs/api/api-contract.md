@@ -52,7 +52,7 @@ The actual image API should separate chart-tested defaults from explicit user ov
 - `PortForwardReady`: driver is usable or explicitly disabled.
 - `Ready`: all requirements for serving clients are observed.
 
-Status includes provider capabilities, current client count, address-pool usage, resolved image digests, observed public IP with configurable redaction, and last health verification.
+Status includes provider capabilities, current client count, address-pool usage, resolved image digests, observed public IP with configurable redaction, and last health verification. The controller also records the observed VXLAN underlay endpoint and overlay health port used in each UID-bound allocation handshake; workloads never infer those values from desired registration.
 
 ## Workload annotation
 

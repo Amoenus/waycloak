@@ -28,15 +28,15 @@ Exit: verified on Kubernetes 1.36 k3s; the same suite defaults to a disposable K
 
 ## Phase 2 — fail-closed data plane
 
-Next vertical slice: implement the minimal agent/fake-gateway contract needed to install owned deny state before application startup and packet-test that gateway or agent loss cannot fall back to ordinary egress. Do not add Gluetun in this slice.
+The deny-first agent/fake-gateway slice is complete. Next vertical slice: build the minimal agent image and gateway-routed DNS fake needed to prove service discovery and external DNS cannot bypass the protected path. Do not add Gluetun until that packet proof passes.
 
 - [ ] Build minimal non-root-where-possible agent image.
-- [ ] Install owned nftables policy before application startup.
-- [ ] Establish and monitor VXLAN to a test gateway.
-- [ ] Implement route and firewall drift repair.
-- [ ] Implement cluster-local policy modes.
+- [x] Install owned nftables policy before application startup.
+- [x] Establish and monitor VXLAN to a test gateway.
+- [x] Implement route and firewall drift repair.
+- [x] Implement cluster-local policy modes.
 - [ ] Implement gateway-routed DNS.
-- [ ] Add preflight diagnostics.
+- [x] Add preflight diagnostics.
 
 Exit: forced agent/gateway/tunnel failures produce no direct external packets and service DNS works according to policy.
 

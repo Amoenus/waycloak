@@ -4,11 +4,13 @@ Last updated: 2026-07-13
 
 ## Current phase
 
-Waycloak has completed the Phase 1 control-plane exit and is ready for the first Phase 2 data-plane slice. The Go/controller-runtime control plane defines `VPNGateway` and controller-owned `VPNWorkload`, persists stable overlay allocations, quarantines released addresses, performs authorized and idempotent Pod admission, and publishes the UID-bound allocation ConfigMap required by ADR 0005.
+Waycloak has completed the Phase 1 control-plane exit and the first Phase 2 deny-first agent slice. The Go/controller-runtime control plane defines `VPNGateway` and controller-owned `VPNWorkload`, persists stable overlay allocations, quarantines released addresses, performs authorized and idempotent Pod admission, and publishes the UID-bound allocation ConfigMap required by ADR 0005. Admission now places the lockdown and verifier init containers before every user init container, including native sidecars.
 
 Phase 1 acceptance passed against the Kubernetes 1.36 local k3s cluster using the same e2e suite that defaults to disposable Kind. It proves unannotated admission is unchanged, unauthorized references are rejected, application startup is blocked while the allocation ConfigMap is absent, allocations survive controller restart and unrelated membership changes, UID binding is preserved, and webhook outage fails closed only for opted-in Pods. Envtest reconciliation also passes against a real API server. The VPN data plane does not exist yet, so gateway and workload `Ready` conditions correctly remain false with reason `DataPlaneNotImplemented`.
 
-The next vertical slice is a minimal routing agent and fake gateway that install owned fail-closed policy before application startup and prove loss of the protected path cannot restore ordinary egress. It must not integrate Gluetun until that proof is packet-tested.
+The Linux agent uses native nftables and netlink APIs behind a platform interface. It atomically installs a Pod-UID-owned output-drop chain before protected routing, creates a deterministic VXLAN link, uses protocol-tagged policy rules and a dedicated routing table without replacing the CNI main table, actively verifies an observed gateway overlay health endpoint, and repairs owned link, route, rule, and firewall drift. A two-Pod fake-gateway test on Kubernetes 1.36 k3s proves protected VXLAN reachability, all three cluster-traffic modes, state persistence after agent exit, and no direct fallback after abrupt gateway loss. The standalone lockdown test proves direct packets are dropped and unrelated nftables state is preserved.
+
+Phase 2 is not complete. Gateway-routed DNS, DNS leak tests, a minimal agent image, and full injected-Pod lifecycle integration remain. The next vertical slice is the smallest fake gateway/resolver and image packaging needed to packet-test Kubernetes service discovery and external DNS containment before any Gluetun integration.
 
 ## First deliverable
 

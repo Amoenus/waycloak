@@ -115,7 +115,11 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if e != nil {
 			return ctrl.Result{}, e
 		}
-		cm = corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: pod.Namespace, Labels: map[string]string{"app.kubernetes.io/managed-by": "waycloak"}}, Data: map[string]string{"version": contract.InjectionVersion, "podUID": string(pod.UID), "gateway": gns + "/" + gname, "address": workload.Status.Allocation.Address, "overlayCIDR": gateway.Spec.Overlay.CIDR, "gatewayAddress": gatewayAddr.String(), "allocationGeneration": fmt.Sprint(workload.Status.Allocation.Generation)}}
+		clusterMode := gateway.Spec.ClusterTraffic.Mode
+		if clusterMode == "" {
+			clusterMode = "Preserve"
+		}
+		cm = corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: pod.Namespace, Labels: map[string]string{"app.kubernetes.io/managed-by": "waycloak"}}, Data: map[string]string{"version": contract.InjectionVersion, "podUID": string(pod.UID), "gateway": gns + "/" + gname, "address": workload.Status.Allocation.Address, "overlayCIDR": gateway.Spec.Overlay.CIDR, "gatewayAddress": gatewayAddr.String(), "gatewayEndpoint": gateway.Status.Overlay.Endpoint, "gatewayHealthPort": fmt.Sprint(gateway.Status.Overlay.HealthPort), "vni": fmt.Sprint(gateway.Spec.Overlay.VNI), "mtu": fmt.Sprint(gateway.Spec.Overlay.MTU), "clusterTrafficMode": clusterMode, "allocationGeneration": fmt.Sprint(workload.Status.Allocation.Generation)}}
 		if err := ctrl.SetControllerReference(&pod, &cm, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}

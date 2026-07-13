@@ -114,7 +114,7 @@ func (m *PodMutator) Mutate(ctx context.Context, pod *corev1.Pod) (bool, error) 
 	optional := false
 	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: contract.AllocationVolume, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: allocationName}, Optional: &optional}}})
 	mount := corev1.VolumeMount{Name: contract.AllocationVolume, MountPath: "/run/waycloak", ReadOnly: true}
-	pod.Spec.InitContainers = append(pod.Spec.InitContainers, injectedContainer(contract.PrepareContainer, m.AgentImage, []string{"prepare"}, mount, true), injectedContainer(contract.VerifyContainer, m.AgentImage, []string{"verify"}, mount, false))
+	pod.Spec.InitContainers = append([]corev1.Container{injectedContainer(contract.PrepareContainer, m.AgentImage, []string{"prepare"}, mount, true), injectedContainer(contract.VerifyContainer, m.AgentImage, []string{"verify"}, mount, false)}, pod.Spec.InitContainers...)
 	pod.Spec.Containers = append(pod.Spec.Containers, injectedContainer(contract.AgentContainer, m.AgentImage, []string{"run"}, mount, true))
 	return true, nil
 }

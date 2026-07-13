@@ -20,7 +20,7 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 	_ = wayv1.AddToScheme(scheme)
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", UID: types.UID("pod-uid-1"), Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}}
-	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29"}}}
+	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Gateway"}}, Status: wayv1.VPNGatewayStatus{Overlay: wayv1.GatewayOverlayStatus{Endpoint: "10.42.0.2:4789", HealthPort: 18080}}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNWorkload{}).WithObjects(pod, gw).Build()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "apps", Name: "app"}}
 	r := &PodReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(20)}
@@ -43,6 +43,11 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	}
 	if cm.Data["podUID"] != string(pod.UID) {
 		t.Fatalf("ConfigMap UID=%q", cm.Data["podUID"])
+	}
+	for key, want := range map[string]string{"gatewayEndpoint": "10.42.0.2:4789", "gatewayHealthPort": "18080", "vni": "7999", "mtu": "1320", "clusterTrafficMode": "Gateway"} {
+		if cm.Data[key] != want {
+			t.Fatalf("ConfigMap %s=%q, want %q", key, cm.Data[key], want)
+		}
 	}
 	restarted := &PodReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(20)}
 	if _, err := restarted.Reconcile(context.Background(), req); err != nil {
