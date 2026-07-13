@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Current phase
 
@@ -52,7 +52,22 @@ The generic provider-assigned application-port handoff is now implemented. `Port
 
 qBitTorrent 5.2.3 is the first evidence-backed application exception. A compatibility test proved that it accepts PCP mapping `6881` to external `42000` but still announces `port=6881` to an HTTP tracker, so a generic PCP surface cannot hide a differing Proton port. The separately packaged unprivileged adapter uses qBitTorrent's loopback API, verifies its listener, and acknowledges the neutral lease generation; it has no Kubernetes token, VPN credential, or Linux capability. A real k3s test proves generation 1 to generation 2 listener rotation, exact tracker advertisement, unchanged Pod UID, and removal of the stale listener. The release workflow now builds, scans, signs, attests, and records this fourth image, and the official example declares `ProviderAssigned` while keeping provider churn out of qBitTorrent's consumers.
 
-Phase 4 is not complete. The precise next vertical slice is to publish the signed adapter artifact from main and run a sustained real Proton acceptance proving external TCP and UDP ingress, exact tracker and DHT advertisement, healthy DHT nodes, renewal, and at least one provider port rotation without a Pod restart. Issue #4 remains the acceptance tracker.
+Phase 4 is not complete. A gated real-provider harness now codifies the
+remaining acceptance against a release-manifest-pinned installation. It uses an
+ordinary Pod as the external probe, requires independent TCP and UDP success,
+observes exact qBitTorrent tracker advertisement and DHT health, requires both
+renewal and actual provider port rotation without a Pod restart, then deletes
+the serving gateway and proves protected egress plus both stale ingress
+protocols fail before recovery. The harness never reads or prints the VPN
+Secret or public endpoint values, and its loopback observer is explicitly a
+test fixture rather than provider evidence.
+
+The precise next vertical slice is to merge this harness to `main`, publish the
+signed `v0.2.0-alpha.1` artifacts from that main-contained commit, rotate the
+previously exposed Proton credential into a dedicated `username`/`password`
+acceptance Secret, and execute the sustained suite. Issue #4 remains the
+acceptance tracker; none of its real-provider ingress, renewal, rotation, or DHT
+criteria are complete until that run passes.
 
 ## First deliverable
 

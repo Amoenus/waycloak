@@ -70,6 +70,9 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
   semantics, with protocol-faithful local/k3s evidence only.
 - [ ] Publish the signed adapter image and complete sustained real-provider
   qBitTorrent ingress, advertisement, DHT, renewal, and rotation acceptance.
+  The gated, credential-redacted harness is implemented; publishing the
+  main-contained alpha artifacts and executing it with rotated credentials
+  remain outstanding.
 - [ ] Validate Bitmagnet and Loadstone consumption.
 
 Exit: qBitTorrent receives inbound TCP/UDP through a provider lease, reports healthy DHT, and survives lease renewal during a sustained test.

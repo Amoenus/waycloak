@@ -90,6 +90,11 @@ The key assertion is absence of direct packets, not only expected application er
 
 Provider tests run only in protected CI environments or operator-owned clusters with short-lived credentials. Pull requests from forks never receive credentials. Logs and artifacts are redacted, retained minimally, and must not publish residential/provider-linked public IP history.
 
+The sustained Proton/qBitTorrent procedure is defined in
+[real-provider port-forward acceptance](real-provider-port-forward.md). It is
+an explicit, gated operator-cluster suite and is not replaced by the
+protocol-faithful local fixture.
+
 ## Performance tests
 
 Measure gateway CPU/memory, per-agent RSS, throughput, UDP packet loss, DNS latency, reconciliation duration, and disruption during membership changes at 1, 10, and 50 clients. Publish results with node/kernel/CNI/MTU context.
