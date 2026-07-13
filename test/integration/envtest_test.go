@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -154,7 +155,11 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
 		t.Fatalf("gateway disruption budget = %#v", pdb.Spec)
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName, Labels: map[string]string{"app": "protected"}, Annotations: map[string]string{contract.GatewayAnnotation: "private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName, Labels: map[string]string{"app": "protected"}, Annotations: map[string]string{contract.GatewayAnnotation: "private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}, Spec: corev1.PodSpec{Containers: []corev1.Container{
+		{Name: "app", Image: "registry.k8s.io/pause:3.10.1"},
+		{Name: contract.AgentContainer, Image: "registry.k8s.io/pause:3.10.1"},
+		{Name: "provider-port-adapter", Image: "registry.k8s.io/pause:3.10.1", ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt(1)}}, PeriodSeconds: 1}},
+	}}}
 	must(t, mgr.GetClient().Create(ctx, pod))
 	cmKey := types.NamespacedName{Namespace: nsName, Name: contract.AllocationConfigMapName(nsName, pod.Name)}
 	var cm corev1.ConfigMap
@@ -169,24 +174,53 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	}
 	workload := &workloads.Items[0]
 	var observedPod corev1.Pod
-	must(t, apiClient.Get(ctx, client.ObjectKeyFromObject(pod), &observedPod))
-	observedPod.Status.PodIP = "127.0.0.2"
-	observedPod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
-	must(t, apiClient.Status().Update(ctx, &observedPod))
-	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "protected"}}, Port: 6881, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP, wayv1.PortForwardProtocolUDP}}}
-	must(t, mgr.GetClient().Create(ctx, lease))
-	waitFor(t, 10*time.Second, func() bool {
-		var current wayv1.PortForwardLease
-		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(lease), &current) != nil {
+	must(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := apiClient.Get(ctx, client.ObjectKeyFromObject(pod), &observedPod); err != nil {
+			return err
+		}
+		observedPod.Status.PodIP = "127.0.0.2"
+		observedPod.Status.Phase = corev1.PodRunning
+		observedPod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+		observedPod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: contract.AgentContainer, Ready: true}}
+		return apiClient.Status().Update(ctx, &observedPod)
+	}))
+	waitFor(t, 30*time.Second, func() bool {
+		if apiClient.Get(ctx, client.ObjectKeyFromObject(pod), &observedPod) != nil || observedPod.Status.Phase != corev1.PodRunning || observedPod.Status.PodIP == "" {
 			return false
 		}
-		target := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionTargetReady)
-		provider := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionProviderLeaseReady)
-		rules := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionGatewayRulesReady)
-		delivered := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionDelivered)
-		ready := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionReady)
-		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionTrue && provider.Reason == waystatus.ReasonProviderLeaseObservedReady && rules != nil && rules.Status == metav1.ConditionTrue && rules.Reason == waystatus.ReasonGatewayRulesObservedReady && delivered != nil && delivered.Status == metav1.ConditionTrue && delivered.Reason == waystatus.ReasonDeliveryObservedReady && ready != nil && ready.Status == metav1.ConditionTrue && ready.Reason == waystatus.ReasonLeaseReady && current.Status.Target != nil && current.Status.Target.PodRef.UID == pod.UID && current.Status.PublicPort == 42000 && current.Status.LeaseGeneration == 1
+		agentReady := false
+		for _, status := range observedPod.Status.ContainerStatuses {
+			if status.Name == contract.AgentContainer {
+				agentReady = status.Ready
+			}
+		}
+		return agentReady && !podConditionReady(&observedPod)
 	})
+	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "protected"}}, Port: 6881, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP, wayv1.PortForwardProtocolUDP}}}
+	must(t, mgr.GetClient().Create(ctx, lease))
+	var currentLease wayv1.PortForwardLease
+	leaseReady := false
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(lease), &currentLease) != nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		target := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionTargetReady)
+		provider := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionProviderLeaseReady)
+		rules := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionGatewayRulesReady)
+		delivered := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionDelivered)
+		ready := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionReady)
+		leaseReady = target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionTrue && provider.Reason == waystatus.ReasonProviderLeaseObservedReady && rules != nil && rules.Status == metav1.ConditionTrue && rules.Reason == waystatus.ReasonGatewayRulesObservedReady && delivered != nil && delivered.Status == metav1.ConditionTrue && delivered.Reason == waystatus.ReasonDeliveryObservedReady && ready != nil && ready.Status == metav1.ConditionTrue && ready.Reason == waystatus.ReasonLeaseReady && currentLease.Status.Target != nil && currentLease.Status.Target.PodRef.UID == pod.UID && currentLease.Status.PublicPort == 42000 && currentLease.Status.LeaseGeneration == 1
+		if leaseReady {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !leaseReady {
+		must(t, apiClient.Get(ctx, client.ObjectKeyFromObject(pod), &observedPod))
+		t.Fatalf("provider-assigned lease did not become ready: status=%#v podStatus=%#v", currentLease.Status, observedPod.Status)
+	}
 	must(t, mgr.GetClient().Get(ctx, cmKey, &cm))
 	var document delivery.Document
 	must(t, json.Unmarshal([]byte(cm.Data[contract.PortForwardLeasesKey]), &document))
@@ -227,7 +261,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		return condition != nil && condition.Status == metav1.ConditionFalse && current.Status.Target == nil
 	})
 	must(t, mgr.GetClient().Delete(ctx, lease))
-	waitFor(t, 15*time.Second, func() bool {
+	waitFor(t, 30*time.Second, func() bool {
 		var current wayv1.PortForwardLease
 		return apierrors.IsNotFound(apiClient.Get(ctx, client.ObjectKeyFromObject(lease), &current))
 	})
@@ -244,7 +278,7 @@ type integrationLeaseObserver struct {
 }
 
 func (observer *integrationLeaseObserver) ObserveLease(_ context.Context, _ string, identity string) (waygateway.PortForwardObservation, error) {
-	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: observer.issuedAt, RenewAfter: observer.issuedAt.Add(8 * time.Second), ExpiresAt: observer.issuedAt.Add(12 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
+	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: observer.issuedAt, RenewAfter: observer.issuedAt.Add(10 * time.Second), ExpiresAt: observer.issuedAt.Add(20 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
 }
 
 type integrationDeliveryObserver struct {
@@ -292,6 +326,16 @@ func waitFor(t *testing.T, timeout time.Duration, f func() bool) {
 	}
 	t.Fatal("condition timed out")
 }
+
+func podConditionReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

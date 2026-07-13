@@ -45,6 +45,13 @@ or generation change clears them and removes the redirect until the adapter
 reapplies the exact current generation. The controller requires the observed
 applied port to equal the current provider port before `Delivered=True`.
 
+Target selection deliberately does not require whole-Pod readiness in this
+mode. It requires the Pod to be Running, the injected Waycloak agent to be
+Ready, and the UID-bound overlay allocation to exist. The adapter may therefore
+keep its own readiness false until it applies and acknowledges the first lease;
+that readiness remains a downstream outcome instead of becoming a circular
+prerequisite. `Fixed` mode retains whole-Pod readiness as its eligibility rule.
+
 The gateway also source-translates traffic from the exact UID-bound overlay
 target and either its stable or provider-assigned listener port to the lease's
 stable provider internal port before general masquerade. New provider internal
