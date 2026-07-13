@@ -4,9 +4,11 @@ Last updated: 2026-07-13
 
 ## Current phase
 
-Waycloak is in Phase 1. The first Go/controller-runtime control-plane slice now defines `VPNGateway` and controller-owned `VPNWorkload`, persists stable overlay allocations, quarantines released addresses, performs authorized and idempotent Pod admission, and publishes the UID-bound allocation ConfigMap required by ADR 0005.
+Waycloak has completed the Phase 1 control-plane exit and is ready for the first Phase 2 data-plane slice. The Go/controller-runtime control plane defines `VPNGateway` and controller-owned `VPNWorkload`, persists stable overlay allocations, quarantines released addresses, performs authorized and idempotent Pod admission, and publishes the UID-bound allocation ConfigMap required by ADR 0005.
 
-The VPN data plane does not exist yet. Gateway and workload `Ready` conditions therefore remain false with reason `DataPlaneNotImplemented`. Phase 1 cluster acceptance remains pending because the current Windows environment cannot tear down envtest processes and has no Kind/container runtime; this is not a claim that admission e2e has passed.
+Phase 1 acceptance passed against the Kubernetes 1.36 local k3s cluster using the same e2e suite that defaults to disposable Kind. It proves unannotated admission is unchanged, unauthorized references are rejected, application startup is blocked while the allocation ConfigMap is absent, allocations survive controller restart and unrelated membership changes, UID binding is preserved, and webhook outage fails closed only for opted-in Pods. Envtest reconciliation also passes against a real API server. The VPN data plane does not exist yet, so gateway and workload `Ready` conditions correctly remain false with reason `DataPlaneNotImplemented`.
+
+The next vertical slice is a minimal routing agent and fake gateway that install owned fail-closed policy before application startup and prove loss of the protected path cannot restore ordinary egress. It must not integrate Gluetun until that proof is packet-tested.
 
 ## First deliverable
 

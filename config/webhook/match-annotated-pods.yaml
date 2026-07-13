@@ -1,0 +1,7 @@
+- op: add
+  path: /webhooks/0/matchConditions
+  value:
+    - name: opted-in
+      expression: >-
+        has(object.metadata.annotations) &&
+        'networking.waycloak.io/gateway' in object.metadata.annotations

@@ -22,12 +22,13 @@ Exit: `go test ./...` runs on a minimal controller scaffold and generated manife
 - [x] Implement annotated-but-uninjected rejection.
 - [x] Publish precise conditions and events.
 - [x] Prove unannotated Pods are unchanged in unit tests.
+- [x] Prove admission, startup blocking, restart stability, membership stability, authorization, and webhook-outage behavior in a Kind-compatible cluster suite.
 
-Cluster acceptance is still pending: run the envtest reconciliation suite and disposable Kind admission suite on a supported Linux/container-runtime host before declaring the Phase 1 exit complete.
-
-Exit: Kind test shows injected structure and durable allocations across controller restart and unrelated membership changes.
+Exit: verified on Kubernetes 1.36 k3s; the same suite defaults to a disposable Kind context and shows injected structure, fail-closed admission outage behavior, and durable allocations across controller restart and unrelated membership changes.
 
 ## Phase 2 — fail-closed data plane
+
+Next vertical slice: implement the minimal agent/fake-gateway contract needed to install owned deny state before application startup and packet-test that gateway or agent loss cannot fall back to ordinary egress. Do not add Gluetun in this slice.
 
 - [ ] Build minimal non-root-where-possible agent image.
 - [ ] Install owned nftables policy before application startup.

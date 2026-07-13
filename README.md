@@ -37,9 +37,9 @@ Waycloak injects the routing agent before the Pod starts, installs fail-closed p
 
 ## Status
 
-**Inception / pre-alpha. There are no released images or installable controllers yet.**
+**Pre-alpha. The Phase 1 admission and stable-registration control plane is implemented and cluster-tested; there are no released images or installable data plane yet.**
 
-The repository is ready for implementation work. Start with:
+Implementation continues in roadmap order toward the first fail-closed data-plane proof. Start with:
 
 1. [AGENTS.md](AGENTS.md)
 2. [Product requirements](docs/product/PRD.md)

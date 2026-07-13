@@ -14,6 +14,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/contract"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,6 +65,9 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return ctrl.Result{}, err
 		}
 		if err := r.Create(ctx, &workload); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return ctrl.Result{Requeue: true}, nil
+			}
 			return ctrl.Result{}, err
 		}
 		r.Recorder.Eventf(&pod, corev1.EventTypeNormal, "RegistrationCreated", "Created VPNWorkload %s", name)
@@ -128,7 +132,12 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		r.Recorder.Event(&pod, corev1.EventTypeWarning, "StaleAllocationRemoved", "Removed allocation ConfigMap owned by a different Pod UID")
 		return ctrl.Result{Requeue: true}, nil
 	}
+	previous := workload.Status
+	previous.Conditions = append([]metav1.Condition(nil), workload.Status.Conditions...)
 	waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionAllocationPublished, metav1.ConditionTrue, waystatus.ReasonAllocationConfigMapReady, "The required UID-bound allocation ConfigMap exists")
+	if apiequality.Semantic.DeepEqual(previous, workload.Status) {
+		return ctrl.Result{}, nil
+	}
 	if err := r.Status().Update(ctx, &workload); err != nil {
 		return ctrl.Result{}, err
 	}
