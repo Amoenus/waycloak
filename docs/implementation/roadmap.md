@@ -43,7 +43,7 @@ Exit: passed on Kubernetes 1.36 k3s. Forced agent and gateway failures produce n
 
 ## Phase 3 — Gluetun gateway (`v0.1.0`)
 
-The functional gateway path is complete. The controller-owned singleton StatefulSet, headless Service, read-only engine configuration, gateway-manager runtime, pinned Gluetun adapter, stable membership publication, native gateway VXLAN, deny-first forwarding/NAT, and split-DNS proxy are implemented. This includes digest-only images, engine-only credential mounting, token isolation, owner cleanup, generated RBAC, typed tunnel/DNS/public-IP observations, observation-driven component status, exact cluster-DNS firewall/routing exceptions, and manager-owned VXLAN source authorization. Fixture tests remain explicitly non-VPN. A gated real-provider k3s acceptance now proves distinct protected public egress through the production path, Kubernetes DNS containment, UID-gated startup, credential isolation, and fail-closed behavior after abrupt gateway deletion without exposing Secret or public-IP values. Next vertical slice: disruption controls and the minimal Helm/release surface for the proven path.
+The functional gateway path is complete. The controller-owned singleton StatefulSet, headless Service, read-only engine configuration, gateway-manager runtime, pinned Gluetun adapter, stable membership publication, native gateway VXLAN, deny-first forwarding/NAT, and split-DNS proxy are implemented. This includes digest-only images, engine-only credential mounting, token isolation, owner cleanup, generated RBAC, typed tunnel/DNS/public-IP observations, observation-driven component status, exact cluster-DNS firewall/routing exceptions, and manager-owned VXLAN source authorization. Fixture tests remain explicitly non-VPN. A gated real-provider k3s acceptance proves distinct protected public egress through the production path, Kubernetes DNS containment, UID-gated startup, credential isolation, and fail-closed behavior after abrupt gateway deletion without exposing Secret or public-IP values. The protected `v0.1.0` workflow published and independently verified signed multi-architecture images, the signed Helm chart, SPDX SBOM attestations, GitHub provenance, and the signed release manifest. Next vertical slice: the provider-capability interface and `PortForwardLease` API.
 
 - [x] Reconcile gateway StatefulSet, Service, configuration, and RBAC.
 - [x] Add gateway and controller/webhook disruption controls without cloning the singleton tunnel.
@@ -52,7 +52,7 @@ The functional gateway path is complete. The controller-owned singleton Stateful
 - [x] Apply membership incrementally without tunnel restart.
 - [x] Add a deterministic Helm chart and multi-architecture controller image build.
 - [x] Implement the pinned, keyless image/chart publication pipeline, SBOM/provenance gates, and signed release-manifest tooling.
-- [ ] Execute the protected tag workflow and verify the published OCI artifacts.
+- [x] Execute the protected tag workflow and verify the published OCI artifacts.
 - [x] Publish install, security-exception, troubleshooting, and uninstall guides.
 - [x] Prove zero-unavailable Helm upgrade/rollback, two-phase webhook certificate rotation, and operator-activated singleton gateway rollouts.
 

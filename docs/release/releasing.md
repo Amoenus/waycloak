@@ -41,7 +41,7 @@ Use the digest references from the signed manifest, never infer them from a tag:
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp '^https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/v0\.1\.0$' \
+  --certificate-identity 'https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/v0.1.0' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/amoenus/waycloak-controller@sha256:RELEASE_DIGEST
 

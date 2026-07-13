@@ -1,11 +1,17 @@
 # Install Waycloak
 
-Waycloak is pre-release software. Until signed OCI artifacts are published, build the three images from the same commit and install the chart from this repository. Never substitute mutable tags for the required digests.
+Waycloak `v0.1.0` is published as signed, digest-addressed OCI images and a
+signed Helm OCI chart. Verify the signed release manifest and every referenced
+artifact before installation. Never substitute mutable tags for the recorded
+digests.
 
 ## Prerequisites
 
-- Kubernetes 1.30 or newer with Linux worker nodes and VXLAN support;
+- Kubernetes 1.35 or 1.36 with Linux worker nodes and VXLAN support (`v0.1.0`
+  is verified with Kindnet and Flannel; the chart's broader API-version check is
+  not a compatibility claim);
 - Helm 3.14 or newer;
+- Cosign 2.6 or newer and `jq` for release verification;
 - cluster-admin access for CRDs, admission webhooks, and cluster-scoped RBAC;
 - OpenSSL for the initial webhook certificate;
 - a CNI and node policy that permit the documented UDP 4789 overlay;
@@ -43,18 +49,51 @@ Keep the CA private key in an approved secret-management system if certificates 
 
 ## Install immutable artifacts
 
-Obtain the controller, agent, and gateway-manager manifest digests produced from the same source commit. The chart schema rejects missing or non-SHA-256 identities.
+Download and verify the signed manifest. Its exact workflow identity binds the
+artifact set to the protected `v0.1.0` tag. The chart referenced by that
+manifest already contains the three verified image repositories and manifest
+digests.
 
 ```sh
-helm upgrade --install waycloak ./charts/waycloak \
+version=v0.1.0
+release_url="https://github.com/Amoenus/waycloak/releases/download/$version"
+curl --fail --location --remote-name "$release_url/release-manifest.json"
+curl --fail --location --remote-name "$release_url/release-manifest.sigstore.json"
+
+identity="https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/$version"
+issuer=https://token.actions.githubusercontent.com
+cosign verify-blob \
+  --bundle release-manifest.sigstore.json \
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  release-manifest.json
+
+jq -r '.artifacts | .controllerImage.reference, .agentImage.reference, .gatewayManagerImage.reference, .helmChart.reference' \
+  release-manifest.json | while IFS= read -r artifact; do
+    cosign verify \
+      --certificate-identity "$identity" \
+      --certificate-oidc-issuer "$issuer" \
+      "$artifact" >/dev/null
+  done
+
+chart_ref="$(jq -r '.artifacts.helmChart.reference' release-manifest.json)"
+chart_name="${chart_ref%@*}"
+expected_digest="${chart_ref##*@}"
+pull_output="$(helm pull "oci://$chart_name" --version "${version#v}" 2>&1)"
+printf '%s\n' "$pull_output"
+actual_digest="$(printf '%s\n' "$pull_output" | awk '$1 == "Digest:" {print $2}')"
+test "$actual_digest" = "$expected_digest"
+
+helm upgrade --install waycloak "waycloak-${version#v}.tgz" \
   --namespace waycloak-system \
-  --set-string images.controller.digest="sha256:$CONTROLLER_DIGEST" \
-  --set-string images.agent.digest="sha256:$AGENT_DIGEST" \
-  --set-string images.gatewayManager.digest="sha256:$GATEWAY_MANAGER_DIGEST" \
   --set webhook.tls.existingSecret=waycloak-webhook-tls \
   --set-string webhook.tls.caBundle="$ca_bundle" \
   --wait --timeout 5m
 ```
+
+The signed manifest also records the source commit, tested Kubernetes/CNI
+matrix, required capabilities, and pinned Gluetun identity. Keep it with the
+deployment change record.
 
 Verify that two controller replicas are ready, the controller PDB permits at most one voluntary disruption, and both webhook configurations contain the `opted-in` match condition. Unannotated Pods are never sent to Waycloak admission.
 
