@@ -241,9 +241,13 @@ func createRunner(t *testing.T, c client.Client, namespace string) {
 }
 
 func startController(t *testing.T, namespace string, controllers bool) {
+	startControllerWithImage(t, namespace, controllers, e2eAgentImage)
+}
+
+func startControllerWithImage(t *testing.T, namespace string, controllers bool, agentImage string) {
 	t.Helper()
 	stopController(t, namespace)
-	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-cert-dir=/certs --allocation-quarantine=1s --agent-image=%s >/tmp/controller.log 2>&1 &", controllers, e2eAgentImage)
+	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-cert-dir=/certs --allocation-quarantine=1s --agent-image=%s >/tmp/controller.log 2>&1 &", controllers, agentImage)
 	command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", commandLine)
 	time.Sleep(2 * time.Second)
 }

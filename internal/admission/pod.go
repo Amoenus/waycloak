@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -114,7 +115,7 @@ func (m *PodMutator) Mutate(ctx context.Context, pod *corev1.Pod) (bool, error) 
 	optional := false
 	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: contract.AllocationVolume, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: allocationName}, Optional: &optional}}})
 	mount := corev1.VolumeMount{Name: contract.AllocationVolume, MountPath: "/run/waycloak", ReadOnly: true}
-	pod.Spec.InitContainers = append([]corev1.Container{injectedContainer(contract.PrepareContainer, m.AgentImage, []string{"prepare"}, mount, true), injectedContainer(contract.VerifyContainer, m.AgentImage, []string{"verify"}, mount, false)}, pod.Spec.InitContainers...)
+	pod.Spec.InitContainers = append([]corev1.Container{injectedContainer(contract.PrepareContainer, m.AgentImage, []string{"prepare"}, mount, true), injectedContainer(contract.VerifyContainer, m.AgentImage, []string{"verify"}, mount, true)}, pod.Spec.InitContainers...)
 	pod.Spec.Containers = append(pod.Spec.Containers, injectedContainer(contract.AgentContainer, m.AgentImage, []string{"run"}, mount, true))
 	return true, nil
 }
@@ -130,7 +131,11 @@ func injectedContainer(name, image string, args []string, mount corev1.VolumeMou
 		no = true
 		yes = false
 	}
-	return corev1.Container{Name: name, Image: image, Args: args, ImagePullPolicy: corev1.PullIfNotPresent, VolumeMounts: []corev1.VolumeMount{mount}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &yes, RunAsUser: &runAs, Capabilities: caps}}
+	container := corev1.Container{Name: name, Image: image, Args: args, ImagePullPolicy: corev1.PullIfNotPresent, VolumeMounts: []corev1.VolumeMount{mount}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &yes, RunAsUser: &runAs, Capabilities: caps}}
+	if name == contract.AgentContainer {
+		container.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(contract.AgentHealthPort), Scheme: corev1.URISchemeHTTP}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1, SuccessThreshold: 1}
+	}
+	return container
 }
 
 func ParseGatewayReference(workloadNamespace, value string) (string, string, error) {

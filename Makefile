@@ -2,7 +2,7 @@ GO ?= go
 CONTROLLER_GEN = $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.21.0
 SETUP_ENVTEST = $(GO) run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0
 KO = $(GO) run github.com/google/ko@v0.19.1
-IMAGE_REPOSITORY ?= ko.local/waycloak-agent
+IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-agent
 OCI_LAYOUT ?= dist/agent
 
 .PHONY: generate manifests webhook-manifests test test-race vet envtest e2e image-oci verify-generated

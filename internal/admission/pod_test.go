@@ -70,6 +70,15 @@ func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 	if !reflect.DeepEqual(names, []string{contract.PrepareContainer, contract.VerifyContainer, "application-init"}) {
 		t.Fatalf("deny-first init ordering = %v", names)
 	}
+	for _, injected := range pod.Spec.InitContainers[:2] {
+		if injected.SecurityContext == nil || injected.SecurityContext.Capabilities == nil || !reflect.DeepEqual(injected.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN"}) {
+			t.Fatalf("%s capabilities = %#v", injected.Name, injected.SecurityContext)
+		}
+	}
+	agent := pod.Spec.Containers[len(pod.Spec.Containers)-1]
+	if agent.Name != contract.AgentContainer || agent.ReadinessProbe == nil || agent.ReadinessProbe.HTTPGet == nil || agent.ReadinessProbe.HTTPGet.Port.IntValue() != contract.AgentHealthPort {
+		t.Fatalf("agent readiness probe = %#v", agent.ReadinessProbe)
+	}
 }
 
 func TestUnauthorizedGatewayRejected(t *testing.T) {

@@ -17,6 +17,7 @@ const (
 	PrepareContainer           = "waycloak-prepare"
 	VerifyContainer            = "waycloak-verify"
 	AgentContainer             = "waycloak-agent"
+	AgentHealthPort            = 9808
 	WorkloadFinalizer          = "networking.waycloak.io/allocation-quarantine"
 )
 

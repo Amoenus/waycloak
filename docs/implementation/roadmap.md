@@ -28,7 +28,7 @@ Exit: verified on Kubernetes 1.36 k3s; the same suite defaults to a disposable K
 
 ## Phase 2 — fail-closed data plane
 
-The deny-first agent and DNS-containment slices are complete. Next vertical slice: run the exact OCI agent image through the admission/allocation startup handshake with the fake gateway and prove application startup, DNS, gateway loss, and annotation removal end to end. Do not add Gluetun until that proof passes.
+The deny-first agent, DNS containment, and exact packaged-image lifecycle slices are complete. The fake gateway is test-only and does not constitute a production VPN data plane.
 
 - [x] Build minimal non-root-where-possible agent image.
 - [x] Install owned nftables policy before application startup.
@@ -37,11 +37,13 @@ The deny-first agent and DNS-containment slices are complete. Next vertical slic
 - [x] Implement cluster-local policy modes.
 - [x] Implement gateway-routed DNS.
 - [x] Add preflight diagnostics.
-- [ ] Prove the full injected-Pod lifecycle with the packaged image and fake gateway.
+- [x] Prove the full injected-Pod lifecycle with the packaged image and fake gateway.
 
-Exit: forced agent/gateway/tunnel failures produce no direct external packets and service DNS works according to policy.
+Exit: passed on Kubernetes 1.36 k3s. Forced agent and gateway failures produce no direct external packets, service DNS works according to policy, the exact injected image reports observed readiness, and an unannotated replacement retains ordinary networking.
 
 ## Phase 3 — Gluetun gateway (`v0.1.0`)
+
+Next vertical slice: reconcile the controller-owned single-gateway workload and Service behind a narrow engine interface, mount credentials only in that gateway, and prove observed health and safe replacement with a fake engine before integrating Gluetun.
 
 - [ ] Reconcile gateway StatefulSet, Service, configuration, RBAC, and disruption controls.
 - [ ] Integrate pinned Gluetun engine.

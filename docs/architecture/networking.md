@@ -45,7 +45,9 @@ The agent creates a Pod-UID-derived nftables table and protocol-tagged policy-ro
 
 On any error, the deny policy stays in place. Cleanup only removes objects carrying the current Waycloak ownership identity and must not flush application or CNI firewall state.
 
-The init verifier requires both the owned kernel state and a successful TCP probe to the gateway's observed overlay health endpoint. Desired gateway registration, a present VXLAN link, or a reachable underlay endpoint alone cannot unblock application startup.
+The lockdown and verifier init containers both require `CAP_NET_ADMIN`; application containers are never modified to receive it. The verifier requires both the owned kernel state and a successful TCP probe to the gateway's observed overlay health endpoint. Desired gateway registration, a present VXLAN link, or a reachable underlay endpoint alone cannot unblock application startup.
+
+The long-running agent exposes only an HTTP readiness bit on port `9808` inside the Pod network namespace. It returns ready after the latest configuration load and owned-state repair both succeed, and immediately returns unready after either fails. Kubelet probes the Pod IP; binding the endpoint only to container loopback would incorrectly direct a kubelet probe at node loopback. This readiness signal describes the observed protected path but does not replace the API-level gateway and workload health observations required in Phase 3.
 
 ## Cluster-local modes
 
