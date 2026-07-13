@@ -4,8 +4,9 @@ SETUP_ENVTEST = $(GO) run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.
 KO = $(GO) run github.com/google/ko@v0.19.1
 IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-agent
 OCI_LAYOUT ?= dist/agent
+GATEWAY_MANAGER_OCI_LAYOUT ?= dist/gateway-manager
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e image-oci verify-generated
+.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e image-oci gateway-manager-image-oci verify-generated
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
 
@@ -35,6 +36,10 @@ e2e:
 image-oci:
 	mkdir -p $(dir $(OCI_LAYOUT))
 	KO_DOCKER_REPO=$(IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/agent
+
+gateway-manager-image-oci:
+	mkdir -p $(dir $(GATEWAY_MANAGER_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(GATEWAY_MANAGER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/gateway-manager
 
 verify-generated: generate manifests
 	git diff --exit-code -- api config

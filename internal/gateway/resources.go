@@ -6,6 +6,7 @@ package gateway
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -23,6 +24,7 @@ const (
 
 	GatewayNameAnnotation = "internal.networking.waycloak.io/gateway-name"
 	GatewayLabel          = "internal.networking.waycloak.io/gateway"
+	EngineAuthKey         = "config.toml"
 )
 
 type WorkloadOptions struct {
@@ -63,6 +65,17 @@ func DesiredService(gateway *wayv1.VPNGateway) *corev1.Service {
 	}
 }
 
+func DesiredConfigMap(gateway *wayv1.VPNGateway) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
+		Data: map[string]string{EngineAuthKey: `[[roles]]
+name = "waycloak-manager"
+routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]
+auth = "none"
+`},
+	}
+}
+
 func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *appsv1.StatefulSet {
 	one := int32(1)
 	no := false
@@ -93,9 +106,23 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "credentials", MountPath: "/run/waycloak/credentials", ReadOnly: true},
+			{Name: "engine-auth", MountPath: "/run/waycloak/engine-auth", ReadOnly: true},
 			{Name: "tun", MountPath: "/dev/net/tun"},
 			{Name: "engine-state", MountPath: "/gluetun"},
 		},
+	}
+	if strings.EqualFold(gateway.Spec.Engine.Type, "Gluetun") {
+		engine.Env = []corev1.EnvVar{
+			{Name: "VPN_SERVICE_PROVIDER", Value: gateway.Spec.Provider.Name},
+			{Name: "VPN_TYPE", Value: strings.ToLower(gateway.Spec.Provider.Protocol)},
+			{Name: "SERVER_REGIONS", Value: gateway.Spec.Provider.Region},
+			{Name: "OPENVPN_USER_SECRETFILE", Value: "/run/waycloak/credentials/username"},
+			{Name: "OPENVPN_PASSWORD_SECRETFILE", Value: "/run/waycloak/credentials/password"},
+			{Name: "HEALTH_SERVER_ADDRESS", Value: "127.0.0.1:9999"},
+			{Name: "HTTP_CONTROL_SERVER_ADDRESS", Value: "127.0.0.1:8000"},
+			{Name: "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", Value: "/run/waycloak/engine-auth/config.toml"},
+			{Name: "PUBLICIP_ENABLED", Value: "on"},
+		}
 	}
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
@@ -112,6 +139,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 					Containers:                   []corev1.Container{engine, manager},
 					Volumes: []corev1.Volume{
 						{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}},
+						{Name: "engine-auth", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}}}},
 						{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: hostPathType(corev1.HostPathCharDev)}}},
 						{Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "runtime", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},

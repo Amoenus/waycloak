@@ -5,6 +5,7 @@ package gateway
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
@@ -47,6 +48,32 @@ func TestResourceNameIsStableAndBounded(t *testing.T) {
 	first := ResourceName(name)
 	if len(first) > 63 || first != ResourceName(name) || first == ResourceName(name+"-different") {
 		t.Fatalf("resource name = %q", first)
+	}
+}
+
+func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
+	gateway := testGateway()
+	gateway.Spec.Engine.Type = "Gluetun"
+	gateway.Spec.Provider.Protocol = "openvpn"
+	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager")})
+	engine := statefulSet.Spec.Template.Spec.Containers[0]
+	environment := map[string]string{}
+	for _, variable := range engine.Env {
+		environment[variable.Name] = variable.Value
+	}
+	for key, want := range map[string]string{
+		"OPENVPN_USER_SECRETFILE":                  "/run/waycloak/credentials/username",
+		"OPENVPN_PASSWORD_SECRETFILE":              "/run/waycloak/credentials/password",
+		"HTTP_CONTROL_SERVER_ADDRESS":              "127.0.0.1:8000",
+		"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH": "/run/waycloak/engine-auth/config.toml",
+	} {
+		if environment[key] != want {
+			t.Fatalf("environment %s = %q", key, environment[key])
+		}
+	}
+	config := DesiredConfigMap(gateway).Data[EngineAuthKey]
+	if !strings.Contains(config, `routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]`) || strings.Contains(config, "PUT ") {
+		t.Fatalf("control-server role is not read-only: %s", config)
 	}
 }
 

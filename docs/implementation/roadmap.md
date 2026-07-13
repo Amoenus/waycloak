@@ -43,7 +43,7 @@ Exit: passed on Kubernetes 1.36 k3s. Forced agent and gateway failures produce n
 
 ## Phase 3 — Gluetun gateway (`v0.1.0`)
 
-The controller-owned singleton StatefulSet and headless Service resource contract is complete, including digest-only images, gateway-only credential mounting, token isolation, owner cleanup, generated RBAC, and observed pending/tunnel status. Next vertical slice: implement the gateway-manager runtime behind narrow engine, overlay, and DNS interfaces and prove observed health and safe replacement with a fake engine before integrating Gluetun.
+The controller-owned singleton StatefulSet, headless Service, read-only engine configuration, gateway-manager runtime, and Gluetun observation adapter are complete. This includes digest-only images, engine-only credential mounting, token isolation, owner cleanup, generated RBAC, typed tunnel/DNS/public-IP observations, and a k3s fake-engine loss/recovery test. The fixture is explicitly not a VPN. Next vertical slice: implement native gateway-side VXLAN peer reconciliation, forwarding/NAT, and DNS service integration behind interfaces before running the real Gluetun public-egress acceptance.
 
 - [ ] Reconcile gateway StatefulSet, Service, configuration, RBAC, and disruption controls.
 - [ ] Integrate pinned Gluetun engine.

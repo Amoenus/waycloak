@@ -41,6 +41,13 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	if service.Spec.ClusterIP != corev1.ClusterIPNone || len(service.OwnerReferences) != 1 {
 		t.Fatalf("Service ownership/shape = %#v", service)
 	}
+	var configMap corev1.ConfigMap
+	if err := client.Get(context.Background(), key, &configMap); err != nil {
+		t.Fatal(err)
+	}
+	if len(configMap.OwnerReferences) != 1 || configMap.Data[waygateway.EngineAuthKey] == "" {
+		t.Fatalf("ConfigMap ownership/shape = %#v", configMap)
+	}
 	var statefulSet appsv1.StatefulSet
 	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
 		t.Fatal(err)

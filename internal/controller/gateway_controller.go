@@ -105,9 +105,24 @@ func immutableImage(image string) bool {
 }
 
 func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway) error {
+	desiredConfigMap := waygateway.DesiredConfigMap(gateway)
+	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: desiredConfigMap.Name, Namespace: desiredConfigMap.Namespace}}
+	operation, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
+		configMap.Labels = desiredConfigMap.Labels
+		configMap.Annotations = desiredConfigMap.Annotations
+		configMap.Data = desiredConfigMap.Data
+		return ctrl.SetControllerReference(gateway, configMap, r.Scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile gateway ConfigMap: %w", err)
+	}
+	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
+		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayConfigCreated", "Created gateway configuration ConfigMap %s", configMap.Name)
+	}
+
 	desiredService := waygateway.DesiredService(gateway)
 	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: desiredService.Name, Namespace: desiredService.Namespace}}
-	operation, err := controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
+	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
 		service.Labels = desiredService.Labels
 		service.Annotations = desiredService.Annotations
 		service.Spec = desiredService.Spec
@@ -220,6 +235,7 @@ func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
 		For(&wayv1.VPNGateway{}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
+		Owns(&corev1.ConfigMap{}).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			name := object.GetAnnotations()[waygateway.GatewayNameAnnotation]
 			if name == "" {

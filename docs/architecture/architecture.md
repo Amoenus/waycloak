@@ -85,6 +85,8 @@ The initial `VPNGateway` workload is a deliberate one-replica StatefulSet behind
 
 Gateway status remains observation-driven during incremental implementation. A created StatefulSet does not imply a tunnel, overlay, DNS, or ready gateway. Until the manager implements and verifies each component, the corresponding condition remains false with a stable not-implemented or not-ready reason.
 
+For Gluetun, the manager observes the engine through its loopback-only external-health server and control endpoints. A controller-owned ConfigMap grants only the DNS-status and public-IP GET routes; mutating, tunnel-control, and settings routes remain unavailable. The adapter discards response bodies on errors and returns typed observations so credential material or provider response content cannot enter Kubernetes events or logs.
+
 ## Lifecycle
 
 ### Adding protection

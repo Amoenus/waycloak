@@ -42,6 +42,8 @@ spec:
 
 The actual image API should separate chart-tested defaults from explicit user override while still recording an immutable resolved digest in status.
 
+For the initial Proton/OpenVPN Gluetun integration, `credentialsSecretRef` names a Secret in the gateway namespace with `username` and `password` keys. Waycloak mounts the Secret only into the engine container and configures Gluetun's secret-file settings; it does not copy values into status, manager configuration, or protected workloads. Additional protocol-specific keys require a documented API addition.
+
 ### Gateway conditions
 
 - `Accepted`: spec is valid and authorized.

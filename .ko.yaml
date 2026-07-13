@@ -14,3 +14,12 @@ builds:
       - -s
       - -w
       - -buildid=
+  - id: gateway-manager
+    dir: .
+    main: ./cmd/gateway-manager
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -buildid=
