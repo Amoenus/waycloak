@@ -1,50 +1,231 @@
+// Copyright 2026 The Waycloak Authors.
+// SPDX-License-Identifier: MIT
+
 package controller
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"net/netip"
+	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=vpngateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=vpngateways/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+
 type GatewayReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme       *runtime.Scheme
+	Recorder     record.EventRecorder
+	ManagerImage string
 }
 
 func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var gw wayv1.VPNGateway
-	if err := r.Get(ctx, req.NamespacedName, &gw); err != nil {
+	var gateway wayv1.VPNGateway
+	if err := r.Get(ctx, req.NamespacedName, &gateway); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	previous := gw.Status
-	previous.Conditions = append([]metav1.Condition(nil), gw.Status.Conditions...)
-	p, err := netip.ParsePrefix(gw.Spec.Overlay.CIDR)
-	if err != nil || !p.Addr().Is4() || p.Bits() > 30 {
-		waystatus.Set(&gw.Status.Conditions, gw.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, waystatus.ReasonInvalidOverlay, "overlay.cidr must be an IPv4 prefix with client capacity")
-	} else {
-		waystatus.Set(&gw.Status.Conditions, gw.Generation, waystatus.ConditionAccepted, metav1.ConditionTrue, waystatus.ReasonAccepted, "Gateway control-plane specification is accepted")
+	previous := gateway.Status
+	previous.Conditions = append([]metav1.Condition(nil), gateway.Status.Conditions...)
+
+	if reason, message := validateGateway(&gateway, r.ManagerImage); reason != "" {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
+		gateway.Status.ObservedGeneration = gateway.Generation
+		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
 	}
-	waystatus.Set(&gw.Status.Conditions, gw.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonDataPlaneNotImplemented, "The Phase 1 control plane does not implement or observe a VPN data plane")
-	gw.Status.ObservedGeneration = gw.Generation
-	if apiequality.Semantic.DeepEqual(previous, gw.Status) {
-		return ctrl.Result{}, nil
+
+	if r.ManagerImage == "" {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionTrue, waystatus.ReasonAccepted, "Gateway control-plane specification is accepted")
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonDataPlaneNotImplemented, "Gateway workload reconciliation is not configured")
+		gateway.Status.ObservedGeneration = gateway.Generation
+		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
 	}
-	if err := r.Status().Update(ctx, &gw); err != nil {
+
+	if err := r.reconcileResources(ctx, &gateway); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionTrue, waystatus.ReasonGatewayResourcesReady, "Controller-owned gateway resources match the accepted specification")
+	if err := r.observePod(ctx, &gateway); err != nil {
+		return ctrl.Result{}, err
+	}
+	gateway.Status.ObservedGeneration = gateway.Generation
+	return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
 }
-func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).For(&wayv1.VPNGateway{}).Complete(r)
+
+func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, string) {
+	prefix, err := netip.ParsePrefix(gateway.Spec.Overlay.CIDR)
+	if err != nil || !prefix.Addr().Is4() || prefix.Bits() > 30 {
+		return waystatus.ReasonInvalidOverlay, "overlay.cidr must be an IPv4 prefix with client capacity"
+	}
+	if managerImage == "" {
+		return "", ""
+	}
+	if !immutableImage(gateway.Spec.Engine.Image) {
+		return waystatus.ReasonInvalidEngineImage, "engine.image must be an immutable sha256 digest reference"
+	}
+	if !immutableImage(managerImage) {
+		return waystatus.ReasonInvalidEngineImage, "configured gateway-manager image must be an immutable sha256 digest reference"
+	}
+	if gateway.Spec.Provider.CredentialsSecretRef.Name == "" {
+		return waystatus.ReasonInvalidCredentialsReference, "provider.credentialsSecretRef.name is required"
+	}
+	return "", ""
+}
+
+func immutableImage(image string) bool {
+	const marker = "@sha256:"
+	index := strings.LastIndex(image, marker)
+	if index < 1 || index+len(marker)+64 != len(image) {
+		return false
+	}
+	_, err := hex.DecodeString(image[index+len(marker):])
+	return err == nil
+}
+
+func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway) error {
+	desiredService := waygateway.DesiredService(gateway)
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: desiredService.Name, Namespace: desiredService.Namespace}}
+	operation, err := controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
+		service.Labels = desiredService.Labels
+		service.Annotations = desiredService.Annotations
+		service.Spec = desiredService.Spec
+		return ctrl.SetControllerReference(gateway, service, r.Scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile gateway Service: %w", err)
+	}
+	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
+		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayServiceCreated", "Created headless gateway Service %s", service.Name)
+	}
+
+	desiredStatefulSet := waygateway.DesiredStatefulSet(gateway, waygateway.WorkloadOptions{ManagerImage: r.ManagerImage})
+	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: desiredStatefulSet.Name, Namespace: desiredStatefulSet.Namespace}}
+	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, statefulSet, func() error {
+		statefulSet.Labels = desiredStatefulSet.Labels
+		statefulSet.Annotations = desiredStatefulSet.Annotations
+		statefulSet.Spec = desiredStatefulSet.Spec
+		return ctrl.SetControllerReference(gateway, statefulSet, r.Scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile gateway StatefulSet: %w", err)
+	}
+	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
+		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayStatefulSetCreated", "Created singleton gateway StatefulSet %s", statefulSet.Name)
+	}
+	return nil
+}
+
+func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGateway) error {
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, client.InNamespace(gateway.Namespace), client.MatchingLabels(waygateway.SelectorLabels(gateway))); err != nil {
+		return fmt.Errorf("list gateway Pods: %w", err)
+	}
+	var selected *corev1.Pod
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if selected == nil || pod.CreationTimestamp.After(selected.CreationTimestamp.Time) {
+			selected = pod
+		}
+	}
+	if selected == nil {
+		setGatewayPending(gateway, "Waiting for the controller-owned gateway Pod")
+		return nil
+	}
+
+	scheduled := podCondition(selected, corev1.PodScheduled) == corev1.ConditionTrue
+	if scheduled {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionTrue, waystatus.ReasonGatewayPodScheduled, "Gateway Pod has been scheduled")
+	} else {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionFalse, waystatus.ReasonGatewayPodPending, "Gateway Pod has not been scheduled")
+	}
+	managerReady := containerReady(selected, waygateway.ManagerContainer)
+	if managerReady {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionTrue, waystatus.ReasonTunnelObservedReady, "Gateway manager reports the engine tunnel healthy")
+	} else {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "Gateway manager has not observed a healthy engine tunnel")
+	}
+	setUnimplementedGatewayConditions(gateway)
+	return nil
+}
+
+func setGatewayPending(gateway *wayv1.VPNGateway, message string) {
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionFalse, waystatus.ReasonGatewayPodPending, message)
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "No serving gateway Pod is available")
+	setUnimplementedGatewayConditions(gateway)
+}
+
+func setUnimplementedGatewayConditions(gateway *wayv1.VPNGateway) {
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotImplemented, "Gateway overlay management is not implemented yet")
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotImplemented, "Gateway DNS forwarding is not implemented yet")
+	if gateway.Spec.PortForwarding.Enabled {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotImplemented, "Gateway port forwarding is not implemented yet")
+	} else {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardDisabled, "Gateway port forwarding is disabled")
+	}
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "Gateway overlay and DNS components are not ready")
+}
+
+func podCondition(pod *corev1.Pod, conditionType corev1.PodConditionType) corev1.ConditionStatus {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == conditionType {
+			return condition.Status
+		}
+	}
+	return corev1.ConditionUnknown
+}
+
+func containerReady(pod *corev1.Pod, name string) bool {
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name == name {
+			return status.Ready
+		}
+	}
+	return false
+}
+
+func (r *GatewayReconciler) updateStatus(ctx context.Context, gateway *wayv1.VPNGateway, previous wayv1.VPNGatewayStatus) error {
+	if apiequality.Semantic.DeepEqual(previous, gateway.Status) {
+		return nil
+	}
+	return r.Status().Update(ctx, gateway)
+}
+
+func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(manager).
+		For(&wayv1.VPNGateway{}).
+		Owns(&appsv1.StatefulSet{}).
+		Owns(&corev1.Service{}).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			name := object.GetAnnotations()[waygateway.GatewayNameAnnotation]
+			if name == "" {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: object.GetNamespace(), Name: name}}}
+		})).
+		Complete(r)
 }

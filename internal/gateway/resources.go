@@ -1,0 +1,125 @@
+// Copyright 2026 The Waycloak Authors.
+// SPDX-License-Identifier: MIT
+
+package gateway
+
+import (
+	"crypto/sha256"
+	"fmt"
+
+	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+)
+
+const (
+	ManagerContainer = "waycloak-gateway-manager"
+	EngineContainer  = "vpn-engine"
+	VXLANPort        = 4789
+	HealthPort       = 18080
+	DNSPort          = 53
+
+	GatewayNameAnnotation = "internal.networking.waycloak.io/gateway-name"
+	GatewayLabel          = "internal.networking.waycloak.io/gateway"
+)
+
+type WorkloadOptions struct {
+	ManagerImage string
+}
+
+func ResourceName(name string) string {
+	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))[:10]
+	const prefix = "waycloak-gateway-"
+	maxName := 63 - len(prefix) - len(sum) - 1
+	if len(name) > maxName {
+		name = name[:maxName]
+	}
+	return prefix + name + "-" + sum
+}
+
+func SelectorLabels(gateway *wayv1.VPNGateway) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":      "waycloak",
+		"app.kubernetes.io/component": "gateway",
+		GatewayLabel:                  ResourceName(gateway.Name),
+	}
+}
+
+func DesiredService(gateway *wayv1.VPNGateway) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: corev1.ClusterIPNone,
+			Selector:  SelectorLabels(gateway),
+			Ports: []corev1.ServicePort{
+				{Name: "vxlan", Port: VXLANPort, Protocol: corev1.ProtocolUDP, TargetPort: intstr.FromInt(VXLANPort)},
+				{Name: "dns-udp", Port: DNSPort, Protocol: corev1.ProtocolUDP, TargetPort: intstr.FromInt(DNSPort)},
+				{Name: "dns-tcp", Port: DNSPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt(DNSPort)},
+				{Name: "health", Port: HealthPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt(HealthPort)},
+			},
+		},
+	}
+}
+
+func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *appsv1.StatefulSet {
+	one := int32(1)
+	no := false
+	yes := true
+	root := int64(0)
+	labels := SelectorLabels(gateway)
+	annotations := map[string]string{GatewayNameAnnotation: gateway.Name}
+	manager := corev1.Container{
+		Name:            ManagerContainer,
+		Image:           options.ManagerImage,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Args: []string{
+			"run",
+			"--engine-type=" + gateway.Spec.Engine.Type,
+			"--overlay-cidr=" + gateway.Spec.Overlay.CIDR,
+			fmt.Sprintf("--vni=%d", gateway.Spec.Overlay.VNI),
+			fmt.Sprintf("--mtu=%d", gateway.Spec.Overlay.MTU),
+		},
+		Ports:           []corev1.ContainerPort{{Name: "vxlan", ContainerPort: VXLANPort, Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: HealthPort, Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: DNSPort, Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: DNSPort, Protocol: corev1.ProtocolTCP}},
+		ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(HealthPort)}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1},
+		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
+		VolumeMounts:    []corev1.VolumeMount{{Name: "runtime", MountPath: "/run/waycloak"}},
+	}
+	engine := corev1.Container{
+		Name:            EngineContainer,
+		Image:           gateway.Spec.Engine.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "credentials", MountPath: "/run/waycloak/credentials", ReadOnly: true},
+			{Name: "tun", MountPath: "/dev/net/tun"},
+			{Name: "engine-state", MountPath: "/gluetun"},
+		},
+	}
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName:         ResourceName(gateway.Name),
+			Replicas:            &one,
+			PodManagementPolicy: appsv1.OrderedReadyPodManagement,
+			Selector:            &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: annotations},
+				Spec: corev1.PodSpec{
+					AutomountServiceAccountToken: &no,
+					SecurityContext:              &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
+					Containers:                   []corev1.Container{engine, manager},
+					Volumes: []corev1.Volume{
+						{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}},
+						{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: hostPathType(corev1.HostPathCharDev)}}},
+						{Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+						{Name: "runtime", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+					},
+				},
+			},
+		},
+	}
+}
+
+func hostPathType(value corev1.HostPathType) *corev1.HostPathType { return &value }

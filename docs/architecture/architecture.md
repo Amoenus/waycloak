@@ -81,6 +81,10 @@ flowchart TD
 
 `VPNWorkload` is a controller-created, publicly inspectable CRD but not user-authored intent. It stores stable allocation and observed status. Allocations must not be recomputed by sorting current names.
 
+The initial `VPNGateway` workload is a deliberate one-replica StatefulSet behind a headless Service. Both are directly owned by the gateway resource, so Kubernetes garbage collection is sufficient and no broad gateway finalizer is required. Provider credentials are a non-optional Secret volume mounted only into the engine container; the gateway manager does not receive that mount, and automounted ServiceAccount tokens are disabled for the entire Pod. The engine and gateway-manager images must be immutable digest references before the controller creates either resource.
+
+Gateway status remains observation-driven during incremental implementation. A created StatefulSet does not imply a tunnel, overlay, DNS, or ready gateway. Until the manager implements and verifies each component, the corresponding condition remains false with a stable not-implemented or not-ready reason.
+
 ## Lifecycle
 
 ### Adding protection

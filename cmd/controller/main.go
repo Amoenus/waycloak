@@ -24,13 +24,14 @@ import (
 // +kubebuilder:webhook:path=/validate-v1-pod,mutating=false,failurePolicy=Fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=vpod.networking.waycloak.io,admissionReviewVersions=v1
 
 func main() {
-	var metricsAddr, probeAddr, agentImage, webhookCertDir string
+	var metricsAddr, probeAddr, agentImage, gatewayManagerImage, webhookCertDir string
 	var webhookPort int
 	var leader, controllersEnabled bool
 	var allocationQuarantine time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "")
 	flag.StringVar(&agentImage, "agent-image", "", "immutable agent image reference injected into protected Pods")
+	flag.StringVar(&gatewayManagerImage, "gateway-manager-image", "", "immutable gateway-manager image reference; empty leaves gateway workload reconciliation disabled")
 	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "", "directory containing tls.crt and tls.key")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "HTTPS port for admission webhooks")
 	flag.BoolVar(&leader, "leader-elect", true, "")
@@ -64,7 +65,7 @@ func main() {
 			os.Exit(1)
 		}
 		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
-		if err = (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-gateway")}).SetupWithManager(mgr); err != nil {
+		if err = (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-gateway"), ManagerImage: gatewayManagerImage}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "setup gateway controller")
 			os.Exit(1)
 		}

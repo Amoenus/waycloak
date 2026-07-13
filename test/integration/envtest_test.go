@@ -14,6 +14,8 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +37,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	}
 	scheme := kruntime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
 	must(t, wayv1.AddToScheme(scheme))
 	e := &envtest.Environment{Scheme: scheme, UseExistingCluster: &useExisting, CRDInstallOptions: envtest.CRDInstallOptions{Paths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, CleanUpAfterUse: true, MaxTime: 30 * time.Second, PollInterval: 250 * time.Millisecond}}
 	cfg, err := e.Start()
@@ -50,7 +53,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	must(t, err)
 	recorder := record.NewFakeRecorder(100)
 	must(t, (&waycontroller.PodReconciler{Client: mgr.GetClient(), Scheme: scheme, Recorder: recorder}).SetupWithManager(mgr))
-	must(t, (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: scheme, Recorder: recorder}).SetupWithManager(mgr))
+	must(t, (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: scheme, Recorder: recorder, ManagerImage: "registry.invalid/manager@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}).SetupWithManager(mgr))
 	must(t, (&waycontroller.WorkloadGCReconciler{Client: mgr.GetClient(), Quarantine: time.Second}).SetupWithManager(mgr))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -104,12 +107,18 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		}
 		_ = apiClient.Delete(cleanupCtx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}})
 	})
-	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
+	must(t, mgr.GetClient().Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: nsName}, StringData: map[string]string{"test": "not-a-real-credential"}}))
+	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
 	must(t, mgr.GetClient().Create(ctx, gw))
 	waitFor(t, 10*time.Second, func() bool {
-		var observed wayv1.VPNGateway
-		return mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(gw), &observed) == nil
+		var statefulSet appsv1.StatefulSet
+		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &statefulSet) == nil
 	})
+	var service corev1.Service
+	must(t, mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &service))
+	if service.Spec.ClusterIP != corev1.ClusterIPNone {
+		t.Fatalf("gateway Service clusterIP = %q", service.Spec.ClusterIP)
+	}
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName, Annotations: map[string]string{contract.GatewayAnnotation: "private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
 	must(t, mgr.GetClient().Create(ctx, pod))
 	cmKey := types.NamespacedName{Namespace: nsName, Name: contract.AllocationConfigMapName(nsName, pod.Name)}

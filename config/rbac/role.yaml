@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - services
   verbs:
   - create
   - delete
@@ -33,13 +34,36 @@ rules:
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - networking.waycloak.io
   resources:
   - vpngateways
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpngateways/status
+  - vpnworkloads/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - networking.waycloak.io
   resources:
@@ -57,12 +81,4 @@ rules:
   resources:
   - vpnworkloads/finalizers
   verbs:
-  - update
-- apiGroups:
-  - networking.waycloak.io
-  resources:
-  - vpnworkloads/status
-  verbs:
-  - get
-  - patch
   - update
