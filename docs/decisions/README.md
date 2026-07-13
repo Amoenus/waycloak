@@ -13,5 +13,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0009: Gluetun firewall and Waycloak forwarding ownership](0009-gluetun-firewall-forwarding-boundary.md)
 - [0010: External ownership of admission webhook certificates](0010-external-webhook-certificate-ownership.md)
 - [0011: Renewable port-lease delivery and environment-only applications](0011-renewable-port-lease-delivery.md)
+- [0012: Port-forward lease identity and observed target binding](0012-port-forward-lease-identity-and-target-binding.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

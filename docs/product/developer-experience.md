@@ -29,7 +29,10 @@ metadata:
     networking.waycloak.io/port-forward: tcp,udp
 ```
 
-The second annotation is optional because many protected workloads only need egress. It must not encode provider-specific details.
+The second annotation is reserved as optional convenience because many
+protected workloads only need egress. It must not encode provider-specific
+details. The first Phase 4 control-plane slice requires an explicit
+`PortForwardLease`; admission does not derive one from this annotation yet.
 
 ## KCL integration
 

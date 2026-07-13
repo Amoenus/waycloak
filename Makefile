@@ -55,6 +55,7 @@ chart-package:
 	helm package charts/waycloak --destination $(CHART_PACKAGE_DIR)
 
 verify-chart-generated:
+	diff -u config/crd/bases/networking.waycloak.io_portforwardleases.yaml charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpngateways.yaml charts/waycloak/crds/networking.waycloak.io_vpngateways.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpnworkloads.yaml charts/waycloak/crds/networking.waycloak.io_vpnworkloads.yaml
 	diff -u config/rbac/role.yaml charts/waycloak/files/manager-role.yaml

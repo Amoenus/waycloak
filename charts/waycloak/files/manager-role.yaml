@@ -56,6 +56,24 @@ rules:
 - apiGroups:
   - networking.waycloak.io
   resources:
+  - portforwardleases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - portforwardleases/status
+  - vpngateways/status
+  - vpnworkloads/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.waycloak.io
+  resources:
   - vpngateways
   verbs:
   - get
@@ -63,15 +81,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - networking.waycloak.io
-  resources:
-  - vpngateways/status
-  - vpnworkloads/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - networking.waycloak.io
   resources:

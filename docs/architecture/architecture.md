@@ -60,6 +60,13 @@ Waycloak does not assume that all providers or protocols support port forwarding
 
 Makes the neutral `PortForwardLease` record available inside the workload Pod without granting Kubernetes API access to the application. It may share the routing-agent binary and exposes a read-only loopback endpoint plus an atomically updated file. Environment-only applications opt into a supervisor that stops its child on lease loss or generation change and restarts it only with a current ready record; the controller does not roll arbitrary workload owners. ADR 0011 defines the delivery and ownership boundary.
 
+The initial lease controller accepts only a non-empty Pod selector resolving to
+exactly one Ready Pod. It binds status to that Pod UID and the same-gateway
+`VPNWorkload` overlay allocation; it never treats labels alone as a packet
+target. Until a provider driver observes an actual lease, provider, gateway
+rule, delivery, and overall conditions remain false. ADR 0012 defines this
+stable identity and cardinality boundary.
+
 ## Resource ownership
 
 ```mermaid

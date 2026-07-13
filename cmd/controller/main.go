@@ -69,6 +69,11 @@ func main() {
 			log.Error(err, "setup gateway controller")
 			os.Exit(1)
 		}
+		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
+		if err = (&waycontroller.PortForwardLeaseReconciler{Client: mgr.GetClient(), Recorder: mgr.GetEventRecorderFor("waycloak-port-forward-lease")}).SetupWithManager(mgr); err != nil {
+			log.Error(err, "setup port-forward lease controller")
+			os.Exit(1)
+		}
 		if err = (&waycontroller.WorkloadGCReconciler{Client: mgr.GetClient(), Quarantine: allocationQuarantine}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "setup workload GC")
 			os.Exit(1)

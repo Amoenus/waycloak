@@ -127,3 +127,71 @@ type VPNWorkloadList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []VPNWorkload `json:"items"`
 }
+
+// PortForwardProtocol is an application-neutral transport protocol requested
+// from a provider-backed forwarded-port lease.
+// +kubebuilder:validation:Enum=TCP;UDP
+type PortForwardProtocol string
+
+const (
+	PortForwardProtocolTCP PortForwardProtocol = "TCP"
+	PortForwardProtocolUDP PortForwardProtocol = "UDP"
+)
+
+// +kubebuilder:validation:XValidation:rule="(has(self.podSelector.matchLabels) && size(self.podSelector.matchLabels) > 0) || (has(self.podSelector.matchExpressions) && size(self.podSelector.matchExpressions) > 0)",message="podSelector must not be empty"
+type PortForwardTargetSpec struct {
+	PodSelector metav1.LabelSelector `json:"podSelector"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
+}
+
+type PortForwardLeaseSpec struct {
+	GatewayRef NamespacedNameReference `json:"gatewayRef"`
+	Target     PortForwardTargetSpec   `json:"target"`
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=2
+	// +listType=set
+	Protocols []PortForwardProtocol `json:"protocols"`
+}
+
+// PortForwardTargetStatus binds gateway rules to an observed Pod UID and its
+// persisted overlay allocation. A selector match alone is never sufficient.
+type PortForwardTargetStatus struct {
+	PodRef         PodReference            `json:"podRef"`
+	WorkloadRef    NamespacedNameReference `json:"workloadRef"`
+	OverlayAddress string                  `json:"overlayAddress"`
+	Port           int32                   `json:"port"`
+}
+
+type PortForwardLeaseStatus struct {
+	ObservedGeneration int64                    `json:"observedGeneration,omitempty"`
+	Target             *PortForwardTargetStatus `json:"target,omitempty"`
+	PublicPort         int32                    `json:"publicPort,omitempty"`
+	IssuedAt           *metav1.Time             `json:"issuedAt,omitempty"`
+	RenewAfter         *metav1.Time             `json:"renewAfter,omitempty"`
+	ExpiresAt          *metav1.Time             `json:"expiresAt,omitempty"`
+	LeaseGeneration    int64                    `json:"leaseGeneration,omitempty"`
+	Conditions         []metav1.Condition       `json:"conditions,omitempty"`
+}
+
+// PortForwardLease is user-authored lease intent. Provider allocation,
+// observed target binding, gateway rules, and delivery readiness are status.
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=pflease
+// +kubebuilder:printcolumn:name="Public Port",type=integer,JSONPath=`.status.publicPort`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=='Ready')].status`
+type PortForwardLease struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              PortForwardLeaseSpec   `json:"spec"`
+	Status            PortForwardLeaseStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type PortForwardLeaseList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []PortForwardLease `json:"items"`
+}

@@ -72,6 +72,10 @@ Optional request:
 networking.waycloak.io/port-forward: tcp,udp
 ```
 
+This annotation is reserved as future workload-template convenience. The first
+Phase 4 control-plane slice uses an explicit `PortForwardLease`; admission does
+not create lease intent from the annotation yet.
+
 Injection markers are reserved under `internal.networking.waycloak.io/*` and are controller-owned.
 
 ## VPNWorkload
@@ -138,7 +142,15 @@ status:
   conditions: []
 ```
 
-Selector cardinality must be defined. The initial implementation should require exactly one Ready target Pod and mark the lease ambiguous otherwise. A future Service target may support controlled handoff during rolling updates.
+The selector must be non-empty. The initial implementation requires exactly
+one Ready target Pod and marks the lease ambiguous otherwise. The target is
+accepted only when that Pod selects the same gateway and its controller-owned
+`VPNWorkload` binds the exact Pod UID to a persisted overlay allocation.
+Status records that observed Pod UID, workload reference, overlay address, and
+local port. The `PortForwardLease` object UID is the stable provider-facing
+lease identity. A future Service target may support controlled handoff during
+rolling updates after its identity and drain semantics are proven
+([ADR 0012](../decisions/0012-port-forward-lease-identity-and-target-binding.md)).
 
 ### Lease conditions
 
@@ -150,6 +162,12 @@ Selector cardinality must be defined. The initial implementation should require 
 - `Ready`
 
 `Ready=True` means the provider lease is current, gateway rules are installed for the observed generation, the target identity is current, and delivery state has been published. It does not merely mean the object registered.
+
+Provider behavior is behind an observed capability interface describing
+supported protocols, simultaneous lease capacity, shared TCP/UDP port
+semantics, requested-port support, and minimum duration. Repeated ensure calls
+carry the stable lease identity and are idempotent. Provider acquisition never
+owns gateway DNAT or application delivery state.
 
 The canonical renewable delivery record is versioned JSON exposed through an
 atomically replaced read-only file and a read-only Pod-loopback endpoint.
