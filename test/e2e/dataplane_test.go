@@ -101,10 +101,12 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	waitForPodReady(t, direct, protected)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(gateway), gateway))
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	var clusterDNS corev1.Service
+	must(t, direct.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "kube-dns"}, &clusterDNS))
 	copyTestBinary(t, binary, namespace, gateway.Name)
 	copyTestBinary(t, binary, namespace, protected.Name)
 
-	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gateway.Status.PodIP, protected.Status.PodIP)
+	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "sh", "-c", gatewayCommand)
 	deadline := time.Now().Add(20 * time.Second)
 	ready := false
@@ -137,13 +139,17 @@ func netnsRunner(name, namespace string) *corev1.Pod {
 	falseValue := false
 	trueValue := true
 	runAsRoot := int64(0)
+	capabilities := []corev1.Capability{"NET_ADMIN"}
+	if name == "gateway" {
+		capabilities = append(capabilities, "NET_BIND_SERVICE")
+	}
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: corev1.PodSpec{
 		AutomountServiceAccountToken: &falseValue,
 		NodeSelector:                 map[string]string{"kubernetes.io/arch": "amd64"},
 		Volumes:                      []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
 		Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, VolumeMounts: []corev1.VolumeMount{{Name: "tmp", MountPath: "/tmp"}}, SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: &falseValue, RunAsNonRoot: &falseValue, RunAsUser: &runAsRoot,
-			Capabilities:           &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}},
+			Capabilities:           &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: capabilities},
 			ReadOnlyRootFilesystem: &trueValue,
 		}}},
 	}}

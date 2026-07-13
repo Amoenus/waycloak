@@ -6,11 +6,16 @@
 package dataplane
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +97,8 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 	if err := netlink.LinkSetUp(link); err != nil {
 		t.Fatalf("bring fake gateway VXLAN up: %v", err)
 	}
+	stopDNS := startFakeDNSProxy(t, net.JoinHostPort(os.Getenv("WAYCLOAK_E2E_CLUSTER_DNS"), "53"))
+	defer stopDNS()
 	listener, err := net.Listen("tcp4", "172.30.99.1:18080")
 	if err != nil {
 		t.Fatalf("listen on fake protected endpoint: %v", err)
@@ -132,6 +139,7 @@ func TestConfigureVXLANProtectedPath(t *testing.T) {
 	if err := connect("172.30.99.1:18080", 3*time.Second); err != nil {
 		t.Fatalf("reach fake gateway over VXLAN: %v", err)
 	}
+	assertDNSReachability(t, true)
 	assertDirectPathBlocked(t)
 }
 
@@ -154,7 +162,148 @@ func TestProtectedStateSurvivesAgentExit(t *testing.T) {
 			t.Fatal("protected path remained reachable after fake gateway loss")
 		}
 	}
+	assertDNSReachability(t, wantGateway)
 	assertDirectPathBlocked(t)
+}
+
+func startFakeDNSProxy(t *testing.T, upstream string) func() {
+	t.Helper()
+	udp, err := net.ListenPacket("udp4", "172.30.99.1:53")
+	if err != nil {
+		t.Fatalf("listen on fake gateway UDP DNS: %v", err)
+	}
+	tcp, err := net.Listen("tcp4", "172.30.99.1:53")
+	if err != nil {
+		_ = udp.Close()
+		t.Fatalf("listen on fake gateway TCP DNS: %v", err)
+	}
+	go func() {
+		buffer := make([]byte, 65535)
+		for {
+			n, client, readErr := udp.ReadFrom(buffer)
+			if readErr != nil {
+				return
+			}
+			request := append([]byte(nil), buffer[:n]...)
+			go func() {
+				upstreamConnection, dialErr := net.DialTimeout("udp", upstream, time.Second)
+				if dialErr != nil {
+					return
+				}
+				defer upstreamConnection.Close()
+				_ = upstreamConnection.SetDeadline(time.Now().Add(2 * time.Second))
+				if _, writeErr := upstreamConnection.Write(request); writeErr != nil {
+					return
+				}
+				response := make([]byte, 65535)
+				responseLength, responseErr := upstreamConnection.Read(response)
+				if responseErr == nil {
+					_, _ = udp.WriteTo(response[:responseLength], client)
+				}
+			}()
+		}
+	}()
+	go func() {
+		for {
+			client, acceptErr := tcp.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go proxyTCPDNS(client, upstream)
+		}
+	}()
+	return func() {
+		_ = udp.Close()
+		_ = tcp.Close()
+	}
+}
+
+func proxyTCPDNS(client net.Conn, upstream string) {
+	defer client.Close()
+	server, err := net.DialTimeout("tcp", upstream, time.Second)
+	if err != nil {
+		return
+	}
+	defer server.Close()
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(server, client); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(client, server); done <- struct{}{} }()
+	<-done
+}
+
+func assertDNSReachability(t *testing.T, want bool) {
+	t.Helper()
+	for _, network := range []string{"udp", "tcp"} {
+		err := exchangeDNS(network, "192.0.2.53:53")
+		if want && err != nil {
+			t.Fatalf("gateway-routed %s DNS failed: %v", network, err)
+		}
+		if !want && err == nil {
+			t.Fatalf("%s DNS bypassed the unavailable gateway", network)
+		}
+	}
+	if want {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := net.DefaultResolver.LookupHost(ctx, "kubernetes.default"); err != nil {
+			t.Fatalf("Kubernetes search-domain lookup through gateway DNS: %v", err)
+		}
+	}
+}
+
+func exchangeDNS(network, target string) error {
+	query := dnsQuery("kubernetes.default.svc.cluster.local")
+	connection, err := net.DialTimeout(network, target, time.Second)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(2 * time.Second))
+	if network == "tcp" {
+		length := make([]byte, 2)
+		binary.BigEndian.PutUint16(length, uint16(len(query)))
+		if _, err = connection.Write(append(length, query...)); err != nil {
+			return err
+		}
+		if _, err = io.ReadFull(connection, length); err != nil {
+			return err
+		}
+		response := make([]byte, binary.BigEndian.Uint16(length))
+		_, err = io.ReadFull(connection, response)
+		return validateDNSResponse(response, query[:2])
+	}
+	if _, err = connection.Write(query); err != nil {
+		return err
+	}
+	response := make([]byte, 65535)
+	n, err := connection.Read(response)
+	if err != nil {
+		return err
+	}
+	return validateDNSResponse(response[:n], query[:2])
+}
+
+func dnsQuery(name string) []byte {
+	query := make([]byte, 12)
+	binary.BigEndian.PutUint16(query[0:2], 0x5743)
+	binary.BigEndian.PutUint16(query[2:4], 0x0100)
+	binary.BigEndian.PutUint16(query[4:6], 1)
+	for _, label := range strings.Split(name, ".") {
+		query = append(query, byte(len(label)))
+		query = append(query, label...)
+	}
+	query = append(query, 0, 0, 1, 0, 1)
+	return query
+}
+
+func validateDNSResponse(response, id []byte) error {
+	if len(response) < 12 || !bytes.Equal(response[:2], id) {
+		return errors.New("invalid DNS response")
+	}
+	if response[3]&0x0f != 0 {
+		return fmt.Errorf("DNS response code %d", response[3]&0x0f)
+	}
+	return nil
 }
 
 func TestRepairOwnedFirewallAndLinkDrift(t *testing.T) {
@@ -209,6 +358,7 @@ func TestRepairOwnedFirewallAndLinkDrift(t *testing.T) {
 	if err := connect("172.30.99.1:18080", 2*time.Second); err != nil {
 		t.Fatalf("protected path after drift repair: %v", err)
 	}
+	assertDNSReachability(t, true)
 	assertDirectPathBlocked(t)
 }
 
@@ -229,6 +379,7 @@ func TestClusterTrafficModes(t *testing.T) {
 	if err := connect(target, 2*time.Second); err != nil {
 		t.Fatalf("Preserve mode did not retain declared cluster destination: %v", err)
 	}
+	assertDNSReachability(t, true)
 
 	cfg.ClusterTrafficMode = ClusterTrafficDeny
 	if err := agent.Repair(context.Background(), cfg); err != nil {
@@ -237,6 +388,7 @@ func TestClusterTrafficModes(t *testing.T) {
 	if err := connect(target, 500*time.Millisecond); err == nil {
 		t.Fatal("Deny mode allowed a declared cluster destination")
 	}
+	assertDNSReachability(t, true)
 
 	cfg.ClusterTrafficMode = ClusterTrafficGateway
 	if err := agent.Repair(context.Background(), cfg); err != nil {
@@ -246,6 +398,7 @@ func TestClusterTrafficModes(t *testing.T) {
 	if err := connect("172.30.99.1:18080", 2*time.Second); err != nil {
 		t.Fatalf("Gateway mode lost protected connectivity: %v", err)
 	}
+	assertDNSReachability(t, true)
 }
 
 func e2eClientConfig() Config {

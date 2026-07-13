@@ -59,9 +59,9 @@ A gateway can choose one of these explicit policies:
 
 ## DNS
 
-Default behavior routes DNS to a resolver reachable through the gateway overlay. The resolver's upstream traffic leaves through the VPN tunnel. Direct UDP/TCP 53 and encrypted-DNS bypass are not generally distinguishable from arbitrary TLS without domain policy; Waycloak guarantees that all external traffic, including DoH, still follows the VPN route, while preventing direct non-overlay DNS egress.
+Default behavior transparently destination-NATs every UDP/TCP port 53 request to a resolver on the gateway overlay, preserving kubelet-generated nameservers and search domains while preventing the selected resolver address from bypassing the gateway. The resolver's external upstream traffic leaves through the VPN tunnel. Encrypted-DNS bypass is not generally distinguishable from arbitrary TLS without domain policy; Waycloak guarantees that all external traffic, including DoH, still follows the protected route.
 
-Kubernetes service discovery must continue working. Viable implementations include a gateway resolver that forwards cluster zones to cluster DNS and external zones through the VPN, or a protected cluster DNS path. The final choice requires tests for service names, search domains, TCP fallback, and provider outage.
+The gateway resolver forwards Kubernetes cluster zones to cluster DNS and external zones through the protected upstream. Acceptance covers service names, search domains, UDP, TCP fallback, and gateway outage. Missing resolver state is fail-closed and is repaired with the rest of the Pod-UID-owned nftables table.
 
 ## Inbound port forwarding
 

@@ -30,14 +30,14 @@ spec:
     spec:
       containers:
         - name: crawler
-          image: example.invalid/crawler:latest
+          image: example.invalid/crawler@sha256:REQUIRED_DIGEST
 ```
 
 Waycloak injects the routing agent before the Pod starts, installs fail-closed policy, joins the selected gateway overlay, and reports readiness through Kubernetes conditions and events. Removing the annotation returns newly created Pods to ordinary cluster egress; it never silently changes the networking of a running Pod.
 
 ## Status
 
-**Pre-alpha. The Phase 1 admission and stable-registration control plane is implemented and cluster-tested; there are no released images or installable data plane yet.**
+**Pre-alpha. The Phase 1 control plane and Phase 2 deny-first agent/DNS packet proofs are implemented and cluster-tested; there are no released images or installable gateway yet.**
 
 Implementation continues in roadmap order toward the first fail-closed data-plane proof. Start with:
 

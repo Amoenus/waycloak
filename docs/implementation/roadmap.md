@@ -28,15 +28,16 @@ Exit: verified on Kubernetes 1.36 k3s; the same suite defaults to a disposable K
 
 ## Phase 2 — fail-closed data plane
 
-The deny-first agent/fake-gateway slice is complete. Next vertical slice: build the minimal agent image and gateway-routed DNS fake needed to prove service discovery and external DNS cannot bypass the protected path. Do not add Gluetun until that packet proof passes.
+The deny-first agent and DNS-containment slices are complete. Next vertical slice: run the exact OCI agent image through the admission/allocation startup handshake with the fake gateway and prove application startup, DNS, gateway loss, and annotation removal end to end. Do not add Gluetun until that proof passes.
 
-- [ ] Build minimal non-root-where-possible agent image.
+- [x] Build minimal non-root-where-possible agent image.
 - [x] Install owned nftables policy before application startup.
 - [x] Establish and monitor VXLAN to a test gateway.
 - [x] Implement route and firewall drift repair.
 - [x] Implement cluster-local policy modes.
-- [ ] Implement gateway-routed DNS.
+- [x] Implement gateway-routed DNS.
 - [x] Add preflight diagnostics.
+- [ ] Prove the full injected-Pod lifecycle with the packaged image and fake gateway.
 
 Exit: forced agent/gateway/tunnel failures produce no direct external packets and service DNS works according to policy.
 

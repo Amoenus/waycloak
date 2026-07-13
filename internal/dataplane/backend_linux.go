@@ -50,7 +50,7 @@ func (*linuxBackend) InstallLockdown(_ context.Context, podUID string) error {
 	if podUID == "" {
 		return errors.New("pod UID is required")
 	}
-	return replacePolicy(podUID, "", netip.AddrPort{}, "", ClusterTrafficGateway, nil)
+	return replacePolicy(podUID, "", netip.AddrPort{}, "", netip.Addr{}, ClusterTrafficGateway, nil)
 }
 
 func (*linuxBackend) Configure(_ context.Context, cfg Config) error {
@@ -78,14 +78,14 @@ func (*linuxBackend) Configure(_ context.Context, cfg Config) error {
 	if err := reconcilePolicyRules(cfg); err != nil {
 		return fmt.Errorf("reconcile protected policy-routing rules: %w", err)
 	}
-	if err := replacePolicy(cfg.PodUID, underlay.Attrs().Name, cfg.GatewayEndpoint, linkName, cfg.ClusterTrafficMode, cfg.ClusterCIDRs); err != nil {
+	if err := replacePolicy(cfg.PodUID, underlay.Attrs().Name, cfg.GatewayEndpoint, linkName, cfg.GatewayAddress, cfg.ClusterTrafficMode, cfg.ClusterCIDRs); err != nil {
 		return fmt.Errorf("activate protected nftables policy: %w", err)
 	}
 	return nil
 }
 
 func (*linuxBackend) Verify(ctx context.Context, cfg Config) error {
-	if err := verifyPolicy(cfg.PodUID); err != nil {
+	if err := verifyPolicy(cfg.PodUID, true); err != nil {
 		return err
 	}
 	link, err := netlink.LinkByName(overlayName(cfg))
@@ -139,7 +139,7 @@ func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {
 	return b.Verify(ctx, cfg)
 }
 
-func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlayName string, mode ClusterTrafficMode, clusterCIDRs []netip.Prefix) error {
+func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlayName string, dnsGateway netip.Addr, mode ClusterTrafficMode, clusterCIDRs []netip.Prefix) error {
 	conn := &nftables.Conn{}
 	tableName := policyTableName(podUID)
 	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
@@ -172,7 +172,36 @@ func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlay
 			addPrefixVerdict(conn, table, chain, prefix, expr.VerdictAccept, marker)
 		}
 	}
+	if dnsGateway.IsValid() {
+		addDNSRedirect(conn, table, dnsGateway, marker)
+	}
 	return conn.Flush()
+}
+
+func addDNSRedirect(conn *nftables.Conn, table *nftables.Table, gateway netip.Addr, marker []byte) {
+	chain := conn.AddChain(&nftables.Chain{Table: table, Name: "dns-output", Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityNATDest})
+	gateway = gateway.Unmap()
+	family := uint32(unix.NFPROTO_IPV4)
+	protocol := byte(unix.NFPROTO_IPV4)
+	if gateway.Is6() {
+		family = unix.NFPROTO_IPV6
+		protocol = byte(unix.NFPROTO_IPV6)
+	}
+	port := make([]byte, 2)
+	binary.BigEndian.PutUint16(port, 53)
+	for _, transport := range []byte{unix.IPPROTO_UDP, unix.IPPROTO_TCP} {
+		conn.AddRule(&nftables.Rule{Table: table, Chain: chain, UserData: marker, Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protocol}},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{transport}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: port},
+			&expr.Immediate{Register: 1, Data: gateway.AsSlice()},
+			&expr.Immediate{Register: 2, Data: port},
+			&expr.NAT{Type: expr.NATTypeDestNAT, Family: family, RegAddrMin: 1, RegProtoMin: 2},
+		}})
+	}
 }
 
 func addInterfaceVerdict(conn *nftables.Conn, table *nftables.Table, chain *nftables.Chain, name string, verdict expr.VerdictKind, marker []byte) {
@@ -224,7 +253,7 @@ func addPrefixVerdict(conn *nftables.Conn, table *nftables.Table, chain *nftable
 	}})
 }
 
-func verifyPolicy(podUID string) error {
+func verifyPolicy(podUID string, requireDNS bool) error {
 	conn := &nftables.Conn{}
 	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
 	if err != nil {
@@ -244,12 +273,22 @@ func verifyPolicy(podUID string) error {
 	if err != nil {
 		return fmt.Errorf("list nftables chains: %w", err)
 	}
+	filterReady, dnsReady := false, !requireDNS
 	for _, chain := range chains {
 		if chain.Table != nil && chain.Table.Name == table.Name && chain.Name == outputChainName && chain.Policy != nil && *chain.Policy == nftables.ChainPolicyDrop {
-			return nil
+			filterReady = true
+		}
+		if chain.Table != nil && chain.Table.Name == table.Name && chain.Name == "dns-output" && chain.Type == nftables.ChainTypeNAT {
+			dnsReady = true
 		}
 	}
-	return errors.New("owned nftables output-drop chain is missing")
+	if !filterReady {
+		return errors.New("owned nftables output-drop chain is missing")
+	}
+	if !dnsReady {
+		return errors.New("owned gateway DNS redirect chain is missing")
+	}
+	return nil
 }
 
 func resolveUnderlay(cfg Config) (netlink.Link, netlink.Route, error) {
