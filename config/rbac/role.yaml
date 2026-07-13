@@ -1,0 +1,68 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: waycloak-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpngateways
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpnworkloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpnworkloads/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpnworkloads/status
+  verbs:
+  - get
+  - patch
+  - update

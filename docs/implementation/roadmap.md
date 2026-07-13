@@ -10,18 +10,20 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] Test and release requirements.
 - [x] Homelab prototype provenance.
 - [ ] Resolve remaining open API questions through ADRs.
-- [ ] Scaffold Go module, controller-runtime project, and generated CRDs.
+- [x] Scaffold Go module, controller-runtime project, and generated CRDs.
 
 Exit: `go test ./...` runs on a minimal controller scaffold and generated manifests are reproducible.
 
 ## Phase 1 — admission and stable registration
 
-- [ ] Define `VPNGateway` and internal `VPNWorkload` Go APIs.
-- [ ] Reconcile stable address allocations with deletion quarantine.
-- [ ] Implement idempotent mutating admission for annotated Pods.
-- [ ] Implement annotated-but-uninjected rejection.
-- [ ] Publish precise conditions and events.
-- [ ] Prove unannotated Pods are unchanged.
+- [x] Define `VPNGateway` and internal `VPNWorkload` Go APIs.
+- [x] Reconcile stable address allocations with deletion quarantine.
+- [x] Implement idempotent mutating admission for annotated Pods.
+- [x] Implement annotated-but-uninjected rejection.
+- [x] Publish precise conditions and events.
+- [x] Prove unannotated Pods are unchanged in unit tests.
+
+Cluster acceptance is still pending: run the envtest reconciliation suite and disposable Kind admission suite on a supported Linux/container-runtime host before declaring the Phase 1 exit complete.
 
 Exit: Kind test shows injected structure and durable allocations across controller restart and unrelated membership changes.
 

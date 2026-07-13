@@ -4,7 +4,9 @@ Last updated: 2026-07-13
 
 ## Current phase
 
-Waycloak is an implementation-ready inception repository. Product behavior, architecture, API direction, security boundaries, acceptance criteria, and release requirements are documented. No controller or data-plane code exists yet.
+Waycloak is in Phase 1. The first Go/controller-runtime control-plane slice now defines `VPNGateway` and controller-owned `VPNWorkload`, persists stable overlay allocations, quarantines released addresses, performs authorized and idempotent Pod admission, and publishes the UID-bound allocation ConfigMap required by ADR 0005.
+
+The VPN data plane does not exist yet. Gateway and workload `Ready` conditions therefore remain false with reason `DataPlaneNotImplemented`. Phase 1 cluster acceptance remains pending because the current Windows environment cannot tear down envtest processes and has no Kind/container runtime; this is not a claim that admission e2e has passed.
 
 ## First deliverable
 

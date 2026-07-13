@@ -1,0 +1,20 @@
+apiVersion: networking.waycloak.io/v1alpha1
+kind: VPNGateway
+metadata:
+  name: example
+  namespace: waycloak-system
+spec:
+  engine:
+    type: Gluetun
+  provider:
+    name: example
+    credentialsSecretRef:
+      name: vpn-credentials
+  overlay:
+    cidr: 172.30.99.0/24
+    vni: 7999
+    mtu: 1320
+  workloadAccess:
+    namespaceSelector:
+      matchLabels:
+        networking.waycloak.io/access: allowed
