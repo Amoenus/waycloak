@@ -87,6 +87,8 @@ Gateway status remains observation-driven during incremental implementation. A c
 
 For Gluetun, the manager observes the engine through its loopback-only external-health server and control endpoints. A controller-owned ConfigMap grants only the DNS-status and public-IP GET routes; mutating, tunnel-control, and settings routes remain unavailable. The adapter discards response bodies on errors and returns typed observations so credential material or provider response content cannot enter Kubernetes events or logs.
 
+The same ConfigMap carries deterministic gateway desired-state JSON. Each member record joins a persisted `VPNWorkload` identity and overlay allocation to the UID-matched Pod's observed underlay IP. The manager has no Kubernetes credentials and validates the entire snapshot before applying it. Ordering is deterministic only for reproducible serialization; identities and addresses remain persisted values and are never derived from list position.
+
 ## Lifecycle
 
 ### Adding protection

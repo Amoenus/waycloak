@@ -5,7 +5,9 @@ package gateway
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
@@ -25,10 +27,27 @@ const (
 	GatewayNameAnnotation = "internal.networking.waycloak.io/gateway-name"
 	GatewayLabel          = "internal.networking.waycloak.io/gateway"
 	EngineAuthKey         = "config.toml"
+	DesiredStateKey       = "gateway.json"
 )
 
 type WorkloadOptions struct {
 	ManagerImage string
+}
+
+type Member struct {
+	ID             string `json:"id"`
+	OverlayAddress string `json:"overlayAddress"`
+	UnderlayIP     string `json:"underlayIP"`
+}
+
+type DesiredState struct {
+	GatewayName    string   `json:"gatewayName"`
+	OverlayCIDR    string   `json:"overlayCIDR"`
+	GatewayAddress string   `json:"gatewayAddress"`
+	VNI            int32    `json:"vni"`
+	MTU            int32    `json:"mtu"`
+	VXLANPort      int      `json:"vxlanPort"`
+	Members        []Member `json:"members"`
 }
 
 func ResourceName(name string) string {
@@ -65,10 +84,13 @@ func DesiredService(gateway *wayv1.VPNGateway) *corev1.Service {
 	}
 }
 
-func DesiredConfigMap(gateway *wayv1.VPNGateway) *corev1.ConfigMap {
+func DesiredConfigMap(gateway *wayv1.VPNGateway, members []Member) *corev1.ConfigMap {
+	prefix, _ := netip.ParsePrefix(gateway.Spec.Overlay.CIDR)
+	desired := DesiredState{GatewayName: gateway.Name, OverlayCIDR: gateway.Spec.Overlay.CIDR, GatewayAddress: prefix.Masked().Addr().Next().String(), VNI: gateway.Spec.Overlay.VNI, MTU: gateway.Spec.Overlay.MTU, VXLANPort: VXLANPort, Members: members}
+	serialized, _ := json.Marshal(desired)
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
-		Data: map[string]string{EngineAuthKey: `[[roles]]
+		Data: map[string]string{DesiredStateKey: string(serialized), EngineAuthKey: `[[roles]]
 name = "waycloak-manager"
 routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]
 auth = "none"
@@ -90,6 +112,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		Args: []string{
 			"run",
 			"--engine-type=" + gateway.Spec.Engine.Type,
+			"--config-path=/run/waycloak/config/gateway.json",
 			"--overlay-cidr=" + gateway.Spec.Overlay.CIDR,
 			fmt.Sprintf("--vni=%d", gateway.Spec.Overlay.VNI),
 			fmt.Sprintf("--mtu=%d", gateway.Spec.Overlay.MTU),
@@ -97,7 +120,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		Ports:           []corev1.ContainerPort{{Name: "vxlan", ContainerPort: VXLANPort, Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: HealthPort, Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: DNSPort, Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: DNSPort, Protocol: corev1.ProtocolTCP}},
 		ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(HealthPort)}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1},
 		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
-		VolumeMounts:    []corev1.VolumeMount{{Name: "runtime", MountPath: "/run/waycloak"}},
+		VolumeMounts:    []corev1.VolumeMount{{Name: "runtime", MountPath: "/run/waycloak/runtime"}, {Name: "gateway-config", MountPath: "/run/waycloak/config", ReadOnly: true}},
 	}
 	engine := corev1.Container{
 		Name:            EngineContainer,
@@ -140,6 +163,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 					Volumes: []corev1.Volume{
 						{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}},
 						{Name: "engine-auth", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}}}},
+						{Name: "gateway-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: DesiredStateKey, Path: DesiredStateKey}}}}},
 						{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: hostPathType(corev1.HostPathCharDev)}}},
 						{Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "runtime", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},

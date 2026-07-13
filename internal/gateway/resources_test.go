@@ -71,7 +71,7 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 			t.Fatalf("environment %s = %q", key, environment[key])
 		}
 	}
-	config := DesiredConfigMap(gateway).Data[EngineAuthKey]
+	config := DesiredConfigMap(gateway, nil).Data[EngineAuthKey]
 	if !strings.Contains(config, `routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]`) || strings.Contains(config, "PUT ") {
 		t.Fatalf("control-server role is not read-only: %s", config)
 	}

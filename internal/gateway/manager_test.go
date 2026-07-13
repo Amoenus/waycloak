@@ -17,6 +17,10 @@ type fakeEngine struct {
 	err         error
 }
 
+type fakeSource struct{ err error }
+
+func (source fakeSource) Load() (DesiredState, error) { return DesiredState{}, source.err }
+
 func (engine *fakeEngine) Observe(context.Context) (provider.EngineObservation, error) {
 	return engine.observation, engine.err
 }
@@ -38,5 +42,11 @@ func TestHealthManagerTracksObservedEngineState(t *testing.T) {
 	manager.Reconcile(context.Background())
 	if manager.Ready() {
 		t.Fatal("manager remained ready after DNS observation failed")
+	}
+	engine.observation.DNSReady = true
+	manager.Source = fakeSource{err: errors.New("invalid desired state")}
+	manager.Reconcile(context.Background())
+	if manager.Ready() || manager.Error() == nil {
+		t.Fatal("manager ignored invalid gateway desired state")
 	}
 }

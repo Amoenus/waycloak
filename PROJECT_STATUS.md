@@ -20,6 +20,8 @@ The gateway-manager runtime and first provider interface now exist. Its Gluetun 
 
 This still does not claim a working gateway: the fake fixture forwards no traffic, no real provider credentials have been used, and `OverlayReady`, `DNSReady`, and overall `Ready` deliberately remain false. The precise next vertical slice is native gateway-side VXLAN peer reconciliation, forwarding/NAT, and DNS service integration behind interfaces, followed by a Gluetun-backed public-egress test using an operator-owned credential Secret.
 
+Gateway desired membership is now versioned through the controller-owned ConfigMap without granting the manager API access. The controller joins persisted `VPNWorkload` allocations to UID-matched observed Pod IPs, emits stable member identities plus overlay/underlay addresses in deterministic JSON, and watches both registrations and protected Pod status for incremental updates. The manager validates the complete file before reporting readiness; duplicate identities or addresses fail closed. Adding or removing one member does not derive or rewrite any other allocation.
+
 ## First deliverable
 
 The first usable release is `v0.1.0`: a single shared Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes Secret references, and observable status. Port forwarding follows in `v0.2.0` unless it can be implemented without weakening the first milestone.

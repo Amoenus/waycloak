@@ -8,9 +8,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"sort"
 	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
+	"github.com/Amoenus/waycloak/internal/contract"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	appsv1 "k8s.io/api/apps/v1"
@@ -105,7 +107,11 @@ func immutableImage(image string) bool {
 }
 
 func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway) error {
-	desiredConfigMap := waygateway.DesiredConfigMap(gateway)
+	members, err := r.members(ctx, gateway)
+	if err != nil {
+		return err
+	}
+	desiredConfigMap := waygateway.DesiredConfigMap(gateway, members)
 	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: desiredConfigMap.Name, Namespace: desiredConfigMap.Namespace}}
 	operation, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
 		configMap.Labels = desiredConfigMap.Labels
@@ -150,6 +156,34 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayStatefulSetCreated", "Created singleton gateway StatefulSet %s", statefulSet.Name)
 	}
 	return nil
+}
+
+func (r *GatewayReconciler) members(ctx context.Context, gateway *wayv1.VPNGateway) ([]waygateway.Member, error) {
+	var workloads wayv1.VPNWorkloadList
+	if err := r.List(ctx, &workloads); err != nil {
+		return nil, fmt.Errorf("list gateway members: %w", err)
+	}
+	members := make([]waygateway.Member, 0)
+	for i := range workloads.Items {
+		workload := &workloads.Items[i]
+		if !workload.DeletionTimestamp.IsZero() || workload.Spec.GatewayRef.Namespace != gateway.Namespace || workload.Spec.GatewayRef.Name != gateway.Name || workload.Status.Allocation.Address == "" {
+			continue
+		}
+		var pod corev1.Pod
+		if err := r.Get(ctx, types.NamespacedName{Namespace: workload.Namespace, Name: workload.Spec.PodRef.Name}, &pod); err != nil {
+			continue
+		}
+		if pod.UID != workload.Spec.PodRef.UID || pod.Status.PodIP == "" {
+			continue
+		}
+		identity := string(workload.UID)
+		if identity == "" {
+			identity = workload.Namespace + "/" + workload.Name
+		}
+		members = append(members, waygateway.Member{ID: identity, OverlayAddress: workload.Status.Allocation.Address, UnderlayIP: pod.Status.PodIP})
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].ID < members[j].ID })
+	return members, nil
 }
 
 func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGateway) error {
@@ -236,12 +270,30 @@ func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
-		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
-			name := object.GetAnnotations()[waygateway.GatewayNameAnnotation]
-			if name == "" {
+		Watches(&wayv1.VPNWorkload{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			workload, ok := object.(*wayv1.VPNWorkload)
+			if !ok || workload.Spec.GatewayRef.Name == "" || workload.Spec.GatewayRef.Namespace == "" {
 				return nil
 			}
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: object.GetNamespace(), Name: name}}}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: workload.Spec.GatewayRef.Namespace, Name: workload.Spec.GatewayRef.Name}}}
+		})).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			name := object.GetAnnotations()[waygateway.GatewayNameAnnotation]
+			namespace := object.GetNamespace()
+			if name == "" {
+				reference := object.GetAnnotations()[contract.GatewayAnnotation]
+				parts := strings.Split(reference, "/")
+				switch len(parts) {
+				case 1:
+					name = parts[0]
+				case 2:
+					namespace, name = parts[0], parts[1]
+				}
+			}
+			if name == "" || namespace == "" {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}}}
 		})).
 		Complete(r)
 }

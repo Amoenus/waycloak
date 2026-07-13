@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
@@ -26,7 +27,9 @@ const testDigest = "@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123
 func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	scheme := gatewayTestScheme(t)
 	gateway := controllerTestGateway()
-	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}, &corev1.Pod{}).WithObjects(gateway).Build()
+	memberPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "member", Namespace: "apps", UID: types.UID("member-pod-uid")}, Status: corev1.PodStatus{PodIP: "10.42.0.12"}}
+	workload := &wayv1.VPNWorkload{ObjectMeta: metav1.ObjectMeta{Name: "pod-member", Namespace: "apps", UID: types.UID("workload-uid")}, Spec: wayv1.VPNWorkloadSpec{PodRef: wayv1.PodReference{Name: memberPod.Name, UID: memberPod.UID}, GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name}}, Status: wayv1.VPNWorkloadStatus{Allocation: wayv1.AllocationStatus{Address: "172.30.99.2"}}}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}, &corev1.Pod{}).WithObjects(gateway, memberPod, workload).Build()
 	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: record.NewFakeRecorder(10), ManagerImage: "registry.invalid/manager" + testDigest}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}}
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
@@ -47,6 +50,9 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	}
 	if len(configMap.OwnerReferences) != 1 || configMap.Data[waygateway.EngineAuthKey] == "" {
 		t.Fatalf("ConfigMap ownership/shape = %#v", configMap)
+	}
+	if desired := configMap.Data[waygateway.DesiredStateKey]; !strings.Contains(desired, `"overlayAddress":"172.30.99.2"`) || !strings.Contains(desired, `"underlayIP":"10.42.0.12"`) {
+		t.Fatalf("gateway desired state = %s", desired)
 	}
 	var statefulSet appsv1.StatefulSet
 	if err := client.Get(context.Background(), key, &statefulSet); err != nil {

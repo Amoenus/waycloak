@@ -37,6 +37,7 @@ func run(args []string) error {
 	healthAddress := flags.String("health-address", fmt.Sprintf(":%d", waygateway.HealthPort), "readiness listen address")
 	engineHealthURL := flags.String("engine-health-url", "http://127.0.0.1:9999/", "engine health endpoint")
 	engineControlURL := flags.String("engine-control-url", "http://127.0.0.1:8000", "engine control endpoint")
+	configPath := flags.String("config-path", "", "gateway desired-state JSON path")
 	_ = flags.String("overlay-cidr", "", "reserved for the overlay reconciler")
 	_ = flags.Int("vni", 0, "reserved for the overlay reconciler")
 	_ = flags.Int("mtu", 0, "reserved for the overlay reconciler")
@@ -49,7 +50,11 @@ func run(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	return serve(ctx, &waygateway.HealthManager{Engine: engine}, *healthAddress, 2*time.Second)
+	manager := &waygateway.HealthManager{Engine: engine}
+	if *configPath != "" {
+		manager.Source = waygateway.FileSource{Path: *configPath}
+	}
+	return serve(ctx, manager, *healthAddress, 2*time.Second)
 }
 
 func engineFor(engineType, healthURL, controlURL string) (provider.VPNEngine, error) {
