@@ -6,7 +6,9 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -18,6 +20,7 @@ import (
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 type linuxForwarding struct{}
@@ -28,7 +31,10 @@ func (linuxForwarding) InstallLockdown(_ context.Context, desired DesiredState) 
 	if err := desired.Validate(); err != nil {
 		return err
 	}
-	return ensureForwardingLockdown(desired.GatewayName)
+	if err := ensureForwardingLockdown(desired.GatewayName); err != nil {
+		return err
+	}
+	return ensureVXLANIngressLockdown(desired.GatewayName, desired.VXLANPort)
 }
 
 func (linuxForwarding) Reconcile(_ context.Context, desired DesiredState) error {
@@ -49,7 +55,10 @@ func (linuxForwarding) Reconcile(_ context.Context, desired DesiredState) error 
 	if overlay.Attrs().Index == tunnel.Attrs().Index {
 		return errors.New("gateway overlay and VPN tunnel interfaces must differ")
 	}
-	return replaceForwardingPolicy(desired, overlay.Attrs().Name, tunnel.Attrs().Name)
+	if err := replaceForwardingPolicy(desired, overlay.Attrs().Name, tunnel.Attrs().Name); err != nil {
+		return err
+	}
+	return replaceVXLANIngressPolicy(desired)
 }
 
 func ensureIPv4Forwarding() error {
@@ -160,6 +169,116 @@ func ensureForwardingLockdown(gatewayName string) error {
 	return nil
 }
 
+func ensureVXLANIngressLockdown(gatewayName string, port int) error {
+	conn := &nftables.Conn{}
+	tableName := vxlanIngressTableName(gatewayName)
+	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
+	if err != nil {
+		return fmt.Errorf("list gateway VXLAN ingress tables: %w", err)
+	}
+	var existing *nftables.Table
+	for _, table := range tables {
+		if table.Name == tableName {
+			existing = table
+			break
+		}
+	}
+	if existing != nil {
+		chains, listErr := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
+		if listErr != nil {
+			return fmt.Errorf("list gateway VXLAN ingress chains: %w", listErr)
+		}
+		for _, chain := range chains {
+			if chain.Table == nil || chain.Table.Name != tableName || chain.Name != "input" {
+				continue
+			}
+			rules, rulesErr := conn.GetRules(existing, chain)
+			if rulesErr != nil {
+				return fmt.Errorf("list gateway VXLAN ingress rules: %w", rulesErr)
+			}
+			for _, rule := range rules {
+				if bytes.Equal(rule.UserData, vxlanDropMarker(gatewayName)) {
+					return nil
+				}
+			}
+		}
+		conn.DelTable(existing)
+	}
+	table, chain := addVXLANIngressBase(conn, gatewayName)
+	addVXLANIngressDrop(conn, table, chain, gatewayName, port)
+	if err := conn.Flush(); err != nil {
+		return fmt.Errorf("install gateway VXLAN ingress lockdown: %w", err)
+	}
+	return nil
+}
+
+func replaceVXLANIngressPolicy(desired DesiredState) error {
+	conn := &nftables.Conn{}
+	tableName := vxlanIngressTableName(desired.GatewayName)
+	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
+	if err != nil {
+		return fmt.Errorf("list gateway VXLAN ingress tables: %w", err)
+	}
+	for _, existing := range tables {
+		if existing.Name == tableName {
+			conn.DelTable(existing)
+		}
+	}
+	table, chain := addVXLANIngressBase(conn, desired.GatewayName)
+	marker := []byte("waycloak-vxlan-ingress:" + desired.GatewayName)
+	for _, member := range desired.Members {
+		underlay := netip.MustParseAddr(member.UnderlayIP).Unmap()
+		expressions := append(vxlanIngressExpressions(desired.VXLANPort), sourceAddressExpressions(underlay)...)
+		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
+		conn.AddRule(&nftables.Rule{Table: table, Chain: chain, UserData: marker, Exprs: expressions})
+	}
+	addVXLANIngressDrop(conn, table, chain, desired.GatewayName, desired.VXLANPort)
+	if err := conn.Flush(); err != nil {
+		return fmt.Errorf("replace gateway VXLAN ingress policy: %w", err)
+	}
+	return nil
+}
+
+func addVXLANIngressBase(conn *nftables.Conn, gatewayName string) (*nftables.Table, *nftables.Chain) {
+	table := conn.AddTable(&nftables.Table{Family: nftables.TableFamilyINet, Name: vxlanIngressTableName(gatewayName)})
+	priority := nftables.ChainPriority(-1)
+	accept := nftables.ChainPolicyAccept
+	chain := conn.AddChain(&nftables.Chain{Table: table, Name: "input", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: &priority, Policy: &accept})
+	return table, chain
+}
+
+func addVXLANIngressDrop(conn *nftables.Conn, table *nftables.Table, chain *nftables.Chain, gatewayName string, port int) {
+	conn.AddRule(&nftables.Rule{Table: table, Chain: chain, UserData: vxlanDropMarker(gatewayName), Exprs: append(vxlanIngressExpressions(port), &expr.Verdict{Kind: expr.VerdictDrop})})
+}
+
+func vxlanIngressExpressions(port int) []expr.Any {
+	encodedPort := make([]byte, 2)
+	binary.BigEndian.PutUint16(encodedPort, uint16(port))
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: encodedPort},
+	}
+}
+
+func sourceAddressExpressions(address netip.Addr) []expr.Any {
+	protocol, offset := byte(unix.NFPROTO_IPV4), uint32(12)
+	if address.Is6() {
+		protocol, offset = byte(unix.NFPROTO_IPV6), 8
+	}
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protocol}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: uint32(len(address.AsSlice()))},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: address.AsSlice()},
+	}
+}
+
+func vxlanDropMarker(gatewayName string) []byte {
+	return []byte("waycloak-vxlan-ingress:" + gatewayName + ":drop")
+}
+
 func sourcePrefixExpressions(prefix netip.Prefix) []expr.Any {
 	return addressPrefixExpressions(prefix, 12)
 }
@@ -185,4 +304,8 @@ func fixedInterfaceName(value string) []byte {
 
 func forwardingTableName(gatewayName string) string {
 	return "waycloak_gw_" + strings.TrimPrefix(OverlayInterfaceName(gatewayName), "wcg")
+}
+
+func vxlanIngressTableName(gatewayName string) string {
+	return "waycloak_vx_" + strings.TrimPrefix(OverlayInterfaceName(gatewayName), "wcg")
 }

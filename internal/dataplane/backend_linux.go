@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
@@ -201,8 +202,10 @@ func addDNSRedirect(conn *nftables.Conn, table *nftables.Table, gateway netip.Ad
 		family = unix.NFPROTO_IPV6
 		protocol = byte(unix.NFPROTO_IPV6)
 	}
-	port := make([]byte, 2)
-	binary.BigEndian.PutUint16(port, 53)
+	queryPort := make([]byte, 2)
+	binary.BigEndian.PutUint16(queryPort, 53)
+	gatewayPort := make([]byte, 2)
+	binary.BigEndian.PutUint16(gatewayPort, contract.GatewayDNSPort)
 	for _, transport := range []byte{unix.IPPROTO_UDP, unix.IPPROTO_TCP} {
 		conn.AddRule(&nftables.Rule{Table: table, Chain: chain, UserData: marker, Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
@@ -210,9 +213,9 @@ func addDNSRedirect(conn *nftables.Conn, table *nftables.Table, gateway netip.Ad
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{transport}},
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: port},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: queryPort},
 			&expr.Immediate{Register: 1, Data: gateway.AsSlice()},
-			&expr.Immediate{Register: 2, Data: port},
+			&expr.Immediate{Register: 2, Data: gatewayPort},
 			&expr.NAT{Type: expr.NATTypeDestNAT, Family: family, RegAddrMin: 1, RegProtoMin: 2},
 		}})
 	}

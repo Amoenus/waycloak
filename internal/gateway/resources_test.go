@@ -24,6 +24,16 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	}
 	engine := statefulSet.Spec.Template.Spec.Containers[0]
 	manager := statefulSet.Spec.Template.Spec.Containers[1]
+	if len(statefulSet.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("gateway init containers = %#v", statefulSet.Spec.Template.Spec.InitContainers)
+	}
+	renderer := statefulSet.Spec.Template.Spec.InitContainers[0]
+	if renderer.Name != FirewallRendererContainer || renderer.Image != digestImage("manager") || hasMount(renderer, "credentials") || renderer.SecurityContext == nil || renderer.SecurityContext.Capabilities == nil || !reflect.DeepEqual(renderer.SecurityContext.Capabilities.Drop, []corev1.Capability{"ALL"}) || len(renderer.SecurityContext.Capabilities.Add) != 0 {
+		t.Fatalf("engine firewall renderer isolation = %#v", renderer)
+	}
+	if !hasMount(renderer, "runtime") || !containsArgument(renderer.Args, "--resolver-output=/run/waycloak/runtime/resolv.conf") {
+		t.Fatalf("engine firewall renderer does not persist the pre-engine resolver observation: %#v", renderer)
+	}
 	if engine.Name != EngineContainer || manager.Name != ManagerContainer {
 		t.Fatalf("containers = %s, %s", engine.Name, manager.Name)
 	}
@@ -36,11 +46,14 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || !reflect.DeepEqual(engine.SecurityContext.Capabilities.Drop, []corev1.Capability{"ALL"}) || !reflect.DeepEqual(engine.SecurityContext.Capabilities.Add, []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER", "NET_ADMIN", "SETGID", "SETUID"}) {
 		t.Fatalf("engine capabilities = %#v", engine.SecurityContext)
 	}
-	if manager.SecurityContext == nil || manager.SecurityContext.Capabilities == nil || !reflect.DeepEqual(manager.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN", "NET_BIND_SERVICE"}) {
+	if manager.SecurityContext == nil || manager.SecurityContext.Capabilities == nil || !reflect.DeepEqual(manager.SecurityContext.Capabilities.Add, []corev1.Capability{"NET_ADMIN"}) {
 		t.Fatalf("manager capabilities = %#v", manager.SecurityContext)
 	}
 	if manager.ReadinessProbe == nil || manager.ReadinessProbe.HTTPGet == nil || manager.ReadinessProbe.HTTPGet.Port.IntValue() != HealthPort {
 		t.Fatalf("manager readiness probe = %#v", manager.ReadinessProbe)
+	}
+	if !containsArgument(manager.Args, "--resolv-conf=/run/waycloak/runtime/resolv.conf") {
+		t.Fatalf("gateway manager does not consume the captured resolver observation: %#v", manager.Args)
 	}
 }
 
@@ -80,7 +93,7 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 		t.Fatalf("control-server role is not read-only: %s", config)
 	}
 	postRules := DesiredConfigMap(gateway, nil).Data[EnginePostRulesKey]
-	if !strings.Contains(postRules, "iptables --policy FORWARD ACCEPT") || !strings.Contains(postRules, "--in-interface "+OverlayInterfaceName(gateway.Name)) || !strings.Contains(postRules, "--source "+gateway.Spec.Overlay.CIDR) {
+	if !strings.Contains(postRules, "iptables --policy FORWARD ACCEPT") || !strings.Contains(postRules, "--protocol udp --destination-port 4789 --jump ACCEPT") || !strings.Contains(postRules, "--in-interface "+OverlayInterfaceName(gateway.Name)) || !strings.Contains(postRules, "--source "+gateway.Spec.Overlay.CIDR) || !strings.Contains(postRules, "--destination-port 1053 --jump ACCEPT") {
 		t.Fatalf("Gluetun forwarding adapter is not gateway-scoped: %s", postRules)
 	}
 	if !hasMount(engine, "engine-firewall") {
@@ -91,6 +104,15 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 func hasMount(container corev1.Container, name string) bool {
 	for _, mount := range container.VolumeMounts {
 		if mount.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArgument(arguments []string, wanted string) bool {
+	for _, argument := range arguments {
+		if argument == wanted {
 			return true
 		}
 	}

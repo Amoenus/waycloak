@@ -63,3 +63,21 @@ func TestReadinessHandler(t *testing.T) {
 		t.Fatalf("ready status = %d", response.Code)
 	}
 }
+
+func TestLocalReadinessProbeRequiresHTTP200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/readyz" {
+			t.Fatalf("probe path = %q", request.URL.Path)
+		}
+		http.Error(response, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	if err := probeReadiness(context.Background(), server.URL+"/readyz"); err == nil {
+		t.Fatal("unready HTTP response passed the local probe")
+	}
+	readyServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) }))
+	defer readyServer.Close()
+	if err := probeReadiness(context.Background(), readyServer.URL); err != nil {
+		t.Fatalf("ready HTTP response failed the local probe: %v", err)
+	}
+}

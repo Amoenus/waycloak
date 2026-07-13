@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
+	"github.com/Amoenus/waycloak/internal/contract"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,12 +19,14 @@ import (
 )
 
 const (
-	ManagerContainer = "waycloak-gateway-manager"
-	EngineContainer  = "vpn-engine"
-	VXLANPort        = 4789
-	HealthPort       = 18080
-	DNSPort          = 53
-	TunnelInterface  = "wayvpn0"
+	ManagerContainer          = "waycloak-gateway-manager"
+	EngineContainer           = "vpn-engine"
+	FirewallRendererContainer = "waycloak-engine-firewall"
+	VXLANPort                 = 4789
+	HealthPort                = 18080
+	DNSPort                   = 53
+	GatewayDNSPort            = contract.GatewayDNSPort
+	TunnelInterface           = "tunwaycloak"
 
 	GatewayNameAnnotation = "internal.networking.waycloak.io/gateway-name"
 	GatewayLabel          = "internal.networking.waycloak.io/gateway"
@@ -79,8 +82,8 @@ func DesiredService(gateway *wayv1.VPNGateway) *corev1.Service {
 			Selector:  SelectorLabels(gateway),
 			Ports: []corev1.ServicePort{
 				{Name: "vxlan", Port: VXLANPort, Protocol: corev1.ProtocolUDP, TargetPort: intstr.FromInt(VXLANPort)},
-				{Name: "dns-udp", Port: DNSPort, Protocol: corev1.ProtocolUDP, TargetPort: intstr.FromInt(DNSPort)},
-				{Name: "dns-tcp", Port: DNSPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt(DNSPort)},
+				{Name: "dns-udp", Port: DNSPort, Protocol: corev1.ProtocolUDP, TargetPort: intstr.FromInt(GatewayDNSPort)},
+				{Name: "dns-tcp", Port: DNSPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt(GatewayDNSPort)},
 				{Name: "health", Port: HealthPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt(HealthPort)},
 			},
 		},
@@ -116,14 +119,28 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 			"run",
 			"--engine-type=" + gateway.Spec.Engine.Type,
 			"--config-path=/run/waycloak/config/gateway.json",
+			"--resolv-conf=/run/waycloak/runtime/resolv.conf",
 			"--overlay-cidr=" + gateway.Spec.Overlay.CIDR,
 			fmt.Sprintf("--vni=%d", gateway.Spec.Overlay.VNI),
 			fmt.Sprintf("--mtu=%d", gateway.Spec.Overlay.MTU),
 		},
-		Ports:           []corev1.ContainerPort{{Name: "vxlan", ContainerPort: VXLANPort, Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: HealthPort, Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: DNSPort, Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: DNSPort, Protocol: corev1.ProtocolTCP}},
+		Ports:           []corev1.ContainerPort{{Name: "vxlan", ContainerPort: VXLANPort, Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: HealthPort, Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: GatewayDNSPort, Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: GatewayDNSPort, Protocol: corev1.ProtocolTCP}},
 		ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(HealthPort)}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1},
-		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN", "NET_BIND_SERVICE"}}},
+		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"NET_ADMIN"}}},
 		VolumeMounts:    []corev1.VolumeMount{{Name: "runtime", MountPath: "/run/waycloak/runtime"}, {Name: "gateway-config", MountPath: "/run/waycloak/config", ReadOnly: true}},
+	}
+	noCapabilities := &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}
+	init := corev1.Container{
+		Name:            FirewallRendererContainer,
+		Image:           options.ManagerImage,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Args:            []string{"render-engine-firewall", "--base-path=/run/waycloak/engine-firewall-base/post-rules.txt", "--resolv-conf=/etc/resolv.conf", "--output=/run/waycloak/engine-firewall/post-rules.txt", "--resolver-output=/run/waycloak/runtime/resolv.conf"},
+		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: noCapabilities},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "engine-firewall-base", MountPath: "/run/waycloak/engine-firewall-base", ReadOnly: true},
+			{Name: "engine-firewall", MountPath: "/run/waycloak/engine-firewall"},
+			{Name: "runtime", MountPath: "/run/waycloak/runtime"},
+		},
 	}
 	engine := corev1.Container{
 		Name:            EngineContainer,
@@ -165,11 +182,13 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 				Spec: corev1.PodSpec{
 					AutomountServiceAccountToken: &no,
 					SecurityContext:              &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
+					InitContainers:               []corev1.Container{init},
 					Containers:                   []corev1.Container{engine, manager},
 					Volumes: []corev1.Volume{
 						{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}},
 						{Name: "engine-auth", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}}}},
-						{Name: "engine-firewall", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: EnginePostRulesKey, Path: EnginePostRulesKey}}}}},
+						{Name: "engine-firewall-base", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: EnginePostRulesKey, Path: EnginePostRulesKey}}}}},
+						{Name: "engine-firewall", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "gateway-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: DesiredStateKey, Path: DesiredStateKey}}}}},
 						{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: hostPathType(corev1.HostPathCharDev)}}},
 						{Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -183,7 +202,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 
 func enginePostRules(gateway *wayv1.VPNGateway) string {
 	overlay := OverlayInterfaceName(gateway.Name)
-	return fmt.Sprintf("iptables --policy FORWARD ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\n", overlay, gateway.Spec.Overlay.CIDR, DNSPort, overlay, gateway.Spec.Overlay.CIDR, DNSPort, overlay, gateway.Spec.Overlay.CIDR, HealthPort)
+	return fmt.Sprintf("iptables --policy FORWARD ACCEPT\niptables --append INPUT --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\n", VXLANPort, overlay, gateway.Spec.Overlay.CIDR, GatewayDNSPort, overlay, gateway.Spec.Overlay.CIDR, GatewayDNSPort, overlay, gateway.Spec.Overlay.CIDR, HealthPort)
 }
 
 func hostPathType(value corev1.HostPathType) *corev1.HostPathType { return &value }

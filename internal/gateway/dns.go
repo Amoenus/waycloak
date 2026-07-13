@@ -17,9 +17,23 @@ type DNSService interface {
 	Reconcile(context.Context, DesiredState) error
 }
 
+type DNSRouting interface {
+	Reconcile(context.Context, netip.Addr) error
+}
+
 type ResolverConfig struct {
 	ClusterUpstream netip.AddrPort
 	ClusterZones    []string
+}
+
+func (config ResolverConfig) Render() (string, error) {
+	if !config.ClusterUpstream.IsValid() || config.ClusterUpstream.Port() != DNSPort {
+		return "", errors.New("cluster resolver must be a valid port-53 address")
+	}
+	if len(config.ClusterZones) == 0 {
+		return "", errors.New("cluster resolver configuration has no search domains")
+	}
+	return fmt.Sprintf("nameserver %s\nsearch %s\n", config.ClusterUpstream.Addr().Unmap(), strings.Join(config.ClusterZones, " ")), nil
 }
 
 func ResolverConfigFromFile(path string) (ResolverConfig, error) {

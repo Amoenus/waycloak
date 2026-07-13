@@ -57,7 +57,7 @@ func TestServeGatewayDNS(t *testing.T) {
 		ClusterUpstream:  netip.AddrPortFrom(cluster, DNSPort),
 		ExternalUpstream: netip.AddrPortFrom(cluster, DNSPort),
 		ClusterZones:     []string{"default.svc.cluster.local.", "svc.cluster.local.", "cluster.local."},
-		Port:             DNSPort,
+		Port:             GatewayDNSPort,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

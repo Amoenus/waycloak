@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -133,7 +132,7 @@ func injectedContainer(name, image string, args []string, mount corev1.VolumeMou
 	}
 	container := corev1.Container{Name: name, Image: image, Args: args, ImagePullPolicy: corev1.PullIfNotPresent, VolumeMounts: []corev1.VolumeMount{mount}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &yes, RunAsUser: &runAs, Capabilities: caps}}
 	if name == contract.AgentContainer {
-		container.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(contract.AgentHealthPort), Scheme: corev1.URISchemeHTTP}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1, SuccessThreshold: 1}
+		container.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"/proc/1/exe", "probe"}}}, PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 1, SuccessThreshold: 1}
 	}
 	return container
 }

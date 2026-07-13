@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/google/nftables"
 	"github.com/vishvananda/netlink"
 )
@@ -170,11 +171,11 @@ func TestProtectedStateSurvivesAgentExit(t *testing.T) {
 
 func startFakeDNSProxy(t *testing.T, upstream string) func() {
 	t.Helper()
-	udp, err := net.ListenPacket("udp4", "172.30.99.1:53")
+	udp, err := net.ListenPacket("udp4", fmt.Sprintf("172.30.99.1:%d", contract.GatewayDNSPort))
 	if err != nil {
 		t.Fatalf("listen on fake gateway UDP DNS: %v", err)
 	}
-	tcp, err := net.Listen("tcp4", "172.30.99.1:53")
+	tcp, err := net.Listen("tcp4", fmt.Sprintf("172.30.99.1:%d", contract.GatewayDNSPort))
 	if err != nil {
 		_ = udp.Close()
 		t.Fatalf("listen on fake gateway TCP DNS: %v", err)

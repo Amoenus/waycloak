@@ -29,8 +29,14 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 || args[0] != "run" {
-		return errors.New("usage: gateway-manager run [flags]")
+	if len(args) == 0 {
+		return errors.New("usage: gateway-manager <run|render-engine-firewall> [flags]")
+	}
+	if args[0] == "render-engine-firewall" {
+		return renderEngineFirewall(args[1:])
+	}
+	if args[0] != "run" {
+		return errors.New("usage: gateway-manager <run|render-engine-firewall> [flags]")
 	}
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	engineType := flags.String("engine-type", "", "VPN engine adapter")
@@ -38,6 +44,7 @@ func run(args []string) error {
 	engineHealthURL := flags.String("engine-health-url", "http://127.0.0.1:9999/", "engine health endpoint")
 	engineControlURL := flags.String("engine-control-url", "http://127.0.0.1:8000", "engine control endpoint")
 	configPath := flags.String("config-path", "", "gateway desired-state JSON path")
+	resolvConf := flags.String("resolv-conf", "/etc/resolv.conf", "captured Kubernetes resolver configuration")
 	_ = flags.String("overlay-cidr", "", "reserved for the overlay reconciler")
 	_ = flags.Int("vni", 0, "reserved for the overlay reconciler")
 	_ = flags.Int("mtu", 0, "reserved for the overlay reconciler")
@@ -52,7 +59,7 @@ func run(args []string) error {
 	defer stop()
 	manager := &waygateway.HealthManager{Engine: engine}
 	if *configPath != "" {
-		dns, err := waygateway.NewDNSProxyFromResolvConf("/etc/resolv.conf")
+		dns, err := waygateway.NewDNSProxyFromResolvConf(*resolvConf)
 		if err != nil {
 			return err
 		}
@@ -62,6 +69,43 @@ func run(args []string) error {
 		manager.DNS = dns
 	}
 	return serve(ctx, manager, *healthAddress, 2*time.Second)
+}
+
+func renderEngineFirewall(args []string) error {
+	flags := flag.NewFlagSet("render-engine-firewall", flag.ContinueOnError)
+	basePath := flags.String("base-path", "", "controller-rendered post-rules template")
+	resolvConf := flags.String("resolv-conf", "/etc/resolv.conf", "Pod resolver configuration")
+	outputPath := flags.String("output", "", "rendered Gluetun post-rules path")
+	resolverOutputPath := flags.String("resolver-output", "", "captured Kubernetes resolver configuration path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *basePath == "" || *outputPath == "" || *resolverOutputPath == "" {
+		return errors.New("--base-path, --output, and --resolver-output are required")
+	}
+	base, err := os.ReadFile(*basePath)
+	if err != nil {
+		return fmt.Errorf("read engine firewall template: %w", err)
+	}
+	resolver, err := waygateway.ResolverConfigFromFile(*resolvConf)
+	if err != nil {
+		return err
+	}
+	rendered, err := waygateway.RenderEnginePostRules(string(base), resolver)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*outputPath, []byte(rendered), 0o600); err != nil {
+		return fmt.Errorf("write rendered engine firewall: %w", err)
+	}
+	capturedResolver, err := resolver.Render()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*resolverOutputPath, []byte(capturedResolver), 0o600); err != nil {
+		return fmt.Errorf("write captured Kubernetes resolver configuration: %w", err)
+	}
+	return nil
 }
 
 func engineFor(engineType, healthURL, controlURL string) (provider.VPNEngine, error) {

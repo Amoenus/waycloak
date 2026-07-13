@@ -25,6 +25,7 @@ type DNSProxy struct {
 	ExternalUpstream netip.AddrPort
 	ClusterZones     []string
 	Port             uint16
+	Routing          DNSRouting
 
 	mu       sync.Mutex
 	address  string
@@ -38,7 +39,7 @@ func NewDNSProxyFromResolvConf(path string) (*DNSProxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DNSProxy{ClusterUpstream: config.ClusterUpstream, ExternalUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterZones: config.ClusterZones, Port: DNSPort}, nil
+	return &DNSProxy{ClusterUpstream: config.ClusterUpstream, ExternalUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterZones: config.ClusterZones, Port: GatewayDNSPort, Routing: NewDNSRouting()}, nil
 }
 
 func (proxy *DNSProxy) Reconcile(ctx context.Context, desired DesiredState) error {
@@ -47,6 +48,11 @@ func (proxy *DNSProxy) Reconcile(ctx context.Context, desired DesiredState) erro
 	}
 	if !proxy.ClusterUpstream.IsValid() || !proxy.ExternalUpstream.IsValid() || proxy.Port == 0 || len(proxy.ClusterZones) == 0 {
 		return errors.New("gateway DNS proxy configuration is invalid")
+	}
+	if proxy.Routing != nil {
+		if err := proxy.Routing.Reconcile(ctx, proxy.ClusterUpstream.Addr()); err != nil {
+			return fmt.Errorf("reconcile cluster DNS route: %w", err)
+		}
 	}
 	proxy.mu.Lock()
 	defer proxy.mu.Unlock()

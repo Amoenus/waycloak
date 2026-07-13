@@ -18,6 +18,7 @@ const (
 	VerifyContainer            = "waycloak-verify"
 	AgentContainer             = "waycloak-agent"
 	AgentHealthPort            = 9808
+	GatewayDNSPort             = 1053
 	WorkloadFinalizer          = "networking.waycloak.io/allocation-quarantine"
 )
 

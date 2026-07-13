@@ -30,12 +30,15 @@ func main() {
 
 func run(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: waycloak-agent <prepare|verify|run|preflight>")
+		return errors.New("usage: waycloak-agent <prepare|verify|run|preflight|probe>")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if args[0] == "probe" {
+		return probeReadiness(ctx, fmt.Sprintf("http://127.0.0.1:%d/readyz", contract.AgentHealthPort))
 	}
 	backend := dataplane.NewBackend()
 	agent := dataplane.Agent{Backend: backend}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if args[0] == "preflight" {
 		return backend.Preflight(ctx)
 	}
@@ -59,6 +62,24 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func probeReadiness(ctx context.Context, endpoint string) error {
+	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("create local readiness probe: %w", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("query local readiness: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("local readiness returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration) error {

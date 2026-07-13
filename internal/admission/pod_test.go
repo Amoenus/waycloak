@@ -76,7 +76,7 @@ func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 		}
 	}
 	agent := pod.Spec.Containers[len(pod.Spec.Containers)-1]
-	if agent.Name != contract.AgentContainer || agent.ReadinessProbe == nil || agent.ReadinessProbe.HTTPGet == nil || agent.ReadinessProbe.HTTPGet.Port.IntValue() != contract.AgentHealthPort {
+	if agent.Name != contract.AgentContainer || agent.ReadinessProbe == nil || agent.ReadinessProbe.Exec == nil || !reflect.DeepEqual(agent.ReadinessProbe.Exec.Command, []string{"/proc/1/exe", "probe"}) {
 		t.Fatalf("agent readiness probe = %#v", agent.ReadinessProbe)
 	}
 }
