@@ -174,7 +174,7 @@ func primaryIPv4Address(link netlink.Link) (netip.Addr, error) {
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].bits != candidates[j].bits {
-			return candidates[i].bits < candidates[j].bits
+			return candidates[i].bits > candidates[j].bits
 		}
 		return candidates[i].address.Less(candidates[j].address)
 	})

@@ -195,4 +195,10 @@ func TestLeaseHandlerAcceptsOnlyExactProviderAssignedAcknowledgement(t *testing.
 	if response.Code != http.StatusConflict {
 		t.Fatalf("stale acknowledgement status=%d", response.Code)
 	}
+	response = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/unknown/ack", strings.NewReader(`{"generation":4,"applicationPort":42000}`))
+	leaseHandler(store).ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown acknowledgement status=%d", response.Code)
+	}
 }

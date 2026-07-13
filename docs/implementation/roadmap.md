@@ -67,7 +67,7 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Deliver neutral lease records to workloads.
 - [x] Implement the generic exact-generation `ProviderAssigned` handoff and
   evidence-backed qBitTorrent sidecar outside application-agnostic controller
-  semantics.
+  semantics, with protocol-faithful local/k3s evidence only.
 - [ ] Publish the signed adapter image and complete sustained real-provider
   qBitTorrent ingress, advertisement, DHT, renewal, and rotation acceptance.
 - [ ] Validate Bitmagnet and Loadstone consumption.

@@ -28,4 +28,10 @@ func TestQBittorrentExampleRendersProviderAssignedAdapter(t *testing.T) {
 	if strings.Contains(rendered, ":latest") {
 		t.Fatal("rendered qBitTorrent example contains a mutable latest image")
 	}
+	for _, line := range strings.Split(rendered, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "image:") && !strings.Contains(trimmed, "@sha256:") {
+			t.Fatalf("rendered qBitTorrent example contains a mutable image: %s", trimmed)
+		}
+	}
 }

@@ -72,7 +72,7 @@ func TestQBittorrentAdapterAppliesRotatedProviderPort(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "sh", "-ec", "chmod +x /tmp/qbittorrent-adapter /tmp/fake-lease-agent; nohup /tmp/fake-lease-agent --document=/fixtures/port-forward-leases.json --state-directory=/tmp >/tmp/fake-agent.log 2>&1 </dev/null &")
 	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "sh", "-ec", "nohup env WAYCLOAK_QBITTORRENT_API_KEY_FILE=/secrets/api-key WAYCLOAK_LEASE_NAME=torrent /tmp/qbittorrent-adapter run >/tmp/adapter.log 2>&1 </dev/null &")
 	waitFor(t, 90*time.Second, func() bool {
-		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "grep -q '\"generation\":1' /tmp/ack.json && grep -q '\"applicationPort\":42000' /tmp/ack.json") && commandSucceedsContainer(namespace, pod.Name, "qbittorrent", "grep -i ':A410 ' /proc/net/tcp >/dev/null && grep -i ':A410 ' /proc/net/udp >/dev/null")
+		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "grep -q '\"generation\":1' /tmp/ack.json && grep -q '\"applicationPort\":42000' /tmp/ack.json && grep -qx '/v1/port-forward/leases/lease-uid/ack' /tmp/ack-path") && commandSucceedsContainer(namespace, pod.Name, "qbittorrent", "grep -i ':A410 ' /proc/net/tcp >/dev/null && grep -i ':A410 ' /proc/net/udp >/dev/null")
 	})
 
 	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=waycloak-probe&tr=http%3A%2F%2F127.0.0.1%3A18081%2Fannounce"
@@ -85,7 +85,7 @@ func TestQBittorrentAdapterAppliesRotatedProviderPort(t *testing.T) {
 	fixture.Data["port-forward-leases.json"] = qbitDeliveryDocument(t, string(initialUID), 2, 42001, now.Add(time.Second))
 	must(t, direct.Update(ctx, fixture))
 	waitFor(t, 2*time.Minute, func() bool {
-		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "grep -q '\"generation\":2' /tmp/ack.json && grep -q '\"applicationPort\":42001' /tmp/ack.json") && commandSucceedsContainer(namespace, pod.Name, "qbittorrent", "grep -i ':A411 ' /proc/net/tcp >/dev/null && grep -i ':A411 ' /proc/net/udp >/dev/null && ! grep -i ':A410 ' /proc/net/tcp >/dev/null")
+		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "grep -q '\"generation\":2' /tmp/ack.json && grep -q '\"applicationPort\":42001' /tmp/ack.json && grep -qx '/v1/port-forward/leases/lease-uid/ack' /tmp/ack-path") && commandSucceedsContainer(namespace, pod.Name, "qbittorrent", "grep -i ':A411 ' /proc/net/tcp >/dev/null && grep -i ':A411 ' /proc/net/udp >/dev/null && ! grep -i ':A410 ' /proc/net/tcp >/dev/null && ! grep -i ':A410 ' /proc/net/udp >/dev/null")
 	})
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(pod), pod))
 	if pod.UID != initialUID || pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {

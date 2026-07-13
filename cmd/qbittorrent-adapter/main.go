@@ -84,10 +84,11 @@ func run(args []string) error {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
+	serveErrors := make(chan error, 1)
 	go func() {
 		if serveErr := server.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.Printf("adapter readiness server failed: %v", serveErr)
 			ready.Store(false)
+			serveErrors <- fmt.Errorf("serve adapter readiness: %w", serveErr)
 		}
 	}()
 	ticker := time.NewTicker(2 * time.Second)
@@ -103,6 +104,8 @@ func run(args []string) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case serveErr := <-serveErrors:
+			return serveErr
 		case <-ticker.C:
 		}
 	}

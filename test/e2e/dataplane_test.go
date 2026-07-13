@@ -75,7 +75,7 @@ func TestFailClosedLockdownInPodNetworkNamespace(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, "runner", "--", "env", "WAYCLOAK_E2E_NETNS=1", "/tmp/dataplane.test", "-test.run", "^TestLockdownDropsDirectPackets$", "-test.v")
 }
 
-func TestApplicationPortRedirectRotatesAtomically(t *testing.T) {
+func TestApplicationPortRedirectRotatesTCPAndUDP(t *testing.T) {
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
 	if !strings.HasPrefix(contextName, "kind-") && os.Getenv("WAYCLOAK_E2E_ALLOW_NON_KIND") != "1" {
 		t.Skip("set WAYCLOAK_E2E_ALLOW_NON_KIND=1 to authorize a non-Kind cluster")
@@ -96,17 +96,27 @@ func TestApplicationPortRedirectRotatesAtomically(t *testing.T) {
 	must(t, direct.Create(context.Background(), pod))
 	waitForPodReady(t, direct, pod)
 	copyTestBinary(t, binary, namespace, pod.Name)
-	setup := "set -eu; apk add --no-cache iproute2 >/dev/null; ip netns add source; ip netns add target; ip link add source0 type veth peer name target0; ip link set source0 netns source; ip link set target0 netns target; ip netns exec source ip link set lo up; ip netns exec source ip address add 172.31.0.1/24 dev source0; ip netns exec source ip link set source0 up; ip netns exec target ip link set lo up; ip netns exec target ip address add 172.31.0.2/24 dev target0; ip netns exec target ip link set target0 up; nohup ip netns exec target env WAYCLOAK_E2E_PORT_REDIRECT=1 /tmp/dataplane.test -test.run '^TestApplicationPortRedirectRotation$' -test.v >/tmp/application-port-test.log 2>&1 </dev/null &"
+	setup := "set -eu; apk add --no-cache iproute2 >/dev/null; ip netns add source; ip netns add target; ip link add source0 type veth peer name target0; ip link set source0 netns source; ip link set target0 netns target; ip netns exec source ip link set lo up; ip netns exec source ip address add 172.31.0.1/24 dev source0; ip netns exec source ip link set source0 up; ip netns exec target ip link set lo up; ip netns exec target ip address add 172.31.0.2/24 dev target0; ip netns exec target ip link set target0 up"
 	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-c", setup)
-	for generation := 1; generation <= 2; generation++ {
-		marker := fmt.Sprintf("/tmp/application-port-ready-%d", generation)
-		waitFor(t, 30*time.Second, func() bool { return commandSucceeds(namespace, pod.Name, "test -f "+marker) })
-		payload := fmt.Sprintf("generation-%d", generation)
-		command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-ec", fmt.Sprintf("printf %s | ip netns exec source nc -w 3 172.31.0.2 6881", payload))
+	for _, protocol := range []string{"tcp", "udp"} {
+		testName := "TestApplicationPortRedirect" + strings.ToUpper(protocol) + "Rotation"
+		logPath := "/tmp/application-port-" + protocol + "-test.log"
+		commandLine := fmt.Sprintf("nohup ip netns exec target env WAYCLOAK_E2E_PORT_REDIRECT=1 /tmp/dataplane.test -test.run '^%s$' -test.v >%s 2>&1 </dev/null &", testName, logPath)
+		command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-c", commandLine)
+		for generation := 1; generation <= 2; generation++ {
+			marker := fmt.Sprintf("/tmp/application-port-%s-ready-%d", protocol, generation)
+			waitFor(t, 30*time.Second, func() bool { return commandSucceeds(namespace, pod.Name, "test -f "+marker) })
+			payload := fmt.Sprintf("generation-%d", generation)
+			traffic := fmt.Sprintf("printf %s | ip netns exec source nc -w 3 172.31.0.2 6881", payload)
+			if protocol == "udp" {
+				traffic = fmt.Sprintf("printf %s | ip netns exec source nc -u -w 1 172.31.0.2 6881", payload)
+			}
+			command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "--", "sh", "-ec", traffic)
+		}
+		waitFor(t, 30*time.Second, func() bool {
+			return commandSucceeds(namespace, pod.Name, "grep -q -- '--- PASS: "+testName+"' "+logPath)
+		})
 	}
-	waitFor(t, 30*time.Second, func() bool {
-		return commandSucceeds(namespace, pod.Name, "grep -q -- '--- PASS: TestApplicationPortRedirectRotation' /tmp/application-port-test.log")
-	})
 }
 
 func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {

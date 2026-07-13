@@ -53,6 +53,10 @@ func main() {
 			http.Error(response, "store acknowledgement", http.StatusInternalServerError)
 			return
 		}
+		if err := os.WriteFile(filepath.Join(*stateDirectory, "ack-path"), []byte(request.URL.Path+"\n"), 0o600); err != nil {
+			http.Error(response, "store acknowledgement path", http.StatusInternalServerError)
+			return
+		}
 		response.WriteHeader(http.StatusNoContent)
 	})
 	trackerMux := http.NewServeMux()

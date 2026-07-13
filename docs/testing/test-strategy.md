@@ -65,7 +65,9 @@ Mandatory scenarios:
 - a compatibility probe proves qBitTorrent's native PCP mapping still
   announces the local listener when the external port differs;
 - the qBitTorrent sidecar applies the exact current public port and acknowledges
-  its lease UID and generation without receiving Kubernetes or VPN credentials;
+  its lease UID, generation, and applied application port; the acknowledged
+  port matches both the delivered `applicationPort` and observed bound listener,
+  without the sidecar receiving Kubernetes or VPN credentials;
 - sustained qBitTorrent DHT health through lease renewal;
 - Bitmagnet and Loadstone can consume the neutral lease record.
 

@@ -79,8 +79,11 @@ func TestProviderAssignedDeliveryRequiresExactAppliedAcknowledgement(t *testing.
 	if err != nil || observation.Ready {
 		t.Fatalf("unacknowledged observation=%#v error=%v", observation, err)
 	}
-	if err := store.Acknowledge("lease-uid", ApplicationAcknowledgement{Generation: 3, ApplicationPort: 42000}); !errors.Is(err, ErrRecordNotFound) {
+	if err := store.Acknowledge("lease-uid", ApplicationAcknowledgement{Generation: 3, ApplicationPort: 42000}); !errors.Is(err, ErrAcknowledgementMismatch) {
 		t.Fatalf("stale acknowledgement error = %v", err)
+	}
+	if err := store.Acknowledge("unknown", ApplicationAcknowledgement{Generation: 4, ApplicationPort: 42000}); !errors.Is(err, ErrRecordNotFound) {
+		t.Fatalf("unknown acknowledgement error = %v", err)
 	}
 	acknowledgement := ApplicationAcknowledgement{Generation: 4, ApplicationPort: 42000}
 	if err := store.Acknowledge("lease-uid", acknowledgement); err != nil {

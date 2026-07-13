@@ -76,6 +76,7 @@ func (c Config) Validate() error {
 		}
 	}
 	identities := map[string]struct{}{}
+	matches := map[string]struct{}{}
 	for _, redirect := range c.ApplicationPortRedirects {
 		if redirect.Identity == "" || redirect.TargetPort == 0 || redirect.ApplicationPort == 0 || redirect.TargetPort == redirect.ApplicationPort || len(redirect.Protocols) == 0 {
 			return errors.New("application port redirect is invalid")
@@ -88,6 +89,11 @@ func (c Config) Validate() error {
 			if protocol != "TCP" && protocol != "UDP" {
 				return errors.New("application port redirect protocol is invalid")
 			}
+			match := fmt.Sprintf("%d/%s", redirect.TargetPort, protocol)
+			if _, exists := matches[match]; exists {
+				return errors.New("application port redirect target is duplicated")
+			}
+			matches[match] = struct{}{}
 		}
 	}
 	return nil

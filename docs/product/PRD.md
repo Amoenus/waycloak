@@ -196,6 +196,9 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - qBitTorrent integration through a separately packaged, least-privilege
   adapter because acceptance evidence shows qBitTorrent 5.2.3 continues to
   announce its local listener after learning a different PCP external port.
+- Protocol-faithful local acceptance of exact-generation listener rotation and
+  tracker advertisement; sustained real-provider ingress, DHT, renewal, and
+  rotation remain the subsequent gated v0.2.0 exit slice.
 - Lease renewal without leaking traffic or silently changing the application contract.
 
 ### v0.3.0 — operational maturity

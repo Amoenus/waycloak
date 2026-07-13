@@ -82,16 +82,21 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		var leases wayv1.PortForwardLeaseList
 		if err := direct.List(ctx, &leases, client.InNamespace(namespace)); err == nil {
 			for i := range leases.Items {
-				_ = direct.Delete(ctx, &leases.Items[i])
+				item := &leases.Items[i]
+				item.Finalizers = nil
+				_ = direct.Update(ctx, item)
+				_ = direct.Delete(ctx, item)
 			}
 		}
 		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
 			var remainingWorkloads wayv1.VPNWorkloadList
 			var remainingGateways wayv1.VPNGatewayList
+			var remainingLeases wayv1.PortForwardLeaseList
 			workloadsGone := direct.List(ctx, &remainingWorkloads, client.InNamespace(namespace)) != nil || len(remainingWorkloads.Items) == 0
 			gatewaysGone := direct.List(ctx, &remainingGateways, client.InNamespace(namespace)) != nil || len(remainingGateways.Items) == 0
-			if workloadsGone && gatewaysGone {
+			leasesGone := direct.List(ctx, &remainingLeases, client.InNamespace(namespace)) != nil || len(remainingLeases.Items) == 0
+			if workloadsGone && gatewaysGone && leasesGone {
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -100,7 +105,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		_ = direct.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
 		_ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
 		_ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: deniedNamespace}})
-		_ = exec.Command("kubectl", "delete", "-f", crdPath, "--ignore-not-found", "--wait=true").Run()
+		_ = exec.Command("kubectl", "delete", "-f", crdPath, "--ignore-not-found", "--wait=true", "--timeout=30s").Run()
 	})
 
 	createInfrastructure(t, direct, namespace, deniedNamespace, roleName)
@@ -191,15 +196,26 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	must(t, direct.Status().Update(ctx, &readyTarget))
 	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: namespace}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "protected"}}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP, wayv1.PortForwardProtocolUDP}}}
 	must(t, direct.Create(ctx, lease))
-	waitFor(t, 20*time.Second, func() bool {
-		var current wayv1.PortForwardLease
-		if direct.Get(ctx, client.ObjectKeyFromObject(lease), &current) != nil {
-			return false
+	var currentLease wayv1.PortForwardLease
+	leaseReady := false
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if direct.Get(ctx, client.ObjectKeyFromObject(lease), &currentLease) != nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
-		target := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionTargetReady)
-		provider := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionProviderLeaseReady)
-		return target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeaseObservationFailed && current.Status.Target != nil && current.Status.Target.PodRef.UID == protected.UID && current.Status.ProviderInternalPort == 49152
-	})
+		target := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionTargetReady)
+		provider := apiMeta.FindStatusCondition(currentLease.Status.Conditions, waystatus.ConditionProviderLeaseReady)
+		leaseReady = target != nil && target.Status == metav1.ConditionTrue && provider != nil && provider.Status == metav1.ConditionFalse && provider.Reason == waystatus.ReasonProviderLeaseObservationFailed && currentLease.Status.Target != nil && currentLease.Status.Target.PodRef.UID == protected.UID && currentLease.Status.ProviderInternalPort == 49152
+		if leaseReady {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !leaseReady {
+		controllerLog := command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", "tail -n 100 /tmp/controller.log 2>/dev/null || true")
+		t.Fatalf("port-forward lease did not reach expected target/provider state: status=%#v controller log:\n%s", currentLease.Status, controllerLog)
+	}
 	invalidLease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: namespace}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Name: gw.Name}, Target: wayv1.PortForwardTargetSpec{PodSelector: metav1.LabelSelector{}, Port: 6881}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolTCP}}}
 	if err := direct.Create(ctx, invalidLease); err == nil {
 		t.Fatal("API server accepted an empty port-forward target selector")

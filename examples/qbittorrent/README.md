@@ -50,14 +50,20 @@ rm qBittorrent.conf
 unset api_key
 ```
 
-Render and apply with:
+The checked-in base deliberately contains a non-pullable, digest-shaped adapter
+placeholder. Copy it and replace that placeholder with the signed immutable
+reference from the release manifest before rendering:
 
 ```sh
-kubectl kustomize examples/qbittorrent
-kubectl apply -k examples/qbittorrent
+cp -R examples/qbittorrent ./qbittorrent-waycloak
+cd ./qbittorrent-waycloak
+adapter_image="$(jq -er '.artifacts.qbittorrentAdapterImage.reference | select(test("@sha256:[a-f0-9]{64}$"))' /path/to/release-manifest.json)"
+kustomize edit set image waycloak.invalid/qbittorrent-adapter="$adapter_image"
+kubectl kustomize .
+kubectl apply -k .
 ```
 
-The adapter image uses the release's immutable semantic version, has no
+The rendered adapter image uses the release's signed digest reference, has no
 Kubernetes token or Linux capabilities, talks only to qBitTorrent and the
 Waycloak agent over Pod loopback, and acknowledges the exact applied lease
 generation. Pin the image by digest from the signed release manifest for a

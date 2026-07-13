@@ -76,4 +76,12 @@ func TestConfigValidatesApplicationPortRedirects(t *testing.T) {
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("identity redirect was accepted")
 	}
+	cfg = validConfig()
+	cfg.ApplicationPortRedirects = []ApplicationPortRedirect{
+		{Identity: "lease-one", TargetPort: 6881, ApplicationPort: 42000, Protocols: []string{"TCP"}},
+		{Identity: "lease-two", TargetPort: 6881, ApplicationPort: 42001, Protocols: []string{"TCP"}},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("duplicate target-port/protocol redirect was accepted")
+	}
 }

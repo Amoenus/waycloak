@@ -176,6 +176,10 @@ func leaseHandler(deliveries *delivery.Store) http.Handler {
 				return
 			}
 			if err := deliveries.Acknowledge(identity, acknowledgement); err != nil {
+				if errors.Is(err, delivery.ErrRecordNotFound) {
+					http.NotFound(response, request)
+					return
+				}
 				http.Error(response, "lease generation is unavailable", http.StatusConflict)
 				return
 			}

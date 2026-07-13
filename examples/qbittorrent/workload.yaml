@@ -64,7 +64,7 @@ spec:
             - name: downloads
               mountPath: /downloads
         - name: waycloak-qbittorrent-adapter
-          image: ghcr.io/amoenus/waycloak-qbittorrent-adapter:0.2.0-alpha.1
+          image: waycloak.invalid/qbittorrent-adapter@sha256:0000000000000000000000000000000000000000000000000000000000000000
           env:
             - name: WAYCLOAK_QBITTORRENT_API_KEY_FILE
               value: /adapter-auth/api-key

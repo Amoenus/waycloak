@@ -118,7 +118,7 @@ jobs:
           for entry in CONTROLLER AGENT MANAGER ADAPTER; do
             ref="${!entry}"
             output="dist/$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]').spdx.json"
-            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$ref"
+            trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$ref"
             trivy image --format spdx-json --output "$output" "$ref"
           done
       - name: Prepare and publish immutable Helm OCI chart

@@ -24,7 +24,10 @@ const (
 	ApplicationPortModeProviderAssigned = "ProviderAssigned"
 )
 
-var ErrRecordNotFound = errors.New("port-forward delivery record not found")
+var (
+	ErrRecordNotFound          = errors.New("port-forward delivery record not found")
+	ErrAcknowledgementMismatch = errors.New("port-forward delivery acknowledgement does not match the current record")
+)
 
 type Record struct {
 	Identity            string    `json:"identity"`
@@ -215,13 +218,17 @@ func (store *Store) Acknowledge(identity string, acknowledgement ApplicationAckn
 		return store.err
 	}
 	for _, record := range store.document.Leases {
-		if record.Identity == identity && record.ApplicationPortMode == ApplicationPortModeProviderAssigned && record.Generation == acknowledgement.Generation && record.ApplicationPort == acknowledgement.ApplicationPort && store.now().Before(record.ExpiresAt) {
+		if record.Identity != identity {
+			continue
+		}
+		if record.ApplicationPortMode == ApplicationPortModeProviderAssigned && record.Generation == acknowledgement.Generation && record.ApplicationPort == acknowledgement.ApplicationPort && store.now().Before(record.ExpiresAt) {
 			if store.requested == nil {
 				store.requested = map[string]ApplicationAcknowledgement{}
 			}
 			store.requested[identity] = acknowledgement
 			return nil
 		}
+		return ErrAcknowledgementMismatch
 	}
 	return ErrRecordNotFound
 }

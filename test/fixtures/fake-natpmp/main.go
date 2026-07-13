@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"flag"
 	"log"
@@ -22,11 +23,11 @@ func main() {
 	if err != nil || !externalAddress.Is4() || *initialPort == 0 || *initialPort > 65535 || *rotatedPort == 0 || *rotatedPort > 65535 || *rotateAfterTCP < 1 {
 		log.Fatal("invalid fake NAT-PMP configuration")
 	}
-	connection, err := net.ListenPacket("udp4", *listenAddress)
+	connection, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp4", *listenAddress)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 	buffer := make([]byte, 128)
 	cycle := 0
 	for {
