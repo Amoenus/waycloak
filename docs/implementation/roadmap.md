@@ -68,8 +68,9 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Implement the generic exact-generation `ProviderAssigned` handoff and
   evidence-backed qBitTorrent sidecar outside application-agnostic controller
   semantics, with protocol-faithful local/k3s evidence only.
-- [x] Publish the signed adapter image from a main-contained tag and record its
-  immutable reference in the signed `v0.2.0-alpha.1` release manifest.
+- [x] Publish the signed adapter image from a main-contained tag, record its
+  immutable reference in the signed `v0.2.0-alpha.2` release manifest, and
+  publish the official example with that exact digest and no placeholder.
 - [ ] Complete sustained real-provider qBitTorrent ingress, advertisement, DHT,
   renewal, and rotation acceptance. The gated, credential-redacted harness is
   implemented; credential rotation and execution remain outstanding.

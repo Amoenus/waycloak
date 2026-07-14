@@ -62,16 +62,24 @@ protocols fail before recovery. The harness never reads or prints the VPN
 Secret or public endpoint values, and its loopback observer is explicitly a
 test fixture rather than provider evidence.
 
-PR #10 merged the harness into `main`, and the protected tag workflow published
-[`v0.2.0-alpha.1`](https://github.com/Amoenus/waycloak/releases/tag/v0.2.0-alpha.1)
-from main commit `6f5edfcd0dc257249755e85fc43485954b02f909`. Release run
-[29294046050](https://github.com/Amoenus/waycloak/actions/runs/29294046050)
+PR #10 merged the harness into `main`. PR #15 made the official qBitTorrent
+example a release artifact rendered from the exact adapter digest, and PR #18
+added bounded retry for transient keyless Cosign transport failures without
+weakening digest, certificate-identity, issuer, or fail-closed verification.
+The protected tag workflow published
+[`v0.2.0-alpha.2`](https://github.com/Amoenus/waycloak/releases/tag/v0.2.0-alpha.2)
+from main commit `9dfbb4ebc3ab08971871e3dd664fc8a51e5c8449`. Release run
+[29298122220](https://github.com/Amoenus/waycloak/actions/runs/29298122220)
 passed exact-source unit, race, vet, static analysis, envtest, full Kind,
 Gitleaks, Trivy, multi-architecture publication, Cosign signing, SPDX
-attestation, GitHub provenance, signed-manifest verification, and release
-creation. Its manifest records the immutable qBitTorrent adapter alongside the
-controller, agent, gateway manager, and chart. PR #12 also made GitHub
-prerelease classification deterministic for future alpha, beta, and release
+attestation, GitHub provenance, signed-manifest verification, release-file
+attestation, and pre-release creation. Its manifest records the immutable
+qBitTorrent adapter alongside the controller, agent, gateway manager, and
+chart. The released example contains that exact adapter reference once and no
+placeholder or mutable image reference. Independent post-release verification
+matched the downloaded manifest, signature bundle, and example hashes to
+GitHub metadata and verified their GitHub provenance attestations. PR #12 made
+GitHub pre-release classification deterministic for alpha, beta, and release
 candidate tags.
 
 The precise next vertical slice is now to rotate the previously exposed Proton
