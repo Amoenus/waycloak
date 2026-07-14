@@ -167,6 +167,22 @@ Kubernetes-resolver DNS immediately. Alpha.13 makes those owned UDP/TCP port-53
 rules precede Preserve CIDRs, and the Linux acceptance fixture now places its
 DNS target inside a preserved CIDR so that topology cannot regress.
 
+The signed alpha.13 bundle was published from `main` and independently
+verified across every release-asset digest, OCI signature and provenance
+attestation, release-file attestation, and the release-manifest Sigstore
+bundle. Homelab now pins its chart, optional KCL module, agent, manager, and
+qBitTorrent adapter identities from that manifest. The first concurrent
+control-plane and workload rollout exposed that a zero-unavailable webhook
+Service can still admit a Pod through an old replica, producing a mixed
+release identity even though each individual mutation is deterministic.
+The supported upgrade procedure now rolls and verifies the control plane
+before recreating protected Pods; issue #55 owns an observed generation gate.
+The subsequent controlled singleton replacement proved immediate observed
+gateway regression, blocked protected startup, and uninterrupted unannotated
+egress. Recovery evidence remains incomplete because the freshly started VPN
+engine is receiving provider authentication rejection from the externally
+owned credential source; Waycloak neither reads nor rotates that credential.
+
 ## First deliverable
 
 The first usable release is `v0.1.0`: a single shared Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes Secret references, and observable status. Port forwarding follows in `v0.2.0` unless it can be implemented without weakening the first milestone.

@@ -21,6 +21,23 @@ helm upgrade waycloak ./waycloak-NEW_VERSION.tgz \
 
 The source chart's released defaults contain immutable image digests. Explicit site overrides must also remain digest-pinned. Confirm both controller replicas are ready and admission still rejects an annotated missing-gateway reference while leaving an unannotated Pod unchanged.
 
+## Roll protected workloads after the control plane
+
+Treat an agent-changing upgrade as two phases. Do not change an opted-in
+workload template or deliberately recreate protected Pods until every
+controller/webhook replica is Ready on the intended immutable controller
+image. During a zero-unavailable webhook rollout, the Service can briefly send
+an admission request to either the old or new replica; a Pod admitted by the
+old replica receives that release's injected agent even if its application
+sidecars already reference the new release.
+
+After the control plane converges, roll protected workloads and confirm each
+new Pod's `waycloak-prepare`, `waycloak-verify`, and `waycloak-agent` image
+references match the intended release manifest. Unannotated Pods remain
+outside this sequencing requirement. Issue
+[#55](https://github.com/Amoenus/waycloak/issues/55) tracks a future observed
+admission-generation mechanism that removes this operator gate.
+
 ## Activate gateway changes
 
 When the gateway template changes, the controller emits `GatewayRolloutRequired`. Schedule an outage for each gateway separately:

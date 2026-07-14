@@ -97,6 +97,8 @@ or evidence-backed narrow integrations.
 
 ## Phase 6 — operational maturity (`v0.4.0`)
 
+- [ ] Add an observed admission release/generation gate that prevents mixed
+  injected agent identities during zero-unavailable webhook upgrades (#55).
 - [ ] Multiple named gateways.
 - [ ] Gateway sharding design and implementation.
 - [ ] Upgrade, rollback, backup, and disaster-recovery tests.
