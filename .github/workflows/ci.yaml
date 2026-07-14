@@ -62,6 +62,15 @@ jobs:
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-1.yaml"
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-2.yaml"
           cmp "$RUNNER_TEMP/render-1.yaml" "$RUNNER_TEMP/render-2.yaml"
+          helm template waycloak charts/waycloak --namespace waycloak-system \
+            --set images.controller.digest="$DIGEST" \
+            --set images.agent.digest="$DIGEST" \
+            --set images.gatewayManager.digest="$DIGEST" \
+            --set webhook.tls.certManager.enabled=true \
+            >"$RUNNER_TEMP/render-cert-manager.yaml"
+          test "$(grep -c '^kind: Certificate$' "$RUNNER_TEMP/render-cert-manager.yaml")" -eq 1
+          test "$(grep -c '^kind: Issuer$' "$RUNNER_TEMP/render-cert-manager.yaml")" -eq 1
+          test "$(grep -c 'cert-manager.io/inject-ca-from:' "$RUNNER_TEMP/render-cert-manager.yaml")" -eq 2
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

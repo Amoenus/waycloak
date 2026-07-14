@@ -19,6 +19,13 @@ webhook:
   tls:
     existingSecret: ""
     caBundle: ""
+    certManager:
+      enabled: false
+      createSelfSignedIssuer: true
+      issuerRef:
+        name: ""
+        kind: Issuer
+        group: cert-manager.io
   timeoutSeconds: 5
 
 allocationQuarantine: 5m
