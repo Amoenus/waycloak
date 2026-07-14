@@ -2,6 +2,10 @@
 
 Waycloak releases are created only from protected semantic-version tags by `.github/workflows/release.yaml`. The workflow publishes immutable artifacts to GHCR, signs them keylessly with GitHub OIDC, attaches SPDX SBOM attestations and GitHub build provenance, emits a signed release manifest, verifies every signature, and only then creates the GitHub release.
 
+Versions with a semantic prerelease suffix such as `-alpha.1`, `-beta.2`, or
+`-rc.1` are published with GitHub's prerelease classification. Versions without
+a suffix are normal releases.
+
 ## Prepare a release change
 
 1. Set `version` and `appVersion` in `charts/waycloak/Chart.yaml` to the intended version without a `v` prefix.

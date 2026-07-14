@@ -53,7 +53,9 @@ jobs:
             exit 1
           }
           test -z "$(git status --short)"
+          prerelease="$(go run ./hack/releaseclassification --version "$version")"
           printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+          printf 'prerelease=%s\n' "$prerelease" >>"$GITHUB_OUTPUT"
       - name: Create pinned release-test Kind cluster
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
@@ -241,6 +243,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.release.outputs.version }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
+          release_flags=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --verify-tag --title "Waycloak v$VERSION" --generate-notes
+            --verify-tag --title "Waycloak v$VERSION" --generate-notes "${release_flags[@]}"
