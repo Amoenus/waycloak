@@ -182,6 +182,48 @@ func testClient(server natpmpServer, now time.Time) *Client {
 	}
 }
 
+func TestGatewayAddressUsesExplicitOverride(t *testing.T) {
+	client := &Client{GatewayAddress: "192.0.2.1:5351", ResolveGateway: func(string) (string, error) {
+		t.Fatal("resolver called for explicit override")
+		return "", nil
+	}}
+	address, err := client.gatewayAddress()
+	if err != nil || address != "192.0.2.1:5351" {
+		t.Fatalf("address=%q error=%v", address, err)
+	}
+}
+
+func TestGatewayAddressDerivesTunnelSubnetPeer(t *testing.T) {
+	client := &Client{TunnelInterface: "tunwaycloak", ResolveGateway: func(interfaceName string) (string, error) {
+		if interfaceName != "tunwaycloak" {
+			t.Fatalf("interface = %q", interfaceName)
+		}
+		return "10.16.0.1", nil
+	}}
+	address, err := client.gatewayAddress()
+	if err != nil || address != "10.16.0.1:5351" {
+		t.Fatalf("address=%q error=%v", address, err)
+	}
+}
+
+func TestGatewayFromAddressesSelectsIPv4SubnetPeer(t *testing.T) {
+	addresses := []net.Addr{
+		&net.IPNet{IP: net.ParseIP("2001:db8::7"), Mask: net.CIDRMask(64, 128)},
+		&net.IPNet{IP: net.ParseIP("10.16.0.7"), Mask: net.CIDRMask(16, 32)},
+	}
+	address, err := gatewayFromAddresses("tunwaycloak", addresses)
+	if err != nil || address != "10.16.0.1" {
+		t.Fatalf("address=%q error=%v", address, err)
+	}
+}
+
+func TestGatewayFromAddressesRejectsMissingUsablePrefix(t *testing.T) {
+	addresses := []net.Addr{&net.IPNet{IP: net.ParseIP("10.16.0.7"), Mask: net.CIDRMask(32, 32)}}
+	if _, err := gatewayFromAddresses("tunwaycloak", addresses); err == nil {
+		t.Fatal("missing usable prefix was accepted")
+	}
+}
+
 func mappingReply(request []byte, externalPort uint16, lifetime uint32, result uint16) []byte {
 	response := make([]byte, 16)
 	response[1] = request[1] | 0x80

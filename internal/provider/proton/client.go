@@ -9,18 +9,20 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/Amoenus/waycloak/internal/provider"
 )
 
 const (
-	DefaultGatewayAddress = "10.2.0.1:5351"
-	requestedLifetime     = 60 * time.Second
-	renewalFraction       = 0.75
-	defaultTimeout        = 250 * time.Millisecond
-	defaultAttempts       = 4
+	DefaultGatewayPort = "5351"
+	requestedLifetime  = 60 * time.Second
+	renewalFraction    = 0.75
+	defaultTimeout     = 250 * time.Millisecond
+	defaultAttempts    = 4
 
 	opExternalAddress byte = 0
 	opUDPMapping      byte = 1
@@ -33,6 +35,7 @@ var (
 )
 
 type DialFunc func(context.Context, string, string) (net.Conn, error)
+type GatewayResolver func(string) (string, error)
 
 // Client implements Proton's documented 60-second NAT-PMP lease loop. The
 // caller owns durable internal-port allocation and lease generations.
@@ -42,11 +45,12 @@ type Client struct {
 	Timeout         time.Duration
 	Attempts        int
 	Dial            DialFunc
+	ResolveGateway  GatewayResolver
 	Now             func() time.Time
 }
 
 func New(tunnelInterface string) *Client {
-	return &Client{GatewayAddress: DefaultGatewayAddress, TunnelInterface: tunnelInterface}
+	return &Client{TunnelInterface: tunnelInterface}
 }
 
 func (client *Client) ObserveCapabilities(ctx context.Context) (provider.PortForwardCapabilities, error) {
@@ -140,7 +144,11 @@ func (client *Client) mapPort(ctx context.Context, protocol provider.PortForward
 }
 
 func (client *Client) transact(ctx context.Context, request []byte, opcode byte, responseLength int) ([]byte, error) {
-	connection, err := client.dial()(ctx, "udp4", client.gatewayAddress())
+	gatewayAddress, err := client.gatewayAddress()
+	if err != nil {
+		return nil, err
+	}
+	connection, err := client.dial()(ctx, "udp4", gatewayAddress)
 	if err != nil {
 		return nil, fmt.Errorf("connect to Proton NAT-PMP gateway: %w", err)
 	}
@@ -206,11 +214,49 @@ func resultError(code uint16) error {
 	return fmt.Errorf("proton NAT-PMP result %d: %s", code, description)
 }
 
-func (client *Client) gatewayAddress() string {
+func (client *Client) gatewayAddress() (string, error) {
 	if client.GatewayAddress != "" {
-		return client.GatewayAddress
+		return client.GatewayAddress, nil
 	}
-	return DefaultGatewayAddress
+	resolver := client.ResolveGateway
+	if resolver == nil {
+		resolver = resolveTunnelGateway
+	}
+	address, err := resolver(client.TunnelInterface)
+	if err != nil {
+		return "", fmt.Errorf("resolve Proton NAT-PMP gateway: %w", err)
+	}
+	return net.JoinHostPort(address, DefaultGatewayPort), nil
+}
+
+func resolveTunnelGateway(interfaceName string) (string, error) {
+	if interfaceName == "" {
+		return "", errors.New("tunnel interface is required when the NAT-PMP gateway is not overridden")
+	}
+	device, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return "", err
+	}
+	addresses, err := device.Addrs()
+	if err != nil {
+		return "", err
+	}
+	return gatewayFromAddresses(interfaceName, addresses)
+}
+
+func gatewayFromAddresses(interfaceName string, addresses []net.Addr) (string, error) {
+	prefixes := make([]netip.Prefix, 0, len(addresses))
+	for _, address := range addresses {
+		prefix, parseErr := netip.ParsePrefix(address.String())
+		if parseErr == nil && prefix.Addr().Is4() && prefix.Bits() <= 30 {
+			prefixes = append(prefixes, prefix.Masked())
+		}
+	}
+	if len(prefixes) == 0 {
+		return "", fmt.Errorf("interface %s has no usable IPv4 prefix", interfaceName)
+	}
+	sort.Slice(prefixes, func(i, j int) bool { return prefixes[i].String() < prefixes[j].String() })
+	return prefixes[0].Addr().Next().String(), nil
 }
 
 func (client *Client) timeout() time.Duration {
