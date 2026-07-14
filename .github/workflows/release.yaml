@@ -230,7 +230,7 @@ jobs:
           done
           "${crane[@]}" manifest "$CHART" | jq -e '
             .schemaVersion == 2 and
-            .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+            (.mediaType == null or .mediaType == "application/vnd.oci.image.manifest.v1+json") and
             .config.mediaType == "application/vnd.cncf.helm.config.v1+json" and
             any(.layers[]; .mediaType == "application/vnd.cncf.helm.chart.content.v1.tar+gzip")
           ' >/dev/null
