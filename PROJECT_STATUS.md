@@ -62,12 +62,23 @@ protocols fail before recovery. The harness never reads or prints the VPN
 Secret or public endpoint values, and its loopback observer is explicitly a
 test fixture rather than provider evidence.
 
-The precise next vertical slice is to merge this harness to `main`, publish the
-signed `v0.2.0-alpha.1` artifacts from that main-contained commit, rotate the
-previously exposed Proton credential into a dedicated `username`/`password`
-acceptance Secret, and execute the sustained suite. Issue #4 remains the
-acceptance tracker; none of its real-provider ingress, renewal, rotation, or DHT
-criteria are complete until that run passes.
+PR #10 merged the harness into `main`, and the protected tag workflow published
+[`v0.2.0-alpha.1`](https://github.com/Amoenus/waycloak/releases/tag/v0.2.0-alpha.1)
+from main commit `6f5edfcd0dc257249755e85fc43485954b02f909`. Release run
+[29294046050](https://github.com/Amoenus/waycloak/actions/runs/29294046050)
+passed exact-source unit, race, vet, static analysis, envtest, full Kind,
+Gitleaks, Trivy, multi-architecture publication, Cosign signing, SPDX
+attestation, GitHub provenance, signed-manifest verification, and release
+creation. Its manifest records the immutable qBitTorrent adapter alongside the
+controller, agent, gateway manager, and chart. PR #12 also made GitHub
+prerelease classification deterministic for future alpha, beta, and release
+candidate tags.
+
+The precise next vertical slice is now to rotate the previously exposed Proton
+credential into a dedicated `username`/`password` acceptance Secret and execute
+the sustained suite using that signed manifest. Issue #4 remains the acceptance
+tracker; none of its real-provider ingress, renewal, rotation, or DHT criteria
+are complete until that run passes.
 
 ## First deliverable
 
