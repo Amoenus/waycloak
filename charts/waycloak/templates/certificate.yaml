@@ -1,0 +1,31 @@
+{{- if .Values.webhook.tls.certManager.enabled }}
+{{- if .Values.webhook.tls.certManager.createSelfSignedIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "waycloak.webhookIssuerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "waycloak.webhookCertificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "waycloak.webhookSecretName" . }}
+  dnsNames:
+    - {{ printf "%s-webhook" (include "waycloak.fullname" .) | quote }}
+    - {{ printf "%s-webhook.%s" (include "waycloak.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "%s-webhook.%s.svc" (include "waycloak.fullname" .) .Release.Namespace | quote }}
+  issuerRef:
+    name: {{ include "waycloak.webhookIssuerName" . }}
+    kind: {{ .Values.webhook.tls.certManager.issuerRef.kind }}
+    group: {{ .Values.webhook.tls.certManager.issuerRef.group }}
+{{- end }}

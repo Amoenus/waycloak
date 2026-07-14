@@ -19,11 +19,70 @@
       "properties": {
         "tls": {
           "type": "object",
-          "required": ["existingSecret", "caBundle"],
+          "required": ["existingSecret", "caBundle", "certManager"],
           "properties": {
-            "existingSecret": {"type": "string", "minLength": 1},
-            "caBundle": {"type": "string", "minLength": 1}
-          }
+            "existingSecret": {"type": "string"},
+            "caBundle": {"type": "string"},
+            "certManager": {
+              "type": "object",
+              "required": ["enabled", "createSelfSignedIssuer", "issuerRef"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "createSelfSignedIssuer": {"type": "boolean"},
+                "issuerRef": {
+                  "type": "object",
+                  "required": ["name", "kind", "group"],
+                  "properties": {
+                    "name": {"type": "string"},
+                    "kind": {"type": "string", "minLength": 1},
+                    "group": {"type": "string", "minLength": 1}
+                  }
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "certManager": {
+                    "properties": {"enabled": {"const": false}},
+                    "required": ["enabled"]
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "existingSecret": {"minLength": 1},
+                  "caBundle": {"minLength": 1}
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "certManager": {
+                    "properties": {
+                      "enabled": {"const": true},
+                      "createSelfSignedIssuer": {"const": false}
+                    },
+                    "required": ["enabled", "createSelfSignedIssuer"]
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "certManager": {
+                    "properties": {
+                      "issuerRef": {
+                        "properties": {"name": {"minLength": 1}}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 30}
       }

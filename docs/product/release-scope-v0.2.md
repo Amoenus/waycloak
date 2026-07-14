@@ -53,7 +53,7 @@ Crossplane, Argo CD, or the originating composition stack.
 
 ## Adoption acceptance
 
-The `v0.2.0-alpha.4` candidate is installed from its verified OCI identities
+The `v0.2.0-alpha.5` candidate is installed from its verified OCI identities
 and replaces the legacy pod-gateway/qSticky route for the originating
 qBitTorrent workload. Acceptance requires observed normal operation:
 
@@ -94,7 +94,9 @@ invalidate the `v0.2.0` functionality already shipped; GitHub milestone
 ## Release sequence
 
 1. Merge scope, KCL module, manifest, and workflow support into `main`.
-2. Publish and independently verify signed `v0.2.0-alpha.4`.
+2. Publish and independently verify the complete signed OCI bundle. Alpha.4
+   proves the six-artifact publication path; alpha.5 adds rotation-safe,
+   optional cert-manager webhook TLS for the declarative homelab install.
 3. Replace the homelab PoC with that exact candidate.
 4. Fix only release-blocking adoption findings through reviewed main-branch
    changes and a new candidate when required.

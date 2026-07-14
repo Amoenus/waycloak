@@ -1,8 +1,16 @@
-{{- $caBundle := required "webhook.tls.caBundle is required" .Values.webhook.tls.caBundle -}}
+{{- $certManagerEnabled := .Values.webhook.tls.certManager.enabled -}}
+{{- $caBundle := .Values.webhook.tls.caBundle -}}
+{{- if and (not $certManagerEnabled) (not $caBundle) -}}
+{{- fail "webhook.tls.caBundle is required when webhook.tls.certManager.enabled is false" -}}
+{{- end -}}
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: {{ include "waycloak.fullname" . }}
+  {{- if $certManagerEnabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s" .Release.Namespace (include "waycloak.webhookCertificateName" .) | quote }}
+  {{- end }}
   labels:
     {{- include "waycloak.labels" . | nindent 4 }}
 webhooks:
@@ -19,7 +27,9 @@ webhooks:
           has(object.metadata.annotations) &&
           'networking.waycloak.io/gateway' in object.metadata.annotations
     clientConfig:
+      {{- if $caBundle }}
       caBundle: {{ $caBundle | quote }}
+      {{- end }}
       service:
         name: {{ include "waycloak.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
@@ -36,6 +46,10 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: {{ include "waycloak.fullname" . }}
+  {{- if $certManagerEnabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s" .Release.Namespace (include "waycloak.webhookCertificateName" .) | quote }}
+  {{- end }}
   labels:
     {{- include "waycloak.labels" . | nindent 4 }}
 webhooks:
@@ -51,7 +65,9 @@ webhooks:
           has(object.metadata.annotations) &&
           'networking.waycloak.io/gateway' in object.metadata.annotations
     clientConfig:
+      {{- if $caBundle }}
       caBundle: {{ $caBundle | quote }}
+      {{- end }}
       service:
         name: {{ include "waycloak.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}

@@ -37,3 +37,25 @@ app.kubernetes.io/component: controller
 {{- end -}}
 {{- printf "%s@%s" $repository $digest -}}
 {{- end }}
+
+{{- define "waycloak.webhookCertificateName" -}}
+{{- printf "%s-webhook" (include "waycloak.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{- define "waycloak.webhookSecretName" -}}
+{{- if .Values.webhook.tls.existingSecret -}}
+{{- .Values.webhook.tls.existingSecret -}}
+{{- else if .Values.webhook.tls.certManager.enabled -}}
+{{- printf "%s-tls" (include "waycloak.webhookCertificateName" .) | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- fail "webhook.tls.existingSecret is required when webhook.tls.certManager.enabled is false" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "waycloak.webhookIssuerName" -}}
+{{- if .Values.webhook.tls.certManager.createSelfSignedIssuer -}}
+{{- printf "%s-selfsigned" (include "waycloak.webhookCertificateName" .) | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- required "webhook.tls.certManager.issuerRef.name is required when createSelfSignedIssuer is false" .Values.webhook.tls.certManager.issuerRef.name -}}
+{{- end -}}
+{{- end }}

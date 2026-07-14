@@ -13,13 +13,19 @@ before installation. Never substitute mutable tags for the recorded digests.
 - Helm 3.14 or newer;
 - Cosign 2.6 or newer and `jq` for release verification;
 - cluster-admin access for CRDs, admission webhooks, and cluster-scoped RBAC;
-- OpenSSL for the initial webhook certificate;
+- OpenSSL for externally managed webhook certificates, or an existing
+  cert-manager installation for the optional declarative certificate mode;
 - a CNI and node policy that permit the documented UDP 4789 overlay;
 - explicit Pod Security exceptions described in [security exceptions](security-exceptions.md).
 
 See [upgrade and rollback](upgrade.md) before changing any released image digest or webhook CA.
 
 ## Prepare webhook TLS
+
+Choose exactly one of the following modes. Neither mode gives the Waycloak
+runtime access to certificate-management credentials.
+
+### Existing Secret and static CA
 
 The chart deliberately does not generate random certificates and has no cert-manager dependency. It consumes an existing `kubernetes.io/tls` Secret plus the matching base64-encoded CA bundle. For release name `waycloak` in namespace `waycloak-system`, the serving certificate must include `waycloak-webhook.waycloak-system.svc`.
 
@@ -46,6 +52,23 @@ ca_bundle="$(base64 <"$workdir/ca.crt" | tr -d '\n')"
 ```
 
 Keep the CA private key in an approved secret-management system if certificates will be renewed from it. Do not commit it or pass it to Helm.
+
+### Optional cert-manager integration
+
+When cert-manager and its CA injector are already installed, enable the chart's
+optional integration instead of preparing certificate material manually. The
+chart creates a namespaced self-signed `Issuer` and serving `Certificate`,
+mounts only the resulting TLS Secret into the controller, and asks cert-manager
+to inject the current CA into both webhook configurations:
+
+```sh
+webhook_tls_args=(--set webhook.tls.certManager.enabled=true)
+```
+
+To use an existing issuer, also set
+`webhook.tls.certManager.createSelfSignedIssuer=false` and provide the issuer
+name, kind, and group. Disabling this option preserves a plain-Kubernetes chart
+with no cert-manager resources or dependency.
 
 ## Install immutable artifacts
 
@@ -90,6 +113,9 @@ helm upgrade --install waycloak "waycloak-${version#v}.tgz" \
   --set-string webhook.tls.caBundle="$ca_bundle" \
   --wait --timeout 5m
 ```
+
+For the optional cert-manager mode, replace the two `webhook.tls` arguments in
+that command with `${webhook_tls_args[@]}`.
 
 The signed manifest also records the source commit, tested Kubernetes/CNI
 matrix, required capabilities, and pinned Gluetun identity. Keep it with the

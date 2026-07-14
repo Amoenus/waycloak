@@ -84,7 +84,7 @@ spec:
       volumes:
         - name: webhook-certs
           secret:
-            secretName: {{ required "webhook.tls.existingSecret is required" .Values.webhook.tls.existingSecret }}
+            secretName: {{ include "waycloak.webhookSecretName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
