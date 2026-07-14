@@ -73,13 +73,13 @@ from main commit `9dfbb4ebc3ab08971871e3dd664fc8a51e5c8449`. Release run
 passed exact-source unit, race, vet, static analysis, envtest, full Kind,
 Gitleaks, Trivy, multi-architecture publication, Cosign signing, SPDX
 attestation, GitHub provenance, signed-manifest verification, release-file
-attestation, and prerelease creation. Its manifest records the immutable
+attestation, and pre-release creation. Its manifest records the immutable
 qBitTorrent adapter alongside the controller, agent, gateway manager, and
 chart. The released example contains that exact adapter reference once and no
 placeholder or mutable image reference. Independent post-release verification
 matched the downloaded manifest, signature bundle, and example hashes to
 GitHub metadata and verified their GitHub provenance attestations. PR #12 made
-GitHub prerelease classification deterministic for alpha, beta, and release
+GitHub pre-release classification deterministic for alpha, beta, and release
 candidate tags.
 
 The precise next vertical slice is now to rotate the previously exposed Proton
