@@ -1,7 +1,7 @@
 [package]
 name = "waycloak"
 edition = "v0.12.3"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 description = "Optional KCL schemas and workload opt-in helpers for Waycloak."
 include = [
     "kcl.mod",
