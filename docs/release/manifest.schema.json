@@ -18,7 +18,7 @@
     },
     "artifacts": {
       "type": "object",
-      "required": ["controllerImage", "agentImage", "gatewayManagerImage", "helmChart"],
+      "required": ["controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart"],
       "additionalProperties": {
         "type": "object",
         "required": ["reference", "digest"],

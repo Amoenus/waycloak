@@ -38,7 +38,7 @@ The workflow publishes these multi-architecture image repositories by digest:
 
 The chart is published at `oci://ghcr.io/amoenus/charts/waycloak`. Before packaging, the workflow writes the exact released controller, agent, gateway-manager, and adapter image identities into the chart defaults. It never publishes `latest`.
 
-`release-manifest.json` follows [the release manifest schema](manifest.schema.json). Its Sigstore bundle, chart package, and filesystem/image SBOMs are attached to the GitHub release. OCI signatures, SBOM attestations, and provenance remain alongside each registry artifact.
+`release-manifest.json` follows [the release manifest schema](manifest.schema.json). Its Sigstore bundle, chart package, digest-resolved `qbittorrent-example.yaml`, and filesystem/image SBOMs are attached to the GitHub release. The workflow renders that example with the exact adapter reference recorded in the signed manifest and rejects placeholders or mutable images. OCI signatures, SBOM attestations, and provenance remain alongside each registry artifact.
 
 ## Verify a release
 
