@@ -39,13 +39,17 @@ jobs:
           cosign-release: v2.6.1
       - name: Install checksummed security tools
         run: bash hack/install-security-tools.sh
+      - name: Install checksummed KCL CLI
+        run: bash hack/install-kcl.sh
       - name: Verify release tag and source
         id: release
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
           source_version="$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
+          kcl_version="$(awk '$1 == "version" {gsub(/\"/, "", $3); print $3; exit}' kcl/waycloak/kcl.mod)"
           test "$version" = "$source_version"
+          test "$version" = "$kcl_version"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
@@ -157,12 +161,70 @@ jobs:
           trivy config --severity CRITICAL --exit-code 1 charts/waycloak
           trivy fs --format spdx-json --output dist/helm-chart.spdx.json charts/waycloak
           helm package charts/waycloak --destination dist
+          test "$(tar -tzf "dist/waycloak-$VERSION.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpngateways|vpnworkloads)\.yaml$')" -eq 3
           printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           push_output="$(helm push "dist/waycloak-$VERSION.tgz" "oci://ghcr.io/$owner/charts")"
           digest="$(awk '$1 == "Digest:" {print $2}' <<<"$push_output")"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           reference="ghcr.io/$owner/charts/waycloak@$digest"
           printf 'reference=%s\nname=%s\ndigest=%s\n' "$reference" "${reference%@*}" "$digest" >>"$GITHUB_OUTPUT"
+      - name: Prepare and publish immutable KCL OCI module
+        id: kcl
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          module_version="$(awk '$1 == "version" {gsub(/\"/, "", $3); print $3; exit}' kcl/waycloak/kcl.mod)"
+          test "$module_version" = "$VERSION"
+          kcl run kcl/waycloak/examples/basic.k -S items >dist/kcl-example.yaml
+          test "$(grep -c '^kind: VPNGateway$' dist/kcl-example.yaml)" -eq 1
+          test "$(grep -c '^kind: PortForwardLease$' dist/kcl-example.yaml)" -eq 1
+          (cd kcl/waycloak && kcl mod pkg --target "$GITHUB_WORKSPACE/dist")
+          test "$(tar -tf "dist/waycloak_${VERSION}.tar" | grep -Ec '^(helpers/annotations\.k|v1alpha1/networking_waycloak_io_v1alpha1_(port_forward_lease|v_p_n_gateway|v_p_n_workload)\.k)$')" -eq 4
+          trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 kcl/waycloak
+          trivy fs --format spdx-json --output dist/kcl-module.spdx.json kcl/waycloak
+          (cd kcl/waycloak && kcl mod push "oci://ghcr.io/$owner/waycloak-kcl")
+          tagged="ghcr.io/$owner/waycloak-kcl:$VERSION"
+          digest="$(go run github.com/google/go-containerregistry/cmd/crane@v0.20.6 digest "$tagged")"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          reference="ghcr.io/$owner/waycloak-kcl@$digest"
+          kcl run "oci://ghcr.io/$owner/waycloak-kcl" --tag "$VERSION" >/dev/null
+          printf 'reference=%s\nname=%s\ndigest=%s\n' "$reference" "${reference%@*}" "$digest" >>"$GITHUB_OUTPUT"
+      - name: Verify OCI media types, platforms, and tag-to-digest identity
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CONTROLLER: ${{ steps.images.outputs.controller }}
+          AGENT: ${{ steps.images.outputs.agent }}
+          MANAGER: ${{ steps.images.outputs.manager }}
+          ADAPTER: ${{ steps.images.outputs.adapter }}
+          CHART: ${{ steps.chart.outputs.reference }}
+          KCL: ${{ steps.kcl.outputs.reference }}
+        run: |
+          crane=(go run github.com/google/go-containerregistry/cmd/crane@v0.20.6)
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER"; do
+            test "$("${crane[@]}" digest "${ref%@*}")" = "${ref##*@}"
+            "${crane[@]}" manifest "$ref" | jq -e '
+              .mediaType == "application/vnd.oci.image.index.v1+json" and
+              ([.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"])
+            ' >/dev/null
+          done
+          "${crane[@]}" manifest "$CHART" | jq -e '
+            .schemaVersion == 2 and
+            .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+            .config.mediaType == "application/vnd.cncf.helm.config.v1+json" and
+            any(.layers[]; .mediaType == "application/vnd.cncf.helm.chart.content.v1.tar+gzip")
+          ' >/dev/null
+          "${crane[@]}" manifest "$KCL" | jq -e --arg version "$VERSION" '
+            .schemaVersion == 2 and
+            .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+            .artifactType == "application/vnd.oci.image.layer.v1.tar" and
+            .annotations["org.kcllang.package.name"] == "waycloak" and
+            .annotations["org.kcllang.package.version"] == $version
+          ' >/dev/null
+          test "$("${crane[@]}" digest "${CHART%@*}:$VERSION")" = "${CHART##*@}"
+          test "$("${crane[@]}" digest "${KCL%@*}:$VERSION")" = "${KCL##*@}"
       - name: Sign OCI artifacts and attach SBOM attestations
         env:
           CONTROLLER: ${{ steps.images.outputs.controller }}
@@ -170,8 +232,9 @@ jobs:
           MANAGER: ${{ steps.images.outputs.manager }}
           CHART: ${{ steps.chart.outputs.reference }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
+          KCL: ${{ steps.kcl.outputs.reference }}
         run: |
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART" "$KCL"; do
             ./hack/cosign-retry.sh sign --yes "$ref"
           done
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/controller.spdx.json "$CONTROLLER"
@@ -179,6 +242,7 @@ jobs:
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/manager.spdx.json "$MANAGER"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/adapter.spdx.json "$ADAPTER"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/helm-chart.spdx.json "$CHART"
+          ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/kcl-module.spdx.json "$KCL"
       - name: Attest controller image provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
@@ -209,6 +273,12 @@ jobs:
           subject-name: ${{ steps.chart.outputs.name }}
           subject-digest: ${{ steps.chart.outputs.digest }}
           push-to-registry: true
+      - name: Attest KCL module provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.kcl.outputs.name }}
+          subject-digest: ${{ steps.kcl.outputs.digest }}
+          push-to-registry: true
       - name: Generate and sign release manifest
         env:
           VERSION: ${{ steps.release.outputs.version }}
@@ -217,6 +287,7 @@ jobs:
           MANAGER: ${{ steps.images.outputs.manager }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
+          KCL: ${{ steps.kcl.outputs.reference }}
         run: |
           go run ./hack/releasemanifest \
             --output dist/release-manifest.json \
@@ -225,9 +296,9 @@ jobs:
             --commit "$GITHUB_SHA" \
             --workflow-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER" \
-            --qbittorrent-adapter "$ADAPTER" --chart "$CHART"
-          jq -e --arg adapter "$ADAPTER" \
-            '.artifacts.qbittorrentAdapterImage.reference == $adapter' \
+            --qbittorrent-adapter "$ADAPTER" --chart "$CHART" --kcl-module "$KCL"
+          jq -e --arg adapter "$ADAPTER" --arg kcl "$KCL" \
+            '.artifacts.qbittorrentAdapterImage.reference == $adapter and .artifacts.kclModule.reference == $kcl' \
             dist/release-manifest.json >/dev/null
           test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 1
           ./hack/cosign-retry.sh sign-blob --yes --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
@@ -238,9 +309,10 @@ jobs:
           MANAGER: ${{ steps.images.outputs.manager }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
+          KCL: ${{ steps.kcl.outputs.reference }}
         run: |
           identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yaml@refs/tags/${GITHUB_REF_NAME}"
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART" "$KCL"; do
             ./hack/cosign-retry.sh verify --certificate-identity "$identity" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
           done

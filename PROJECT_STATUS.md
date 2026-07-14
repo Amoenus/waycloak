@@ -82,11 +82,22 @@ GitHub metadata and verified their GitHub provenance attestations. PR #12 made
 GitHub pre-release classification deterministic for alpha, beta, and release
 candidate tags.
 
-The precise next vertical slice is now to rotate the previously exposed Proton
-credential into a dedicated `username`/`password` acceptance Secret and execute
-the sustained suite using that signed manifest. Issue #4 remains the acceptance
-tracker; none of its real-provider ingress, renewal, rotation, or DHT criteria
-are complete until that run passes.
+The `v0.2.0` boundary is now frozen as an OCI adoption release. Forced sustained
+provider rotation, formal qBitTorrent DHT certification across that rotation,
+and Bitmagnet/Loadstone consumption are versioned `v0.3.0` compatibility work
+under issues #4 and #5 rather than open-ended expansion of this release. The
+accepted scope is documented in `docs/product/release-scope-v0.2.md`.
+
+The immediate release gap is ADR 0004's optional KCL OCI module. The module is
+generated from the same CRDs embedded in the Helm chart and must be signed,
+attested, and required by release-manifest schema `1.1.0`. Issue #28 tracks that
+complete OCI bundle. After publishing and independently verifying
+`v0.2.0-alpha.4`, issue #29 replaces the originating pod-gateway/qSticky PoC
+with those immutable artifacts. Ordinary protected egress, DNS, provider-port
+delivery, qBitTorrent operation, and fail-closed gateway loss in that real
+deployment are the candidate acceptance boundary. Release-blocking findings
+are fixed before final `v0.2.0`; broader certification remains in the next
+milestone.
 
 ## First deliverable
 

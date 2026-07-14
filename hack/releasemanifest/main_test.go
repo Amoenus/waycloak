@@ -13,11 +13,11 @@ import (
 
 func TestBuildManifestTiesImmutableArtifacts(t *testing.T) {
 	reference := "ghcr.io/example/waycloak@sha256:" + strings.Repeat("a", 64)
-	value, err := buildManifest("0.1.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", map[string]string{"controllerImage": reference, "agentImage": reference, "gatewayManagerImage": reference, "qbittorrentAdapterImage": reference, "helmChart": reference})
+	value, err := buildManifest("0.2.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", completeReferences(reference))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value.Artifacts["controllerImage"].Digest != "sha256:"+strings.Repeat("a", 64) || value.Artifacts["qbittorrentAdapterImage"].Reference != reference || value.Security.TestedGluetun != testedGluetun || value.Compatibility.CRDStorageVersion != "v1alpha1" {
+	if value.SchemaVersion != "1.1.0" || value.Artifacts["controllerImage"].Digest != "sha256:"+strings.Repeat("a", 64) || value.Artifacts["qbittorrentAdapterImage"].Reference != reference || value.Artifacts["kclModule"].Reference != reference || value.Security.TestedGluetun != testedGluetun || value.Compatibility.CRDStorageVersion != "v1alpha1" {
 		t.Fatalf("manifest = %#v", value)
 	}
 }
@@ -41,7 +41,7 @@ func TestSchemaRequiresEveryReleasedArtifact(t *testing.T) {
 	for _, name := range schema.Properties.Artifacts.Required {
 		required[name] = true
 	}
-	for _, name := range []string{"controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart"} {
+	for _, name := range requiredArtifacts {
 		if !required[name] {
 			t.Fatalf("release manifest schema does not require %s", name)
 		}
@@ -49,8 +49,27 @@ func TestSchemaRequiresEveryReleasedArtifact(t *testing.T) {
 }
 
 func TestBuildManifestRejectsMutableArtifact(t *testing.T) {
-	_, err := buildManifest("0.1.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", map[string]string{"controllerImage": "ghcr.io/example/controller:latest"})
+	references := completeReferences("ghcr.io/example/waycloak@sha256:" + strings.Repeat("a", 64))
+	references["controllerImage"] = "ghcr.io/example/controller:latest"
+	_, err := buildManifest("0.2.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", references)
 	if err == nil {
 		t.Fatal("mutable artifact was accepted")
 	}
+}
+
+func TestBuildManifestRejectsMissingKCLModule(t *testing.T) {
+	references := completeReferences("ghcr.io/example/waycloak@sha256:" + strings.Repeat("a", 64))
+	delete(references, "kclModule")
+	_, err := buildManifest("0.2.0", "https://github.com/example/waycloak", strings.Repeat("b", 40), "https://github.com/example/waycloak/actions/runs/1", references)
+	if err == nil || !strings.Contains(err.Error(), "kclModule") {
+		t.Fatalf("missing KCL module result = %v", err)
+	}
+}
+
+func completeReferences(reference string) map[string]string {
+	references := make(map[string]string, len(requiredArtifacts))
+	for _, name := range requiredArtifacts {
+		references[name] = reference
+	}
+	return references
 }

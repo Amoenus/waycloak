@@ -48,16 +48,36 @@ conditions. A public port in status is not yet proof of inbound reachability.
 
 ## KCL integration
 
-KCL is an adapter over the Kubernetes contract:
+KCL is an optional adapter over the Kubernetes contract. Each release
+publishes `ghcr.io/amoenus/waycloak-kcl` separately from the primary Helm
+installer. Verify its digest from the signed release manifest, add the matching
+release tag, and commit the generated `kcl.mod.lock` digest:
+
+```sh
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.2.0
+```
+
+The module exposes CRD-generated schemas and the canonical annotation names:
 
 ```kcl
-vpn = schema.VpnTrait {
-    gateway = "private-egress/proton-eu"
-    portForward = "tcp,udp"
+import waycloak.helpers
+import waycloak.v1alpha1 as networking
+
+gateway_ref = helpers.GatewayReference {
+    namespace = "private-egress"
+    name = "proton-eu"
+}
+
+pod_template_annotations = {
+    helpers.gatewayAnnotation = gateway_ref.value
 }
 ```
 
-The KCL module renders the same annotations and optionally validates known gateway names. The Waycloak controller must not know that KCL exists.
+`networking.VPNGateway` and `networking.PortForwardLease` render the same API
+objects as plain YAML. The generated `networking.VPNWorkload` schema is
+inspectable but controller-owned and must not be authored. The controller does
+not know that KCL exists, and the module contains no credentials, private
+endpoints, or homelab defaults.
 
 ## Helm and Kustomize consumers
 

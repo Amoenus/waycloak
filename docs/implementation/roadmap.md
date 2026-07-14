@@ -71,14 +71,31 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Publish the signed adapter image from a main-contained tag, record its
   immutable reference in the signed `v0.2.0-alpha.2` release manifest, and
   publish the official example with that exact digest and no placeholder.
-- [ ] Complete sustained real-provider qBitTorrent ingress, advertisement, DHT,
-  renewal, and rotation acceptance. The gated, credential-redacted harness is
-  implemented; credential rotation and execution remain outstanding.
-- [ ] Validate Bitmagnet and Loadstone consumption.
+- [ ] Publish the complete signed OCI bundle, including the CRD-bearing Helm
+  chart and optional KCL module recorded in the release manifest.
+- [ ] Replace the originating homelab PoC with the immutable release candidate
+  and resolve findings that block ordinary protected operation.
+- [ ] Publish final `v0.2.0` from a main-contained signed tag.
 
-Exit: qBitTorrent receives inbound TCP/UDP through a provider lease, reports healthy DHT, and survives lease renewal during a sustained test.
+Exit: the signed OCI candidate replaces the PoC; qBitTorrent uses Waycloak for
+protected egress and provider-port delivery during ordinary operation; the
+gateway remains fail closed; and the verified final bundle is published.
 
-## Phase 5 — operational maturity (`v0.3.0`)
+## Phase 5 — provider and workload compatibility (`v0.3.0`)
+
+- [ ] Complete sustained real-provider qBitTorrent ingress, advertisement,
+  DHT, renewal, and actual rotation certification using the existing gated
+  harness.
+- [ ] Validate Bitmagnet and Loadstone consumption of the neutral lease
+  contract.
+- [ ] Record additional provider/application compatibility and troubleshooting
+  evidence from real deployments.
+
+Exit: qBitTorrent survives provider renewal or rotation without Pod
+replacement, and the additional reference workloads have documented neutral
+or evidence-backed narrow integrations.
+
+## Phase 6 — operational maturity (`v0.4.0`)
 
 - [ ] Multiple named gateways.
 - [ ] Gateway sharding design and implementation.
@@ -86,7 +103,6 @@ Exit: qBitTorrent receives inbound TCP/UDP through a provider lease, reports hea
 - [ ] Optional metrics, alerts, and dashboards.
 - [ ] Performance/resource benchmarks.
 - [ ] Compatibility matrix across supported Kubernetes/CNI combinations.
-- [ ] Optional KCL OCI module.
 
 ## Deferred backlog
 
