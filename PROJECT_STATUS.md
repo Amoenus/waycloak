@@ -88,16 +88,25 @@ and Bitmagnet/Loadstone consumption are versioned `v0.3.0` compatibility work
 under issues #4 and #5 rather than open-ended expansion of this release. The
 accepted scope is documented in `docs/product/release-scope-v0.2.md`.
 
-The immediate release gap is ADR 0004's optional KCL OCI module. The module is
-generated from the same CRDs embedded in the Helm chart and must be signed,
-attested, and required by release-manifest schema `1.1.0`. Issue #28 tracks that
-complete OCI bundle. After publishing and independently verifying
-`v0.2.0-alpha.4`, issue #29 replaces the originating pod-gateway/qSticky PoC
-with those immutable artifacts. Ordinary protected egress, DNS, provider-port
-delivery, qBitTorrent operation, and fail-closed gateway loss in that real
-deployment are the candidate acceptance boundary. Release-blocking findings
-are fixed before final `v0.2.0`; broader certification remains in the next
-milestone.
+The optional KCL OCI module and release-manifest schema `1.1.0` are complete.
+The generated module is built from the same CRDs embedded in the Helm chart;
+the release workflow packages, scans, signs, attests, provenance-verifies, and
+consumes it through an ordinary external KCL module before publication. The
+first alpha.4 attempt correctly stopped after its library package was pushed
+but then invoked as a root program; no GitHub release was created and the
+failed Git tag was removed. The alpha.5 workflow verifies the package through
+the same import path a consumer uses.
+
+The homelab GitOps review also found that a static externally supplied webhook
+CA could not rotate declaratively. The chart now has an optional cert-manager
+mode that creates a namespaced self-signed serving certificate and requests CA
+injection while preserving the plain-Kubernetes external Secret/static-CA
+default. Helm lint, deterministic rendering, CI, Kind, and live cert-manager
+issuance on Kubernetes 1.36 passed. Issue #29 now consumes the alpha.5 chart,
+KCL module, and digest-pinned adapter. Ordinary protected egress, DNS,
+provider-port delivery, qBitTorrent operation, and fail-closed gateway loss in
+that real deployment remain the candidate acceptance boundary before final
+`v0.2.0`.
 
 ## First deliverable
 
