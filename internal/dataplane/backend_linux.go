@@ -30,6 +30,8 @@ const (
 	waycloakRuleProtocol  = uint8(99)
 	protectedRouteTable   = 51820
 	endpointRulePriority  = 11000
+	dnsUDPRulePriority    = 11050
+	dnsTCPRulePriority    = 11051
 	clusterRulePriority   = 11100
 	protectedRulePriority = 12000
 )
@@ -387,6 +389,12 @@ func reconcilePolicyRules(cfg Config) error {
 	if err := addPolicyRule(family, endpointRulePriority, unix.RT_TABLE_MAIN, netip.PrefixFrom(endpoint, endpoint.BitLen())); err != nil {
 		return err
 	}
+	if err := addDNSPolicyRule(family, dnsUDPRulePriority, unix.IPPROTO_UDP); err != nil {
+		return err
+	}
+	if err := addDNSPolicyRule(family, dnsTCPRulePriority, unix.IPPROTO_TCP); err != nil {
+		return err
+	}
 	if cfg.ClusterTrafficMode == ClusterTrafficPreserve {
 		priority := clusterRulePriority
 		for _, prefix := range cfg.ClusterCIDRs {
@@ -404,6 +412,20 @@ func reconcilePolicyRules(cfg Config) error {
 	rule.Priority = protectedRulePriority
 	rule.Table = protectedRouteTable
 	rule.Protocol = waycloakRuleProtocol
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, unix.EEXIST) {
+		return err
+	}
+	return nil
+}
+
+func addDNSPolicyRule(family, priority, protocol int) error {
+	rule := netlink.NewRule()
+	rule.Family = family
+	rule.Priority = priority
+	rule.Table = protectedRouteTable
+	rule.Protocol = waycloakRuleProtocol
+	rule.IPProto = protocol
+	rule.Dport = netlink.NewRulePortRange(53, 53)
 	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, unix.EEXIST) {
 		return err
 	}

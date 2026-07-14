@@ -23,6 +23,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/google/nftables"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 func TestLockdownDropsDirectPackets(t *testing.T) {
@@ -440,7 +441,10 @@ func TestClusterTrafficModes(t *testing.T) {
 	}
 	serviceIP := netip.MustParseAddr(os.Getenv("KUBERNETES_SERVICE_HOST"))
 	cfg := e2eClientConfig()
-	cfg.ClusterCIDRs = []netip.Prefix{netip.PrefixFrom(serviceIP, serviceIP.BitLen())}
+	cfg.ClusterCIDRs = []netip.Prefix{
+		netip.PrefixFrom(serviceIP, serviceIP.BitLen()),
+		netip.MustParsePrefix("192.0.2.0/24"),
+	}
 	agent := Agent{Backend: NewBackend()}
 
 	cfg.ClusterTrafficMode = ClusterTrafficPreserve
@@ -452,7 +456,9 @@ func TestClusterTrafficModes(t *testing.T) {
 		t.Fatalf("Preserve mode did not retain declared cluster destination: %v", err)
 	}
 	assertDNSReachability(t, true)
+	assertDNSPolicyRules(t)
 
+	cfg.ClusterCIDRs = []netip.Prefix{netip.PrefixFrom(serviceIP, serviceIP.BitLen())}
 	cfg.ClusterTrafficMode = ClusterTrafficDeny
 	if err := agent.Repair(context.Background(), cfg); err != nil {
 		t.Fatalf("apply Deny mode: %v", err)
@@ -471,6 +477,25 @@ func TestClusterTrafficModes(t *testing.T) {
 		t.Fatalf("Gateway mode lost protected connectivity: %v", err)
 	}
 	assertDNSReachability(t, true)
+}
+
+func assertDNSPolicyRules(t *testing.T) {
+	t.Helper()
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]int{dnsUDPRulePriority: unix.IPPROTO_UDP, dnsTCPRulePriority: unix.IPPROTO_TCP}
+	for _, rule := range rules {
+		protocol, exists := want[rule.Priority]
+		if !exists || rule.Protocol != waycloakRuleProtocol || rule.Table != protectedRouteTable || rule.IPProto != protocol || rule.Dport == nil || rule.Dport.Start != 53 || rule.Dport.End != 53 {
+			continue
+		}
+		delete(want, rule.Priority)
+	}
+	if len(want) != 0 {
+		t.Fatalf("gateway DNS policy rules are missing: %v", want)
+	}
 }
 
 func e2eClientConfig() Config {
