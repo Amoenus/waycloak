@@ -27,6 +27,7 @@ The manifests are intentionally disposable: configuration and downloads use
 ```sh
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
+umask 077
 random=""
 while [ "${#random}" -lt 28 ]; do
   random="${random}$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9')"
