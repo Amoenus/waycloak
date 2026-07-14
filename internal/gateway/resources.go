@@ -35,6 +35,11 @@ const (
 	EngineAuthKey         = "config.toml"
 	EnginePostRulesKey    = "post-rules.txt"
 	DesiredStateKey       = "gateway.json"
+
+	// StatefulSet controller revision labels append "-" and a 10-character
+	// hash to the workload name. Reserve that space so the generated label
+	// value remains a valid Kubernetes DNS label.
+	statefulSetNameMaxLength = 63 - 1 - 10
 )
 
 type WorkloadOptions struct {
@@ -70,9 +75,17 @@ type DesiredState struct {
 }
 
 func ResourceName(name string) string {
+	return boundedResourceName(name, 63)
+}
+
+func statefulSetResourceName(name string) string {
+	return boundedResourceName(name, statefulSetNameMaxLength)
+}
+
+func boundedResourceName(name string, maxLength int) string {
 	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))[:10]
 	const prefix = "waycloak-gateway-"
-	maxName := 63 - len(prefix) - len(sum) - 1
+	maxName := maxLength - len(prefix) - len(sum) - 1
 	if len(name) > maxName {
 		name = name[:maxName]
 	}
@@ -207,7 +220,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		}
 	}
 	return &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: statefulSetResourceName(gateway.Name), Namespace: gateway.Namespace},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName:         ResourceName(gateway.Name),
 			Replicas:            &one,
