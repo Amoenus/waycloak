@@ -53,7 +53,7 @@ Crossplane, Argo CD, or the originating composition stack.
 
 ## Adoption acceptance
 
-The `v0.2.0-alpha.11` candidate is installed from its verified OCI identities
+The `v0.2.0-alpha.12` candidate is installed from its verified OCI identities
 and replaces the legacy pod-gateway/qSticky route for the originating
 qBitTorrent workload. Acceptance requires observed normal operation:
 
@@ -118,8 +118,15 @@ invalidate the `v0.2.0` functionality already shipped; GitHub milestone
    requests reaching the gateway, but Gluetun's `OUTPUT DROP` discarded the
    kernel-generated UDP/4789 return encapsulation. Alpha.11 adds only that
    symmetric port-scoped output handoff and leaves all other local output under
-   Gluetun's kill switch.
-3. Replace the homelab PoC with the exact alpha.11 candidate.
+   Gluetun's kill switch. The real alpha.11 Pod then completed both Waycloak
+   startup gates and exposed that Kubernetes had already injected its default
+   service-account token volume before webhook mutation. Alpha.12 removes that
+   structurally identified default projection, rejects other explicit token
+   projections, and versions the hardened injection contract as `v1alpha2`.
+   It also exposes the explicit cluster CIDRs required by `Preserve`, allowing
+   exact controller-to-agent delivery observation without granting Node RBAC or
+   opening ordinary internet egress.
+3. Replace the homelab PoC with the exact alpha.12 candidate.
 4. Fix only release-blocking adoption findings through reviewed main-branch
    changes and a new candidate when required.
 5. Publish final signed `v0.2.0`, update status and adoption evidence, and close

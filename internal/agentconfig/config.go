@@ -33,7 +33,7 @@ func Load(directory string) (dataplane.Config, error) {
 	if err != nil {
 		return dataplane.Config{}, err
 	}
-	if version != contract.InjectionVersion {
+	if version != contract.AllocationVersion {
 		return dataplane.Config{}, fmt.Errorf("allocation version %q is unsupported", version)
 	}
 	podUID, err := read("podUID")

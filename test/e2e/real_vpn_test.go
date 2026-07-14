@@ -129,7 +129,7 @@ func TestRealVPNProtectedPath(t *testing.T) {
 			}},
 		},
 		Data: map[string]string{
-			"version": contract.InjectionVersion, "podUID": string(protected.UID), "gateway": namespace + "/" + gateway.Name,
+			"version": contract.AllocationVersion, "podUID": string(protected.UID), "gateway": namespace + "/" + gateway.Name,
 			"address": memberAddress, "overlayCIDR": gateway.Spec.Overlay.CIDR, "gatewayAddress": "172.30.251.1",
 			"gatewayEndpoint": gatewayPod.Status.PodIP + ":4789", "gatewayHealthPort": fmt.Sprint(waygateway.HealthPort),
 			"vni": fmt.Sprint(gateway.Spec.Overlay.VNI), "mtu": fmt.Sprint(gateway.Spec.Overlay.MTU),

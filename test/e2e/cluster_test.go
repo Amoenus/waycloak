@@ -163,10 +163,24 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	must(t, direct.Delete(ctx, generated, client.GracePeriodSeconds(0)))
 
 	protected := pod("protected", namespace, map[string]string{contract.GatewayAnnotation: namespace + "/private"})
+	protected.Spec.AutomountServiceAccountToken = nil
 	protected.Labels = map[string]string{"app": "protected"}
 	must(t, direct.Create(ctx, protected))
 	if protected.Annotations[contract.InjectionVersionAnnotation] != contract.InjectionVersion {
 		t.Fatalf("Pod was not injected: %#v", protected.Annotations)
+	}
+	if protected.Spec.AutomountServiceAccountToken == nil || *protected.Spec.AutomountServiceAccountToken {
+		t.Fatal("protected Pod did not disable service-account token automount")
+	}
+	for _, volume := range protected.Spec.Volumes {
+		if volume.Projected == nil {
+			continue
+		}
+		for _, source := range volume.Projected.Sources {
+			if source.ServiceAccountToken != nil {
+				t.Fatalf("protected Pod retained service-account token volume %q", volume.Name)
+			}
+		}
 	}
 	cmKey := types.NamespacedName{Namespace: namespace, Name: protected.Annotations[contract.AllocationNameAnnotation]}
 	var cm corev1.ConfigMap

@@ -119,8 +119,24 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		_ = apiClient.Delete(cleanupCtx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}})
 	})
 	must(t, mgr.GetClient().Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: nsName}, StringData: map[string]string{"test": "not-a-real-credential"}}))
-	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
+	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Preserve", CIDRs: []string{"10.43.0.0/16", "10.42.0.0/16"}}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
 	must(t, mgr.GetClient().Create(ctx, gw))
+	invalidPreserve := gw.DeepCopy()
+	invalidPreserve.Name = "invalid-preserve"
+	invalidPreserve.ResourceVersion = ""
+	invalidPreserve.UID = ""
+	invalidPreserve.Spec.ClusterTraffic.CIDRs = nil
+	if err := mgr.GetClient().Create(ctx, invalidPreserve); err == nil {
+		t.Fatal("API server accepted Preserve mode without cluster CIDRs")
+	}
+	invalidGatewayCIDRs := gw.DeepCopy()
+	invalidGatewayCIDRs.Name = "invalid-gateway-cidrs"
+	invalidGatewayCIDRs.ResourceVersion = ""
+	invalidGatewayCIDRs.UID = ""
+	invalidGatewayCIDRs.Spec.ClusterTraffic.Mode = "Gateway"
+	if err := mgr.GetClient().Create(ctx, invalidGatewayCIDRs); err == nil {
+		t.Fatal("API server accepted cluster CIDRs outside Preserve mode")
+	}
 	invalidGateway := gw.DeepCopy()
 	invalidGateway.Name = "invalid-provider"
 	invalidGateway.ResourceVersion = ""
@@ -167,6 +183,9 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	waitFor(t, 20*time.Second, func() bool { return mgr.GetClient().Get(ctx, cmKey, &cm) == nil })
 	if cm.Data["podUID"] != string(pod.UID) {
 		t.Fatalf("ConfigMap UID=%q Pod UID=%q", cm.Data["podUID"], pod.UID)
+	}
+	if cm.Data["clusterTrafficMode"] != "Preserve" || cm.Data["clusterCIDRs"] != "10.42.0.0/16,10.43.0.0/16" {
+		t.Fatalf("ConfigMap cluster traffic = %q %q", cm.Data["clusterTrafficMode"], cm.Data["clusterCIDRs"])
 	}
 	var workloads wayv1.VPNWorkloadList
 	must(t, mgr.GetClient().List(ctx, &workloads, client.InNamespace(nsName)))
