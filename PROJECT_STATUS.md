@@ -119,7 +119,13 @@ overlay, and DNS readiness, exposing a second stale pre-Phase-4 boundary: the
 controller still forced `PortForwardReady=False/PortForwardNotImplemented`.
 Alpha.8 removes that obsolete state, makes manager readiness include provider
 and gateway-rule reconciliation errors, and reports enabled port forwarding
-ready only from the serving manager container's composite observation.
+ready only from the serving manager container's composite observation. The
+first real qBittorrent cutover then failed closed before Pod creation because a
+Deployment Pod's generated name is finalized after mutating admission, while
+the allocation marker had been derived from the pre-final name. Alpha.9 derives
+the unique marker from the admission request identity, persists it on the Pod,
+and has the validating webhook and controller consume that marker while the
+created ConfigMap remains controller-owned and bound to the final Pod UID.
 
 ## First deliverable
 

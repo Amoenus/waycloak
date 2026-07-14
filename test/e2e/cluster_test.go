@@ -154,6 +154,13 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "UnauthorizedGateway") {
 		t.Fatalf("unauthorized gateway result: %v", err)
 	}
+	generated := pod("", namespace, map[string]string{contract.GatewayAnnotation: namespace + "/private"})
+	generated.GenerateName = "generated-protected-"
+	must(t, direct.Create(ctx, generated))
+	if generated.Name == "" || !contract.IsAllocationConfigMapName(generated.Annotations[contract.AllocationNameAnnotation]) {
+		t.Fatalf("generated Pod admission marker is invalid: name=%q annotations=%#v", generated.Name, generated.Annotations)
+	}
+	must(t, direct.Delete(ctx, generated, client.GracePeriodSeconds(0)))
 
 	protected := pod("protected", namespace, map[string]string{contract.GatewayAnnotation: namespace + "/private"})
 	protected.Labels = map[string]string{"app": "protected"}
@@ -161,7 +168,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	if protected.Annotations[contract.InjectionVersionAnnotation] != contract.InjectionVersion {
 		t.Fatalf("Pod was not injected: %#v", protected.Annotations)
 	}
-	cmKey := types.NamespacedName{Namespace: namespace, Name: contract.AllocationConfigMapName(namespace, protected.Name)}
+	cmKey := types.NamespacedName{Namespace: namespace, Name: protected.Annotations[contract.AllocationNameAnnotation]}
 	var cm corev1.ConfigMap
 	if err = direct.Get(ctx, cmKey, &cm); !apierrors.IsNotFound(err) {
 		t.Fatalf("allocation ConfigMap existed before controller: %v", err)
@@ -228,7 +235,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	})
 	second := pod("second", namespace, map[string]string{contract.GatewayAnnotation: namespace + "/private"})
 	must(t, direct.Create(ctx, second))
-	secondCM := types.NamespacedName{Namespace: namespace, Name: contract.AllocationConfigMapName(namespace, second.Name)}
+	secondCM := types.NamespacedName{Namespace: namespace, Name: second.Annotations[contract.AllocationNameAnnotation]}
 	waitFor(t, 30*time.Second, func() bool { var item corev1.ConfigMap; return direct.Get(ctx, secondCM, &item) == nil })
 	assertAllocation(t, direct, firstKey, firstAddress)
 	must(t, direct.Delete(ctx, second, client.GracePeriodSeconds(0)))

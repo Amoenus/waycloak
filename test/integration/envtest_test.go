@@ -155,13 +155,14 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
 		t.Fatalf("gateway disruption budget = %#v", pdb.Spec)
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName, Labels: map[string]string{"app": "protected"}, Annotations: map[string]string{contract.GatewayAnnotation: "private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}, Spec: corev1.PodSpec{Containers: []corev1.Container{
+	allocationName := contract.AllocationConfigMapName(nsName, "envtest-admission")
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: nsName, Labels: map[string]string{"app": "protected"}, Annotations: map[string]string{contract.GatewayAnnotation: "private", contract.InjectionVersionAnnotation: contract.InjectionVersion, contract.AllocationNameAnnotation: allocationName}}, Spec: corev1.PodSpec{Containers: []corev1.Container{
 		{Name: "app", Image: "registry.k8s.io/pause:3.10.1"},
 		{Name: contract.AgentContainer, Image: "registry.k8s.io/pause:3.10.1"},
 		{Name: "provider-port-adapter", Image: "registry.k8s.io/pause:3.10.1", ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt(1)}}, PeriodSeconds: 1}},
 	}}}
 	must(t, mgr.GetClient().Create(ctx, pod))
-	cmKey := types.NamespacedName{Namespace: nsName, Name: contract.AllocationConfigMapName(nsName, pod.Name)}
+	cmKey := types.NamespacedName{Namespace: nsName, Name: allocationName}
 	var cm corev1.ConfigMap
 	waitFor(t, 20*time.Second, func() bool { return mgr.GetClient().Get(ctx, cmKey, &cm) == nil })
 	if cm.Data["podUID"] != string(pod.UID) {
@@ -296,7 +297,7 @@ func (observer *integrationDeliveryObserver) ObserveDelivery(ctx context.Context
 			continue
 		}
 		var cm corev1.ConfigMap
-		if err := observer.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: contract.AllocationConfigMapName(pod.Namespace, pod.Name)}, &cm); err != nil {
+		if err := observer.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Annotations[contract.AllocationNameAnnotation]}, &cm); err != nil {
 			return delivery.Observation{}, err
 		}
 		var document delivery.Document
