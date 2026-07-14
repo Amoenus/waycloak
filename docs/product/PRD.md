@@ -46,7 +46,9 @@ details and lease churn belong behind the Waycloak boundary.
 5. Support TCP and UDP, including DHT traffic.
 6. Allocate stable client identities and, where supported, durable forwarded-port leases.
 7. Make plain Kubernetes annotations and CRDs the universal API.
-8. Publish hardened, signed OCI artifacts with reproducible metadata.
+8. Publish a complete hardened OCI bundle: multi-architecture images, a Helm
+   chart containing the served CRDs, and a separately signed optional KCL
+   module, all tied together by one signed release manifest.
 9. Make routing and lease health visible as conditions, events, logs, and metrics.
 10. Support lightweight homelab clusters without requiring a service mesh or replacement CNI.
 11. Absorb provider port changes at the gateway so workload listeners stay
@@ -196,12 +198,28 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - qBitTorrent integration through a separately packaged, least-privilege
   adapter because acceptance evidence shows qBitTorrent 5.2.3 continues to
   announce its local listener after learning a different PCP external port.
-- Protocol-faithful local acceptance of exact-generation listener rotation and
-  tracker advertisement; sustained real-provider ingress, DHT, renewal, and
-  rotation remain the subsequent gated v0.2.0 exit slice.
+- Protocol-faithful acceptance of exact-generation listener rotation and
+  tracker advertisement.
 - Lease renewal without leaking traffic or silently changing the application contract.
+- A signed OCI bundle containing all released images, the CRD-bearing Helm
+  chart, and the optional KCL module.
+- Replacement of the originating homelab PoC with immutable release artifacts;
+  ordinary operation is the release-candidate acceptance environment.
 
-### v0.3.0 — operational maturity
+Forced provider rotation, sustained DHT certification, and additional workload
+adapters are compatibility expansion rather than blockers for the first
+productized port-forward release. They are tracked in `v0.3.0`.
+
+### v0.3.0 — provider and workload compatibility
+
+- Sustained Proton renewal and actual port-rotation evidence.
+- qBitTorrent ingress, tracker, and DHT certification across renewal or
+  rotation without Pod replacement.
+- Bitmagnet and Loadstone consumption of the neutral lease contract, with
+  narrow adapters only where application semantics require them.
+- Broader provider/application troubleshooting evidence from real deployments.
+
+### v0.4.0 — operational maturity
 
 - Multiple named gateways.
 - Deliberate sharding/failover design.
@@ -215,7 +233,10 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - Zero observed direct-egress packets from protected Pods during forced failure tests.
 - No VPN credential material exists in application Pods.
 - Adding a client does not restart the tunnel or renumber existing clients.
-- qBitTorrent DHT remains healthy through a sustained test and lease renewal.
+- The `v0.2.0` candidate replaces the originating PoC and protects its real
+  workload without mutable or unrecorded artifacts.
+- By `v0.3.0`, qBitTorrent DHT remains healthy through a sustained test and
+  lease renewal or provider rotation.
 - Fresh users can install and validate protected egress using only Kubernetes, Helm, and a compatible VPN account.
 
 ## Resolved design questions

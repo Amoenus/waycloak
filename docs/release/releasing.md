@@ -8,9 +8,12 @@ a suffix are normal releases.
 
 ## Prepare a release change
 
-1. Set `version` and `appVersion` in `charts/waycloak/Chart.yaml` to the intended version without a `v` prefix.
+1. Set `version` and `appVersion` in `charts/waycloak/Chart.yaml` and
+   `package.version` in `kcl/waycloak/kcl.mod` to the intended version without
+   a `v` prefix.
 2. Update `PROJECT_STATUS.md`, the roadmap, compatibility statements, and upgrade notes.
-3. Regenerate and verify CRDs/RBAC, including the copies embedded in the chart.
+3. Regenerate and verify CRDs/RBAC, including the copies embedded in the chart
+   and the KCL schemas generated from the same CRDs.
 4. Run unit, race, vet, staticcheck, envtest, Kind/k3s acceptance, deterministic Helm rendering/package checks, and secret/vulnerability scans.
 5. Merge the reviewed change to the protected default branch with a clean source tree.
 
@@ -38,6 +41,12 @@ The workflow publishes these multi-architecture image repositories by digest:
 
 The chart is published at `oci://ghcr.io/amoenus/charts/waycloak`. Before packaging, the workflow writes the exact released controller, agent, gateway-manager, and adapter image identities into the chart defaults. It never publishes `latest`.
 
+The chart package contains the `VPNGateway`, `VPNWorkload`, and
+`PortForwardLease` CRDs under `crds/`, so a Helm install creates the API before
+the controller resources. The optional KCL authoring module is published
+separately at `oci://ghcr.io/amoenus/waycloak-kcl`; its version matches the
+chart and its generated schemas are verified against those same CRDs.
+
 `release-manifest.json` follows [the release manifest schema](manifest.schema.json). Its Sigstore bundle, chart package, digest-resolved `qbittorrent-example.yaml`, and filesystem/image SBOMs are attached to the GitHub release. The workflow renders that example with the exact adapter reference recorded in the signed manifest and rejects placeholders or mutable images. OCI signatures, SBOM attestations, and provenance remain alongside each registry artifact.
 
 ## Verify a release
@@ -58,8 +67,10 @@ cosign verify-blob \
 ```
 
 Repeat OCI verification for the agent, gateway manager, qBitTorrent adapter,
-and Helm chart identities recorded in the manifest. GitHub attestations can
-additionally be verified with `gh attestation verify` against this repository.
+Helm chart, and KCL module identities recorded in the manifest. GitHub
+attestations can additionally be verified with `gh attestation verify` against
+this repository. After verifying the KCL tag-to-digest identity, commit the
+consumer's generated `kcl.mod.lock`; never track an unverified moving tag.
 
 ## Security-tool provenance
 

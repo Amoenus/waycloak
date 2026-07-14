@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["schemaVersion", "version", "source", "artifacts", "compatibility", "security"],
   "properties": {
-    "schemaVersion": {"const": "1.0.0"},
+    "schemaVersion": {"const": "1.1.0"},
     "version": {"type": "string", "minLength": 1},
     "source": {
       "type": "object",
@@ -18,7 +18,7 @@
     },
     "artifacts": {
       "type": "object",
-      "required": ["controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart"],
+      "required": ["controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart", "kclModule"],
       "additionalProperties": {
         "type": "object",
         "required": ["reference", "digest"],

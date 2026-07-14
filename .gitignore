@@ -15,6 +15,7 @@ Thumbs.db
 /.kube/
 /.kind/
 /charts/*.tgz
+/kcl/waycloak/kcl.mod.lock
 
 # Secrets and local overrides
 *.key

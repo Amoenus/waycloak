@@ -12,8 +12,10 @@ GATEWAY_MANAGER_OCI_LAYOUT ?= dist/gateway-manager
 CONTROLLER_OCI_LAYOUT ?= dist/controller
 QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
 CHART_PACKAGE_DIR ?= dist/chart
+KCL_MODULE_DIR ?= kcl/waycloak
+KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci chart-package verify-generated verify-chart-generated verify-workflows
+.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci chart-package kcl-package verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
 
@@ -63,14 +65,24 @@ chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)
 	helm package charts/waycloak --destination $(CHART_PACKAGE_DIR)
 
+kcl-package:
+	mkdir -p $(KCL_PACKAGE_DIR)
+	cd $(KCL_MODULE_DIR) && kcl mod pkg --target $(abspath $(KCL_PACKAGE_DIR))
+
 verify-chart-generated:
 	diff -u config/crd/bases/networking.waycloak.io_portforwardleases.yaml charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpngateways.yaml charts/waycloak/crds/networking.waycloak.io_vpngateways.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpnworkloads.yaml charts/waycloak/crds/networking.waycloak.io_vpnworkloads.yaml
 	diff -u config/rbac/role.yaml charts/waycloak/files/manager-role.yaml
 
+verify-kcl-generated:
+	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+		hack/generate-kcl-models.sh "$$tmp/models"; \
+		diff -ru "$$tmp/models/waycloak/v1alpha1" "$(KCL_MODULE_DIR)/v1alpha1"; \
+		diff -ru "$$tmp/models/waycloak/k8s" "$(KCL_MODULE_DIR)/k8s"
+
 verify-workflows:
 	$(ACTIONLINT)
 
-verify-generated: generate manifests verify-chart-generated
-	git diff --exit-code -- api config
+verify-generated: generate manifests verify-chart-generated verify-kcl-generated
+	git diff --exit-code -- api config kcl/waycloak/v1alpha1 kcl/waycloak/k8s

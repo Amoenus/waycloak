@@ -1,9 +1,9 @@
 # Install Waycloak
 
-Waycloak `v0.1.0` is published as signed, digest-addressed OCI images and a
-signed Helm OCI chart. Verify the signed release manifest and every referenced
-artifact before installation. Never substitute mutable tags for the recorded
-digests.
+Waycloak releases are published as signed, digest-addressed OCI images, a
+signed Helm OCI chart containing the served CRDs, and an optional signed KCL
+OCI module. Verify the signed release manifest and every referenced artifact
+before installation. Never substitute mutable tags for the recorded digests.
 
 ## Prerequisites
 
@@ -50,9 +50,9 @@ Keep the CA private key in an approved secret-management system if certificates 
 ## Install immutable artifacts
 
 Download and verify the signed manifest. Its exact workflow identity binds the
-artifact set to the protected `v0.1.0` tag. The chart referenced by that
-manifest already contains the four verified image repositories and manifest
-digests.
+artifact set to the protected release tag. The chart referenced by that
+manifest already contains the released controller, agent, and gateway-manager
+digests and all three CRDs.
 
 ```sh
 version=v0.1.0
@@ -68,7 +68,7 @@ cosign verify-blob \
   --certificate-oidc-issuer "$issuer" \
   release-manifest.json
 
-jq -r '.artifacts | .controllerImage.reference, .agentImage.reference, .gatewayManagerImage.reference, .qbittorrentAdapterImage.reference, .helmChart.reference' \
+jq -r '.artifacts | .controllerImage.reference, .agentImage.reference, .gatewayManagerImage.reference, .qbittorrentAdapterImage.reference, .helmChart.reference, .kclModule.reference' \
   release-manifest.json | while IFS= read -r artifact; do
     cosign verify \
       --certificate-identity "$identity" \
@@ -94,6 +94,17 @@ helm upgrade --install waycloak "waycloak-${version#v}.tgz" \
 The signed manifest also records the source commit, tested Kubernetes/CNI
 matrix, required capabilities, and pinned Gluetun identity. Keep it with the
 deployment change record.
+
+KCL users may add the optional module only after verifying that its semantic
+tag resolves to `.artifacts.kclModule.digest`:
+
+```sh
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag "${version#v}"
+```
+
+Commit the resulting `kcl.mod.lock`. KCL remains an authoring option; Helm is
+the primary installer and the running Waycloak components have no KCL runtime
+dependency.
 
 Verify that two controller replicas are ready, the controller PDB permits at most one voluntary disruption, and both webhook configurations contain the `opted-in` match condition. Unannotated Pods are never sent to Waycloak admission.
 

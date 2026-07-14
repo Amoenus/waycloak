@@ -17,6 +17,8 @@ const testedGluetun = "docker.io/qmcgaw/gluetun:v3.41.0@sha256:6b54856716d0de56e
 
 var sha256Reference = regexp.MustCompile(`^.+@sha256:[a-f0-9]{64}$`)
 
+var requiredArtifacts = []string{"controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart", "kclModule"}
+
 type manifest struct {
 	SchemaVersion string              `json:"schemaVersion"`
 	Version       string              `json:"version"`
@@ -59,8 +61,9 @@ func main() {
 	gatewayManager := flag.String("gateway-manager", "", "gateway-manager digest reference")
 	qbittorrentAdapter := flag.String("qbittorrent-adapter", "", "qBitTorrent adapter digest reference")
 	chart := flag.String("chart", "", "Helm chart digest reference")
+	kclModule := flag.String("kcl-module", "", "KCL module digest reference")
 	flag.Parse()
-	value, err := buildManifest(*version, *repository, *commit, *workflowRun, map[string]string{"controllerImage": *controller, "agentImage": *agent, "gatewayManagerImage": *gatewayManager, "qbittorrentAdapterImage": *qbittorrentAdapter, "helmChart": *chart})
+	value, err := buildManifest(*version, *repository, *commit, *workflowRun, map[string]string{"controllerImage": *controller, "agentImage": *agent, "gatewayManagerImage": *gatewayManager, "qbittorrentAdapterImage": *qbittorrentAdapter, "helmChart": *chart, "kclModule": *kclModule})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -82,6 +85,14 @@ func buildManifest(version, repository, commit, workflowRun string, references m
 		return manifest{}, errors.New("version, repository, workflow-run, and a lowercase 40-character commit are required")
 	}
 	artifacts := make(map[string]artifact, len(references))
+	for _, name := range requiredArtifacts {
+		if _, ok := references[name]; !ok {
+			return manifest{}, fmt.Errorf("required artifact %s is missing", name)
+		}
+	}
+	if len(references) != len(requiredArtifacts) {
+		return manifest{}, errors.New("release manifest contains an unknown artifact")
+	}
 	for name, reference := range references {
 		if !sha256Reference.MatchString(reference) {
 			return manifest{}, fmt.Errorf("%s must be an immutable SHA-256 reference", name)
@@ -89,7 +100,7 @@ func buildManifest(version, repository, commit, workflowRun string, references m
 		artifacts[name] = artifact{Reference: reference, Digest: reference[strings.LastIndex(reference, "@")+1:]}
 	}
 	return manifest{
-		SchemaVersion: "1.0.0",
+		SchemaVersion: "1.1.0",
 		Version:       version,
 		Source:        source{Repository: repository, Commit: commit, WorkflowRun: workflowRun},
 		Artifacts:     artifacts,

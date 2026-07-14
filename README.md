@@ -37,9 +37,12 @@ Waycloak injects the routing agent before the Pod starts, installs fail-closed p
 
 ## Status
 
-**Pre-alpha. The control plane, deny-first agent, and integrated Gluetun gateway path are implemented and cluster-tested. Signed `v0.1.0` OCI images and Helm chart are published through the protected tag workflow; port forwarding remains under active `v0.2.0` development.**
+**`v0.1.0` is the signed private-egress foundation. The `v0.2.0` feature set
+adds provider-neutral port forwarding and the qBitTorrent adapter; it is being
+wrapped as a complete OCI adoption release and promoted through a real homelab
+replacement before the final tag.**
 
-Implementation continues in roadmap order toward the first fail-closed data-plane proof. Start with:
+Implementation continues in versioned roadmap order. Start with:
 
 1. [AGENTS.md](AGENTS.md)
 2. [Product requirements](docs/product/PRD.md)

@@ -7,6 +7,7 @@ Waycloak follows the hardened OCI release pattern proven in the Magnetron projec
 - multi-architecture controller image;
 - multi-architecture agent image;
 - multi-architecture gateway-manager image;
+- multi-architecture qBitTorrent adapter image;
 - Helm OCI chart;
 - optional KCL OCI module;
 - SPDX or CycloneDX SBOM for every image and package;
@@ -44,7 +45,8 @@ The implemented tag workflow also pins Helm, Cosign, Kind, and the Kind node ima
 
 ## Release manifest
 
-The signed manifest ties together:
+Manifest schema `1.1.0` adds the required KCL module identity. The signed
+manifest ties together:
 
 - Git commit and source repository;
 - semantic version;
