@@ -94,7 +94,7 @@ the release workflow packages, scans, signs, attests, provenance-verifies, and
 consumes it through an ordinary external KCL module before publication. The
 first alpha.4 attempt correctly stopped after its library package was pushed
 but then invoked as a root program; no GitHub release was created and the
-failed Git tag was removed. The alpha.5 workflow verifies the package through
+failed Git tag was removed. The alpha.6 workflow verifies the package through
 the same import path a consumer uses.
 
 The homelab GitOps review also found that a static externally supplied webhook
@@ -102,7 +102,7 @@ CA could not rotate declaratively. The chart now has an optional cert-manager
 mode that creates a namespaced self-signed serving certificate and requests CA
 injection while preserving the plain-Kubernetes external Secret/static-CA
 default. Helm lint, deterministic rendering, CI, Kind, and live cert-manager
-issuance on Kubernetes 1.36 passed. Issue #29 now consumes the alpha.5 chart,
+issuance on Kubernetes 1.36 passed. Issue #29 now consumes the alpha.6 chart,
 KCL module, and digest-pinned adapter. Ordinary protected egress, DNS,
 provider-port delivery, qBitTorrent operation, and fail-closed gateway loss in
 that real deployment remain the candidate acceptance boundary before final
