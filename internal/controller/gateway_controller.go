@@ -325,11 +325,15 @@ func setRemainingGatewayConditions(gateway *wayv1.VPNGateway, managerReady bool)
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotReady, "Gateway manager has not reported DNS forwarding ready")
 	}
 	if gateway.Spec.PortForwarding.Enabled {
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotImplemented, "Gateway port forwarding is not implemented yet")
+		if managerReady {
+			waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardObservedReady, "Gateway manager reports provider capabilities and port-forward reconciliation healthy")
+		} else {
+			waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotReady, "Gateway manager has not reported port-forward reconciliation ready")
+		}
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardDisabled, "Gateway port forwarding is disabled")
 	}
-	if managerReady && !gateway.Spec.PortForwarding.Enabled {
+	if managerReady {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady, "All enabled gateway components are observed ready")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "One or more enabled gateway components are not ready")

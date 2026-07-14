@@ -114,7 +114,12 @@ observed member route once one exists. The regression passes inside the live
 Gluetun network namespace. Issue #29 now advances on alpha.7. Ordinary protected
 egress, DNS, provider-port delivery, qBitTorrent operation, and fail-closed
 gateway loss in that real deployment remain the candidate acceptance boundary
-before final `v0.2.0`.
+before final `v0.2.0`. The alpha.7 gateway then reached observed tunnel,
+overlay, and DNS readiness, exposing a second stale pre-Phase-4 boundary: the
+controller still forced `PortForwardReady=False/PortForwardNotImplemented`.
+Alpha.8 removes that obsolete state, makes manager readiness include provider
+and gateway-rule reconciliation errors, and reports enabled port forwarding
+ready only from the serving manager container's composite observation.
 
 ## First deliverable
 
