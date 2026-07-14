@@ -73,7 +73,7 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
   publish the official example with that exact digest and no placeholder.
 - [x] Publish the complete signed OCI bundle, including the CRD-bearing Helm
   chart and optional KCL module recorded in the release manifest.
-- [ ] Replace the originating homelab PoC with the immutable release candidate
+- [x] Replace the originating homelab PoC with the immutable release candidate
   and resolve findings that block ordinary protected operation.
 - [ ] Publish final `v0.2.0` from a main-contained signed tag.
 
@@ -99,6 +99,8 @@ or evidence-backed narrow integrations.
 
 - [ ] Add an observed admission release/generation gate that prevents mixed
   injected agent identities during zero-unavailable webhook upgrades (#55).
+- [ ] Recover existing protected Pod UIDs automatically after a singleton
+  gateway endpoint replacement while remaining fail closed (#61).
 - [ ] Multiple named gateways.
 - [ ] Gateway sharding design and implementation.
 - [ ] Upgrade, rollback, backup, and disaster-recovery tests.

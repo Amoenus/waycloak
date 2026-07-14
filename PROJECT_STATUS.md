@@ -170,18 +170,36 @@ DNS target inside a preserved CIDR so that topology cannot regress.
 The signed alpha.13 bundle was published from `main` and independently
 verified across every release-asset digest, OCI signature and provenance
 attestation, release-file attestation, and the release-manifest Sigstore
-bundle. Homelab now pins its chart, optional KCL module, agent, manager, and
-qBitTorrent adapter identities from that manifest. The first concurrent
-control-plane and workload rollout exposed that a zero-unavailable webhook
-Service can still admit a Pod through an old replica, producing a mixed
-release identity even though each individual mutation is deterministic.
-The supported upgrade procedure now rolls and verifies the control plane
-before recreating protected Pods; issue #55 owns an observed generation gate.
-The subsequent controlled singleton replacement proved immediate observed
-gateway regression, blocked protected startup, and uninterrupted unannotated
-egress. Recovery evidence remains incomplete because the freshly started VPN
-engine is receiving provider authentication rejection from the externally
-owned credential source; Waycloak neither reads nor rotates that credential.
+bundle. Its first concurrent control-plane and workload rollout exposed that a
+zero-unavailable webhook Service can still admit a Pod through an old replica,
+producing a mixed release identity even though each individual mutation is
+deterministic. The supported upgrade procedure now rolls and verifies the
+control plane before recreating protected Pods; issue #55 owns an observed
+generation gate.
+
+The alpha.14 homelab acceptance used the same ESO-generated Proton credential
+Secret as the replaced PoC without reading or printing either value. An
+initial healthy OpenVPN tunnel could not acquire a lease because the provider
+driver sent NAT-PMP to a fixed peer even though Proton had assigned a different
+tunnel subnet. PR #59 now derives the peer from the observed OpenVPN interface
+prefix while retaining an explicit test/operator override. The signed
+alpha.14 bundle was published from `main` by release run 29352248913 after the
+full source, race, static, envtest, Kind, vulnerability, OCI, signing, SBOM,
+and provenance gates passed.
+
+The controlled alpha.14 rollout first converged both webhook/controller
+replicas, then activated the `OnDelete` singleton gateway. Gateway replacement
+regressed observed readiness immediately, protected traffic remained fail
+closed, and an unannotated control retained ordinary HTTPS egress. After the
+documented protected-Pod roll, a fresh UID-bound allocation completed both
+startup gates; the manager acquired and renewed a real Proton lease through
+the dynamically derived peer; every gateway and lease condition became True;
+and qBitTorrent became 3/3 Ready without capabilities, a Kubernetes API token,
+or credential access. Protected DNS and HTTPS, ordinary HTTPS, the public
+qBitTorrent route, and Qui all returned successfully, followed by a clean Qui
+health window with no new timeouts. The remaining v0.2.0 work is publication
+of the final signed bundle and replacement of the candidate pins with those
+final immutable identities.
 
 ## First deliverable
 
