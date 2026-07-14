@@ -14,6 +14,9 @@ Gluetun does not expose a control endpoint or setting that delegates only forwar
 Gluetun continues to own local `INPUT` and `OUTPUT` policy, VPN-server reachability, and tunnel-loss containment. The controller supplies a static, non-secret Gluetun post-rules file that:
 
 - changes only Gluetun's IPv4 `FORWARD` policy to `ACCEPT`;
+- permits UDP destination port 4789 in `OUTPUT` for kernel-generated VXLAN
+  return encapsulation while leaving every other local output path under
+  Gluetun's drop policy;
 - permits UDP/TCP DNS and TCP readiness input only from the configured overlay CIDR on the deterministic Waycloak VXLAN interface.
 
 Waycloak owns a separate, deterministically named IPv4 nftables table. Before creating the VXLAN interface, the manager installs or verifies a base `forward` chain with policy `DROP`. It activates forwarding atomically only after both the overlay and the configured VPN interface are up. Active rules permit overlay-source traffic only from the owned VXLAN interface to the VPN interface, permit connection-tracked return traffic, and masquerade the overlay source only on the VPN interface.
@@ -21,6 +24,14 @@ Waycloak owns a separate, deterministically named IPv4 nftables table. Before cr
 The controller fixes Gluetun's `VPN_INTERFACE` to `tunwaycloak`, so OpenVPN can infer the TUN device type while satisfying Gluetun's alphanumeric interface-name validation; OpenVPN and WireGuard do not require provider-specific packet-policy names. The manager retains no Kubernetes credentials and uses native nftables/netlink APIs for every dynamic rule and interface operation.
 
 Gluetun's post-rules contain a static UDP 4789 INPUT handoff because its local kill switch otherwise drops VXLAN before the manager-owned interface can receive it. A manager-owned inet input chain runs at an earlier priority, drops that port before desired state is valid, and then admits only the exact observed member underlay IPs before the Gluetun handoff. Membership changes replace this allowlist without restarting the tunnel; all other input remains under Gluetun's policy.
+
+The post-rules also contain the symmetric UDP 4789 `OUTPUT` handoff because
+VXLAN return packets are locally generated encapsulation and therefore cross
+Gluetun's local output chain. The rule is port-scoped rather than
+destination-scoped because member underlay IPs are observed dynamically after
+engine startup. The kernel emits these packets only for peers in the
+manager-reconciled VXLAN forwarding database; the manager's earlier input
+allowlist prevents unobserved peers from teaching return destinations.
 
 ## Consequences
 

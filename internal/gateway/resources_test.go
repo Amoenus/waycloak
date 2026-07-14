@@ -133,7 +133,7 @@ func TestGluetunUsesSecretFilesAndLoopbackReadOnlyControl(t *testing.T) {
 		t.Fatalf("control-server role is not read-only: %s", config)
 	}
 	postRules := DesiredConfigMap(gateway, nil).Data[EnginePostRulesKey]
-	if !strings.Contains(postRules, "iptables --policy FORWARD ACCEPT") || !strings.Contains(postRules, "--protocol udp --destination-port 4789 --jump ACCEPT") || !strings.Contains(postRules, "--in-interface "+OverlayInterfaceName(gateway.Name)) || !strings.Contains(postRules, "--source "+gateway.Spec.Overlay.CIDR) || !strings.Contains(postRules, "--destination-port 1053 --jump ACCEPT") {
+	if !strings.Contains(postRules, "iptables --policy FORWARD ACCEPT") || !strings.Contains(postRules, "iptables --append INPUT --protocol udp --destination-port 4789 --jump ACCEPT") || !strings.Contains(postRules, "iptables --append OUTPUT --protocol udp --destination-port 4789 --jump ACCEPT") || !strings.Contains(postRules, "--in-interface "+OverlayInterfaceName(gateway.Name)) || !strings.Contains(postRules, "--source "+gateway.Spec.Overlay.CIDR) || !strings.Contains(postRules, "--destination-port 1053 --jump ACCEPT") {
 		t.Fatalf("Gluetun forwarding adapter is not gateway-scoped: %s", postRules)
 	}
 	if !hasMount(engine, "engine-firewall") {

@@ -133,7 +133,13 @@ reconciliation never populated the observed serving Pod endpoint in
 `VPNGateway.status.overlay`, so the allocation correctly carried an empty
 endpoint and the agent refused to configure routing. Alpha.10 publishes the
 serving Pod IP with the owned VXLAN and health ports, and clears those fields
-when no serving Pod exists. Issue #44 tracks this release-blocking observation.
+when no serving Pod exists. The verified alpha.10 rollout then passed
+`waycloak-prepare` and exposed the next symmetric Gluetun firewall boundary:
+member packets reached the gateway VXLAN, but Gluetun's local `OUTPUT DROP`
+discarded kernel-generated UDP/4789 return encapsulation. Alpha.11 adds only
+that protocol-and-port-scoped output handoff while retaining Gluetun ownership
+of all other local output. ADR 0009 records the boundary and issue #46 tracks
+the release-blocking observation.
 
 ## First deliverable
 

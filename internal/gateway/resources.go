@@ -252,7 +252,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 
 func enginePostRules(gateway *wayv1.VPNGateway) string {
 	overlay := OverlayInterfaceName(gateway.Name)
-	return fmt.Sprintf("iptables --policy FORWARD ACCEPT\niptables --append INPUT --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\n", VXLANPort, overlay, gateway.Spec.Overlay.CIDR, GatewayDNSPort, overlay, gateway.Spec.Overlay.CIDR, GatewayDNSPort, overlay, gateway.Spec.Overlay.CIDR, HealthPort)
+	return fmt.Sprintf("iptables --policy FORWARD ACCEPT\niptables --append INPUT --protocol udp --destination-port %d --jump ACCEPT\niptables --append OUTPUT --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol udp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\niptables --append INPUT --in-interface %s --source %s --protocol tcp --destination-port %d --jump ACCEPT\n", VXLANPort, VXLANPort, overlay, gateway.Spec.Overlay.CIDR, GatewayDNSPort, overlay, gateway.Spec.Overlay.CIDR, GatewayDNSPort, overlay, gateway.Spec.Overlay.CIDR, HealthPort)
 }
 
 func hostPathType(value corev1.HostPathType) *corev1.HostPathType { return &value }
