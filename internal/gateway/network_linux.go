@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -24,15 +25,10 @@ func (linuxNetwork) Reconcile(_ context.Context, desired DesiredState) error {
 	if err := desired.Validate(); err != nil {
 		return err
 	}
-	if len(desired.Members) == 0 {
-		return errors.New("gateway overlay requires at least one observed member")
+	route, err := gatewayUnderlayRoute(desired.Members)
+	if err != nil {
+		return err
 	}
-	firstUnderlay := netip.MustParseAddr(desired.Members[0].UnderlayIP)
-	routes, err := netlink.RouteGet(net.IP(firstUnderlay.AsSlice()))
-	if err != nil || len(routes) == 0 {
-		return fmt.Errorf("resolve gateway member underlay: %w", err)
-	}
-	route := routes[0]
 	underlay, err := netlink.LinkByIndex(route.LinkIndex)
 	if err != nil {
 		return fmt.Errorf("resolve gateway underlay interface: %w", err)
@@ -51,6 +47,52 @@ func (linuxNetwork) Reconcile(_ context.Context, desired DesiredState) error {
 		return fmt.Errorf("bring gateway overlay up: %w", err)
 	}
 	return reconcileGatewayPeers(link, desired.Members)
+}
+
+func gatewayUnderlayRoute(members []Member) (netlink.Route, error) {
+	if len(members) > 0 {
+		firstUnderlay := netip.MustParseAddr(members[0].UnderlayIP)
+		routes, err := netlink.RouteGet(net.IP(firstUnderlay.AsSlice()))
+		if err != nil {
+			return netlink.Route{}, fmt.Errorf("resolve gateway member underlay: %w", err)
+		}
+		if len(routes) == 0 || routes[0].LinkIndex <= 0 {
+			return netlink.Route{}, errors.New("resolve gateway member underlay: no usable route")
+		}
+		return routes[0], nil
+	}
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	if err != nil {
+		return netlink.Route{}, fmt.Errorf("resolve gateway default underlay: %w", err)
+	}
+	return selectDefaultUnderlayRoute(routes)
+}
+
+func selectDefaultUnderlayRoute(routes []netlink.Route) (netlink.Route, error) {
+	candidates := make([]netlink.Route, 0, len(routes))
+	for _, route := range routes {
+		if isDefaultIPv4Route(route) && route.LinkIndex > 0 && (route.Table == 0 || route.Table == unix.RT_TABLE_MAIN) {
+			candidates = append(candidates, route)
+		}
+	}
+	if len(candidates) == 0 {
+		return netlink.Route{}, errors.New("resolve gateway default underlay: no usable IPv4 default route")
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Priority != candidates[j].Priority {
+			return candidates[i].Priority < candidates[j].Priority
+		}
+		return candidates[i].LinkIndex < candidates[j].LinkIndex
+	})
+	return candidates[0], nil
+}
+
+func isDefaultIPv4Route(route netlink.Route) bool {
+	if route.Dst == nil {
+		return true
+	}
+	ones, bits := route.Dst.Mask.Size()
+	return ones == 0 && bits == 32 && route.Dst.IP.To4() != nil
 }
 
 func ensureGatewayVXLAN(name string, desired DesiredState, underlay netlink.Link, route netlink.Route) (netlink.Link, error) {
