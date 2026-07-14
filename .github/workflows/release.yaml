@@ -109,6 +109,21 @@ jobs:
           build_image agent agent ./cmd/agent
           build_image manager gateway-manager ./cmd/gateway-manager
           build_image adapter qbittorrent-adapter ./cmd/qbittorrent-adapter
+      - name: Render digest-pinned qBitTorrent example evidence
+        env:
+          ADAPTER: ${{ steps.images.outputs.adapter }}
+        run: |
+          example="$RUNNER_TEMP/qbittorrent-example"
+          cp -R examples/qbittorrent "$example"
+          go run ./hack/releaseexample \
+            --input "$example/workload.yaml" --adapter "$ADAPTER"
+          mkdir -p dist
+          kubectl kustomize "$example" >dist/qbittorrent-example.yaml
+          test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 1
+          if grep -Fq 'waycloak.invalid/qbittorrent-adapter' dist/qbittorrent-example.yaml; then
+            exit 1
+          fi
+          awk '$1 == "image:" && $2 !~ /@sha256:[a-f0-9]{64}$/ {exit 1}' dist/qbittorrent-example.yaml
       - name: Scan published images and emit release SBOMs
         env:
           CONTROLLER: ${{ steps.images.outputs.controller }}
@@ -211,6 +226,10 @@ jobs:
             --workflow-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER" \
             --qbittorrent-adapter "$ADAPTER" --chart "$CHART"
+          jq -e --arg adapter "$ADAPTER" \
+            '.artifacts.qbittorrentAdapterImage.reference == $adapter' \
+            dist/release-manifest.json >/dev/null
+          test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 1
           cosign sign-blob --yes --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
       - name: Verify signatures before release
         env:

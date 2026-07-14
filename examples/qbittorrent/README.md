@@ -19,13 +19,25 @@ The manifests are intentionally disposable: configuration and downloads use
 - If your gateway has another name, update both the Pod annotation and
   `PortForwardLease.spec.gatewayRef` together.
 - Create a qBitTorrent API key and the workload-owned adapter Secret. The key
-  must use qBitTorrent's `qbt_` prefix followed by 28 hexadecimal characters.
+  must contain exactly 32 characters: qBitTorrent's `qbt_` prefix followed by
+  28 random alphanumeric characters.
   Store the same key in `WebUI\APIKey` in `qBittorrent.conf`, bind the Web UI to
   loopback, and disable qBitTorrent UPnP/NAT-PMP. For example:
 
 ```sh
-api_key="qbt_$(openssl rand -hex 14)"
-cat >qBittorrent.conf <<EOF
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+umask 077
+random=""
+while [ "${#random}" -lt 28 ]; do
+  random="${random}$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9')"
+done
+random="$(printf '%s' "$random" | cut -c1-28)"
+test "${#random}" -eq 28
+printf 'qbt_%s\n' "$random" >"$workdir/api-key"
+unset random
+api_key="$(cat "$workdir/api-key")"
+cat >"$workdir/qBittorrent.conf" <<EOF
 [BitTorrent]
 Session\Port=6881
 Session\UseRandomPort=false
@@ -43,10 +55,10 @@ WebUI\Address=127.0.0.1
 WebUI\APIKey=$api_key
 WebUI\Port=8080
 EOF
+kubectl apply -f examples/qbittorrent/namespace.yaml
 kubectl -n waycloak-qbittorrent create secret generic qbittorrent-adapter-auth \
-  --from-literal=api-key="$api_key" \
-  --from-file=qBittorrent.conf
-rm qBittorrent.conf
+  --from-file=api-key="$workdir/api-key" \
+  --from-file=qBittorrent.conf="$workdir/qBittorrent.conf"
 unset api_key
 ```
 
@@ -68,6 +80,12 @@ Kubernetes token or Linux capabilities, talks only to qBitTorrent and the
 Waycloak agent over Pod loopback, and acknowledges the exact applied lease
 generation. Pin the image by digest from the signed release manifest for a
 production deployment.
+
+Published releases also attach `qbittorrent-example.yaml`, rendered by the tag
+workflow with the exact adapter reference stored in the signed release
+manifest. Verify the release manifest, the release-file provenance, and that
+reference before applying the asset; the checked-in Kustomize base remains the
+version-independent source for customization.
 
 Check the observed path with:
 
