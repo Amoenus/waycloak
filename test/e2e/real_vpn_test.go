@@ -119,7 +119,7 @@ func TestRealVPNProtectedPath(t *testing.T) {
 	copyToContainer(t, managerBinary, namespace, gatewayPod.Name, waygateway.ManagerContainer, "/tmp/gateway-manager")
 	command(t, nil, "kubectl", "exec", "-n", namespace, gatewayPod.Name, "-c", waygateway.ManagerContainer, "--", "sh", "-c", "nohup /tmp/gateway-manager run --engine-type=Gluetun --config-path=/run/waycloak/config/gateway.json --resolv-conf=/run/waycloak/runtime/resolv.conf >/run/waycloak/runtime/manager.log 2>&1 &")
 
-	allocationName := contract.AllocationConfigMapName(namespace, protected.Name)
+	allocationName := protected.Annotations[contract.AllocationNameAnnotation]
 	allocation := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      allocationName,

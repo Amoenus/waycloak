@@ -82,6 +82,27 @@ func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestGeneratedPodAllocationMarkerSurvivesFinalNameAndReinvocation(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{MatchLabels: map[string]string{"waycloak": "allowed"}})
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{GenerateName: "app-", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "app"}}}}
+	changed, err := m.mutate(context.Background(), pod, "admission-request-1")
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	marker := pod.Annotations[contract.AllocationNameAnnotation]
+	if marker != contract.AllocationConfigMapName("apps", "admission-request-1") {
+		t.Fatalf("allocation marker = %q", marker)
+	}
+	pod.Name = "app-generated"
+	changed, err = m.mutate(context.Background(), pod, "admission-reinvocation-2")
+	if err != nil || changed {
+		t.Fatalf("reinvocation changed=%v err=%v", changed, err)
+	}
+	if pod.Annotations[contract.AllocationNameAnnotation] != marker {
+		t.Fatal("reinvocation changed the allocation marker")
+	}
+}
+
 func TestUnauthorizedGatewayRejected(t *testing.T) {
 	m := testMutator(t, metav1.LabelSelector{MatchLabels: map[string]string{"other": "yes"}})
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}}

@@ -23,7 +23,7 @@ func (v *PodValidator) Handle(_ context.Context, req cradmission.Request) cradmi
 	if pod.Annotations[contract.InjectionVersionAnnotation] != contract.InjectionVersion {
 		return cradmission.Denied(waystatus.ReasonAdmissionVersionConflict + ": annotated Pod is not injected with the required version")
 	}
-	if err := validateInjected(&pod, contract.AllocationConfigMapName(pod.Namespace, pod.Name), v.AgentImage); err != nil {
+	if err := validateInjected(&pod, v.AgentImage); err != nil {
 		return cradmission.Denied(waystatus.ReasonAdmissionVersionConflict + ": " + err.Error())
 	}
 	return cradmission.Allowed("injection contract is valid")

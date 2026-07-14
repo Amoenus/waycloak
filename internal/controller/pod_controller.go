@@ -115,7 +115,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		r.Recorder.Eventf(&pod, corev1.EventTypeNormal, "AllocationPersisted", "Persisted overlay address %s", addr)
 		return ctrl.Result{Requeue: true}, nil
 	}
-	cmName := contract.AllocationConfigMapName(pod.Namespace, pod.Name)
+	cmName := pod.Annotations[contract.AllocationNameAnnotation]
+	if !contract.IsAllocationConfigMapName(cmName) {
+		return ctrl.Result{}, fmt.Errorf("pod %s/%s has an invalid allocation ConfigMap marker", pod.Namespace, pod.Name)
+	}
 	deliveryDocument, err := r.deliveryDocument(ctx, &pod)
 	if err != nil {
 		return ctrl.Result{}, err

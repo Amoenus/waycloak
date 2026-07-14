@@ -362,7 +362,7 @@ func publishDeliveryDocument(t *testing.T, c client.Client, pod *corev1.Pod, ide
 	must(t, err)
 	ctx := context.Background()
 	var cm corev1.ConfigMap
-	must(t, c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: contract.AllocationConfigMapName(pod.Namespace, pod.Name)}, &cm))
+	must(t, c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Annotations[contract.AllocationNameAnnotation]}, &cm))
 	cm.Data[contract.PortForwardLeasesKey] = document
 	must(t, c.Update(ctx, &cm))
 	var current corev1.Pod

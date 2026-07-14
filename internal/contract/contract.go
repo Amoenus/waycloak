@@ -5,7 +5,9 @@ package contract
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -30,9 +32,19 @@ const (
 	PortForwardLeaseFinalizer      = "networking.waycloak.io/provider-lease-quarantine"
 )
 
-func AllocationConfigMapName(namespace, pod string) string {
-	sum := sha256.Sum256([]byte(namespace + "/" + pod))
+func AllocationConfigMapName(namespace, identity string) string {
+	sum := sha256.Sum256([]byte(namespace + "/" + identity))
 	return fmt.Sprintf("waycloak-allocation-%x", sum[:10])
+}
+
+func IsAllocationConfigMapName(name string) bool {
+	const prefix = "waycloak-allocation-"
+	encoded := strings.TrimPrefix(name, prefix)
+	if encoded == name || len(encoded) != 20 {
+		return false
+	}
+	_, err := hex.DecodeString(encoded)
+	return err == nil
 }
 
 func DeliveryDigest(document string) string {

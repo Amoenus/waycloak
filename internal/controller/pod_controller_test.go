@@ -23,7 +23,8 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = wayv1.AddToScheme(scheme)
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", UID: types.UID("pod-uid-1"), Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.InjectionVersionAnnotation: contract.InjectionVersion}}}
+	allocationName := contract.AllocationConfigMapName("apps", "admission-request-1")
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", UID: types.UID("pod-uid-1"), Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.InjectionVersionAnnotation: contract.InjectionVersion, contract.AllocationNameAnnotation: allocationName}}}
 	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Gateway"}}, Status: wayv1.VPNGatewayStatus{Overlay: wayv1.GatewayOverlayStatus{Endpoint: "10.42.0.2:4789", HealthPort: 18080}}}
 	now := time.Now().UTC()
 	issuedAt, renewAfter, expiresAt := metav1.NewTime(now.Add(-time.Minute)), metav1.NewTime(now.Add(30*time.Minute)), metav1.NewTime(now.Add(time.Hour))
@@ -45,7 +46,7 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 		t.Fatalf("allocation=%q", first.Status.Allocation.Address)
 	}
 	var cm corev1.ConfigMap
-	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: contract.AllocationConfigMapName("apps", "app")}, &cm); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: allocationName}, &cm); err != nil {
 		t.Fatal(err)
 	}
 	if cm.Data["podUID"] != string(pod.UID) {

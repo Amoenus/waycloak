@@ -38,7 +38,7 @@ func (m *PodMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 		return cradmission.Errored(400, err)
 	}
 	before := req.Object.Raw
-	changed, err := m.Mutate(ctx, &pod)
+	changed, err := m.mutate(ctx, &pod, string(req.UID))
 	if err != nil {
 		if r, ok := err.(*Rejection); ok {
 			return cradmission.Denied(r.Error())
@@ -56,6 +56,10 @@ func (m *PodMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 }
 
 func (m *PodMutator) Mutate(ctx context.Context, pod *corev1.Pod) (bool, error) {
+	return m.mutate(ctx, pod, pod.Name)
+}
+
+func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdentity string) (bool, error) {
 	refValue := pod.Annotations[contract.GatewayAnnotation]
 	if refValue == "" {
 		return false, nil
@@ -91,12 +95,15 @@ func (m *PodMutator) Mutate(ctx context.Context, pod *corev1.Pod) (bool, error) 
 	if m.AgentImage == "" {
 		return false, fmt.Errorf("agent image is not configured")
 	}
-	allocationName := contract.AllocationConfigMapName(pod.Namespace, pod.Name)
+	if admissionIdentity == "" {
+		return false, fmt.Errorf("admission request identity is not configured")
+	}
+	allocationName := contract.AllocationConfigMapName(pod.Namespace, admissionIdentity)
 	if version := pod.Annotations[contract.InjectionVersionAnnotation]; version != "" {
 		if version != contract.InjectionVersion {
 			return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: fmt.Sprintf("Pod carries injection version %q, expected %q", version, contract.InjectionVersion)}
 		}
-		if err := validateInjected(pod, allocationName, m.AgentImage); err != nil {
+		if err := validateInjected(pod, m.AgentImage); err != nil {
 			return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: err.Error()}
 		}
 		return false, nil
@@ -190,9 +197,10 @@ func hasReservedNames(p *corev1.Pod) bool {
 	return false
 }
 
-func validateInjected(p *corev1.Pod, allocationName, image string) error {
-	if p.Annotations[contract.AllocationNameAnnotation] != allocationName {
-		return fmt.Errorf("allocation ConfigMap marker is not deterministic")
+func validateInjected(p *corev1.Pod, image string) error {
+	allocationName := p.Annotations[contract.AllocationNameAnnotation]
+	if !contract.IsAllocationConfigMapName(allocationName) {
+		return fmt.Errorf("allocation ConfigMap marker is invalid")
 	}
 	if p.Spec.AutomountServiceAccountToken == nil || *p.Spec.AutomountServiceAccountToken {
 		return fmt.Errorf("service account token automount is not disabled")
