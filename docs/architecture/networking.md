@@ -82,8 +82,10 @@ peer
 
 Forward and reverse paths must remain symmetric. DNAT rules are keyed by lease UID, not list index. Removing one lease cannot rewrite another lease's identity. A lease is `Ready` only after provider allocation, gateway rule installation, target binding, and delivery are observed.
 
-The initial Proton/OpenVPN driver sends NAT-PMP to `10.2.0.1:5351` from a
-socket bound to `tunwaycloak`. Kubernetes status persists the unique NAT-PMP
+The initial Proton/OpenVPN driver derives the NAT-PMP peer as address `.1` in
+the observed IPv4 tunnel prefix, with an explicit operator override retained
+for providers that require it, and sends from a socket bound to
+`tunwaycloak`. Kubernetes status persists the unique NAT-PMP
 internal port; the provider-assigned public port may rotate independently.
 Waycloak renews at 75 percent of the returned lifetime and increments the
 public lease generation only on rotation. Gluetun's own NAT-PMP loop remains

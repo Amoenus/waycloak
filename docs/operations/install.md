@@ -1,5 +1,10 @@
 # Install Waycloak
 
+New users should begin with the end-to-end
+[getting-started guide](../getting-started.md). This page is the detailed
+installation reference, including both webhook certificate modes and artifact
+verification.
+
 Waycloak releases are published as signed, digest-addressed OCI images, a
 signed Helm OCI chart containing the served CRDs, and an optional signed KCL
 OCI module. Verify the signed release manifest and every referenced artifact
@@ -7,7 +12,7 @@ before installation. Never substitute mutable tags for the recorded digests.
 
 ## Prerequisites
 
-- Kubernetes 1.35 or 1.36 with Linux worker nodes and VXLAN support (`v0.1.0`
+- Kubernetes 1.35 or 1.36 with Linux worker nodes and VXLAN support (`v0.2.0`
   is verified with Kindnet and Flannel; the chart's broader API-version check is
   not a compatibility claim);
 - Helm 3.14 or newer;
@@ -78,7 +83,7 @@ manifest already contains the released controller, agent, and gateway-manager
 digests and all three CRDs.
 
 ```sh
-version=v0.1.0
+version=v0.2.0
 release_url="https://github.com/Amoenus/waycloak/releases/download/$version"
 curl --fail --location --remote-name "$release_url/release-manifest.json"
 curl --fail --location --remote-name "$release_url/release-manifest.sigstore.json"
@@ -148,6 +153,12 @@ kubectl apply -f config/samples/networking_v1alpha1_vpngateway.yaml
 ```
 
 Wait for `VPNGateway` condition `Ready=True` before rolling an opted-in workload. The credentials Secret is mounted only into the VPN engine; application Pods receive neither the Secret nor a Kubernetes API token from Waycloak.
+
+The sample is intentionally minimal. For a production gateway, explicitly set
+`dns.mode`, `clusterTraffic.mode`, and the Pod and Service CIDRs permitted by
+`Preserve` mode. The
+[getting-started guide](../getting-started.md#4-identify-cluster-local-cidrs)
+explains this trust boundary.
 
 ## Opt in a workload
 

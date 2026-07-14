@@ -1,5 +1,10 @@
 # Waycloak Helm chart
 
+First-time users should follow the repository's
+[getting-started guide](../../docs/getting-started.md). It verifies the signed
+release manifest, pulls this chart by its recorded OCI digest, prepares webhook
+TLS, creates a gateway, and protects a disposable workload.
+
 This chart installs the Waycloak CRDs, controller/webhook Deployment, Service, least-privilege RBAC, admission configurations, and controller disruption budget.
 
 All three image digests and webhook TLS are mandatory. By default the chart

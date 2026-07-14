@@ -1,0 +1,9 @@
+{
+  "ignores": [
+    ".github/pull_request_template.md",
+    ".trunk/**"
+  ],
+  "config": {
+    "MD013": false
+  }
+}

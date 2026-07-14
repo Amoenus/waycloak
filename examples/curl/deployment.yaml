@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waycloak-demo
+  namespace: waycloak-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waycloak-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waycloak-demo
+      annotations:
+        networking.waycloak.io/gateway: waycloak-egress/proton-eu
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: curl
+          image: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+          command: [sleep, infinity]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault

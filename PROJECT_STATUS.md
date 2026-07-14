@@ -224,9 +224,17 @@ rotation plus qBitTorrent tracker/DHT certification under issue #4; automatic
 same-Pod recovery after singleton replacement remains versioned operational
 maturity work under issue #61.
 
-## First deliverable
+## Release progression
 
-The first usable release is `v0.1.0`: a single shared Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes Secret references, and observable status. Port forwarding follows in `v0.2.0` unless it can be implemented without weakening the first milestone.
+`v0.1.0` delivered the first usable private-egress foundation: a single shared
+Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes
+Secret references, and observable gateway status.
+
+The current `v0.2.0` release adds provider-neutral `PortForwardLease`, Proton
+NAT-PMP, stable gateway translation, renewable UID-bound delivery, the narrow
+qBitTorrent adapter, signed OCI Helm and optional KCL publication, and real
+homelab adoption. `v0.3.0` is the sustained real-provider tracker, peer-ingress,
+DHT, rotation, and additional-workload certification milestone.
 
 ## Definition of “implemented”
 

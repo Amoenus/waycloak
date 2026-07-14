@@ -24,8 +24,9 @@ The release workflow re-runs these gates. It rejects a tag whose version differs
 Create an annotated tag at the reviewed commit, then push only that tag:
 
 ```sh
-git tag -s v0.1.0 -m 'Waycloak v0.1.0'
-git push origin v0.1.0
+version=v0.3.0 # replace with the prepared chart/KCL version
+git tag -s "$version" -m "Waycloak $version"
+git push origin "$version"
 ```
 
 Tag creation and push are maintainer actions; Codex must not perform either without explicit authorization. The GitHub `release` environment should require maintainer approval and restrict deployment branches/tags.
@@ -54,14 +55,17 @@ chart and its generated schemas are verified against those same CRDs.
 Use the digest references from the signed manifest, never infer them from a tag:
 
 ```sh
+version=v0.3.0 # release being verified
+identity="https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/$version"
+
 cosign verify \
-  --certificate-identity 'https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/v0.1.0' \
+  --certificate-identity "$identity" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/amoenus/waycloak-controller@sha256:RELEASE_DIGEST
 
 cosign verify-blob \
   --bundle release-manifest.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/v0\.1\.0$' \
+  --certificate-identity "$identity" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   release-manifest.json
 ```

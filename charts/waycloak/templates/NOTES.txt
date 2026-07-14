@@ -1,8 +1,21 @@
 Waycloak has been installed in namespace {{ .Release.Namespace }}.
 
+{{- if .Values.webhook.tls.certManager.enabled }}
+cert-manager owns the webhook serving certificate and CA injection. Confirm the
+Certificate becomes Ready before creating an annotated Pod.
+{{- else }}
 The admission webhooks use the pre-existing TLS Secret
 {{ .Values.webhook.tls.existingSecret }}. Keep that certificate valid for:
   {{ include "waycloak.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+{{- end }}
 
-Create a provider credential Secret and then apply a VPNGateway. Workloads opt in
-only through networking.waycloak.io/gateway on their Pod template.
+Next:
+  1. Read https://github.com/Amoenus/waycloak/blob/main/docs/getting-started.md
+  2. Create a dedicated gateway namespace and provider credential Secret.
+  3. Apply a VPNGateway and wait for Ready=True.
+  4. Authorize a workload namespace and add this Pod-template annotation:
+
+     networking.waycloak.io/gateway: <gateway-namespace>/<gateway-name>
+
+Do not annotate an existing Pod. Roll the workload so admission can create a
+new UID-bound, fail-closed Pod.
