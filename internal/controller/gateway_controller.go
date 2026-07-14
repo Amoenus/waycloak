@@ -274,6 +274,7 @@ func (r *GatewayReconciler) members(ctx context.Context, gateway *wayv1.VPNGatew
 }
 
 func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGateway) error {
+	gateway.Status.Overlay = wayv1.GatewayOverlayStatus{}
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods, client.InNamespace(gateway.Namespace), client.MatchingLabels(waygateway.SelectorLabels(gateway))); err != nil {
 		return fmt.Errorf("list gateway Pods: %w", err)
@@ -291,6 +292,10 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 	if selected == nil {
 		setGatewayPending(gateway, "Waiting for the controller-owned gateway Pod")
 		return nil
+	}
+	if podIP, err := netip.ParseAddr(selected.Status.PodIP); err == nil {
+		gateway.Status.Overlay.Endpoint = netip.AddrPortFrom(podIP.Unmap(), uint16(waygateway.VXLANPort)).String()
+		gateway.Status.Overlay.HealthPort = waygateway.HealthPort
 	}
 
 	scheduled := podCondition(selected, corev1.PodScheduled) == corev1.ConditionTrue

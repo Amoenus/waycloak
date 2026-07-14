@@ -53,7 +53,7 @@ Crossplane, Argo CD, or the originating composition stack.
 
 ## Adoption acceptance
 
-The `v0.2.0-alpha.9` candidate is installed from its verified OCI identities
+The `v0.2.0-alpha.10` candidate is installed from its verified OCI identities
 and replaces the legacy pod-gateway/qSticky route for the originating
 qBitTorrent workload. Acceptance requires observed normal operation:
 
@@ -109,8 +109,12 @@ invalidate the `v0.2.0` functionality already shipped; GitHub milestone
    Deployment Pod's final generated name after mutating admission. Alpha.9
    derives the allocation marker from the unique admission request identity,
    persists it on the Pod, and makes both validation and reconciliation consume
-   that marker without weakening the UID-bound ConfigMap ownership check.
-3. Replace the homelab PoC with the exact alpha.9 candidate.
+   that marker without weakening the UID-bound ConfigMap ownership check. The
+   verified alpha.9 homelab rollout proved this handshake and then exposed an
+   empty observed gateway endpoint: the gateway controller had never published
+   its serving Pod IP and owned VXLAN/health ports to status. Alpha.10 publishes
+   that observed endpoint and clears it when the serving Pod disappears.
+3. Replace the homelab PoC with the exact alpha.10 candidate.
 4. Fix only release-blocking adoption findings through reviewed main-branch
    changes and a new candidate when required.
 5. Publish final signed `v0.2.0`, update status and adoption evidence, and close

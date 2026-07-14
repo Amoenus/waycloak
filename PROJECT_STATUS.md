@@ -125,7 +125,15 @@ Deployment Pod's generated name is finalized after mutating admission, while
 the allocation marker had been derived from the pre-final name. Alpha.9 derives
 the unique marker from the admission request identity, persists it on the Pod,
 and has the validating webhook and controller consume that marker while the
-created ConfigMap remains controller-owned and bound to the final Pod UID.
+created ConfigMap remains controller-owned and bound to the final Pod UID. The
+verified alpha.9 homelab rollout proved that path with a real Deployment Pod:
+the controller created the UID-bound allocation and `VPNWorkload`, and the Pod
+remained fail-closed in init. That rollout then exposed that gateway
+reconciliation never populated the observed serving Pod endpoint in
+`VPNGateway.status.overlay`, so the allocation correctly carried an empty
+endpoint and the agent refused to configure routing. Alpha.10 publishes the
+serving Pod IP with the owned VXLAN and health ports, and clears those fields
+when no serving Pod exists. Issue #44 tracks this release-blocking observation.
 
 ## First deliverable
 

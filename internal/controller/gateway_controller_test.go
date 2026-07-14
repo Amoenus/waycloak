@@ -74,6 +74,7 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: key.Name + "-0", Namespace: gateway.Namespace, Labels: waygateway.SelectorLabels(gateway), Annotations: map[string]string{waygateway.GatewayNameAnnotation: gateway.Name}},
 		Status: corev1.PodStatus{
+			PodIP:             "10.42.0.20",
 			Conditions:        []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}},
 			ContainerStatuses: []corev1.ContainerStatus{{Name: waygateway.ManagerContainer, Ready: true}},
 		},
@@ -93,6 +94,9 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady)
+	if observed.Status.Overlay.Endpoint != "10.42.0.20:4789" || observed.Status.Overlay.HealthPort != 18080 {
+		t.Fatalf("observed overlay status = %#v", observed.Status.Overlay)
+	}
 
 	if err := client.Delete(context.Background(), pod); err != nil {
 		t.Fatal(err)
@@ -107,6 +111,9 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
+	if observed.Status.Overlay.Endpoint != "" || observed.Status.Overlay.HealthPort != 0 {
+		t.Fatalf("stale overlay status = %#v", observed.Status.Overlay)
+	}
 
 	observed.Spec.Engine.Image = "registry.invalid/engine@sha256:" + strings.Repeat("b", 64)
 	if err := client.Update(context.Background(), &observed); err != nil {
