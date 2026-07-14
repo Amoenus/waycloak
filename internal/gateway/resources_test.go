@@ -69,6 +69,31 @@ func TestResourceNameIsStableAndBounded(t *testing.T) {
 	}
 }
 
+func TestDesiredStatefulSetReservesGeneratedNameSuffixes(t *testing.T) {
+	gateway := testGateway()
+	gateway.Name = "waycloak-real-pf-18c20e8323561f28-gateway-with-a-deliberately-long-name"
+
+	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager")})
+	if got := len(statefulSet.Name); got > statefulSetNameMaxLength {
+		t.Fatalf("StatefulSet name length = %d, want at most %d: %q", got, statefulSetNameMaxLength, statefulSet.Name)
+	}
+	if got := len(statefulSet.Name + "-0"); got > 63 {
+		t.Fatalf("derived Pod name length = %d, want at most 63", got)
+	}
+	if got := len(statefulSet.Name + "-0123456789"); got > 63 {
+		t.Fatalf("derived controller revision label length = %d, want at most 63", got)
+	}
+	if statefulSet.Name != statefulSetResourceName(gateway.Name) {
+		t.Fatalf("StatefulSet name = %q, want deterministic name %q", statefulSet.Name, statefulSetResourceName(gateway.Name))
+	}
+	if statefulSet.Name == statefulSetResourceName(gateway.Name+"-different") {
+		t.Fatalf("distinct gateway names collided at %q", statefulSet.Name)
+	}
+	if statefulSet.Spec.ServiceName != ResourceName(gateway.Name) {
+		t.Fatalf("service name = %q, want %q", statefulSet.Spec.ServiceName, ResourceName(gateway.Name))
+	}
+}
+
 func TestDesiredPodDisruptionBudgetProtectsSingleton(t *testing.T) {
 	gateway := testGateway()
 	pdb := DesiredPodDisruptionBudget(gateway)
