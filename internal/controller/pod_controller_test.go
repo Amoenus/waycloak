@@ -25,7 +25,7 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	_ = wayv1.AddToScheme(scheme)
 	allocationName := contract.AllocationConfigMapName("apps", "admission-request-1")
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", UID: types.UID("pod-uid-1"), Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.InjectionVersionAnnotation: contract.InjectionVersion, contract.AllocationNameAnnotation: allocationName}}}
-	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Gateway"}}, Status: wayv1.VPNGatewayStatus{Overlay: wayv1.GatewayOverlayStatus{Endpoint: "10.42.0.2:4789", HealthPort: 18080}}}
+	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Preserve", CIDRs: []string{"10.43.0.0/16", "10.42.0.0/16"}}}, Status: wayv1.VPNGatewayStatus{Overlay: wayv1.GatewayOverlayStatus{Endpoint: "10.42.0.2:4789", HealthPort: 18080}}}
 	now := time.Now().UTC()
 	issuedAt, renewAfter, expiresAt := metav1.NewTime(now.Add(-time.Minute)), metav1.NewTime(now.Add(30*time.Minute)), metav1.NewTime(now.Add(time.Hour))
 	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "torrent", Namespace: "apps", UID: types.UID("lease-uid")}, Spec: wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Namespace: "egress", Name: "private"}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolUDP, wayv1.PortForwardProtocolTCP}}, Status: wayv1.PortForwardLeaseStatus{Target: &wayv1.PortForwardTargetStatus{PodRef: wayv1.PodReference{Name: pod.Name, UID: pod.UID}, Port: 6881}, PublicPort: 42000, LeaseGeneration: 4, IssuedAt: &issuedAt, RenewAfter: &renewAfter, ExpiresAt: &expiresAt, Conditions: []metav1.Condition{{Type: waystatus.ConditionTargetReady, Status: metav1.ConditionTrue}, {Type: waystatus.ConditionProviderLeaseReady, Status: metav1.ConditionTrue}, {Type: waystatus.ConditionGatewayRulesReady, Status: metav1.ConditionTrue}}}}
@@ -52,7 +52,7 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	if cm.Data["podUID"] != string(pod.UID) {
 		t.Fatalf("ConfigMap UID=%q", cm.Data["podUID"])
 	}
-	for key, want := range map[string]string{"gatewayEndpoint": "10.42.0.2:4789", "gatewayHealthPort": "18080", "vni": "7999", "mtu": "1320", "clusterTrafficMode": "Gateway"} {
+	for key, want := range map[string]string{"gatewayEndpoint": "10.42.0.2:4789", "gatewayHealthPort": "18080", "vni": "7999", "mtu": "1320", "clusterTrafficMode": "Preserve", "clusterCIDRs": "10.42.0.0/16,10.43.0.0/16"} {
 		if cm.Data[key] != want {
 			t.Fatalf("ConfigMap %s=%q, want %q", key, cm.Data[key], want)
 		}

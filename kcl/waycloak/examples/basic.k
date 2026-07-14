@@ -31,7 +31,10 @@ _gateway = networking.VPNGateway {
             mtu = 1320
         }
         dns.mode = "Gateway"
-        clusterTraffic.mode = "Preserve"
+        clusterTraffic = {
+            mode = "Preserve"
+            cidrs = ["10.42.0.0/16", "10.43.0.0/16"]
+        }
         portForwarding = {
             enabled = True
             driver = "ProtonNatPmp"

@@ -81,12 +81,22 @@ schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecClusterTraffic:
 
     Attributes
     ----------
+    cidrs : [str], default is Undefined, optional
+        CIDRs remain on the CNI main routing table in Preserve mode.
     mode : str, default is Undefined, optional
         mode
     """
 
 
-    mode?: str
+    cidrs?: [str]
+
+    mode?: "Preserve" | "Gateway" | "Deny"
+
+
+    check:
+        len(cidrs) >= 1 if cidrs
+        len(cidrs) <= 64 if cidrs
+        all i in cidrs { len(i) <= 18 if i not in [None, Undefined] } if cidrs
 
 
 schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecDNS:

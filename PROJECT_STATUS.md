@@ -141,6 +141,25 @@ that protocol-and-port-scoped output handoff while retaining Gluetun ownership
 of all other local output. ADR 0009 records the boundary and issue #46 tracks
 the release-blocking observation.
 
+The verified alpha.11 homelab rollout proved the complete VXLAN request and
+return path: a generated qBitTorrent Pod completed both injected startup gates,
+the provider lease and gateway rules became observed ready, and the released
+adapter consumed the renewed Pod-local lease document. The real Pod also
+exposed a Kubernetes admission-order security gap. Although Waycloak set
+`automountServiceAccountToken=false`, the service-account admission plugin had
+already injected its default projected token volume and mounts into application
+containers before the mutating webhook ran. Alpha.12 structurally removes only
+that default projection and its mounts, rejects any other explicit projected
+service-account token, and advances the deterministic injection contract to
+`v1alpha2`. Unannotated Pods remain untouched. Homelab-only shell quoting and
+loopback readiness-probe findings are tracked and fixed in that consumer rather
+than productized as workload-specific Waycloak behavior. The same rollout
+proved that `Preserve` had no public way to supply the cluster CIDRs already
+supported by the agent, preventing the controller from reaching exact agent
+delivery readback. Alpha.12 adds validated gateway-level IPv4 CIDRs, publishes
+them deterministically in the UID-bound allocation, and keeps RBAC free of
+cluster-wide Node discovery.
+
 ## First deliverable
 
 The first usable release is `v0.1.0`: a single shared Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes Secret references, and observable status. Port forwarding follows in `v0.2.0` unless it can be implemented without weakening the first milestone.

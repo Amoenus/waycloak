@@ -36,8 +36,19 @@ type OverlaySpec struct {
 type DNSSpec struct {
 	Mode string `json:"mode,omitempty"`
 }
+
+// +kubebuilder:validation:XValidation:rule="!has(self.mode) || self.mode != 'Preserve' || (has(self.cidrs) && size(self.cidrs) > 0)",message="Preserve mode requires at least one cluster CIDR"
+// +kubebuilder:validation:XValidation:rule="!has(self.cidrs) || size(self.cidrs) == 0 || (has(self.mode) && self.mode == 'Preserve')",message="cluster CIDRs are only valid in Preserve mode"
 type ClusterTrafficSpec struct {
+	// +kubebuilder:validation:Enum=Preserve;Gateway;Deny
 	Mode string `json:"mode,omitempty"`
+	// CIDRs remain on the CNI main routing table in Preserve mode.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:Format=cidr
+	// +kubebuilder:validation:items:MaxLength=18
+	// +kubebuilder:validation:XValidation:rule="self.all(c, !c.contains(':'))",message="cluster CIDRs must be IPv4"
+	CIDRs []string `json:"cidrs,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.driver) && self.driver == 'ProtonNatPmp')",message="enabled port forwarding requires driver ProtonNatPmp"

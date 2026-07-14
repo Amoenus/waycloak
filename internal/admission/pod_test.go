@@ -124,6 +124,58 @@ func TestExplicitServiceAccountTokenRejected(t *testing.T) {
 	}
 }
 
+func TestDefaultServiceAccountProjectionIsRemovedFromProtectedPod(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	mode := int32(420)
+	expires := int64(3607)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}},
+		Spec: corev1.PodSpec{
+			Volumes: []corev1.Volume{
+				{Name: "data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				{Name: "kube-api-access-abcde", VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{DefaultMode: &mode, Sources: []corev1.VolumeProjection{
+					{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{Path: "token", ExpirationSeconds: &expires}},
+					{ConfigMap: &corev1.ConfigMapProjection{LocalObjectReference: corev1.LocalObjectReference{Name: "kube-root-ca.crt"}, Items: []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}}}},
+					{DownwardAPI: &corev1.DownwardAPIProjection{Items: []corev1.DownwardAPIVolumeFile{{Path: "namespace", FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"}}}}},
+				}}}},
+			},
+			InitContainers:      []corev1.Container{{Name: "application-init", Image: "app", VolumeMounts: []corev1.VolumeMount{{Name: "kube-api-access-abcde", MountPath: "/var/run/secrets/kubernetes.io/serviceaccount"}}}},
+			Containers:          []corev1.Container{{Name: "app", Image: "app", VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}, {Name: "kube-api-access-abcde", MountPath: "/var/run/secrets/kubernetes.io/serviceaccount", ReadOnly: true}}}},
+			EphemeralContainers: []corev1.EphemeralContainer{{EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debug", Image: "debug", VolumeMounts: []corev1.VolumeMount{{Name: "kube-api-access-abcde", MountPath: "/var/run/secrets/kubernetes.io/serviceaccount"}}}}},
+		},
+	}
+	changed, err := m.Mutate(context.Background(), pod)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v error=%v", changed, err)
+	}
+	for _, volume := range pod.Spec.Volumes {
+		if volume.Name == "kube-api-access-abcde" || hasServiceAccountTokenProjection(volume) {
+			t.Fatalf("service-account token volume remains: %#v", volume)
+		}
+	}
+	if len(pod.Spec.Containers[0].VolumeMounts) != 1 || pod.Spec.Containers[0].VolumeMounts[0].Name != "data" || len(pod.Spec.InitContainers[2].VolumeMounts) != 0 || len(pod.Spec.EphemeralContainers[0].VolumeMounts) != 0 {
+		t.Fatalf("application mounts were not selectively sanitized: containers=%#v init=%#v ephemeral=%#v", pod.Spec.Containers, pod.Spec.InitContainers, pod.Spec.EphemeralContainers)
+	}
+	if pod.Annotations[contract.InjectionVersionAnnotation] != "v1alpha2" {
+		t.Fatalf("injection version = %q", pod.Annotations[contract.InjectionVersionAnnotation])
+	}
+	if changed, err := m.Mutate(context.Background(), pod); err != nil || changed {
+		t.Fatalf("sanitized reinvocation changed=%v error=%v", changed, err)
+	}
+}
+
+func TestExplicitServiceAccountProjectionRejected(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}, Spec: corev1.PodSpec{
+		Volumes: []corev1.Volume{{Name: "explicit-token", VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{Sources: []corev1.VolumeProjection{{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{Path: "credential"}}}}}}},
+	}}
+	_, err := m.Mutate(context.Background(), pod)
+	rejection, ok := err.(*Rejection)
+	if !ok || rejection.Reason != waystatus.ReasonApplicationCredentialsForbidden {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
 func TestPortForwardFileMountTargetsOnlyExplicitApplicationContainer(t *testing.T) {
 	m := testMutator(t, metav1.LabelSelector{})
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.PortForwardContainerAnnotation: "torrent"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "metrics", Image: "metrics"}, {Name: "torrent", Image: "torrent"}}}}

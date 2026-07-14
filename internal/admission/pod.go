@@ -92,6 +92,10 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 	if pod.Spec.AutomountServiceAccountToken != nil && *pod.Spec.AutomountServiceAccountToken {
 		return false, &Rejection{Reason: waystatus.ReasonApplicationCredentialsForbidden, Message: "protected Pods cannot automount a Kubernetes API token"}
 	}
+	credentialsRemoved, err := removeDefaultServiceAccountProjection(pod)
+	if err != nil {
+		return false, err
+	}
 	if m.AgentImage == "" {
 		return false, fmt.Errorf("agent image is not configured")
 	}
@@ -106,7 +110,7 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 		if err := validateInjected(pod, m.AgentImage); err != nil {
 			return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: err.Error()}
 		}
-		return false, nil
+		return credentialsRemoved, nil
 	}
 	if hasReservedNames(pod) {
 		return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: "Pod already uses Waycloak-reserved container or volume names"}
@@ -197,6 +201,76 @@ func hasReservedNames(p *corev1.Pod) bool {
 	return false
 }
 
+func removeDefaultServiceAccountProjection(pod *corev1.Pod) (bool, error) {
+	removed := map[string]struct{}{}
+	volumes := make([]corev1.Volume, 0, len(pod.Spec.Volumes))
+	for _, volume := range pod.Spec.Volumes {
+		if !hasServiceAccountTokenProjection(volume) {
+			volumes = append(volumes, volume)
+			continue
+		}
+		if !isDefaultServiceAccountProjection(volume) {
+			return false, &Rejection{Reason: waystatus.ReasonApplicationCredentialsForbidden, Message: fmt.Sprintf("protected Pods cannot project a Kubernetes API token through volume %q", volume.Name)}
+		}
+		removed[volume.Name] = struct{}{}
+	}
+	if len(removed) == 0 {
+		return false, nil
+	}
+	pod.Spec.Volumes = volumes
+	removeMounts := func(mounts []corev1.VolumeMount) []corev1.VolumeMount {
+		kept := mounts[:0]
+		for _, mount := range mounts {
+			if _, exists := removed[mount.Name]; !exists {
+				kept = append(kept, mount)
+			}
+		}
+		return kept
+	}
+	for i := range pod.Spec.InitContainers {
+		pod.Spec.InitContainers[i].VolumeMounts = removeMounts(pod.Spec.InitContainers[i].VolumeMounts)
+	}
+	for i := range pod.Spec.Containers {
+		pod.Spec.Containers[i].VolumeMounts = removeMounts(pod.Spec.Containers[i].VolumeMounts)
+	}
+	for i := range pod.Spec.EphemeralContainers {
+		pod.Spec.EphemeralContainers[i].VolumeMounts = removeMounts(pod.Spec.EphemeralContainers[i].VolumeMounts)
+	}
+	return true, nil
+}
+
+func hasServiceAccountTokenProjection(volume corev1.Volume) bool {
+	if volume.Projected == nil {
+		return false
+	}
+	for _, source := range volume.Projected.Sources {
+		if source.ServiceAccountToken != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func isDefaultServiceAccountProjection(volume corev1.Volume) bool {
+	if volume.Projected == nil || !strings.HasPrefix(volume.Name, "kube-api-access-") || len(volume.Projected.Sources) != 3 {
+		return false
+	}
+	var token, rootCA, namespace bool
+	for _, source := range volume.Projected.Sources {
+		switch {
+		case source.ServiceAccountToken != nil && source.ConfigMap == nil && source.DownwardAPI == nil && source.Secret == nil:
+			token = source.ServiceAccountToken.Path == "token"
+		case source.ConfigMap != nil && source.ServiceAccountToken == nil && source.DownwardAPI == nil && source.Secret == nil:
+			rootCA = source.ConfigMap.Name == "kube-root-ca.crt" && len(source.ConfigMap.Items) == 1 && source.ConfigMap.Items[0].Key == "ca.crt" && source.ConfigMap.Items[0].Path == "ca.crt"
+		case source.DownwardAPI != nil && source.ServiceAccountToken == nil && source.ConfigMap == nil && source.Secret == nil:
+			namespace = len(source.DownwardAPI.Items) == 1 && source.DownwardAPI.Items[0].Path == "namespace" && source.DownwardAPI.Items[0].FieldRef != nil && source.DownwardAPI.Items[0].FieldRef.FieldPath == "metadata.namespace"
+		default:
+			return false
+		}
+	}
+	return token && rootCA && namespace
+}
+
 func validateInjected(p *corev1.Pod, image string) error {
 	allocationName := p.Annotations[contract.AllocationNameAnnotation]
 	if !contract.IsAllocationConfigMapName(allocationName) {
@@ -204,6 +278,11 @@ func validateInjected(p *corev1.Pod, image string) error {
 	}
 	if p.Spec.AutomountServiceAccountToken == nil || *p.Spec.AutomountServiceAccountToken {
 		return fmt.Errorf("service account token automount is not disabled")
+	}
+	for _, volume := range p.Spec.Volumes {
+		if hasServiceAccountTokenProjection(volume) {
+			return fmt.Errorf("kubernetes API token projection %q remains mounted", volume.Name)
+		}
 	}
 	var volumeOK, deliveryVolumeOK bool
 	for _, v := range p.Spec.Volumes {
