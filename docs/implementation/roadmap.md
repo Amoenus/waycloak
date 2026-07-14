@@ -71,7 +71,7 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Publish the signed adapter image from a main-contained tag, record its
   immutable reference in the signed `v0.2.0-alpha.2` release manifest, and
   publish the official example with that exact digest and no placeholder.
-- [ ] Publish the complete signed OCI bundle, including the CRD-bearing Helm
+- [x] Publish the complete signed OCI bundle, including the CRD-bearing Helm
   chart and optional KCL module recorded in the release manifest.
 - [ ] Replace the originating homelab PoC with the immutable release candidate
   and resolve findings that block ordinary protected operation.
