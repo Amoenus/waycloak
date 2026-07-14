@@ -53,7 +53,7 @@ Crossplane, Argo CD, or the originating composition stack.
 
 ## Adoption acceptance
 
-The `v0.2.0-alpha.6` candidate is installed from its verified OCI identities
+The `v0.2.0-alpha.7` candidate is installed from its verified OCI identities
 and replaces the legacy pod-gateway/qSticky route for the originating
 qBitTorrent workload. Acceptance requires observed normal operation:
 
@@ -98,8 +98,11 @@ invalidate the `v0.2.0` functionality already shipped; GitHub milestone
    Earlier attempts stopped before release when the new verifier found a KCL
    library-consumption assumption, a spec-compliant Helm media-type omission,
    and the immutable KCL package version boundary. Alpha.6 includes those
-   fixes plus rotation-safe optional cert-manager webhook TLS.
-3. Replace the homelab PoC with that exact candidate.
+   fixes plus rotation-safe optional cert-manager webhook TLS. The first staged
+   homelab deployment then exposed a zero-member gateway bootstrap cycle before
+   any workload was migrated; alpha.7 fixes that release-blocking finding while
+   keeping VXLAN ingress deny-first until members are observed.
+3. Replace the homelab PoC with the exact alpha.7 candidate.
 4. Fix only release-blocking adoption findings through reviewed main-branch
    changes and a new candidate when required.
 5. Publish final signed `v0.2.0`, update status and adoption evidence, and close

@@ -30,6 +30,21 @@ func TestConfigureGatewayVXLAN(t *testing.T) {
 	}
 }
 
+func TestConfigureGatewayVXLANWithoutMembers(t *testing.T) {
+	if os.Getenv("WAYCLOAK_E2E_GATEWAY_NETWORK") != "1" {
+		t.Skip("runs only in the gateway network namespace")
+	}
+	desired := e2eGatewayDesired(t)
+	desired.Members = nil
+	network := NewNetwork()
+	if err := network.Reconcile(context.Background(), desired); err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Reconcile(context.Background(), desired); err != nil {
+		t.Fatalf("idempotent empty gateway reconcile: %v", err)
+	}
+}
+
 func TestConfigureGatewayForwarding(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_GATEWAY_NETWORK") != "1" {
 		t.Skip("runs only in the gateway network namespace")

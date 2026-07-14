@@ -102,11 +102,19 @@ CA could not rotate declaratively. The chart now has an optional cert-manager
 mode that creates a namespaced self-signed serving certificate and requests CA
 injection while preserving the plain-Kubernetes external Secret/static-CA
 default. Helm lint, deterministic rendering, CI, Kind, and live cert-manager
-issuance on Kubernetes 1.36 passed. Issue #29 now consumes the alpha.6 chart,
-KCL module, and digest-pinned adapter. Ordinary protected egress, DNS,
-provider-port delivery, qBitTorrent operation, and fail-closed gateway loss in
-that real deployment remain the candidate acceptance boundary before final
-`v0.2.0`.
+issuance on Kubernetes 1.36 passed. The complete alpha.6 release was published,
+independently verified, and installed through Argo CD with two healthy
+controllers and cert-manager-injected fail-closed webhooks. Its parallel
+gateway deployment exposed a zero-member bootstrap cycle: the manager required
+a member route before it could create the overlay, while the staged rollout
+correctly required the gateway to become healthy before migrating a workload.
+The alpha.7 fix selects the Pod's main-table IPv4 default underlay only while
+membership is empty, retains deny-first VXLAN ingress, and switches back to the
+observed member route once one exists. The regression passes inside the live
+Gluetun network namespace. Issue #29 now advances on alpha.7. Ordinary protected
+egress, DNS, provider-port delivery, qBitTorrent operation, and fail-closed
+gateway loss in that real deployment remain the candidate acceptance boundary
+before final `v0.2.0`.
 
 ## First deliverable
 

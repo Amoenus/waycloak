@@ -158,6 +158,7 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	copyTestBinary(t, binary, namespace, protected.Name)
 	copyLocalFile(t, gatewayBinary, namespace, gateway.Name, "/tmp/gateway.test")
 
+	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "env", "WAYCLOAK_E2E_GATEWAY_NETWORK=1", "WAYCLOAK_E2E_REMOTE_IP="+protected.Status.PodIP, "/tmp/gateway.test", "-test.run", "^TestConfigureGatewayVXLANWithoutMembers$", "-test.v")
 	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "env", "WAYCLOAK_E2E_GATEWAY_NETWORK=1", "WAYCLOAK_E2E_REMOTE_IP="+protected.Status.PodIP, "/tmp/gateway.test", "-test.run", "^TestConfigureGatewayVXLAN$", "-test.v")
 	dnsCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY_DNS=1 WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/gateway.test -test.run '^TestServeGatewayDNS$' -test.v >/tmp/gateway-dns.log 2>&1 &", protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gateway.Name, "--", "sh", "-c", dnsCommand)
