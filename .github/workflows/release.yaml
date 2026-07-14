@@ -189,7 +189,25 @@ jobs:
           digest="$(go run github.com/google/go-containerregistry/cmd/crane@v0.20.6 digest "$tagged")"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           reference="ghcr.io/$owner/waycloak-kcl@$digest"
-          kcl run "oci://ghcr.io/$owner/waycloak-kcl" --tag "$VERSION" >/dev/null
+          consumer="$RUNNER_TEMP/waycloak-kcl-consumer"
+          mkdir -p "$consumer"
+          (
+            cd "$consumer"
+            kcl mod init consumer
+            cd consumer
+            kcl mod add "oci://ghcr.io/$owner/waycloak-kcl" --tag "$VERSION"
+            cat >main.k <<'KCL'
+          import waycloak.helpers
+
+          gateway = helpers.GatewayReference {
+              namespace = "private-egress"
+              name = "release-verification"
+          }
+
+          assert gateway.value == "private-egress/release-verification"
+          KCL
+            kcl run . >/dev/null
+          )
           printf 'reference=%s\nname=%s\ndigest=%s\n' "$reference" "${reference%@*}" "$digest" >>"$GITHUB_OUTPUT"
       - name: Verify OCI media types, platforms, and tag-to-digest identity
         shell: bash
