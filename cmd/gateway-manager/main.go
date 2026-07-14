@@ -47,7 +47,7 @@ func run(args []string) error {
 	engineControlURL := flags.String("engine-control-url", "http://127.0.0.1:8000", "engine control endpoint")
 	portForwardDriver := flags.String("port-forward-driver", "", "provider port-forward driver")
 	tunnelInterface := flags.String("tunnel-interface", waygateway.TunnelInterface, "VPN tunnel interface")
-	natPMPGatewayAddress := flags.String("nat-pmp-gateway-address", proton.DefaultGatewayAddress, "Proton NAT-PMP gateway address")
+	natPMPGatewayAddress := flags.String("nat-pmp-gateway-address", "", "optional Proton NAT-PMP gateway address override")
 	configPath := flags.String("config-path", "", "gateway desired-state JSON path")
 	resolvConf := flags.String("resolv-conf", "/etc/resolv.conf", "captured Kubernetes resolver configuration")
 	_ = flags.String("overlay-cidr", "", "reserved for the overlay reconciler")
