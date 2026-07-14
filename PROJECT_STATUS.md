@@ -158,7 +158,14 @@ proved that `Preserve` had no public way to supply the cluster CIDRs already
 supported by the agent, preventing the controller from reaching exact agent
 delivery readback. Alpha.12 adds validated gateway-level IPv4 CIDRs, publishes
 them deterministically in the UID-bound allocation, and keeps RBAC free of
-cluster-wide Node discovery.
+cluster-wide Node discovery. The alpha.12 homelab rollout then reached a fully
+Ready lease and credential-free `v1alpha2` Pod, but its protected-egress
+baseline found that the preserved Service CIDR selected the main routing table
+before gateway-DNS redirection could select the protected table. Direct VPN IP
+transport and direct overlay DNS both worked. A live policy-rule proof restored
+Kubernetes-resolver DNS immediately. Alpha.13 makes those owned UDP/TCP port-53
+rules precede Preserve CIDRs, and the Linux acceptance fixture now places its
+DNS target inside a preserved CIDR so that topology cannot regress.
 
 ## First deliverable
 

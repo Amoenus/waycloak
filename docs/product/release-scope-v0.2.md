@@ -53,7 +53,7 @@ Crossplane, Argo CD, or the originating composition stack.
 
 ## Adoption acceptance
 
-The `v0.2.0-alpha.12` candidate is installed from its verified OCI identities
+The `v0.2.0-alpha.13` candidate is installed from its verified OCI identities
 and replaces the legacy pod-gateway/qSticky route for the originating
 qBitTorrent workload. Acceptance requires observed normal operation:
 
@@ -125,8 +125,13 @@ invalidate the `v0.2.0` functionality already shipped; GitHub milestone
    projections, and versions the hardened injection contract as `v1alpha2`.
    It also exposes the explicit cluster CIDRs required by `Preserve`, allowing
    exact controller-to-agent delivery observation without granting Node RBAC or
-   opening ordinary internet egress.
-3. Replace the homelab PoC with the exact alpha.12 candidate.
+   opening ordinary internet egress. The resulting alpha.12 Pod reached a fully
+   Ready lease, but real protected-egress probing found that a Kubernetes DNS
+   resolver inside the preserved Service CIDR selected the main table before
+   gateway-DNS redirection. Alpha.13 gives owned UDP/TCP port-53 rules priority
+   over Preserve CIDRs and covers that exact topology in the Linux acceptance
+   fixture.
+3. Replace the homelab PoC with the exact alpha.13 candidate.
 4. Fix only release-blocking adoption findings through reviewed main-branch
    changes and a new candidate when required.
 5. Publish final signed `v0.2.0`, update status and adoption evidence, and close
