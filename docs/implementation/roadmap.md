@@ -75,7 +75,7 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
   chart and optional KCL module recorded in the release manifest.
 - [x] Replace the originating homelab PoC with the immutable release candidate
   and resolve findings that block ordinary protected operation.
-- [ ] Publish final `v0.2.0` from a main-contained signed tag.
+- [x] Publish final `v0.2.0` from a main-contained signed tag.
 
 Exit: the signed OCI candidate replaces the PoC; qBitTorrent uses Waycloak for
 protected egress and provider-port delivery during ordinary operation; the

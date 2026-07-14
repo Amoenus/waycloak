@@ -201,6 +201,29 @@ health window with no new timeouts. The remaining v0.2.0 work is publication
 of the final signed bundle and replacement of the candidate pins with those
 final immutable identities.
 
+[`v0.2.0`](https://github.com/Amoenus/waycloak/releases/tag/v0.2.0) is now the
+completed OCI adoption release. Protected release run
+[29355117236](https://github.com/Amoenus/waycloak/actions/runs/29355117236)
+published it from main commit `986ade16903682c4087c8989b638a3a1310ce119`.
+Independent verification matched all 12 GitHub release-asset hashes, all six
+OCI signatures and SPDX attestations, all six OCI provenance attestations, all
+12 release-file provenance attestations, and the signed release-manifest
+bundle. It also confirmed four Linux amd64/arm64 image indexes, three embedded
+Helm CRDs, deterministic Helm rendering, and consumption of the optional KCL
+module through an external OCI dependency.
+
+Homelab completed the documented two-phase rollout: final controllers and the
+operator-activated singleton gateway converged before the protected workload
+was rolled to the final agent and qBitTorrent adapter digests. The final Pod is
+3/3 Ready, all gateway and lease conditions are True, the application has no
+added capability or API credential, protected and ordinary HTTPS both
+succeed, and the qBitTorrent and Qui public routes are healthy. A subsequent
+real provider renewal preserved the Pod UID and produced no new Qui health
+errors. Phase 5's precise next vertical slice is sustained real-provider
+rotation plus qBitTorrent tracker/DHT certification under issue #4; automatic
+same-Pod recovery after singleton replacement remains versioned operational
+maturity work under issue #61.
+
 ## First deliverable
 
 The first usable release is `v0.1.0`: a single shared Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes Secret references, and observable status. Port forwarding follows in `v0.2.0` unless it can be implemented without weakening the first milestone.
