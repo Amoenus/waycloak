@@ -54,7 +54,9 @@ jobs:
           {
             printf '### CI path classification\n\n'
             printf 'Full verification required: `%s`\n\n' "$full"
-            sed 's/^/- `/' "$RUNNER_TEMP/changed-paths" | sed 's/$/`/'
+            while IFS= read -r path; do
+              printf -- '- `%s`\n' "$path"
+            done <"$RUNNER_TEMP/changed-paths"
           } >>"$GITHUB_STEP_SUMMARY"
 
   verify:
