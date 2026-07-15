@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"sort"
 	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
@@ -30,11 +31,12 @@ const (
 	GatewayDNSPort            = contract.GatewayDNSPort
 	TunnelInterface           = "tunwaycloak"
 
-	GatewayNameAnnotation = "internal.networking.waycloak.io/gateway-name"
-	GatewayLabel          = "internal.networking.waycloak.io/gateway"
-	EngineAuthKey         = "config.toml"
-	EnginePostRulesKey    = "post-rules.txt"
-	DesiredStateKey       = "gateway.json"
+	GatewayNameAnnotation          = "internal.networking.waycloak.io/gateway-name"
+	GatewayLabel                   = "internal.networking.waycloak.io/gateway"
+	EngineAuthKey                  = "config.toml"
+	EnginePostRulesKey             = "post-rules.txt"
+	DesiredStateKey                = "gateway.json"
+	DesiredMembershipGenerationKey = "membership-generation"
 
 	// StatefulSet controller revision labels append "-" and a 10-character
 	// hash to the workload name. Reserve that space so the generated label
@@ -63,15 +65,24 @@ type PortForwardLeaseIntent struct {
 }
 
 type DesiredState struct {
-	GatewayName       string                   `json:"gatewayName"`
-	OverlayCIDR       string                   `json:"overlayCIDR"`
-	GatewayAddress    string                   `json:"gatewayAddress"`
-	VNI               int32                    `json:"vni"`
-	MTU               int32                    `json:"mtu"`
-	VXLANPort         int                      `json:"vxlanPort"`
-	TunnelInterface   string                   `json:"tunnelInterface"`
-	Members           []Member                 `json:"members"`
-	PortForwardLeases []PortForwardLeaseIntent `json:"portForwardLeases,omitempty"`
+	MembershipGeneration string                   `json:"membershipGeneration"`
+	GatewayName          string                   `json:"gatewayName"`
+	OverlayCIDR          string                   `json:"overlayCIDR"`
+	GatewayAddress       string                   `json:"gatewayAddress"`
+	VNI                  int32                    `json:"vni"`
+	MTU                  int32                    `json:"mtu"`
+	VXLANPort            int                      `json:"vxlanPort"`
+	TunnelInterface      string                   `json:"tunnelInterface"`
+	Members              []Member                 `json:"members"`
+	PortForwardLeases    []PortForwardLeaseIntent `json:"portForwardLeases,omitempty"`
+}
+
+func MembershipGeneration(members []Member) string {
+	canonical := make([]Member, len(members))
+	copy(canonical, members)
+	sort.Slice(canonical, func(i, j int) bool { return canonical[i].ID < canonical[j].ID })
+	serialized, _ := json.Marshal(canonical)
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(serialized))
 }
 
 func ResourceName(name string) string {
@@ -132,11 +143,12 @@ func DesiredConfigMap(gateway *wayv1.VPNGateway, members []Member, leaseSets ...
 	if len(leaseSets) != 0 {
 		leases = leaseSets[0]
 	}
-	desired := DesiredState{GatewayName: gateway.Name, OverlayCIDR: gateway.Spec.Overlay.CIDR, GatewayAddress: prefix.Masked().Addr().Next().String(), VNI: gateway.Spec.Overlay.VNI, MTU: gateway.Spec.Overlay.MTU, VXLANPort: VXLANPort, TunnelInterface: TunnelInterface, Members: members, PortForwardLeases: leases}
+	membershipGeneration := MembershipGeneration(members)
+	desired := DesiredState{MembershipGeneration: membershipGeneration, GatewayName: gateway.Name, OverlayCIDR: gateway.Spec.Overlay.CIDR, GatewayAddress: prefix.Masked().Addr().Next().String(), VNI: gateway.Spec.Overlay.VNI, MTU: gateway.Spec.Overlay.MTU, VXLANPort: VXLANPort, TunnelInterface: TunnelInterface, Members: members, PortForwardLeases: leases}
 	serialized, _ := json.Marshal(desired)
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: ResourceName(gateway.Name), Namespace: gateway.Namespace},
-		Data: map[string]string{DesiredStateKey: string(serialized), EngineAuthKey: `[[roles]]
+		Data: map[string]string{DesiredStateKey: string(serialized), DesiredMembershipGenerationKey: membershipGeneration, EngineAuthKey: `[[roles]]
 name = "waycloak-manager"
 routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]
 auth = "none"

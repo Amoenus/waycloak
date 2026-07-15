@@ -59,9 +59,17 @@ For the initial Proton/OpenVPN Gluetun integration, `credentialsSecretRef` names
 - `Scheduled`: gateway Pod has placement.
 - `TunnelReady`: VPN engine reports healthy.
 - `OverlayReady`: gateway overlay is configured.
+- `MembershipApplied`: the serving manager's last-known-good applied
+  membership generation exactly matches the controller's desired generation.
 - `DNSReady`: configured resolver path is healthy.
 - `PortForwardReady`: driver is usable or explicitly disabled.
 - `Ready`: all requirements for serving clients are observed.
+
+`status.overlay.desiredMembershipGeneration` is the deterministic hash
+published with the controller-owned gateway ConfigMap.
+`status.overlay.appliedMembershipGeneration` comes from the exact serving
+manager's tokenless observation endpoint. `OverlayReady` and overall `Ready`
+remain false while they differ, even if the manager Pod is otherwise healthy.
 
 Status includes provider capabilities, current client count, address-pool usage, resolved image digests, observed public IP with configurable redaction, and last health verification. The controller also records the observed VXLAN underlay endpoint and overlay health port used in each UID-bound allocation handshake; workloads never infer those values from desired registration.
 

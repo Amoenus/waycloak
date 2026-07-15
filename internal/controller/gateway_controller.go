@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
@@ -46,6 +47,7 @@ type GatewayReconciler struct {
 	Scheme       *runtime.Scheme
 	Recorder     record.EventRecorder
 	ManagerImage string
+	Observer     waygateway.ManagerObserver
 }
 
 func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -70,15 +72,23 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
 	}
 
-	if err := r.reconcileResources(ctx, &gateway); err != nil {
+	desiredMembershipGeneration, err := r.reconcileResources(ctx, &gateway)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionTrue, waystatus.ReasonGatewayResourcesReady, "Controller-owned gateway resources match the accepted specification")
-	if err := r.observePod(ctx, &gateway); err != nil {
+	pending, err := r.observePod(ctx, &gateway, desiredMembershipGeneration)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 	gateway.Status.ObservedGeneration = gateway.Generation
-	return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
+	if err := r.updateStatus(ctx, &gateway, previous); err != nil {
+		return ctrl.Result{}, err
+	}
+	if pending {
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, string) {
@@ -119,14 +129,14 @@ func immutableImage(image string) bool {
 	return err == nil
 }
 
-func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway) error {
+func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway) (string, error) {
 	members, err := r.members(ctx, gateway)
 	if err != nil {
-		return err
+		return "", err
 	}
 	portForwardLeases, err := r.portForwardLeases(ctx, gateway, members)
 	if err != nil {
-		return err
+		return "", err
 	}
 	desiredConfigMap := waygateway.DesiredConfigMap(gateway, members, portForwardLeases)
 	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: desiredConfigMap.Name, Namespace: desiredConfigMap.Namespace}}
@@ -137,7 +147,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		return ctrl.SetControllerReference(gateway, configMap, r.Scheme)
 	})
 	if err != nil {
-		return fmt.Errorf("reconcile gateway ConfigMap: %w", err)
+		return "", fmt.Errorf("reconcile gateway ConfigMap: %w", err)
 	}
 	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayConfigCreated", "Created gateway configuration ConfigMap %s", configMap.Name)
@@ -152,7 +162,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		return ctrl.SetControllerReference(gateway, service, r.Scheme)
 	})
 	if err != nil {
-		return fmt.Errorf("reconcile gateway Service: %w", err)
+		return "", fmt.Errorf("reconcile gateway Service: %w", err)
 	}
 	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayServiceCreated", "Created headless gateway Service %s", service.Name)
@@ -167,7 +177,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		return ctrl.SetControllerReference(gateway, pdb, r.Scheme)
 	})
 	if err != nil {
-		return fmt.Errorf("reconcile gateway PodDisruptionBudget: %w", err)
+		return "", fmt.Errorf("reconcile gateway PodDisruptionBudget: %w", err)
 	}
 	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayDisruptionBudgetCreated", "Created singleton gateway PodDisruptionBudget %s", pdb.Name)
@@ -182,7 +192,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		return ctrl.SetControllerReference(gateway, statefulSet, r.Scheme)
 	})
 	if err != nil {
-		return fmt.Errorf("reconcile gateway StatefulSet: %w", err)
+		return "", fmt.Errorf("reconcile gateway StatefulSet: %w", err)
 	}
 	if operation == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayStatefulSetCreated", "Created singleton gateway StatefulSet %s", statefulSet.Name)
@@ -190,7 +200,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	if operation == controllerutil.OperationResultUpdated && r.Recorder != nil {
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayRolloutRequired", "Updated singleton gateway template %s; delete its serving Pod during an approved maintenance window to activate the change", statefulSet.Name)
 	}
-	return nil
+	return desiredConfigMap.Data[waygateway.DesiredMembershipGenerationKey], nil
 }
 
 func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv1.VPNGateway, members []waygateway.Member) ([]waygateway.PortForwardLeaseIntent, error) {
@@ -273,11 +283,17 @@ func (r *GatewayReconciler) members(ctx context.Context, gateway *wayv1.VPNGatew
 	return members, nil
 }
 
-func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGateway) error {
-	gateway.Status.Overlay = wayv1.GatewayOverlayStatus{}
+func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGateway, desiredMembershipGeneration string) (bool, error) {
+	var previousMembership *metav1.Condition
+	if existing := apiMeta.FindStatusCondition(gateway.Status.Conditions, waystatus.ConditionMembershipApplied); existing != nil {
+		copy := *existing
+		previousMembership = &copy
+	}
+	previousApplied := gateway.Status.Overlay.AppliedMembershipGeneration
+	gateway.Status.Overlay = wayv1.GatewayOverlayStatus{DesiredMembershipGeneration: desiredMembershipGeneration, AppliedMembershipGeneration: previousApplied}
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods, client.InNamespace(gateway.Namespace), client.MatchingLabels(waygateway.SelectorLabels(gateway))); err != nil {
-		return fmt.Errorf("list gateway Pods: %w", err)
+		return false, fmt.Errorf("list gateway Pods: %w", err)
 	}
 	var selected *corev1.Pod
 	for i := range pods.Items {
@@ -291,11 +307,13 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 	}
 	if selected == nil {
 		setGatewayPending(gateway, "Waiting for the controller-owned gateway Pod")
-		return nil
+		return true, nil
 	}
+	managerEndpoint := ""
 	if podIP, err := netip.ParseAddr(selected.Status.PodIP); err == nil {
 		gateway.Status.Overlay.Endpoint = netip.AddrPortFrom(podIP.Unmap(), uint16(waygateway.VXLANPort)).String()
 		gateway.Status.Overlay.HealthPort = waygateway.HealthPort
+		managerEndpoint = netip.AddrPortFrom(podIP.Unmap(), uint16(waygateway.HealthPort)).String()
 	}
 
 	scheduled := podCondition(selected, corev1.PodScheduled) == corev1.ConditionTrue
@@ -305,32 +323,69 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionFalse, waystatus.ReasonGatewayPodPending, "Gateway Pod has not been scheduled")
 	}
 	managerReady := containerReady(selected, waygateway.ManagerContainer)
+	membershipApplied := false
+	membershipReason := waystatus.ReasonMembershipGenerationPending
+	membershipMessage := "Waiting for the gateway manager to apply the desired membership generation"
+	if r.Observer == nil && managerReady {
+		gateway.Status.Overlay.AppliedMembershipGeneration = desiredMembershipGeneration
+		membershipApplied = true
+	} else if managerEndpoint != "" && r.Observer != nil {
+		observation, observationErr := r.Observer.Observe(ctx, managerEndpoint)
+		if observationErr != nil {
+			membershipReason = waystatus.ReasonMembershipObservationFailed
+			membershipMessage = observationErr.Error()
+		} else {
+			gateway.Status.Overlay.AppliedMembershipGeneration = observation.AppliedMembershipGeneration
+			membershipApplied = observation.AppliedMembershipGeneration != "" && observation.AppliedMembershipGeneration == desiredMembershipGeneration
+			if !membershipApplied {
+				membershipMessage = fmt.Sprintf("Gateway manager applied membership generation %q; desired generation is %q", observation.AppliedMembershipGeneration, desiredMembershipGeneration)
+			}
+		}
+	}
+	if membershipApplied {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionMembershipApplied, metav1.ConditionTrue, waystatus.ReasonMembershipGenerationApplied, "Gateway manager has applied the desired membership generation")
+	} else {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionMembershipApplied, metav1.ConditionFalse, membershipReason, membershipMessage)
+		if r.Recorder != nil && (previousMembership == nil || previousMembership.Status != metav1.ConditionFalse || previousMembership.Reason != membershipReason || previousMembership.Message != membershipMessage) {
+			eventType := corev1.EventTypeNormal
+			eventReason := "GatewayMembershipPending"
+			if membershipReason == waystatus.ReasonMembershipObservationFailed {
+				eventType = corev1.EventTypeWarning
+				eventReason = "GatewayMembershipObservationFailed"
+			}
+			r.Recorder.Event(gateway, eventType, eventReason, membershipMessage)
+		}
+	}
 	if managerReady {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionTrue, waystatus.ReasonTunnelObservedReady, "Gateway manager reports the engine tunnel healthy")
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady, "Gateway manager reports the overlay reconciled")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "Gateway manager has not observed a healthy engine tunnel")
+	}
+	if managerReady && membershipApplied {
+		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady, "Gateway manager reports the desired membership generation reconciled")
+	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady, "Gateway manager has not reported the overlay ready")
 	}
-	setRemainingGatewayConditions(gateway, managerReady)
-	return nil
+	setRemainingGatewayConditions(gateway, managerReady, membershipApplied)
+	return !membershipApplied, nil
 }
 
 func setGatewayPending(gateway *wayv1.VPNGateway, message string) {
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionScheduled, metav1.ConditionFalse, waystatus.ReasonGatewayPodPending, message)
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionTunnelReady, metav1.ConditionFalse, waystatus.ReasonTunnelNotReady, "No serving gateway Pod is available")
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionOverlayReady, metav1.ConditionFalse, waystatus.ReasonOverlayNotReady, "No serving gateway Pod is available")
-	setRemainingGatewayConditions(gateway, false)
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionMembershipApplied, metav1.ConditionFalse, waystatus.ReasonMembershipGenerationPending, "No serving gateway Pod is available")
+	setRemainingGatewayConditions(gateway, false, false)
 }
 
-func setRemainingGatewayConditions(gateway *wayv1.VPNGateway, managerReady bool) {
+func setRemainingGatewayConditions(gateway *wayv1.VPNGateway, managerReady, membershipApplied bool) {
 	if managerReady {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady, "Gateway manager reports DNS forwarding healthy")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionDNSReady, metav1.ConditionFalse, waystatus.ReasonDNSNotReady, "Gateway manager has not reported DNS forwarding ready")
 	}
 	if gateway.Spec.PortForwarding.Enabled {
-		if managerReady {
+		if managerReady && membershipApplied {
 			waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardObservedReady, "Gateway manager reports provider capabilities and port-forward reconciliation healthy")
 		} else {
 			waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotReady, "Gateway manager has not reported port-forward reconciliation ready")
@@ -338,7 +393,7 @@ func setRemainingGatewayConditions(gateway *wayv1.VPNGateway, managerReady bool)
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardDisabled, "Gateway port forwarding is disabled")
 	}
-	if managerReady {
+	if managerReady && membershipApplied {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady, "All enabled gateway components are observed ready")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "One or more enabled gateway components are not ready")

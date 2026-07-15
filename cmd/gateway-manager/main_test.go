@@ -17,6 +17,16 @@ import (
 	"github.com/Amoenus/waycloak/internal/provider"
 )
 
+type handlerEngine struct{}
+
+func (*handlerEngine) Observe(context.Context) (provider.EngineObservation, error) {
+	return provider.EngineObservation{}, nil
+}
+
+type handlerSource struct{ desired waygateway.DesiredState }
+
+func (source handlerSource) Load() (waygateway.DesiredState, error) { return source.desired, nil }
+
 func TestEngineForRejectsUnsupportedTypes(t *testing.T) {
 	if _, err := engineFor("FakeVPN", "", ""); err == nil {
 		t.Fatal("unsupported engine was accepted")
@@ -63,6 +73,19 @@ func TestManagerHandlerPublishesReadOnlyLeaseObservations(t *testing.T) {
 	managerHandler(manager).ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("lease enumeration response code = %d", response.Code)
+	}
+}
+
+func TestManagerHandlerPublishesAppliedMembershipGeneration(t *testing.T) {
+	members := []waygateway.Member{{ID: "member", OverlayAddress: "172.30.99.2", UnderlayIP: "10.42.0.2"}}
+	generation := waygateway.MembershipGeneration(members)
+	manager := &waygateway.HealthManager{Engine: &handlerEngine{}, Source: handlerSource{desired: waygateway.DesiredState{MembershipGeneration: generation, Members: members}}}
+	manager.Reconcile(context.Background())
+	request := httptest.NewRequest(http.MethodGet, "/v1/gateway/observation", nil)
+	response := httptest.NewRecorder()
+	managerHandler(manager).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), generation) {
+		t.Fatalf("response code=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

@@ -25,6 +25,17 @@ import (
 
 const testDigest = "@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+type fakeManagerObserver struct {
+	observation waygateway.ManagerObservation
+	err         error
+	endpoint    string
+}
+
+func (observer *fakeManagerObserver) Observe(_ context.Context, endpoint string) (waygateway.ManagerObservation, error) {
+	observer.endpoint = endpoint
+	return observer.observation, observer.err
+}
+
 func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	scheme := gatewayTestScheme(t)
 	gateway := controllerTestGateway()
@@ -160,13 +171,57 @@ func TestGatewayRejectsMutableEngineImageWithoutCreatingResources(t *testing.T) 
 func TestGatewayReadyRequiresEnabledComponents(t *testing.T) {
 	gateway := controllerTestGateway()
 	gateway.Spec.PortForwarding.Enabled = true
-	setRemainingGatewayConditions(gateway, true)
+	setRemainingGatewayConditions(gateway, true, true)
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady)
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionPortForwardReady, metav1.ConditionTrue, waystatus.ReasonPortForwardObservedReady)
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady)
-	setRemainingGatewayConditions(gateway, false)
+	setRemainingGatewayConditions(gateway, false, false)
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionPortForwardReady, metav1.ConditionFalse, waystatus.ReasonPortForwardNotReady)
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
+}
+
+func TestGatewayStatusWaitsForAppliedMembershipGeneration(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := controllerTestGateway()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: gateway.Namespace, Labels: waygateway.SelectorLabels(gateway)}, Status: corev1.PodStatus{PodIP: "10.42.0.20", Conditions: []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}}, ContainerStatuses: []corev1.ContainerStatus{{Name: waygateway.ManagerContainer, Ready: true}}}}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	oldGeneration := waygateway.MembershipGeneration(nil)
+	desiredGeneration := waygateway.MembershipGeneration([]waygateway.Member{{ID: "new", OverlayAddress: "172.30.99.2", UnderlayIP: "10.42.0.2"}})
+	observer := &fakeManagerObserver{observation: waygateway.ManagerObservation{AppliedMembershipGeneration: oldGeneration}}
+	recorder := record.NewFakeRecorder(10)
+	reconciler := &GatewayReconciler{Client: client, Observer: observer, Recorder: recorder}
+	pending, err := reconciler.observePod(context.Background(), gateway, desiredGeneration)
+	if err != nil || !pending {
+		t.Fatalf("pending=%v error=%v", pending, err)
+	}
+	if observer.endpoint != "10.42.0.20:18080" || gateway.Status.Overlay.DesiredMembershipGeneration != desiredGeneration || gateway.Status.Overlay.AppliedMembershipGeneration != oldGeneration {
+		t.Fatalf("membership status=%#v endpoint=%q", gateway.Status.Overlay, observer.endpoint)
+	}
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionMembershipApplied, metav1.ConditionFalse, waystatus.ReasonMembershipGenerationPending)
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "GatewayMembershipPending") {
+			t.Fatalf("pending event = %q", event)
+		}
+	default:
+		t.Fatal("membership transition did not emit an event")
+	}
+	if _, err := reconciler.observePod(context.Background(), gateway, desiredGeneration); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-recorder.Events:
+		t.Fatalf("stable pending state emitted duplicate event %q", event)
+	default:
+	}
+	observer.observation.AppliedMembershipGeneration = desiredGeneration
+	pending, err = reconciler.observePod(context.Background(), gateway, desiredGeneration)
+	if err != nil || pending {
+		t.Fatalf("recovered pending=%v error=%v", pending, err)
+	}
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionMembershipApplied, metav1.ConditionTrue, waystatus.ReasonMembershipGenerationApplied)
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady)
 }
 
 func TestGatewayPublishesOnlyObservedPortForwardLeaseIdentities(t *testing.T) {

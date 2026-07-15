@@ -96,9 +96,11 @@ func e2eGatewayDesired(t *testing.T) DesiredState {
 	if err != nil {
 		t.Fatalf("resolve e2e tunnel interface: %v", err)
 	}
-	return DesiredState{
+	desired := DesiredState{
 		GatewayName: "e2e-private", OverlayCIDR: "172.30.99.0/24", GatewayAddress: "172.30.99.1",
 		VNI: 7999, MTU: 1320, VXLANPort: 4789, TunnelInterface: tunnel.Attrs().Name,
 		Members: []Member{{ID: "e2e-member", OverlayAddress: "172.30.99.2", UnderlayIP: os.Getenv("WAYCLOAK_E2E_REMOTE_IP")}},
 	}
+	desired.MembershipGeneration = MembershipGeneration(desired.Members)
+	return desired
 }

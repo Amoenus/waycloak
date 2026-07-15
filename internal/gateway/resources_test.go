@@ -61,6 +61,24 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	}
 }
 
+func TestMembershipGenerationIsDeterministicAndChangesOnlyWithMembership(t *testing.T) {
+	members := []Member{{ID: "b", OverlayAddress: "172.30.99.3", UnderlayIP: "10.42.0.3"}, {ID: "a", OverlayAddress: "172.30.99.2", UnderlayIP: "10.42.0.2"}}
+	first := MembershipGeneration(members)
+	if first != MembershipGeneration([]Member{members[1], members[0]}) {
+		t.Fatal("membership generation depends on input ordering")
+	}
+	replaced := append([]Member(nil), members...)
+	replaced[0].UnderlayIP = "10.42.1.3"
+	if first == MembershipGeneration(replaced) {
+		t.Fatal("underlay replacement did not advance membership generation")
+	}
+	gateway := testGateway()
+	configMap := DesiredConfigMap(gateway, members)
+	if configMap.Data[DesiredMembershipGenerationKey] != first || !strings.Contains(configMap.Data[DesiredStateKey], first) {
+		t.Fatalf("published membership generation = %#v", configMap.Data)
+	}
+}
+
 func TestResourceNameIsStableAndBounded(t *testing.T) {
 	name := "gateway-with-a-deliberately-long-name-that-needs-to-be-shortened-for-owned-resources"
 	first := ResourceName(name)

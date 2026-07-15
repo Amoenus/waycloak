@@ -27,6 +27,13 @@ type staticSource struct{ desired DesiredState }
 
 func (source staticSource) Load() (DesiredState, error) { return source.desired, nil }
 
+type mutableSource struct {
+	desired DesiredState
+	err     error
+}
+
+func (source *mutableSource) Load() (DesiredState, error) { return source.desired, source.err }
+
 type fakeNetwork struct{ err error }
 
 func (network fakeNetwork) Reconcile(context.Context, DesiredState) error { return network.err }
@@ -97,6 +104,30 @@ func TestHealthManagerTracksObservedEngineState(t *testing.T) {
 	manager.Reconcile(context.Background())
 	if manager.Ready() || manager.Error() == nil {
 		t.Fatal("manager ignored gateway DNS failure")
+	}
+}
+
+func TestHealthManagerRetainsLastAppliedMembershipGeneration(t *testing.T) {
+	oldMembers := []Member{{ID: "a", OverlayAddress: "172.30.99.2", UnderlayIP: "10.42.0.2"}}
+	oldGeneration := MembershipGeneration(oldMembers)
+	source := &mutableSource{desired: DesiredState{MembershipGeneration: oldGeneration, Members: oldMembers}}
+	manager := &HealthManager{Engine: &fakeEngine{}, Source: source}
+	manager.Reconcile(context.Background())
+	if got := manager.AppliedMembershipGeneration(); got != oldGeneration {
+		t.Fatalf("applied generation = %q", got)
+	}
+	source.err = errors.New("partially projected configuration")
+	manager.Reconcile(context.Background())
+	if got := manager.AppliedMembershipGeneration(); got != oldGeneration {
+		t.Fatalf("malformed projection replaced last-known-good generation with %q", got)
+	}
+	source.err = nil
+	newMembers := append(oldMembers, Member{ID: "b", OverlayAddress: "172.30.99.3", UnderlayIP: "10.42.0.3"})
+	newGeneration := MembershipGeneration(newMembers)
+	source.desired = DesiredState{MembershipGeneration: newGeneration, Members: newMembers}
+	manager.Reconcile(context.Background())
+	if got := manager.AppliedMembershipGeneration(); got != newGeneration {
+		t.Fatalf("advanced applied generation = %q", got)
 	}
 }
 

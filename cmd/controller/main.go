@@ -76,7 +76,7 @@ func main() {
 			os.Exit(1)
 		}
 		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
-		if err = (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-gateway"), ManagerImage: gatewayManagerImage}).SetupWithManager(mgr); err != nil {
+		if err = (&waycontroller.GatewayReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-gateway"), ManagerImage: gatewayManagerImage, Observer: &waygateway.HTTPManagerObserver{}}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "setup gateway controller")
 			os.Exit(1)
 		}

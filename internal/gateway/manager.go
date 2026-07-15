@@ -19,16 +19,17 @@ type HealthManager struct {
 	DNS            DNSService
 	PortForwarding *PortForwardManager
 
-	mu                  sync.RWMutex
-	observation         provider.EngineObservation
-	err                 error
-	configErr           error
-	networkErr          error
-	forwardingErr       error
-	dnsErr              error
-	portForwardingErr   error
-	portForwardRulesErr error
-	portForwardRules    map[string]PortForwardRuleObservation
+	mu                          sync.RWMutex
+	observation                 provider.EngineObservation
+	err                         error
+	configErr                   error
+	networkErr                  error
+	forwardingErr               error
+	dnsErr                      error
+	portForwardingErr           error
+	portForwardRulesErr         error
+	portForwardRules            map[string]PortForwardRuleObservation
+	appliedMembershipGeneration string
 }
 
 func (manager *HealthManager) Reconcile(ctx context.Context) {
@@ -72,6 +73,15 @@ func (manager *HealthManager) Reconcile(ctx context.Context) {
 	for _, rule := range portForwardRules {
 		manager.portForwardRules[rule.Identity] = rule
 	}
+	if manager.Source != nil && desired.MembershipGeneration != "" && configErr == nil && networkErr == nil && forwardingErr == nil && dnsErr == nil && portForwardRulesErr == nil {
+		manager.appliedMembershipGeneration = desired.MembershipGeneration
+	}
+}
+
+func (manager *HealthManager) AppliedMembershipGeneration() string {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	return manager.appliedMembershipGeneration
 }
 
 func (manager *HealthManager) PortForwardingError() error {

@@ -96,7 +96,7 @@ gateway remains fail closed; and the verified final bundle is published.
   transient local API timeouts, then withdraw it on sustained failure (#75).
 - [x] Add an observed admission release/generation gate that prevents mixed
   injected agent identities during zero-unavailable webhook upgrades (#55).
-- [ ] Expose desired and last-known-good applied gateway membership generations
+- [x] Expose desired and last-known-good applied gateway membership generations
   without weakening malformed-projection handling (#48).
 - [ ] Complete sustained real-provider qBitTorrent ingress, advertisement,
   DHT, renewal, and actual rotation certification using the existing gated
