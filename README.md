@@ -61,7 +61,7 @@ or gateway manager.
 ## Current release
 
 The current stable release is
-[v0.2.0](https://github.com/Amoenus/waycloak/releases/tag/v0.2.0). It publishes:
+[v0.2.1](https://github.com/Amoenus/waycloak/releases/tag/v0.2.1). It publishes:
 
 - signed Linux `amd64` and `arm64` controller, agent, gateway-manager, and
   qBitTorrent-adapter OCI images;
@@ -70,7 +70,7 @@ The current stable release is
 - checksums, SBOMs, build provenance, and a signed release manifest containing
   every immutable artifact digest.
 
-v0.2.0 is verified on Kubernetes 1.35 and 1.36 with Kindnet and Flannel. Other
+v0.2.1 is verified on Kubernetes 1.35 and 1.36 with Kindnet and Flannel. Other
 Kubernetes versions and CNIs are not yet compatibility claims. The initial
 real provider integration is Gluetun with Proton VPN over OpenVPN; the initial
 port-forward driver is Proton NAT-PMP.
@@ -78,7 +78,7 @@ port-forward driver is Proton NAT-PMP.
 Important current boundaries:
 
 - each gateway is a deliberate singleton;
-- protected Pods fail closed during gateway loss, but v0.2.0 requires a
+- protected Pods fail closed during gateway loss, but v0.2.1 requires a
   workload rollout after a gateway Pod replacement;
 - real-provider qBitTorrent tracker, peer-ingress, and sustained DHT
   certification remains v0.3.0 work;

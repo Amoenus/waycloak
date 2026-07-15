@@ -224,7 +224,8 @@ rotation plus qBitTorrent tracker/DHT certification under issue #4; automatic
 same-Pod recovery after singleton replacement remains versioned operational
 maturity work under issue #61.
 
-The `v0.2.1` patch candidate hardens the qBitTorrent adapter after live
+[`v0.2.1`](https://github.com/Amoenus/waycloak/releases/tag/v0.2.1) hardens
+the qBitTorrent adapter after live
 adoption exposed a false-positive delivery acknowledgement: the application
 preference could report the assigned port while no BitTorrent listener was
 active. The adapter now requires a Pod-local TCP listener before acknowledging
@@ -235,6 +236,21 @@ stale native interface binding was repaired and qBitTorrent returned to
 `connected` with TCP/UDP listeners on the current provider port. Gateway
 endpoint rollover and lease/readiness bootstrap findings remain explicitly
 open under issues #70 and #71; this patch does not claim to solve them.
+
+Protected release run
+[29397528292](https://github.com/Amoenus/waycloak/actions/runs/29397528292)
+published the signed multi-architecture images, CRD-bearing Helm OCI chart,
+optional KCL OCI module, SPDX SBOMs, provenance attestations, and signed
+release manifest from main commit
+`cb623379f21526f6ce840d32487bb2cdae8eaeae`. Homelab adopted the immutable
+adapter digest
+`sha256:88a257e0f1a9c393d030addee88d22f4fd5a57ab9a00b6b9b84768893df44472`.
+The rollout reproduced the known gateway endpoint transition in #70 and was
+recovered without changing the workload Pod UID. The final Pod is 3/3 Ready,
+all lease conditions are True, qBitTorrent reports `connected`, TCP and UDP
+listen on the provider-assigned port across the Pod and overlay addresses,
+and the public route returns successfully. The adapter emitted one pending
+state per transition or rate-limit interval and a single recovery event.
 
 ## Release progression
 

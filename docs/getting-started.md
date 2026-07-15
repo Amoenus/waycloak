@@ -23,7 +23,7 @@ verification and externally managed TLS.
 
 ```sh
 helm upgrade --install waycloak oci://ghcr.io/amoenus/charts/waycloak \
-  --version 0.2.0 \
+  --version 0.2.1 \
   --namespace waycloak-system \
   --create-namespace \
   --set webhook.tls.certManager.enabled=true \

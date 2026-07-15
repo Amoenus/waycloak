@@ -67,7 +67,7 @@ installer. Verify its digest from the signed release manifest, add the matching
 release tag, and commit the generated `kcl.mod.lock` digest:
 
 ```sh
-kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.2.0
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.2.1
 ```
 
 The module exposes CRD-generated schemas and the canonical annotation names:
