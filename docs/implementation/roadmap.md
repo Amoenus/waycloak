@@ -94,7 +94,7 @@ gateway remains fail closed; and the verified final bundle is published.
   lease and listener loss fail closed (#71).
 - [x] Preserve a previously proven qBitTorrent Service endpoint across bounded
   transient local API timeouts, then withdraw it on sustained failure (#75).
-- [ ] Add an observed admission release/generation gate that prevents mixed
+- [x] Add an observed admission release/generation gate that prevents mixed
   injected agent identities during zero-unavailable webhook upgrades (#55).
 - [ ] Expose desired and last-known-good applied gateway membership generations
   without weakening malformed-projection handling (#48).

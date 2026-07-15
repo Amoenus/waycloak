@@ -299,9 +299,20 @@ transient-stall retention, sustained-stall withdrawal, recovery, rotation, and
 tracker behavior; workflow run
 [29439966576](https://github.com/Amoenus/waycloak/actions/runs/29439966576)
 passed the complete verification, security, review, and Kind gates. This work
-is merged on `main` but is not yet a published release. The next ordered slice
-is the observed admission generation gate in #55, followed by applied gateway
-membership generation in #48.
+is merged on `main` but is not yet a published release.
+
+PR [#81](https://github.com/Amoenus/waycloak/pull/81) completes the second
+`v0.3.0` reliability slice and closes #55. Helm now derives a deterministic
+admission generation from the immutable controller and agent identities. Each
+webhook replica checks the desired generation through an uncached API read for
+readiness and again for every opted-in mutating or validating request; stale
+replicas reject rather than inject an old agent, while API-server match
+conditions keep unannotated Pods outside the failure domain. Injected Pods
+record the applied generation, and a 100-percent controller surge prevents the
+zero-unavailable rollout from deadlocking when every old replica becomes
+unready together. Unit, direct old/new replica, and Helm generation-changing
+Kind coverage prove the transition. ADR 0020 records the contract. The next
+ordered slice is applied gateway membership generation in #48.
 
 ## Release progression
 
