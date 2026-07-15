@@ -53,9 +53,9 @@ jobs:
           printf 'full=%s\n' "$full" >>"$GITHUB_OUTPUT"
           {
             printf '### CI path classification\n\n'
-            printf 'Full verification required: `%s`\n\n' "$full"
+            printf "Full verification required: \`%s\`\n\n" "$full"
             while IFS= read -r path; do
-              printf -- '- `%s`\n' "$path"
+              printf -- "- \`%s\`\n" "$path"
             done <"$RUNNER_TEMP/changed-paths"
           } >>"$GITHUB_STEP_SUMMARY"
 
