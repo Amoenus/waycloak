@@ -81,7 +81,7 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
   logs and real-image rotation coverage (#68).
 - [x] Publish the signed `v0.2.1` patch bundle and update the real deployment
   to its immutable adapter digest.
-- [ ] Publish the signed `v0.2.2` reliability patch and prove automatic
+- [x] Publish the signed `v0.2.2` reliability patch and prove automatic
   same-Pod recovery after a singleton gateway endpoint replacement (#70).
 
 Exit: the signed OCI candidate replaces the PoC; qBitTorrent uses Waycloak for

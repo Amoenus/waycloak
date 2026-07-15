@@ -263,8 +263,30 @@ stays installed until the replacement gateway health check succeeds. Unit,
 envtest, Linux compilation, privileged drift coverage, and a packaged-image
 gateway-loss/replacement lifecycle regression cover the boundary. The shared
 cluster harness also records pre-existing CRDs and no longer deletes resources
-it did not create. Signed publication and no-intervention homelab replacement
-proof remain before issue #70 can close.
+it did not create.
+
+Protected release run
+[29430978558](https://github.com/Amoenus/waycloak/actions/runs/29430978558)
+published `v0.2.2` from main commit
+`9d0b47d2bfaf9881d75c3851ec3b45f3808d0e08`. The release includes signed
+multi-architecture controller, agent, gateway-manager, and adapter images; the
+CRD-bearing Helm OCI chart; the optional KCL OCI module; SPDX SBOMs; provenance
+attestations; and a signed release manifest. Homelab PR
+[`Amoenus/homelab#1427`](https://github.com/Amoenus/homelab/pull/1427) adopted
+the release-manifest identities.
+
+The no-intervention production proof deleted the singleton gateway Pod after
+establishing an upgraded qBittorrent baseline. DNS and ordinary egress failed
+immediately, the agent and adapter became unready, and every lease readiness
+component became False. The replacement moved to a different observed underlay
+endpoint; the controller updated the existing UID-bound allocation and emitted
+`GatewayEndpointUpdated`, and the running agent recovered without a ConfigMap
+patch, link deletion, process restart, or application restart. The qBittorrent
+Pod UID, overlay address, allocation generation, and lease UID remained stable
+with zero container restarts. Proton rotated the public port; the adapter
+installed TCP and UDP listeners, all lease conditions returned True, protected
+egress succeeded, and the public route returned HTTP 200. Issue #70 is
+complete.
 
 ## Release progression
 

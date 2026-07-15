@@ -251,6 +251,15 @@ productized port-forward release. They are tracked in `v0.3.0`.
 - Packaged-image lifecycle acceptance proves fail-closed loss and automatic
   same-Pod recovery against a replacement endpoint.
 
+Acceptance was completed on 2026-07-15 with the signed `v0.2.2` release and a
+real Flannel/k3s deployment. Deleting the serving singleton gateway changed its
+underlay endpoint. The existing allocation projection and running agent
+converged automatically while the application Pod kept its UID, overlay
+address, allocation generation, and lease identity. DNS and ordinary egress
+failed closed during the transition. The replacement also caused a real Proton
+port rotation; the adapter applied matching TCP and UDP listeners before
+readiness returned.
+
 ### v0.3.0 — provider and workload compatibility
 
 - Sustained Proton renewal and actual port-rotation evidence.
