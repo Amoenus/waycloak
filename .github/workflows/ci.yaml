@@ -13,7 +13,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.changes.outputs.full }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          base="$PUSH_BASE_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+          fi
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 HEAD)"
+          fi
+
+          git diff --check "$base" "$GITHUB_SHA"
+          git diff --name-only "$base" "$GITHUB_SHA" >"$RUNNER_TEMP/changed-paths"
+          full=false
+          while IFS= read -r path; do
+            case "$path" in
+              AGENTS.md|LICENSE|README.md|PROJECT_STATUS.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md)
+                ;;
+              *)
+                full=true
+                ;;
+            esac
+          done <"$RUNNER_TEMP/changed-paths"
+          printf 'full=%s\n' "$full" >>"$GITHUB_OUTPUT"
+          {
+            printf '### CI path classification\n\n'
+            printf "Full verification required: \`%s\`\n\n" "$full"
+            while IFS= read -r path; do
+              printf -- "- \`%s\`\n" "$path"
+            done <"$RUNNER_TEMP/changed-paths"
+          } >>"$GITHUB_STEP_SUMMARY"
+
   verify:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -100,6 +148,8 @@ jobs:
           trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
 
   kind-e2e:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
