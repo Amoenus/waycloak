@@ -36,6 +36,7 @@ func TestConfigureGatewayVXLANWithoutMembers(t *testing.T) {
 	}
 	desired := e2eGatewayDesired(t)
 	desired.Members = nil
+	desired.MembershipGeneration = MembershipGeneration(desired.Members)
 	network := NewNetwork()
 	if err := network.Reconcile(context.Background(), desired); err != nil {
 		t.Fatal(err)
