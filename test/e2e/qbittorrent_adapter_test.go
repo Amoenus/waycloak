@@ -61,18 +61,45 @@ func TestQBittorrentAdapterAppliesRotatedProviderPort(t *testing.T) {
 	no := false
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent", Namespace: namespace}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, InitContainers: []corev1.Container{{Name: "configure", Image: "alpine:3.22.1", Command: []string{"sh", "-ec"}, Args: []string{"mkdir -p /config/qBittorrent; cp /bootstrap/qBittorrent.conf /config/qBittorrent/qBittorrent.conf; chown -R 1000:1000 /config"}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "bootstrap", MountPath: "/bootstrap", ReadOnly: true}}}}, Containers: []corev1.Container{
 		{Name: "qbittorrent", Image: "lscr.io/linuxserver/qbittorrent:5.2.3@sha256:352371a7242e8b4aa10958ca02076d1023758070519b89a10251475fb9f1a35a", Env: []corev1.EnvVar{{Name: "PUID", Value: "1000"}, {Name: "PGID", Value: "1000"}, {Name: "TZ", Value: "Etc/UTC"}}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "downloads", MountPath: "/downloads"}}},
-		{Name: "adapter-fixture", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, VolumeMounts: []corev1.VolumeMount{{Name: "tmp", MountPath: "/tmp"}, {Name: "lease", MountPath: "/fixtures", ReadOnly: true}, {Name: "adapter-key", MountPath: "/secrets", ReadOnly: true}}},
+		{Name: "adapter-fixture", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"/tmp/qbittorrent-adapter", "probe"}}}, InitialDelaySeconds: 1, PeriodSeconds: 2, FailureThreshold: 1}, VolumeMounts: []corev1.VolumeMount{{Name: "tmp", MountPath: "/tmp"}, {Name: "lease", MountPath: "/fixtures", ReadOnly: true}, {Name: "adapter-key", MountPath: "/secrets", ReadOnly: true}}},
 	}, Volumes: []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}, {Name: "downloads", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}, {Name: "lease", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: fixture.Name}, Items: []corev1.KeyToPath{{Key: "port-forward-leases.json", Path: "port-forward-leases.json"}}}}}, {Name: "bootstrap", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secret.Name, Items: []corev1.KeyToPath{{Key: "qBittorrent.conf", Path: "qBittorrent.conf"}}}}}, {Name: "adapter-key", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secret.Name, Items: []corev1.KeyToPath{{Key: "api-key", Path: "api-key"}}}}}}}}
 	must(t, direct.Create(ctx, pod))
-	waitForPodReady(t, direct, pod)
+	waitFor(t, time.Minute, func() bool {
+		return direct.Get(ctx, client.ObjectKeyFromObject(pod), pod) == nil && pod.Status.Phase == corev1.PodRunning
+	})
+	if podReadyCondition(pod) {
+		t.Fatal("adapter-gated Pod became Ready before the first lease was applied")
+	}
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(pod), pod))
 	initialUID := pod.UID
 	copyLocalFile(t, adapterBinary, namespace, pod.Name, "/tmp/qbittorrent-adapter", "adapter-fixture")
 	copyLocalFile(t, fakeAgentBinary, namespace, pod.Name, "/tmp/fake-lease-agent", "adapter-fixture")
-	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "sh", "-ec", "chmod +x /tmp/qbittorrent-adapter /tmp/fake-lease-agent; nohup /tmp/fake-lease-agent --document=/fixtures/port-forward-leases.json --state-directory=/tmp >/tmp/fake-agent.log 2>&1 </dev/null &")
-	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "sh", "-ec", "nohup env WAYCLOAK_QBITTORRENT_API_KEY_FILE=/secrets/api-key WAYCLOAK_LEASE_NAME=torrent /tmp/qbittorrent-adapter run >/tmp/adapter.log 2>&1 </dev/null &")
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "sh", "-ec", "chmod +x /tmp/qbittorrent-adapter /tmp/fake-lease-agent; nohup /tmp/fake-lease-agent --document=/fixtures/port-forward-leases.json --state-directory=/tmp --qbittorrent-proxy-address=127.0.0.1:18080 --qbittorrent-stall-file=/tmp/qbittorrent-api-stall >/tmp/fake-agent.log 2>&1 </dev/null &")
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "sh", "-ec", "nohup env WAYCLOAK_QBITTORRENT_API_KEY_FILE=/secrets/api-key WAYCLOAK_QBITTORRENT_URL=http://127.0.0.1:18080 WAYCLOAK_LEASE_NAME=torrent /tmp/qbittorrent-adapter run >/tmp/adapter.log 2>&1 </dev/null &")
+	waitForPodReady(t, direct, pod)
 	waitFor(t, 90*time.Second, func() bool {
 		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "grep -q '\"generation\":1' /tmp/ack.json && grep -q '\"applicationPort\":42000' /tmp/ack.json && grep -qx '/v1/port-forward/leases/lease-uid/ack' /tmp/ack-path") && commandSucceedsContainer(namespace, pod.Name, "qbittorrent", "grep -i ':A410 .* 0A ' /proc/net/tcp >/dev/null && grep -i ':A410 ' /proc/net/udp >/dev/null")
+	})
+
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "touch", "/tmp/qbittorrent-api-stall")
+	waitFor(t, 30*time.Second, func() bool {
+		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "grep -q 'readiness degraded; retaining endpoint' /tmp/adapter.log")
+	})
+	if !commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "/tmp/qbittorrent-adapter probe") {
+		t.Fatal("one transient qBitTorrent API stall withdrew adapter readiness")
+	}
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "rm", "/tmp/qbittorrent-api-stall")
+	waitFor(t, 30*time.Second, func() bool {
+		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "tail -n 1 /tmp/adapter.log | grep -q 'lease application ready'")
+	})
+
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "touch", "/tmp/qbittorrent-api-stall")
+	waitFor(t, time.Minute, func() bool {
+		return !commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "/tmp/qbittorrent-adapter probe")
+	})
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod.Name, "-c", "adapter-fixture", "--", "rm", "/tmp/qbittorrent-api-stall")
+	waitFor(t, 30*time.Second, func() bool {
+		return commandSucceedsContainer(namespace, pod.Name, "adapter-fixture", "/tmp/qbittorrent-adapter probe")
 	})
 
 	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=waycloak-probe&tr=http%3A%2F%2F127.0.0.1%3A18081%2Fannounce"
@@ -96,6 +123,15 @@ func TestQBittorrentAdapterAppliesRotatedProviderPort(t *testing.T) {
 			t.Fatalf("container %s received added capabilities", container.Name)
 		}
 	}
+}
+
+func podReadyCondition(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func qbitDeliveryDocument(t *testing.T, podUID string, generation int64, port uint16, now time.Time) string {

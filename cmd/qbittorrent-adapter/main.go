@@ -94,14 +94,21 @@ func run(args []string) error {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	wasReady := false
+	readiness := &qbittorrent.ReadinessState{}
 	lastPendingMessage := ""
 	lastPendingLog := time.Time{}
 	for {
 		reconcileCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := adapter.Reconcile(reconcileCtx)
+		revision, err := adapter.Reconcile(reconcileCtx)
 		cancel()
-		ready.Store(err == nil)
-		if err != nil {
+		decision := readiness.Observe(revision, err, time.Now())
+		ready.Store(decision.Ready)
+		if decision.Phase == qbittorrent.ReadinessDegraded {
+			if decision.Changed {
+				log.Printf("lease application readiness degraded; retaining endpoint during transient qBitTorrent API failure (%d/%d): %s", decision.ConsecutiveFailures, qbittorrent.DefaultTransientFailureLimit, err)
+			}
+			wasReady = true
+		} else if err != nil {
 			message := err.Error()
 			if message != lastPendingMessage || time.Since(lastPendingLog) >= time.Minute {
 				log.Printf("lease application pending: %s", message)
@@ -109,7 +116,7 @@ func run(args []string) error {
 				lastPendingLog = time.Now()
 			}
 			wasReady = false
-		} else if !wasReady {
+		} else if !wasReady || decision.Changed {
 			log.Printf("lease application ready")
 			wasReady = true
 			lastPendingMessage = ""

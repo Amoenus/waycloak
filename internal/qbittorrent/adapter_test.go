@@ -5,6 +5,7 @@ package qbittorrent
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 	defer server.Close()
 	applicationPort = server.Listener.Addr().(*net.TCPAddr).Port
 	adapter := &Adapter{Client: &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: server.Client()}, LeaseEndpoint: server.URL + "/v1/port-forward/leases", HTTP: server.Client(), Now: func() time.Time { return now }}
-	if err := adapter.Reconcile(t.Context()); err != nil {
+	if _, err := adapter.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -100,11 +101,73 @@ func TestAdapterDoesNotAcknowledgeWhenQbittorrentListenerIsUnavailable(t *testin
 	}))
 	defer server.Close()
 	adapter := &Adapter{Client: &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: server.Client()}, LeaseEndpoint: server.URL + "/v1/port-forward/leases", HTTP: server.Client(), Now: func() time.Time { return now }}
-	if err := adapter.Reconcile(t.Context()); err == nil {
+	if _, err := adapter.Reconcile(t.Context()); err == nil {
 		t.Fatal("adapter acknowledged an unavailable qBitTorrent listener")
+	} else {
+		var reconcileError *ReconcileError
+		if !errors.As(err, &reconcileError) || reconcileError.Kind != FailureCritical {
+			t.Fatalf("listener failure classification = %#v", reconcileError)
+		}
 	}
 	if acknowledged {
 		t.Fatal("adapter posted an acknowledgement for an unavailable qBitTorrent listener")
+	}
+}
+
+func TestAdapterClassifiesQbittorrentControlAPITimeoutAsTransientForExactRevision(t *testing.T) {
+	now := time.Date(2026, 7, 15, 8, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/port-forward/leases":
+			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 64327, TargetPort: 6881, ApplicationPort: 64327, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 17, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+			_ = json.NewEncoder(response).Encode(document)
+		case "/api/v2/app/preferences":
+			time.Sleep(50 * time.Millisecond)
+			_ = json.NewEncoder(response).Encode(map[string]int{"listen_port": 64327})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	adapter := &Adapter{
+		Client:        &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: &http.Client{Timeout: 10 * time.Millisecond}},
+		LeaseEndpoint: server.URL + "/v1/port-forward/leases",
+		HTTP:          server.Client(),
+		Now:           func() time.Time { return now },
+	}
+	revision, err := adapter.Reconcile(t.Context())
+	if err == nil {
+		t.Fatal("qBitTorrent timeout unexpectedly reconciled")
+	}
+	var reconcileError *ReconcileError
+	if !errors.As(err, &reconcileError) || reconcileError.Kind != FailureTransientControlObservation {
+		t.Fatalf("control API failure classification = %#v", reconcileError)
+	}
+	want := LeaseRevision{Identity: "lease-uid", Generation: 17, ApplicationPort: 64327}
+	if revision != want || reconcileError.Revision != want {
+		t.Fatalf("revision = %#v error revision = %#v, want %#v", revision, reconcileError.Revision, want)
+	}
+}
+
+func TestAdapterClassifiesQbittorrentControlAPIRejectionAsCritical(t *testing.T) {
+	now := time.Date(2026, 7, 15, 8, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/port-forward/leases":
+			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 64327, TargetPort: 6881, ApplicationPort: 64327, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 17, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+			_ = json.NewEncoder(response).Encode(document)
+		case "/api/v2/app/preferences":
+			response.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	adapter := &Adapter{Client: &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: server.Client()}, LeaseEndpoint: server.URL + "/v1/port-forward/leases", HTTP: server.Client(), Now: func() time.Time { return now }}
+	_, err := adapter.Reconcile(t.Context())
+	var reconcileError *ReconcileError
+	if !errors.As(err, &reconcileError) || reconcileError.Kind != FailureCritical {
+		t.Fatalf("control API rejection classification = %#v", reconcileError)
 	}
 }
 

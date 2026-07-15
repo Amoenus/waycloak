@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,6 +22,9 @@ func main() {
 	trackerAddress := flag.String("tracker-address", "127.0.0.1:18081", "tracker listen address")
 	documentPath := flag.String("document", "", "delivery document path")
 	stateDirectory := flag.String("state-directory", "/tmp", "observation output directory")
+	qbitProxyAddress := flag.String("qbittorrent-proxy-address", "", "optional qBitTorrent API proxy listen address")
+	qbitUpstream := flag.String("qbittorrent-upstream", "http://127.0.0.1:8080", "qBitTorrent API proxy upstream")
+	qbitStallFile := flag.String("qbittorrent-stall-file", "", "file whose presence stalls qBitTorrent preference observations")
 	flag.Parse()
 	if *documentPath == "" {
 		log.Fatal("delivery document path is required")
@@ -72,7 +76,7 @@ func main() {
 		}
 		_, _ = response.Write([]byte("d8:intervali60e5:peers0:e"))
 	})
-	errors := make(chan error, 2)
+	errors := make(chan error, 3)
 	go func() {
 		server := &http.Server{Addr: *leaseAddress, Handler: leaseMux, ReadHeaderTimeout: 2 * time.Second}
 		errors <- fmt.Errorf("lease server: %w", server.ListenAndServe())
@@ -81,5 +85,33 @@ func main() {
 		server := &http.Server{Addr: *trackerAddress, Handler: trackerMux, ReadHeaderTimeout: 2 * time.Second}
 		errors <- fmt.Errorf("tracker server: %w", server.ListenAndServe())
 	}()
+	if *qbitProxyAddress != "" {
+		upstream, err := url.Parse(*qbitUpstream)
+		if err != nil || upstream.Scheme != "http" || upstream.Host == "" {
+			log.Fatal("qBitTorrent proxy upstream must be an HTTP URL")
+		}
+		handler := newQBittorrentProxy(upstream, *qbitStallFile, 3*time.Second)
+		go func() {
+			server := &http.Server{Addr: *qbitProxyAddress, Handler: handler, ReadHeaderTimeout: 2 * time.Second}
+			errors <- fmt.Errorf("qBitTorrent proxy server: %w", server.ListenAndServe())
+		}()
+	}
 	log.Fatal(<-errors)
+}
+
+func newQBittorrentProxy(upstream *url.URL, stallFile string, stallDuration time.Duration) http.Handler {
+	proxy := &httputil.ReverseProxy{Rewrite: func(proxyRequest *httputil.ProxyRequest) {
+		proxyRequest.SetURL(upstream)
+		// qBitTorrent rejects a Host port that differs from its local WebUI
+		// listener, so the test proxy must identify the actual upstream.
+		proxyRequest.Out.Host = upstream.Host
+	}}
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v2/app/preferences" && stallFile != "" {
+			if _, err := os.Stat(stallFile); err == nil {
+				time.Sleep(stallDuration)
+			}
+		}
+		proxy.ServeHTTP(response, request)
+	})
 }

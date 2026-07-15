@@ -102,6 +102,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 		return containerRunning(protected, "qbittorrent") && containerRunning(protected, contract.AgentContainer) && containerRunning(protected, "acceptance-observer")
 	})
 	initialUID := protected.UID
+	if podReadyCondition(protected) {
+		t.Fatal("provider-assigned qBitTorrent Pod became Ready before its adapter received a lease")
+	}
 	assertRealQBittorrentIsolation(t, protected)
 	copyLocalFile(t, observerBinary, namespace, protected.Name, "/tmp/qbittorrent-observer", "acceptance-observer")
 	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "acceptance-observer", "--", "sh", "-ec", "chmod +x /tmp/qbittorrent-observer; nohup /tmp/qbittorrent-observer serve-tracker --output=/tmp/tracker-port >/tmp/tracker.log 2>&1 </dev/null &")

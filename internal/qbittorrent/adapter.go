@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,10 +27,32 @@ type Adapter struct {
 	Now           func() time.Time
 }
 
-func (adapter *Adapter) Reconcile(ctx context.Context) error {
+type LeaseRevision struct {
+	Identity        string
+	Generation      int64
+	ApplicationPort uint16
+}
+
+type FailureKind string
+
+const (
+	FailureCritical                    FailureKind = "Critical"
+	FailureTransientControlObservation FailureKind = "TransientControlObservation"
+)
+
+type ReconcileError struct {
+	Kind     FailureKind
+	Revision LeaseRevision
+	Err      error
+}
+
+func (reconcileError *ReconcileError) Error() string { return reconcileError.Err.Error() }
+func (reconcileError *ReconcileError) Unwrap() error { return reconcileError.Err }
+
+func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 	document, err := adapter.document(ctx)
 	if err != nil {
-		return err
+		return LeaseRevision{}, critical(LeaseRevision{}, err)
 	}
 	var selected *delivery.Record
 	for i := range document.Leases {
@@ -38,49 +61,65 @@ func (adapter *Adapter) Reconcile(ctx context.Context) error {
 			continue
 		}
 		if selected != nil {
-			return errors.New("multiple provider-assigned leases match the qBitTorrent adapter")
+			return LeaseRevision{}, critical(LeaseRevision{}, errors.New("multiple provider-assigned leases match the qBitTorrent adapter"))
 		}
 		selected = record
 	}
 	if selected == nil || !adapter.now().Before(selected.ExpiresAt) {
-		return errors.New("a current provider-assigned lease is unavailable")
+		return LeaseRevision{}, critical(LeaseRevision{}, errors.New("a current provider-assigned lease is unavailable"))
 	}
+	revision := LeaseRevision{Identity: selected.Identity, Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}
 	if adapter.Client == nil {
-		return errors.New("qBitTorrent client is required")
+		return revision, critical(revision, errors.New("qBitTorrent client is required"))
 	}
 	current, err := adapter.Client.ListenPort(ctx)
 	if err != nil {
-		return err
+		if transientControlObservation(err) {
+			return revision, &ReconcileError{Kind: FailureTransientControlObservation, Revision: revision, Err: err}
+		}
+		return revision, critical(revision, err)
 	}
 	if current != selected.ApplicationPort {
 		if err := adapter.Client.SetListenPort(ctx, selected.ApplicationPort); err != nil {
-			return err
+			return revision, critical(revision, err)
 		}
 	}
 	if err := adapter.Client.VerifyListener(ctx, selected.ApplicationPort); err != nil {
-		return err
+		return revision, critical(revision, err)
 	}
 	acknowledgement := delivery.ApplicationAcknowledgement{Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}
 	payload, err := json.Marshal(acknowledgement)
 	if err != nil {
-		return err
+		return revision, critical(revision, err)
 	}
 	endpoint := strings.TrimRight(adapter.LeaseEndpoint, "/") + "/" + url.PathEscape(selected.Identity) + "/ack"
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return revision, critical(revision, err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := adapter.http().Do(request)
 	if err != nil {
-		return fmt.Errorf("acknowledge qBitTorrent lease generation: %w", err)
+		return revision, critical(revision, fmt.Errorf("acknowledge qBitTorrent lease generation: %w", err))
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("lease acknowledgement returned HTTP %d", response.StatusCode)
+		return revision, critical(revision, fmt.Errorf("lease acknowledgement returned HTTP %d", response.StatusCode))
 	}
-	return nil
+	return revision, nil
+}
+
+func critical(revision LeaseRevision, err error) error {
+	return &ReconcileError{Kind: FailureCritical, Revision: revision, Err: err}
+}
+
+func transientControlObservation(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError) && networkError.Timeout()
 }
 
 func (adapter *Adapter) document(ctx context.Context) (delivery.Document, error) {
