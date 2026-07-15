@@ -18,7 +18,7 @@ import waycloak.v1alpha1 as networking
 
 gateway_ref = helpers.GatewayReference {
     namespace = "private-egress"
-    name = "proton-eu"
+    name = "private"
 }
 
 gateway = networking.VPNGateway {
@@ -43,6 +43,7 @@ Start with the egress-only example:
 kcl run examples/private-egress.k -S items
 ```
 
-It renders one `VPNGateway` and exposes the annotation map to merge into a
-workload Pod template. The more advanced `examples/basic.k` adds a
-provider-assigned `PortForwardLease`.
+It renders a native Gluetun ConfigMap plus one `VPNGateway` and exposes the
+annotation map to merge into a workload Pod template. Provision the referenced
+engine-only Secret separately. The more advanced `examples/basic.k` is the
+Proton-specific example and adds a provider-assigned `PortForwardLease`.

@@ -78,6 +78,13 @@ helm rollback waycloak PREVIOUS_REVISION -n waycloak-system --wait --timeout 5m
 
 Rollback restores the previous digest values and controller template stored by Helm. Gateway Pods still use `OnDelete`; if a gateway was already restarted onto the new manager or engine, restore the previous `VPNGateway` specification and then delete that gateway Pod during another maintenance window.
 
+Before rolling back below v0.3.0, convert every gateway using
+`spec.engine.config` back to the mutually exclusive legacy `spec.provider`
+shape and verify it is accepted. Pre-v0.3 controllers do not understand native
+engine references. Do not rely on CRD rollback: Helm does not safely downgrade
+stored custom resources, and an old controller must remain fail closed rather
+than infer provider settings.
+
 ## Rotate webhook TLS
 
 Rotate trust without an admission outage:

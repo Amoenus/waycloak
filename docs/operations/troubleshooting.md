@@ -57,7 +57,7 @@ kubectl describe vpnworkload -n WORKLOAD_NAMESPACE WORKLOAD_NAME
 
 ## The gateway is not ready
 
-Inspect conditions in order: `Scheduled`, `TunnelReady`, `MembershipApplied`,
+Inspect conditions in order: `Accepted`, `Scheduled`, `TunnelReady`, `MembershipApplied`,
 `OverlayReady`, `DNSReady`, `PortForwardReady`, then `Ready`. When port
 forwarding is disabled, `PortForwardReady=True` with reason
 `PortForwardDisabled`; otherwise it reflects provider capability and rule
@@ -70,6 +70,13 @@ tokenless observation path without requiring kernel inspection. Common causes
 of other failures are a missing credentials Secret key, an unsupported or
 mutable engine image, unavailable `/dev/net/tun`, blocked provider
 connectivity, blocked UDP 4789, or an invalid cluster resolver observation.
+
+For an engine-native gateway, `EngineConfigurationUnavailable` means a
+referenced ConfigMap does not exist yet and is retried. `InvalidEngineConfiguration`
+means a native environment key, source, or mount conflicts with the engine
+integration contract. Events and conditions identify ConfigMap and key names
+but never configuration values; compare against the reserved list in the
+[native configuration guide](../guides/gluetun-native-configuration.md).
 
 The manager logs exclude provider response bodies, but logs can still contain operational IP addresses. Treat debug output as sensitive infrastructure metadata. Never print or decode the credentials Secret while collecting diagnostics.
 

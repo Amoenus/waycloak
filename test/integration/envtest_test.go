@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,7 +120,7 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 		_ = apiClient.Delete(cleanupCtx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}})
 	})
 	must(t, mgr.GetClient().Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: nsName}, StringData: map[string]string{"test": "not-a-real-credential"}}))
-	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Preserve", CIDRs: []string{"10.43.0.0/16", "10.42.0.0/16"}}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
+	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: nsName}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, Provider: &wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999, MTU: 1320}, ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Preserve", CIDRs: []string{"10.43.0.0/16", "10.42.0.0/16"}}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{}}}}
 	must(t, mgr.GetClient().Create(ctx, gw))
 	invalidPreserve := gw.DeepCopy()
 	invalidPreserve.Name = "invalid-preserve"
@@ -142,9 +143,62 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	invalidGateway.ResourceVersion = ""
 	invalidGateway.UID = ""
 	invalidGateway.Spec.Provider.Name = "unsupported"
-	if err := mgr.GetClient().Create(ctx, invalidGateway); err == nil {
-		t.Fatal("API server accepted ProtonNatPmp with an unsupported provider")
+	must(t, mgr.GetClient().Create(ctx, invalidGateway))
+	waitFor(t, 10*time.Second, func() bool {
+		var current wayv1.VPNGateway
+		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(invalidGateway), &current) != nil {
+			return false
+		}
+		condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionAccepted)
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == waystatus.ReasonPortForwardUnsupported
+	})
+	ambiguousGateway := gw.DeepCopy()
+	ambiguousGateway.Name = "ambiguous-engine-config"
+	ambiguousGateway.ResourceVersion = ""
+	ambiguousGateway.UID = ""
+	ambiguousGateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{EnvFrom: []corev1.LocalObjectReference{{Name: "gluetun-native"}}}
+	if err := mgr.GetClient().Create(ctx, ambiguousGateway); err == nil {
+		t.Fatal("API server accepted both legacy provider and engine.config")
 	}
+	nativeConfig := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gluetun-native", Namespace: nsName}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard", "SERVER_CITIES": "Riga"}}
+	must(t, mgr.GetClient().Create(ctx, nativeConfig))
+	nativeGateway := gw.DeepCopy()
+	nativeGateway.Name = "native"
+	nativeGateway.ResourceVersion = ""
+	nativeGateway.UID = ""
+	nativeGateway.Spec.Engine.Type = "Gluetun"
+	nativeGateway.Spec.Provider = nil
+	nativeGateway.Spec.PortForwarding = wayv1.PortForwardingSpec{}
+	nativeGateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{EnvFrom: []corev1.LocalObjectReference{{Name: nativeConfig.Name}}, Files: []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "wireguard-config"}, MountPath: "/gluetun/wireguard"}}}
+	must(t, mgr.GetClient().Create(ctx, nativeGateway))
+	var nativeStatefulSet appsv1.StatefulSet
+	waitFor(t, 10*time.Second, func() bool {
+		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(nativeGateway.Name)}, &nativeStatefulSet) == nil
+	})
+	engine := nativeStatefulSet.Spec.Template.Spec.Containers[0]
+	manager := nativeStatefulSet.Spec.Template.Spec.Containers[1]
+	if len(engine.EnvFrom) != 1 || engine.EnvFrom[0].ConfigMapRef == nil || engine.EnvFrom[0].ConfigMapRef.Name != nativeConfig.Name || len(manager.EnvFrom) != 0 {
+		t.Fatalf("native environment projection engine=%#v manager=%#v", engine.EnvFrom, manager.EnvFrom)
+	}
+	initialDigest := nativeStatefulSet.Spec.Template.Annotations[waygateway.EngineConfigDigestAnnotation]
+	nativeConfig.Data["SERVER_CITIES"] = "Amsterdam"
+	must(t, mgr.GetClient().Update(ctx, nativeConfig))
+	waitFor(t, 10*time.Second, func() bool {
+		if mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: nativeStatefulSet.Name}, &nativeStatefulSet) != nil {
+			return false
+		}
+		return nativeStatefulSet.Spec.Template.Annotations[waygateway.EngineConfigDigestAnnotation] != initialDigest
+	})
+	nativeConfig.Data["VPN_INTERFACE"] = "do-not-report-this-value"
+	must(t, mgr.GetClient().Update(ctx, nativeConfig))
+	waitFor(t, 10*time.Second, func() bool {
+		var current wayv1.VPNGateway
+		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(nativeGateway), &current) != nil {
+			return false
+		}
+		condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionAccepted)
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == waystatus.ReasonInvalidEngineConfiguration && !strings.Contains(condition.Message, "do-not-report-this-value")
+	})
 	waitFor(t, 10*time.Second, func() bool {
 		var statefulSet appsv1.StatefulSet
 		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &statefulSet) == nil

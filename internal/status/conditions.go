@@ -31,6 +31,8 @@ const (
 	ReasonDataPlaneNotImplemented         = "DataPlaneNotImplemented"
 	ReasonInvalidEngineImage              = "InvalidEngineImage"
 	ReasonInvalidCredentialsReference     = "InvalidCredentialsReference"
+	ReasonInvalidEngineConfiguration      = "InvalidEngineConfiguration"
+	ReasonEngineConfigurationUnavailable  = "EngineConfigurationUnavailable"
 	ReasonGatewayResourcesReady           = "GatewayResourcesReady"
 	ReasonGatewayPodPending               = "GatewayPodPending"
 	ReasonGatewayPodScheduled             = "GatewayPodScheduled"

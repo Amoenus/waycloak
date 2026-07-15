@@ -61,6 +61,53 @@ func TestDesiredStatefulSetIsSingletonAndIsolatesCredentials(t *testing.T) {
 	}
 }
 
+func TestDesiredStatefulSetUsesNativeGluetunConfigurationWithoutReadingSecrets(t *testing.T) {
+	gateway := testGateway()
+	gateway.Spec.Engine.Type = "Gluetun"
+	gateway.Spec.Provider = nil
+	gateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{
+		EnvFrom: []corev1.LocalObjectReference{{Name: "mullvad-wireguard"}},
+		Files: []wayv1.EngineFileSource{
+			{SecretRef: &corev1.LocalObjectReference{Name: "wireguard-config"}, MountPath: "/gluetun/wireguard"},
+			{ConfigMapRef: &corev1.LocalObjectReference{Name: "custom-openvpn"}, MountPath: "/run/engine-native/openvpn"},
+		},
+	}
+	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager"), EngineConfigDigest: "sha256:native"})
+	engine := statefulSet.Spec.Template.Spec.Containers[0]
+	manager := statefulSet.Spec.Template.Spec.Containers[1]
+	renderer := statefulSet.Spec.Template.Spec.InitContainers[0]
+	if len(engine.EnvFrom) != 1 || engine.EnvFrom[0].ConfigMapRef == nil || engine.EnvFrom[0].ConfigMapRef.Name != "mullvad-wireguard" {
+		t.Fatalf("native env sources = %#v", engine.EnvFrom)
+	}
+	if hasEnvironment(engine.Env, "VPN_SERVICE_PROVIDER") || hasEnvironment(engine.Env, "VPN_TYPE") {
+		t.Fatalf("native values were copied into the Pod environment: %#v", engine.Env)
+	}
+	if !hasMount(engine, "engine-native-file-0") || !hasMount(engine, "engine-native-file-1") || hasMount(manager, "engine-native-file-0") || hasMount(manager, "engine-native-file-1") || hasMount(renderer, "engine-native-file-0") || hasMount(renderer, "engine-native-file-1") {
+		t.Fatalf("native file isolation engine=%#v manager=%#v renderer=%#v", engine.VolumeMounts, manager.VolumeMounts, renderer.VolumeMounts)
+	}
+	if hasMount(engine, "credentials") || hasMount(manager, "credentials") {
+		t.Fatal("native configuration unexpectedly created the legacy credential mount")
+	}
+	if statefulSet.Spec.Template.Annotations[EngineConfigDigestAnnotation] != "sha256:native" {
+		t.Fatalf("engine config digest annotation = %#v", statefulSet.Spec.Template.Annotations)
+	}
+	volumes := make(map[string]corev1.Volume)
+	for _, volume := range statefulSet.Spec.Template.Spec.Volumes {
+		volumes[volume.Name] = volume
+	}
+	if volumes["engine-native-file-0"].Secret == nil || volumes["engine-native-file-0"].Secret.SecretName != "wireguard-config" {
+		t.Fatalf("wireguard Secret volume = %#v", volumes["engine-native-file-0"])
+	}
+	if volumes["engine-native-file-1"].ConfigMap == nil || volumes["engine-native-file-1"].ConfigMap.Name != "custom-openvpn" {
+		t.Fatalf("custom OpenVPN ConfigMap volume = %#v", volumes["engine-native-file-1"])
+	}
+	for _, reserved := range []string{"DNS_ADDRESS", "FIREWALL_INPUT_PORTS", "HEALTH_SERVER_ADDRESS", "HTTP_CONTROL_SERVER_ADDRESS", "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "PUBLICIP_ENABLED", "VPN_INTERFACE", "VPN_PORT_FORWARDING"} {
+		if !hasEnvironment(engine.Env, reserved) {
+			t.Fatalf("native engine is missing reserved setting %s: %#v", reserved, engine.Env)
+		}
+	}
+}
+
 func TestMembershipGenerationIsDeterministicAndChangesOnlyWithMembership(t *testing.T) {
 	members := []Member{{ID: "b", OverlayAddress: "172.30.99.3", UnderlayIP: "10.42.0.3"}, {ID: "a", OverlayAddress: "172.30.99.2", UnderlayIP: "10.42.0.2"}}
 	first := MembershipGeneration(members)
@@ -189,6 +236,15 @@ func hasMount(container corev1.Container, name string) bool {
 	return false
 }
 
+func hasEnvironment(environment []corev1.EnvVar, name string) bool {
+	for _, variable := range environment {
+		if variable.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func containsArgument(arguments []string, wanted string) bool {
 	for _, argument := range arguments {
 		if argument == wanted {
@@ -203,7 +259,7 @@ func testGateway() *wayv1.VPNGateway {
 		ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"},
 		Spec: wayv1.VPNGatewaySpec{
 			Engine:   wayv1.EngineSpec{Type: "Test", Image: digestImage("engine")},
-			Provider: wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "vpn-credentials"}},
+			Provider: &wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "vpn-credentials"}},
 			Overlay:  wayv1.OverlaySpec{CIDR: "172.30.99.0/24", VNI: 7999, MTU: 1320},
 		},
 	}

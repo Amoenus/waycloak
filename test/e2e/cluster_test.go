@@ -202,6 +202,39 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 
 	startController(t, namespace, true)
 	waitFor(t, 30*time.Second, func() bool { return direct.Get(ctx, cmKey, &cm) == nil })
+	nativeConfig := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gluetun-native", Namespace: namespace}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}}
+	must(t, direct.Create(ctx, nativeConfig))
+	nativeGateway := gateway(namespace)
+	nativeGateway.Name = "native"
+	nativeGateway.Spec.Provider = nil
+	nativeGateway.Spec.PortForwarding = wayv1.PortForwardingSpec{}
+	nativeGateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{EnvFrom: []corev1.LocalObjectReference{{Name: nativeConfig.Name}}, Files: []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "wireguard-config"}, MountPath: "/gluetun/wireguard"}}}
+	must(t, direct.Create(ctx, nativeGateway))
+	waitFor(t, 30*time.Second, func() bool {
+		if direct.Get(ctx, client.ObjectKeyFromObject(nativeGateway), nativeGateway) != nil {
+			return false
+		}
+		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionTrue
+	})
+	nativeConfig.Data["VPN_INTERFACE"] = "conflicting-interface"
+	must(t, direct.Update(ctx, nativeConfig))
+	waitFor(t, 30*time.Second, func() bool {
+		if direct.Get(ctx, client.ObjectKeyFromObject(nativeGateway), nativeGateway) != nil {
+			return false
+		}
+		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionFalse && accepted.Reason == waystatus.ReasonInvalidEngineConfiguration && !strings.Contains(accepted.Message, "conflicting-interface")
+	})
+	delete(nativeConfig.Data, "VPN_INTERFACE")
+	must(t, direct.Update(ctx, nativeConfig))
+	waitFor(t, 30*time.Second, func() bool {
+		if direct.Get(ctx, client.ObjectKeyFromObject(nativeGateway), nativeGateway) != nil {
+			return false
+		}
+		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionTrue
+	})
 	var workloads wayv1.VPNWorkloadList
 	must(t, direct.List(ctx, &workloads, client.InNamespace(namespace)))
 	if len(workloads.Items) != 1 {
@@ -432,7 +465,7 @@ func webhookConfigurations(mutatingName, validatingName, namespace string, ca []
 }
 
 func gateway(namespace string) *wayv1.VPNGateway {
-	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "unused"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{"waycloak-e2e": "allowed"}}}}}
+	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test"}, Provider: &wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "unused"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{"waycloak-e2e": "allowed"}}}}}
 }
 
 func certificates(t *testing.T, host string) ([]byte, []byte, []byte) {

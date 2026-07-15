@@ -197,7 +197,7 @@ func realPortForwardGateway(namespace, name, secretName string) *wayv1.VPNGatewa
 	}
 	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
 		Engine:         wayv1.EngineSpec{Type: "Gluetun", Image: realPortForwardEngineImage},
-		Provider:       wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", Region: region, CredentialsSecretRef: corev1.LocalObjectReference{Name: secretName}},
+		Provider:       &wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", Region: region, CredentialsSecretRef: corev1.LocalObjectReference{Name: secretName}},
 		Overlay:        wayv1.OverlaySpec{CIDR: "172.30.252.0/29", VNI: 10992, MTU: 1320},
 		ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Gateway"},
 		PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"},

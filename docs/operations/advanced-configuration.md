@@ -91,15 +91,16 @@ server-selection, and custom configuration otherwise belong to the engine's
 native configuration surface. See
 [ADR 0017](../decisions/0017-engine-native-configuration-boundary.md).
 
-The current `v0.2` compatibility API still uses
-`spec.provider.credentialsSecretRef` and translates a limited provider shape
-into Gluetun settings. That reference names an ordinary Kubernetes Secret in
-the gateway namespace. The verified Proton/OpenVPN example expects `username`
-and `password` keys. Engine-native configuration and migration of these fields
-is tracked by issue #66.
+Use `spec.engine.config.envFrom` for Gluetun-native non-secret ConfigMap
+settings and `spec.engine.config.files` for read-only ConfigMap or Secret files
+mounted only into the engine. The legacy
+`spec.provider.credentialsSecretRef` Proton/OpenVPN shape remains mutually
+exclusive migration compatibility. See the
+[Gluetun-native configuration guide](../guides/gluetun-native-configuration.md)
+for provider, WireGuard, custom OpenVPN, reserved-key, and migration examples.
 
 ESO, Secrets Store CSI, SOPS-driven GitOps, or another system may materialize
-that Secret. Waycloak neither depends on nor talks to those systems. Keep the
+referenced Secrets. Waycloak neither depends on nor talks to those systems. Keep the
 provider Secret out of protected workload namespaces and never duplicate its
 values into application manifests.
 
@@ -197,7 +198,9 @@ Upgrade in phases:
 5. verify gateway, workload agent, and lease observations.
 
 Gateway StatefulSets use `OnDelete`; the controller does not restart a working
-tunnel just because desired configuration changed. v0.2.0 also requires a
+tunnel just because desired configuration changed. A native ConfigMap update
+changes the opaque engine configuration digest and emits
+`GatewayRolloutRequired`. v0.2.0 also requires a
 protected workload rollout after gateway Pod replacement. Follow
 [Upgrade and rollback](upgrade.md) rather than treating the gateway like an
 ordinary rolling Deployment.

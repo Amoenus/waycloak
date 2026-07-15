@@ -6,7 +6,20 @@ import v1alpha1 as networking
 
 gateway_ref = helpers.GatewayReference {
     namespace = "waycloak-egress"
-    name = "proton-eu"
+    name = "private"
+}
+
+engine_config = {
+    apiVersion = "v1"
+    kind = "ConfigMap"
+    metadata = {
+        name = "gluetun-native"
+        namespace = gateway_ref.namespace
+    }
+    data = {
+        VPN_SERVICE_PROVIDER = "custom"
+        VPN_TYPE = "wireguard"
+    }
 }
 
 gateway = networking.VPNGateway {
@@ -18,12 +31,14 @@ gateway = networking.VPNGateway {
         engine = {
             $type = "Gluetun"
             image = "docker.io/qmcgaw/gluetun:v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045"
-        }
-        provider = {
-            name = "protonvpn"
-            $protocol = "openvpn"
-            region = "Netherlands"
-            credentialsSecretRef.name = "vpn-credentials"
+            config = {
+                envFrom = [{name = engine_config.metadata.name}]
+                # Provision this Secret separately with a native wg0.conf key.
+                files = [{
+                    secretRef.name = "wireguard-config"
+                    mountPath = "/gluetun/wireguard"
+                }]
+            }
         }
         overlay = {
             cidr = "172.30.99.0/24"
@@ -48,4 +63,4 @@ pod_template_annotations = {
     helpers.gatewayAnnotation = gateway_ref.value
 }
 
-items = [gateway]
+items = [engine_config, gateway]

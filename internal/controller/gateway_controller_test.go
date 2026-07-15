@@ -184,6 +184,144 @@ func TestGatewayReadyRequiresEnabledComponents(t *testing.T) {
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
 }
 
+func TestObserveEngineNativeConfigurationSupportsProvidersProtocolsAndRotation(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	for _, test := range []struct {
+		name     string
+		data     map[string]string
+		provider string
+		protocol string
+	}{
+		{name: "proton-openvpn", data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn", "SERVER_COUNTRIES": "Netherlands"}, provider: "protonvpn", protocol: "openvpn"},
+		{name: "mullvad-wireguard", data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard", "SERVER_CITIES": "Riga"}, provider: "mullvad", protocol: "wireguard"},
+		{name: "custom-openvpn-default", data: map[string]string{"VPN_SERVICE_PROVIDER": "custom", "OPENVPN_CUSTOM_CONFIG": "/run/engine-native/openvpn/custom.conf"}, provider: "custom", protocol: "openvpn"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gateway := nativeControllerTestGateway(test.name)
+			configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: test.name, Namespace: gateway.Namespace}, Data: test.data}
+			client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(configMap).Build()
+			reconciler := &GatewayReconciler{Client: client}
+			observed, reason, message := reconciler.observeEngineConfig(context.Background(), gateway)
+			if reason != "" || message != "" || observed.Provider != test.provider || observed.Protocol != test.protocol || !strings.HasPrefix(observed.Digest, "sha256:") {
+				t.Fatalf("observed=%#v reason=%q message=%q", observed, reason, message)
+			}
+			before := observed.Digest
+			configMap.Data["SERVER_HOSTNAMES"] = "rotated.example"
+			if err := client.Update(context.Background(), configMap); err != nil {
+				t.Fatal(err)
+			}
+			observed, reason, message = reconciler.observeEngineConfig(context.Background(), gateway)
+			if reason != "" || message != "" || observed.Digest == before {
+				t.Fatalf("rotated observed=%#v reason=%q message=%q", observed, reason, message)
+			}
+		})
+	}
+}
+
+func TestGatewayNativeConfigurationGatesProtonPortForwardCapability(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	for _, test := range []struct {
+		name   string
+		data   map[string]string
+		status metav1.ConditionStatus
+		reason string
+	}{
+		{name: "compatible", data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn"}, status: metav1.ConditionTrue, reason: waystatus.ReasonAccepted},
+		{name: "wrong-provider", data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}, status: metav1.ConditionFalse, reason: waystatus.ReasonPortForwardUnsupported},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gateway := nativeControllerTestGateway("native")
+			gateway.Spec.PortForwarding = wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}
+			configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "native", Namespace: gateway.Namespace}, Data: test.data}
+			client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}).WithObjects(gateway, configMap).Build()
+			reconciler := &GatewayReconciler{Client: client}
+			request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}}
+			if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			var observed wayv1.VPNGateway
+			if err := client.Get(context.Background(), request.NamespacedName, &observed); err != nil {
+				t.Fatal(err)
+			}
+			assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionAccepted, test.status, test.reason)
+		})
+	}
+}
+
+func TestObserveEngineNativeConfigurationRejectsReservedSettingsWithoutValues(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := nativeControllerTestGateway("native")
+	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "native", Namespace: gateway.Namespace}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_INTERFACE": "credential-like-value"}}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(configMap).Build()
+	reconciler := &GatewayReconciler{Client: client}
+	_, reason, message := reconciler.observeEngineConfig(context.Background(), gateway)
+	if reason != waystatus.ReasonInvalidEngineConfiguration || !strings.Contains(message, `reserved key "VPN_INTERFACE"`) || strings.Contains(message, "credential-like-value") {
+		t.Fatalf("reason=%q message=%q", reason, message)
+	}
+}
+
+func TestObserveEngineNativeConfigurationReportsUnavailableReference(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := nativeControllerTestGateway("missing")
+	reconciler := &GatewayReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	_, reason, message := reconciler.observeEngineConfig(context.Background(), gateway)
+	if reason != waystatus.ReasonEngineConfigurationUnavailable || message != `engine native ConfigMap "missing" is unavailable` {
+		t.Fatalf("reason=%q message=%q", reason, message)
+	}
+}
+
+func TestValidateGatewayRejectsReservedOrAmbiguousNativeMounts(t *testing.T) {
+	gateway := nativeControllerTestGateway("native")
+	gateway.Spec.Engine.Config.Files = []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "secret"}, MountPath: "/run/waycloak/credentials"}}
+	reason, _ := validateGateway(gateway, "registry.invalid/manager"+testDigest)
+	if reason != waystatus.ReasonInvalidEngineConfiguration {
+		t.Fatalf("reserved mount reason = %q", reason)
+	}
+	gateway.Spec.Engine.Config.Files = []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "secret"}, ConfigMapRef: &corev1.LocalObjectReference{Name: "config"}, MountPath: "/gluetun/wireguard"}}
+	reason, _ = validateGateway(gateway, "registry.invalid/manager"+testDigest)
+	if reason != waystatus.ReasonInvalidEngineConfiguration {
+		t.Fatalf("ambiguous source reason = %q", reason)
+	}
+}
+
+func TestValidEngineMountPathUsesNativeAllowlist(t *testing.T) {
+	for mountPath, want := range map[string]bool{
+		"/gluetun/wireguard":             true,
+		"/run/engine-native":             true,
+		"/run/engine-native/custom/file": true,
+		"/gluetun":                       false,
+		"/run/waycloak/credentials":      false,
+		"/etc/openvpn":                   false,
+		"/run/engine-native/../waycloak": false,
+		"relative":                       false,
+	} {
+		if got := validEngineMountPath(mountPath); got != want {
+			t.Errorf("validEngineMountPath(%q)=%v, want %v", mountPath, got, want)
+		}
+	}
+}
+
+func TestValidateGatewayAcceptsExactlyOneMigrationShape(t *testing.T) {
+	legacy := controllerTestGateway()
+	if reason, message := validateGateway(legacy, ""); reason != "" || message != "" {
+		t.Fatalf("legacy reason=%q message=%q", reason, message)
+	}
+	native := nativeControllerTestGateway("native")
+	if reason, message := validateGateway(native, ""); reason != "" || message != "" {
+		t.Fatalf("native reason=%q message=%q", reason, message)
+	}
+	both := native.DeepCopy()
+	both.Spec.Provider = legacy.Spec.Provider
+	if reason, _ := validateGateway(both, ""); reason != waystatus.ReasonInvalidEngineConfiguration {
+		t.Fatalf("mixed migration shape reason=%q", reason)
+	}
+	neither := native.DeepCopy()
+	neither.Spec.Engine.Config = nil
+	if reason, _ := validateGateway(neither, ""); reason != waystatus.ReasonInvalidEngineConfiguration {
+		t.Fatalf("missing migration shape reason=%q", reason)
+	}
+}
+
 func TestGatewayStatusWaitsForAppliedMembershipGeneration(t *testing.T) {
 	scheme := gatewayTestScheme(t)
 	gateway := controllerTestGateway()
@@ -320,10 +458,18 @@ func controllerTestGateway() *wayv1.VPNGateway {
 		ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress", UID: types.UID("gateway-uid")},
 		Spec: wayv1.VPNGatewaySpec{
 			Engine:   wayv1.EngineSpec{Type: "Test", Image: "registry.invalid/engine" + testDigest},
-			Provider: wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}},
+			Provider: &wayv1.ProviderSpec{Name: "test", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}},
 			Overlay:  wayv1.OverlaySpec{CIDR: "172.30.99.0/24", VNI: 7999, MTU: 1320},
 		},
 	}
+}
+
+func nativeControllerTestGateway(configMapName string) *wayv1.VPNGateway {
+	gateway := controllerTestGateway()
+	gateway.Spec.Engine.Type = "Gluetun"
+	gateway.Spec.Provider = nil
+	gateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{EnvFrom: []corev1.LocalObjectReference{{Name: configMapName}}}
+	return gateway
 }
 
 func assertGatewayCondition(t *testing.T, conditions []metav1.Condition, conditionType string, status metav1.ConditionStatus, reason string) {

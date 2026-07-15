@@ -53,7 +53,7 @@ schema NetworkingWaycloakIoV1alpha1VPNGatewaySpec:
         overlay
     portForwarding : NetworkingWaycloakIoV1alpha1VPNGatewaySpecPortForwarding, default is Undefined, optional
         port forwarding
-    provider : NetworkingWaycloakIoV1alpha1VPNGatewaySpecProvider, default is Undefined, required
+    provider : NetworkingWaycloakIoV1alpha1VPNGatewaySpecProvider, default is Undefined, optional
         provider
     workloadAccess : NetworkingWaycloakIoV1alpha1VPNGatewaySpecWorkloadAccess, default is Undefined, required
         workload access
@@ -70,7 +70,7 @@ schema NetworkingWaycloakIoV1alpha1VPNGatewaySpec:
 
     portForwarding?: NetworkingWaycloakIoV1alpha1VPNGatewaySpecPortForwarding
 
-    provider: NetworkingWaycloakIoV1alpha1VPNGatewaySpecProvider
+    provider?: NetworkingWaycloakIoV1alpha1VPNGatewaySpecProvider
 
     workloadAccess: NetworkingWaycloakIoV1alpha1VPNGatewaySpecWorkloadAccess
 
@@ -119,6 +119,8 @@ schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngine:
 
     Attributes
     ----------
+    config : NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfig, default is Undefined, optional
+        config
     image : str, default is Undefined, optional
         image
     $type : str, default is Undefined, required
@@ -126,9 +128,119 @@ schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngine:
     """
 
 
+    config?: NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfig
+
     image?: str
 
     $type: str
+
+
+schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfig:
+    r"""
+    networking waycloak io v1alpha1 v p n gateway spec engine config
+
+    Attributes
+    ----------
+    envFrom : [NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigEnvFromItems0], default is Undefined, required
+        EnvFrom imports engine-native non-secret environment variables. Waycloak
+        validates reserved integration keys but never copies values into the Pod specification.
+    files : [NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0], default is Undefined, optional
+        Files mounts operator-owned ConfigMaps or Secrets only into the engine.
+    """
+
+
+    envFrom: [NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigEnvFromItems0]
+
+    files?: [NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0]
+
+
+    check:
+        len(envFrom) >= 1
+        len(envFrom) <= 8
+        len(files) <= 8 if files
+
+
+schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigEnvFromItems0:
+    r"""
+    LocalObjectReference contains enough information to let you locate the
+    referenced object inside the same namespace.
+
+    Attributes
+    ----------
+    name : str, default is Undefined, optional
+        Name of the referent.
+        This field is effectively required, but due to backwards compatibility is
+        allowed to be empty. Instances of this type with an empty value here are
+        almost certainly wrong.
+        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+    """
+
+
+    name?: str = ""
+
+
+schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0:
+    r"""
+    networking waycloak io v1alpha1 v p n gateway spec engine config files items0
+
+    Attributes
+    ----------
+    configMapRef : NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0ConfigMapRef, default is Undefined, optional
+        config map ref
+    mountPath : str, default is Undefined, required
+        mount path
+    secretRef : NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0SecretRef, default is Undefined, optional
+        secret ref
+    """
+
+
+    configMapRef?: NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0ConfigMapRef
+
+    mountPath: str
+
+    secretRef?: NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0SecretRef
+
+
+    check:
+        _regex_match(str(mountPath), r"^/.*")
+
+
+schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0ConfigMapRef:
+    r"""
+    LocalObjectReference contains enough information to let you locate the
+    referenced object inside the same namespace.
+
+    Attributes
+    ----------
+    name : str, default is Undefined, optional
+        Name of the referent.
+        This field is effectively required, but due to backwards compatibility is
+        allowed to be empty. Instances of this type with an empty value here are
+        almost certainly wrong.
+        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+    """
+
+
+    name?: str = ""
+
+
+schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecEngineConfigFilesItems0SecretRef:
+    r"""
+    LocalObjectReference contains enough information to let you locate the
+    referenced object inside the same namespace.
+
+    Attributes
+    ----------
+    name : str, default is Undefined, optional
+        Name of the referent.
+        This field is effectively required, but due to backwards compatibility is
+        allowed to be empty. Instances of this type with an empty value here are
+        almost certainly wrong.
+        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+    """
+
+
+    name?: str = ""
 
 
 schema NetworkingWaycloakIoV1alpha1VPNGatewaySpecOverlay:
@@ -370,12 +482,20 @@ schema NetworkingWaycloakIoV1alpha1VPNGatewayStatusOverlay:
 
     Attributes
     ----------
+    appliedMembershipGeneration : str, default is Undefined, optional
+        applied membership generation
+    desiredMembershipGeneration : str, default is Undefined, optional
+        desired membership generation
     endpoint : str, default is Undefined, optional
         endpoint
     healthPort : int, default is Undefined, optional
         health port
     """
 
+
+    appliedMembershipGeneration?: str
+
+    desiredMembershipGeneration?: str
 
     endpoint?: str
 

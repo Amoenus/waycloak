@@ -8,10 +8,11 @@ Start here if you found Waycloak and want to evaluate it in your own cluster:
    account to one protected workload
 2. [Architecture and ownership](concepts/architecture-and-ownership.md)
 3. [Security exceptions](operations/security-exceptions.md)
-4. [Troubleshooting](operations/troubleshooting.md)
-5. [Advanced configuration](operations/advanced-configuration.md)
-6. [Upgrade and rollback](operations/upgrade.md)
-7. [Uninstall](operations/uninstall.md)
+4. [Gluetun-native configuration](guides/gluetun-native-configuration.md)
+5. [Troubleshooting](operations/troubleshooting.md)
+6. [Advanced configuration](operations/advanced-configuration.md)
+7. [Upgrade and rollback](operations/upgrade.md)
+8. [Uninstall](operations/uninstall.md)
 
 The [protected curl example](../examples/curl/README.md) exercises ordinary
 private egress. The [qBitTorrent example](../examples/qbittorrent/README.md)
@@ -20,6 +21,7 @@ adds the more advanced provider-assigned port workflow.
 ## Operations
 
 - [Detailed installation and release verification](operations/install.md)
+- [Gluetun-native configuration](guides/gluetun-native-configuration.md)
 - [Security exceptions](operations/security-exceptions.md)
 - [Troubleshooting](operations/troubleshooting.md)
 - [Advanced configuration](operations/advanced-configuration.md)

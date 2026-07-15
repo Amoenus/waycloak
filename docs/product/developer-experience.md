@@ -38,7 +38,7 @@ The simplest product experience should remain one workload marker. Port-forward 
 ```yaml
 metadata:
   annotations:
-    networking.waycloak.io/gateway: private-egress/proton-eu
+    networking.waycloak.io/gateway: private-egress/private
     networking.waycloak.io/port-forward: tcp,udp
 ```
 
@@ -60,11 +60,20 @@ namespace. Waycloak reserves only the settings required to observe and enforce
 the shared gateway contract.
 
 For example, Gluetun remains responsible for provider, OpenVPN/WireGuard,
-server-selection, custom-provider, DNS, and updater settings. Waycloak is a
-consumer of that configured engine; it does not aim to duplicate Gluetun's
-configuration schema. The current `v0.2` provider fields are a transitional
-compatibility surface whose engine-native replacement is tracked by issue #66
-and [ADR 0017](../decisions/0017-engine-native-configuration-boundary.md).
+server-selection, custom-provider, DNS, and updater settings. Put those
+non-secret native variables in referenced ConfigMaps and mount native
+ConfigMap or Secret files only into the engine through `engine.config`.
+Waycloak validates its small reserved integration boundary without copying
+native values. The `v0.2` `provider` fields remain a mutually exclusive
+migration surface; new gateways should use the engine-native shape defined by
+[ADR 0017](../decisions/0017-engine-native-configuration-boundary.md).
+
+Changing a referenced native ConfigMap changes the gateway Pod-template
+digest and emits `GatewayRolloutRequired`; the singleton remains `OnDelete`, so
+activate it during the documented fail-closed maintenance window. Secret
+projection updates remain engine-only, but operators must restart the gateway
+when the selected native engine does not reload that file. Migrate back to the
+legacy `provider` shape before rolling a controller back below `v0.3.0`.
 
 ## KCL integration
 
@@ -85,7 +94,7 @@ import waycloak.v1alpha1 as networking
 
 gateway_ref = helpers.GatewayReference {
     namespace = "private-egress"
-    name = "proton-eu"
+    name = "private"
 }
 
 pod_template_annotations = {

@@ -70,7 +70,10 @@ This is a fail-closed routing guarantee within the boundaries below. It is not a
 
 **Threat:** provider credentials are copied into workloads or emitted in status/logs.
 
-**Control:** gateway-only Secret references, minimal RBAC, automatic token mounting disabled, structured log redaction, and secret scanning in CI.
+**Control:** engine-only Secret file mounts, no controller or manager Secret
+read permission, minimal RBAC, automatic token mounting disabled, reserved-key
+validation without value reporting, structured log redaction, and secret
+scanning in CI.
 
 ### Cross-tenant gateway use
 
@@ -104,7 +107,12 @@ This is a fail-closed routing guarantee within the boundaries below. It is not a
 
 ## Secret model
 
-`VPNGateway.spec.credentialsSecretRef` names an existing Secret in the gateway namespace. Waycloak reads or mounts only documented keys. It does not create per-workload copies. ESO, SOPS, Sealed Secrets, Vault, or manual Secret management are all compatible because Waycloak consumes the standard Secret API.
+`VPNGateway.spec.engine.config.files[].secretRef` names an existing Secret in
+the gateway namespace. Kubernetes mounts it read-only only into the engine;
+Waycloak processes do not read it and do not create per-workload copies. The
+legacy `provider.credentialsSecretRef` uses the same engine-only mount boundary
+during migration. ESO, SOPS, Sealed Secrets, Vault, or manual Secret management
+remain compatible because the Pod consumes the standard Secret API.
 
 Status never contains credential values. Debug bundles redact Secret data, authorization headers, provider account identifiers, and personally identifying public-IP history by default.
 

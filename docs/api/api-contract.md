@@ -10,21 +10,31 @@ Initial version: `v1alpha1`
 Namespaced declaration of one VPN tunnel and its shared overlay.
 
 ```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gluetun-native
+  namespace: private-egress
+data:
+  VPN_SERVICE_PROVIDER: custom
+  VPN_TYPE: wireguard
+---
 apiVersion: networking.waycloak.io/v1alpha1
 kind: VPNGateway
 metadata:
-  name: proton-eu
+  name: private
   namespace: private-egress
 spec:
   engine:
     type: Gluetun
     image: ghcr.io/qdm12/gluetun@sha256:REQUIRED_DIGEST
-  provider:
-    name: protonvpn
-    protocol: openvpn
-    region: Netherlands
-    credentialsSecretRef:
-      name: protonvpn-credentials
+    config:
+      envFrom:
+        - name: gluetun-native
+      files:
+        - secretRef:
+            name: wireguard-config
+          mountPath: /gluetun/wireguard
   overlay:
     cidr: 172.30.99.0/24
     vni: 7999
@@ -37,13 +47,33 @@ spec:
       - 10.42.0.0/16
       - 10.43.0.0/16
   portForwarding:
-    enabled: true
-    driver: ProtonNatPmp
+    enabled: false
   workloadAccess:
     namespaceSelector: {}
 ```
 
-The actual image API should separate chart-tested defaults from explicit user override while still recording an immutable resolved digest in status. For the initial Gluetun adapter, `provider.region` is a country selector and maps to Gluetun's `SERVER_COUNTRIES`; the field remains provider-neutral at the Kubernetes API boundary.
+`engine.config.envFrom` references one or more same-namespace ConfigMaps whose
+keys and values become Gluetun-native environment variables. ConfigMap or
+Secret entries under `engine.config.files` are mounted read-only only into the
+engine at the declared absolute path. Environment references are ordered; when
+an allowed key appears more than once, the later ConfigMap wins consistently
+in validation and Kubernetes projection. The controller reads non-secret
+ConfigMaps for structural and reserved-key validation and computes only an
+opaque rollout digest; it never reads a referenced Secret or copies native
+values into the gateway CR, controller-owned ConfigMap, status, events, logs,
+manager, or protected workloads.
+
+Waycloak rejects native ConfigMaps that set its reserved integration keys:
+the tunnel interface, loopback health and control addresses, control-server
+authorization, DNS bind address, public-IP observation, firewall settings, or
+Gluetun's competing port-forward loop. Mounts may not mask `/dev`,
+`/etc/resolv.conf`, `/iptables`, `/run/waycloak`, or the `/gluetun` state root.
+Mount paths are limited to nested `/gluetun/...` paths required by Gluetun or
+the dedicated `/run/engine-native` tree.
+Provider, protocol, server selection, custom-provider files, non-conflicting
+DNS options, and updater settings otherwise remain Gluetun-native.
+See the [Gluetun-native configuration guide](../guides/gluetun-native-configuration.md)
+for Proton/OpenVPN, Mullvad/WireGuard, and custom-provider examples.
 
 `clusterTraffic.cidrs` is required when `mode` is explicitly `Preserve` and is
 invalid for `Gateway` or `Deny`. It is the operator-owned Pod, Service, and
@@ -51,7 +81,15 @@ other cluster-local IPv4 set that remains on the CNI main table. Waycloak does
 not request broad Node RBAC to guess this boundary, and it does not treat RFC
 1918 space as implicitly trusted cluster traffic.
 
-For the initial Proton/OpenVPN Gluetun integration, `credentialsSecretRef` names a Secret in the gateway namespace with `username` and `password` keys. Waycloak mounts the Secret only into the engine container and configures Gluetun's secret-file settings; it does not copy values into status, manager configuration, or protected workloads. Additional protocol-specific keys require a documented API addition.
+The pre-`v0.3.0` `provider` object remains accepted as a migration surface and
+is mutually exclusive with `engine.config`. It retains the original
+Proton/OpenVPN `username` and `password` Secret contract. New configurations
+use native ConfigMaps and engine-only Secret file mounts, so WireGuard and
+custom-provider file shapes do not require provider-specific Waycloak fields.
+Migrate atomically by adding `engine.config` while removing `provider` in the
+same update. Before rolling back to a pre-`v0.3.0` controller, migrate every
+native gateway back to `provider`; an older controller cannot operate the new
+shape and must remain fail closed.
 
 ### Gateway conditions
 
@@ -78,7 +116,7 @@ Status includes provider capabilities, current client count, address-pool usage,
 Canonical selection:
 
 ```yaml
-networking.waycloak.io/gateway: private-egress/proton-eu
+networking.waycloak.io/gateway: private-egress/private
 ```
 
 The gateway namespace may be omitted only when the gateway and workload share a namespace. Cross-namespace selection is authorized by the gateway's `spec.workloadAccess.namespaceSelector`; admission rejects a reference whose selector does not match the workload namespace.
@@ -200,10 +238,12 @@ semantics, requested-port support, and minimum duration. Repeated ensure calls
 carry the stable lease identity and are idempotent. Provider acquisition never
 owns gateway DNAT or application delivery state.
 
-The initial `ProtonNatPmp` driver is supported with `provider.name:
-protonvpn` and `provider.protocol: openvpn`. Proton requires the referenced
-OpenVPN username to include `+pmp`; Waycloak does not read or rewrite that
-Secret value. Gluetun selects port-forward-capable servers but its own
+The initial `ProtonNatPmp` driver is supported when effective native Gluetun
+configuration selects `VPN_SERVICE_PROVIDER=protonvpn` and
+`VPN_TYPE=openvpn`; the legacy equivalent remains supported during migration.
+Proton requires the referenced OpenVPN username to include `+pmp`; Waycloak
+does not read or rewrite that Secret value. Gluetun selects
+port-forward-capable servers but its own
 port-forward loop is disabled so the gateway manager remains the only mapping
 owner. Provider acquisition is observed through the exact serving gateway Pod
 and increments `leaseGeneration` only when the public port changes
