@@ -37,5 +37,12 @@ pod_template_annotations = {
 controller-owned and consumers must not author it. The module contains no
 credentials, private endpoints, provider defaults, or homelab-specific values.
 
-Run `kcl run examples/basic.k -S items` from this directory for a complete
-multi-document gateway and lease rendering example.
+Start with the egress-only example:
+
+```sh
+kcl run examples/private-egress.k -S items
+```
+
+It renders one `VPNGateway` and exposes the annotation map to merge into a
+workload Pod template. The more advanced `examples/basic.k` adds a
+provider-assigned `PortForwardLease`.

@@ -23,8 +23,8 @@ provider, a service mesh, a replacement CNI, or a claim of anonymity.
 
 If this is your first time using Waycloak, follow these pages in order:
 
-1. [Getting started](docs/getting-started.md) — install v0.2.0, create a
-   gateway, protect a disposable workload, and verify it.
+1. [Getting started](docs/getting-started.md) — protect your first workload
+   with two small manifests and one annotation.
 2. [Architecture and ownership](docs/concepts/architecture-and-ownership.md) —
    understand the controller, webhook, gateway, injected agent, and optional
    application adapters.

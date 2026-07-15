@@ -1,195 +1,67 @@
 # Getting started
 
-This guide takes a new cluster from no Waycloak installation to one disposable
-workload using a shared Proton/OpenVPN gateway. It deliberately starts with
-private egress only. Add provider port forwarding after the basic path is
-healthy.
+Use this quickstart when you want to put a few Pods behind one shared VPN. It
+creates a gateway, authorizes one namespace, and protects a disposable curl
+Deployment. Port forwarding and production hardening are deliberately left
+for later.
 
-## Before you begin
+## What you need
 
-You need:
+- a Linux Kubernetes cluster running a [supported Kubernetes and CNI
+  combination](../README.md#current-release);
+- Waycloak installed with Helm; and
+- Proton VPN OpenVPN credentials.
 
-- a Kubernetes cluster with Linux workers;
-- Kubernetes 1.35 or 1.36 for the currently verified compatibility set;
-- Kindnet or Flannel for the currently verified CNI set;
-- `kubectl`, Helm 3.14 or newer, `curl`, `jq`, and Cosign 2.6 or newer;
-- cluster-admin access for CRDs, admission webhooks, and cluster-scoped RBAC;
-- worker kernels with TUN, VXLAN, connection tracking, and nftables support;
-- a CNI or host firewall that permits UDP 4789 between protected workload
-  nodes and gateway nodes;
-- Proton VPN OpenVPN credentials, stored in files outside the repository;
-- either an existing cert-manager installation or an externally managed
-  webhook serving certificate.
-
-Waycloak v0.2.0 is pre-1.0 software. Read the
-[current release boundaries](../README.md#current-release),
-[security exceptions](operations/security-exceptions.md), and
-[threat model](security/threat-model.md) before using it for sensitive
-workloads.
-
-## 1. Verify and download the release
-
-The release manifest is the source of truth for artifact identities. Do not
-copy a mutable image tag from a registry page.
+If Waycloak is not installed, use the short cert-manager path below or follow
+the [detailed installation guide](operations/install.md) for release
+verification and externally managed TLS.
 
 ```sh
-version=v0.2.0
-release_url="https://github.com/Amoenus/waycloak/releases/download/$version"
-
-curl --fail --location --remote-name "$release_url/release-manifest.json"
-curl --fail --location --remote-name "$release_url/release-manifest.sigstore.json"
-
-identity="https://github.com/Amoenus/waycloak/.github/workflows/release.yaml@refs/tags/$version"
-issuer="https://token.actions.githubusercontent.com"
-
-cosign verify-blob \
-  --bundle release-manifest.sigstore.json \
-  --certificate-identity "$identity" \
-  --certificate-oidc-issuer "$issuer" \
-  release-manifest.json
-
-jq -e '.version == "0.2.0"' release-manifest.json >/dev/null
-
-jq -r '.artifacts[] | .reference' release-manifest.json |
-while IFS= read -r artifact; do
-  cosign verify \
-    --certificate-identity "$identity" \
-    --certificate-oidc-issuer "$issuer" \
-    "$artifact" >/dev/null
-done
-```
-
-Pull the chart recorded in the manifest and verify Helm resolved the same
-digest:
-
-```sh
-chart_ref="$(jq -r '.artifacts.helmChart.reference' release-manifest.json)"
-chart_name="${chart_ref%@*}"
-expected_digest="${chart_ref##*@}"
-
-pull_output="$(helm pull "oci://$chart_name" --version "${version#v}" 2>&1)"
-printf '%s\n' "$pull_output"
-actual_digest="$(printf '%s\n' "$pull_output" | awk '$1 == "Digest:" {print $2}')"
-test "$actual_digest" = "$expected_digest"
-test -f "waycloak-${version#v}.tgz"
-```
-
-## 2. Prepare webhook TLS
-
-Choose one mode.
-
-### Existing cert-manager installation
-
-If cert-manager and its CA injector already run in the cluster, the chart can
-create a namespaced self-signed issuer and serving certificate:
-
-```sh
-tls_arguments="--set webhook.tls.certManager.enabled=true"
-```
-
-This is optional integration, not a Waycloak runtime dependency. The command
-does not install cert-manager.
-
-### Externally managed certificate
-
-If cert-manager is not installed, create a `kubernetes.io/tls` Secret whose
-certificate is valid for `waycloak-webhook.waycloak-system.svc`, and obtain the
-matching base64-encoded CA bundle. The complete OpenSSL procedure is in
-[Install Waycloak](operations/install.md#existing-secret-and-static-ca).
-
-```sh
-tls_arguments="--set webhook.tls.existingSecret=waycloak-webhook-tls --set-string webhook.tls.caBundle=$ca_bundle"
-```
-
-Never pass the CA private key to Helm or commit it to a repository.
-
-## 3. Install the control plane
-
-```sh
-# shellcheck disable=SC2086 # tls_arguments is an intentional argument list
-helm upgrade --install waycloak "waycloak-${version#v}.tgz" \
+helm upgrade --install waycloak oci://ghcr.io/amoenus/charts/waycloak \
+  --version 0.2.0 \
   --namespace waycloak-system \
   --create-namespace \
-  $tls_arguments \
+  --set webhook.tls.certManager.enabled=true \
   --wait --timeout 5m
 ```
 
-Verify the installation:
+That command uses an existing cert-manager installation; it does not install
+cert-manager. The released chart contains the Waycloak CRDs and uses
+digest-pinned Waycloak images.
 
-```sh
-kubectl wait --for=condition=Available deployment/waycloak \
-  --namespace waycloak-system --timeout=5m
-kubectl get pods --namespace waycloak-system
-kubectl get crd \
-  vpngateways.networking.waycloak.io \
-  vpnworkloads.networking.waycloak.io \
-  portforwardleases.networking.waycloak.io
-kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration \
-  -l app.kubernetes.io/name=waycloak
-```
+## 1. Create the credentials Secret
 
-There should be two ready controller replicas and three installed CRDs.
-
-## 4. Identify cluster-local CIDRs
-
-In `Preserve` mode, Kubernetes Pod and Service traffic stays on the CNI path
-while external traffic uses the VPN. Waycloak intentionally does not guess
-these trust boundaries using broad node RBAC.
-
-List the Pod CIDRs Kubernetes exposes:
-
-```sh
-kubectl get nodes \
-  -o jsonpath='{range .items[*]}{.spec.podCIDR}{"\n"}{end}' |
-  sort -u
-```
-
-Obtain the Service CIDR from your cluster installation or distribution
-configuration. Common defaults such as `10.42.0.0/16` and `10.43.0.0/16` are
-examples, not safe universal values.
-
-Choose an overlay CIDR that overlaps none of the following:
-
-- node, Pod, or Service CIDRs;
-- the VPN provider's tunnel range;
-- networks applications must reach directly.
-
-The examples below use `172.30.99.0/24`; change it if that range overlaps your
-environment.
-
-## 5. Create the gateway namespace and credentials
-
-Gateway Pods require an explicit Pod Security exception. Keep the gateway in
-a dedicated namespace and tightly restrict who can create workloads there.
+Keep the credentials in the gateway namespace. Creating the Secret from files
+keeps their values out of this manifest and your shell history.
 
 ```sh
 kubectl create namespace waycloak-egress
-kubectl label namespace waycloak-egress \
-  pod-security.kubernetes.io/enforce=privileged \
-  pod-security.kubernetes.io/warn=restricted \
-  pod-security.kubernetes.io/audit=restricted
-```
-
-Create the provider Secret from files so values do not enter shell history:
-
-```sh
 kubectl create secret generic vpn-credentials \
   --namespace waycloak-egress \
   --from-file=username=/secure/path/openvpn-username \
   --from-file=password=/secure/path/openvpn-password
 ```
 
-The Secret must contain keys named `username` and `password`. Waycloak mounts
-it only into the VPN engine. It is never copied to the controller, protected
-workloads, status, or events. An external secret operator may create the same
-ordinary Kubernetes Secret; Waycloak has no dependency on that operator.
+An external secret operator can create the same ordinary Kubernetes Secret.
+Waycloak does not depend on that operator and never copies these credentials
+into protected workloads.
 
-## 6. Create a gateway
+## 2. Create a gateway
 
-Save the following as `gateway.yaml`. Replace the two example cluster CIDRs
-with the values from your cluster before applying it.
+Save this as `gateway.yaml`. Change the two `clusterTraffic.cidrs` values to
+your cluster's Pod and Service CIDRs. The shown values are the common k3s
+defaults, not universal defaults.
 
 ```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: waycloak-egress
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
 apiVersion: networking.waycloak.io/v1alpha1
 kind: VPNGateway
 metadata:
@@ -214,8 +86,8 @@ spec:
   clusterTraffic:
     mode: Preserve
     cidrs:
-      - 10.42.0.0/16 # replace with your Pod CIDR or CIDRs
-      - 10.43.0.0/16 # replace with your Service CIDR
+      - 10.42.0.0/16 # your Pod CIDR
+      - 10.43.0.0/16 # your Service CIDR
   portForwarding:
     enabled: false
   workloadAccess:
@@ -228,99 +100,92 @@ spec:
 kubectl apply -f gateway.yaml
 kubectl wait --for=condition=Ready vpngateway/proton-eu \
   --namespace waycloak-egress --timeout=5m
-kubectl get vpngateway/proton-eu --namespace waycloak-egress
 ```
 
-If it does not become ready, inspect its conditions in order rather than
-decoding the credential Secret:
+If `172.30.99.0/24` overlaps another network, choose a different private
+overlay CIDR. The [advanced configuration guide](operations/advanced-configuration.md)
+explains CIDR discovery, cluster-traffic modes, DNS, and overlay planning.
 
-```sh
-kubectl describe vpngateway/proton-eu --namespace waycloak-egress
-kubectl get events --namespace waycloak-egress --sort-by=.lastTimestamp
+## 3. Protect a workload
+
+Save this as `workload.yaml`. The gateway annotation is the only Waycloak
+setting on the workload.
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: waycloak-demo
+  labels:
+    networking.waycloak.io/access: allowed
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl
+  namespace: waycloak-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl
+  template:
+    metadata:
+      labels:
+        app: curl
+      annotations:
+        networking.waycloak.io/gateway: waycloak-egress/proton-eu
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: curl
+          image: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+          command: [sleep, infinity]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
 ```
 
-## 7. Protect a disposable workload
-
-The repository includes a minimal curl Deployment. Its namespace is dedicated
-to the example because Pod Security Admission evaluates the injected
-`NET_ADMIN` container as part of the whole Pod.
-
 ```sh
-kubectl apply -k examples/curl
-kubectl wait --for=condition=Available deployment/waycloak-demo \
+kubectl apply -f workload.yaml
+kubectl wait --for=condition=Available deployment/curl \
   --namespace waycloak-demo --timeout=5m
+kubectl exec --namespace waycloak-demo deployment/curl -- \
+  curl --fail --silent --output /dev/null \
+  --write-out 'protected HTTPS status: %{http_code}\n' https://example.com
 ```
 
-If your gateway has a different namespace or name, edit the annotation in
-`examples/curl/deployment.yaml` before applying it.
+Waycloak leaves unannotated Pods unchanged. For the annotated Pod it creates a
+stable allocation, waits for that allocation before the application starts,
+and injects the networking components that enforce fail-closed VPN egress.
+The application receives no VPN credentials, Kubernetes API token, or extra
+Linux capabilities.
 
-Inspect what admission added:
+The complete workload manifest also lives in [`examples/curl`](../examples/curl).
+To author the gateway with KCL instead of YAML, use the
+[`private-egress.k`](../kcl/waycloak/examples/private-egress.k) example.
 
-```sh
-kubectl get pod --namespace waycloak-demo \
-  -l app.kubernetes.io/name=waycloak-demo \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\n  init: "}{.spec.initContainers[*].name}{"\n  containers: "}{.spec.containers[*].name}{"\n"}{end}'
-kubectl get vpnworkloads --namespace waycloak-demo
-```
+## Where to go next
 
-You should see `waycloak-prepare`, `waycloak-verify`, the original `curl`
-container, and `waycloak-agent`.
+- [Architecture and ownership](concepts/architecture-and-ownership.md) shows
+  what you define and what Waycloak creates.
+- [Security exceptions](operations/security-exceptions.md) explains why the
+  gateway and protected namespaces need their Pod Security labels.
+- [Troubleshooting](operations/troubleshooting.md) starts with conditions and
+  logs when either wait command fails.
+- [Advanced configuration](operations/advanced-configuration.md) covers
+  authorization, networking, DNS, KCL, and port forwarding.
+- [Verified installation](operations/install.md) covers signatures, immutable
+  artifact identities, TLS modes, and production installation.
 
-Verify protected DNS and HTTPS without printing the VPN exit address:
-
-```sh
-kubectl exec --namespace waycloak-demo deployment/waycloak-demo \
-  --container curl -- \
-  curl --fail --silent --show-error --output /dev/null \
-  --write-out 'protected HTTPS status: %{http_code}\n' \
-  https://example.com
-```
-
-To compare exit addresses, use an IP-check service from both an ordinary Pod
-and the protected Pod, but treat the resulting addresses as sensitive
-operational metadata and do not paste them into public issue reports.
-
-## 8. Understand the result
-
-You authored:
-
-- one `VPNGateway` and one credentials Secret;
-- a namespace authorization label;
-- one annotation on the workload Pod template.
-
-Waycloak created or injected:
-
-- the gateway StatefulSet, Service, desired-state ConfigMap, and disruption
-  budget;
-- a controller-owned `VPNWorkload` and UID-bound allocation ConfigMap;
-- fail-closed init containers and the long-running workload agent;
-- the VXLAN overlay, protected routes, DNS redirection, and owned firewall
-  state.
-
-Continue with
-[Architecture and ownership](concepts/architecture-and-ownership.md) before
-adapting a production workload.
-
-## 9. Clean up the example
-
-```sh
-kubectl delete namespace waycloak-demo
-```
-
-Keep the gateway if another workload will use it. To remove Waycloak entirely,
-follow the ordered [uninstall guide](operations/uninstall.md); uninstalling the
-controller before migrating protected Pods can intentionally leave them
-without egress.
-
-## Add port forwarding later
-
-Do not enable provider port forwarding until private egress is healthy. Proton
-NAT-PMP requires a port-forward-capable server and an OpenVPN username with
-Proton's required `+pmp` suffix. Then enable `ProtonNatPmp` on the gateway and
-create a `PortForwardLease`.
-
-Applications that listen on a fixed port require no application adapter.
-Applications that advertise their external port inside a protocol may require
-a narrow adapter. The supported qBitTorrent exception and its additional
-Secret/configuration are documented in
-[the qBitTorrent example](../examples/qbittorrent/README.md).
+Remove the disposable workload with `kubectl delete namespace waycloak-demo`.
+Keep the gateway for other protected workloads, or follow the ordered
+[uninstall guide](operations/uninstall.md).

@@ -4,7 +4,8 @@
 
 Start here if you found Waycloak and want to evaluate it in your own cluster:
 
-1. [Getting started](getting-started.md)
+1. [Getting started](getting-started.md) — the shortest path from a VPN
+   account to one protected workload
 2. [Architecture and ownership](concepts/architecture-and-ownership.md)
 3. [Security exceptions](operations/security-exceptions.md)
 4. [Troubleshooting](operations/troubleshooting.md)
