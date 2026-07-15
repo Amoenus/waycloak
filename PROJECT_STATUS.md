@@ -224,17 +224,30 @@ rotation plus qBitTorrent tracker/DHT certification under issue #4; automatic
 same-Pod recovery after singleton replacement remains versioned operational
 maturity work under issue #61.
 
+The `v0.2.1` patch candidate hardens the qBitTorrent adapter after live
+adoption exposed a false-positive delivery acknowledgement: the application
+preference could report the assigned port while no BitTorrent listener was
+active. The adapter now requires a Pod-local TCP listener before acknowledging
+the lease, keeps readiness false when that listener is absent, rate-limits
+unchanged pending logs, and logs recovery transitions. Unit coverage and the
+real qBitTorrent Kind rotation test verify the behavior. The deployment-side
+stale native interface binding was repaired and qBitTorrent returned to
+`connected` with TCP/UDP listeners on the current provider port. Gateway
+endpoint rollover and lease/readiness bootstrap findings remain explicitly
+open under issues #70 and #71; this patch does not claim to solve them.
+
 ## Release progression
 
 `v0.1.0` delivered the first usable private-egress foundation: a single shared
 Gluetun gateway, injected VXLAN agent, fail-closed egress, standard Kubernetes
 Secret references, and observable gateway status.
 
-The current `v0.2.0` release adds provider-neutral `PortForwardLease`, Proton
+The `v0.2.0` release adds provider-neutral `PortForwardLease`, Proton
 NAT-PMP, stable gateway translation, renewable UID-bound delivery, the narrow
 qBitTorrent adapter, signed OCI Helm and optional KCL publication, and real
-homelab adoption. `v0.3.0` is the sustained real-provider tracker, peer-ingress,
-DHT, rotation, and additional-workload certification milestone.
+homelab adoption. `v0.2.1` is the listener-observation and adapter-log hardening
+patch. `v0.3.0` is the sustained real-provider tracker, peer-ingress, DHT,
+rotation, and additional-workload certification milestone.
 
 ## Definition of “implemented”
 
