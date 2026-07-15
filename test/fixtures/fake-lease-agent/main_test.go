@@ -56,7 +56,11 @@ func TestQBittorrentProxyInjectsAndRecoversFromPreferenceStall(t *testing.T) {
 	proxyServer := httptest.NewServer(newQBittorrentProxy(upstream, stallFile, 100*time.Millisecond))
 	defer proxyServer.Close()
 	client := &http.Client{Timeout: 10 * time.Millisecond}
-	if _, err := client.Get(proxyServer.URL + "/api/v2/app/preferences"); err == nil {
+	stallResponse, stallErr := client.Get(proxyServer.URL + "/api/v2/app/preferences")
+	if stallResponse != nil {
+		stallResponse.Body.Close()
+	}
+	if stallErr == nil {
 		t.Fatal("preference request did not time out while the stall marker existed")
 	}
 	if err := os.Remove(stallFile); err != nil {
