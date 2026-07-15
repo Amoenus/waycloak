@@ -23,9 +23,10 @@ import (
 )
 
 type PodMutator struct {
-	Client     client.Client
-	Scheme     *runtime.Scheme
-	AgentImage string
+	Client         client.Client
+	Scheme         *runtime.Scheme
+	AgentImage     string
+	GenerationGate *GenerationGate
 }
 
 type Rejection struct{ Reason, Message string }
@@ -63,6 +64,11 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 	refValue := pod.Annotations[contract.GatewayAnnotation]
 	if refValue == "" {
 		return false, nil
+	}
+	if m.GenerationGate != nil {
+		if err := m.GenerationGate.Check(ctx); err != nil {
+			return false, &Rejection{Reason: waystatus.ReasonAdmissionGenerationConflict, Message: err.Error()}
+		}
 	}
 	gwNamespace, gwName, err := ParseGatewayReference(pod.Namespace, refValue)
 	if err != nil {
@@ -110,6 +116,9 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 		if err := validateInjected(pod, m.AgentImage); err != nil {
 			return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: err.Error()}
 		}
+		if m.GenerationGate != nil && pod.Annotations[contract.AdmissionGenerationAnnotation] != m.GenerationGate.Generation {
+			return false, &Rejection{Reason: waystatus.ReasonAdmissionGenerationConflict, Message: "Pod carries a different admission generation"}
+		}
 		return credentialsRemoved, nil
 	}
 	if hasReservedNames(pod) {
@@ -119,6 +128,9 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 		pod.Annotations = map[string]string{}
 	}
 	pod.Annotations[contract.InjectionVersionAnnotation] = contract.InjectionVersion
+	if m.GenerationGate != nil {
+		pod.Annotations[contract.AdmissionGenerationAnnotation] = m.GenerationGate.Generation
+	}
 	pod.Annotations[contract.AllocationNameAnnotation] = allocationName
 	f := false
 	pod.Spec.AutomountServiceAccountToken = &f

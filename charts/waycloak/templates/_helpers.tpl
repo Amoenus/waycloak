@@ -38,6 +38,16 @@ app.kubernetes.io/component: controller
 {{- printf "%s@%s" $repository $digest -}}
 {{- end }}
 
+{{- define "waycloak.admissionGeneration" -}}
+{{- $controllerImage := include "waycloak.image" (dict "name" "controller" "image" .Values.images.controller) -}}
+{{- $agentImage := include "waycloak.image" (dict "name" "agent" "image" .Values.images.agent) -}}
+{{- printf "v1:%s:%s" $controllerImage $agentImage | sha256sum -}}
+{{- end }}
+
+{{- define "waycloak.admissionGenerationConfigMap" -}}
+{{- printf "%s-admission-generation" (include "waycloak.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
 {{- define "waycloak.webhookCertificateName" -}}
 {{- printf "%s-webhook" (include "waycloak.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}

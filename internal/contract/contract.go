@@ -14,6 +14,7 @@ const (
 	GatewayAnnotation              = "networking.waycloak.io/gateway"
 	PortForwardContainerAnnotation = "networking.waycloak.io/port-forward-container"
 	InjectionVersionAnnotation     = "internal.networking.waycloak.io/injection-version"
+	AdmissionGenerationAnnotation  = "internal.networking.waycloak.io/admission-generation"
 	AllocationNameAnnotation       = "internal.networking.waycloak.io/allocation-configmap"
 	DeliveryDigestAnnotation       = "internal.networking.waycloak.io/port-forward-delivery-digest"
 	InjectionVersion               = "v1alpha2"
@@ -27,6 +28,7 @@ const (
 	AgentLeasePort                 = 9809
 	QBittorrentAdapterHealthPort   = 9810
 	PortForwardLeasesKey           = "port-forward-leases.json"
+	AdmissionGenerationKey         = "generation"
 	ApplicationLeaseMountPath      = "/run/waycloak/port-forward"
 	GatewayDNSPort                 = 1053
 	WorkloadFinalizer              = "networking.waycloak.io/allocation-quarantine"

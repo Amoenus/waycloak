@@ -21,5 +21,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0017: Engine-native configuration boundary](0017-engine-native-configuration-boundary.md)
 - [0018: Out-of-process workload adapter protocol](0018-workload-adapter-protocol.md)
 - [0019: Conformance-gated optional eBPF data plane](0019-optional-ebpf-data-plane.md)
+- [0020: Observed admission generation gates webhook upgrades](0020-observed-admission-generation.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

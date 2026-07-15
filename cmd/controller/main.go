@@ -27,6 +27,7 @@ import (
 
 func main() {
 	var metricsAddr, probeAddr, agentImage, gatewayManagerImage, webhookCertDir string
+	var admissionGeneration, admissionGenerationConfigMap, admissionGenerationNamespace string
 	var webhookPort int
 	var leader, controllersEnabled bool
 	var allocationQuarantine, portForwardDeletionQuarantine time.Duration
@@ -35,6 +36,9 @@ func main() {
 	flag.StringVar(&agentImage, "agent-image", "", "immutable agent image reference injected into protected Pods")
 	flag.StringVar(&gatewayManagerImage, "gateway-manager-image", "", "immutable gateway-manager image reference; empty leaves gateway workload reconciliation disabled")
 	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "", "directory containing tls.crt and tls.key")
+	flag.StringVar(&admissionGeneration, "admission-generation", "", "local immutable admission generation")
+	flag.StringVar(&admissionGenerationConfigMap, "admission-generation-configmap", "", "ConfigMap containing the desired admission generation")
+	flag.StringVar(&admissionGenerationNamespace, "admission-generation-namespace", "", "namespace containing the desired admission generation ConfigMap")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "HTTPS port for admission webhooks")
 	flag.BoolVar(&leader, "leader-elect", true, "")
 	flag.BoolVar(&controllersEnabled, "controllers-enabled", true, "run reconcilers in addition to admission webhooks")
@@ -47,6 +51,10 @@ func main() {
 	log := ctrl.Log.WithName("setup")
 	if agentImage == "" {
 		log.Error(nil, "--agent-image is required")
+		os.Exit(2)
+	}
+	if admissionGeneration == "" || admissionGenerationConfigMap == "" || admissionGenerationNamespace == "" {
+		log.Error(nil, "--admission-generation, --admission-generation-configmap, and --admission-generation-namespace are required")
 		os.Exit(2)
 	}
 	scheme := runtime.NewScheme()
@@ -82,14 +90,15 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	mgr.GetWebhookServer().Register("/mutate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodMutator{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage}})
-	mgr.GetWebhookServer().Register("/validate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodValidator{AgentImage: agentImage}})
+	generationGate := &wayadmission.GenerationGate{Reader: mgr.GetAPIReader(), Namespace: admissionGenerationNamespace, ConfigMap: admissionGenerationConfigMap, Generation: admissionGeneration}
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodMutator{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage, GenerationGate: generationGate}})
+	mgr.GetWebhookServer().Register("/validate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodValidator{AgentImage: agentImage, GenerationGate: generationGate}})
 	_ = corev1.NamespaceDefault
 	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Error(err, "health check")
 		os.Exit(1)
 	}
-	if err = mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+	if err = mgr.AddReadyzCheck("admission-generation", generationGate.Readiness); err != nil {
 		log.Error(err, "ready check")
 		os.Exit(1)
 	}
