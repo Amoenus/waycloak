@@ -164,6 +164,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 
 	protected := pod("protected", namespace, map[string]string{contract.GatewayAnnotation: namespace + "/private"})
 	protected.Spec.AutomountServiceAccountToken = nil
+	protected.Spec.NodeName = "waycloak-e2e-nonexistent-node"
 	protected.Labels = map[string]string{"app": "protected"}
 	must(t, direct.Create(ctx, protected))
 	if protected.Annotations[contract.InjectionVersionAnnotation] != contract.InjectionVersion {
