@@ -185,6 +185,17 @@ func managerHandler(manager *waygateway.HealthManager) http.Handler {
 		}
 		response.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("/v1/gateway/observation", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		document := waygateway.ManagerObservationDocument{APIVersion: waygateway.ManagerObservationAPIVersion, Observation: waygateway.ManagerObservation{AppliedMembershipGeneration: manager.AppliedMembershipGeneration()}}
+		if err := json.NewEncoder(response).Encode(document); err != nil {
+			log.Printf("encode gateway observation: %v", err)
+		}
+	})
 	mux.HandleFunc("/v1/port-forward/leases/", func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			response.WriteHeader(http.StatusMethodNotAllowed)

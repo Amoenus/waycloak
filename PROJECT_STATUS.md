@@ -312,7 +312,23 @@ record the applied generation, and a 100-percent controller surge prevents the
 zero-unavailable rollout from deadlocking when every old replica becomes
 unready together. Unit, direct old/new replica, and Helm generation-changing
 Kind coverage prove the transition. ADR 0020 records the contract. The next
-ordered slice is applied gateway membership generation in #48.
+ordered slice was gateway membership generation in #48.
+
+That third `v0.3.0` reliability slice is now implemented. The controller hashes
+canonical stable member identities plus overlay and observed underlay addresses
+into a desired generation published in the gateway ConfigMap. The manager
+advances a tokenless last-known-good applied generation only after network,
+forwarding, gateway-rule, and DNS reconciliation succeeds. Gateway status
+exposes both values and reports `MembershipApplied=False` while projection is
+pending or observation is stuck or failing, then `MembershipApplied=True` after
+the generations converge. It emits transition events and polls while pending;
+`OverlayReady` and overall `Ready` remain false until they match. Malformed or
+partial projections preserve the previous kernel state and applied generation.
+Unit coverage proves add, remove, underlay replacement, stable ordering,
+malformed projection, and pending-to-applied transitions. The privileged Kind
+gateway test exercises malformed projection retention and add/remove generation
+advancement without disrupting an existing allocation. ADR 0021 records the
+contract. The next ordered work is engine-native Gluetun configuration in #66.
 
 ## Release progression
 

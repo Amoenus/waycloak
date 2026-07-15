@@ -15,6 +15,7 @@ import (
 )
 
 var interfaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
+var membershipGenerationPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 type DesiredSource interface {
 	Load() (DesiredState, error)
@@ -38,6 +39,9 @@ func (source FileSource) Load() (DesiredState, error) {
 }
 
 func (desired DesiredState) Validate() error {
+	if !membershipGenerationPattern.MatchString(desired.MembershipGeneration) || desired.MembershipGeneration != MembershipGeneration(desired.Members) {
+		return errors.New("gateway membership generation is invalid")
+	}
 	prefix, err := netip.ParsePrefix(desired.OverlayCIDR)
 	if err != nil || !prefix.Addr().Is4() || prefix.Bits() > 30 {
 		return errors.New("gateway overlay CIDR is invalid")

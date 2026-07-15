@@ -81,8 +81,10 @@ type VPNGatewayStatus struct {
 // GatewayOverlayStatus contains observed data-plane state. Endpoint is an IP
 // address and UDP port suitable for netip.ParseAddrPort.
 type GatewayOverlayStatus struct {
-	Endpoint   string `json:"endpoint,omitempty"`
-	HealthPort int32  `json:"healthPort,omitempty"`
+	Endpoint                    string `json:"endpoint,omitempty"`
+	HealthPort                  int32  `json:"healthPort,omitempty"`
+	DesiredMembershipGeneration string `json:"desiredMembershipGeneration,omitempty"`
+	AppliedMembershipGeneration string `json:"appliedMembershipGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true

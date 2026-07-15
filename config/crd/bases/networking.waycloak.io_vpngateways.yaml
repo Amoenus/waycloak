@@ -282,6 +282,10 @@ spec:
                   GatewayOverlayStatus contains observed data-plane state. Endpoint is an IP
                   address and UDP port suitable for netip.ParseAddrPort.
                 properties:
+                  appliedMembershipGeneration:
+                    type: string
+                  desiredMembershipGeneration:
+                    type: string
                   endpoint:
                     type: string
                   healthPort:

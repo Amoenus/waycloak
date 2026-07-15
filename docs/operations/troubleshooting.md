@@ -57,7 +57,19 @@ kubectl describe vpnworkload -n WORKLOAD_NAMESPACE WORKLOAD_NAME
 
 ## The gateway is not ready
 
-Inspect conditions in order: `Scheduled`, `TunnelReady`, `OverlayReady`, `DNSReady`, then `Ready`. Common causes are a missing credentials Secret key, an unsupported or mutable engine image, unavailable `/dev/net/tun`, blocked provider connectivity, blocked UDP 4789, or an invalid cluster resolver observation.
+Inspect conditions in order: `Scheduled`, `TunnelReady`, `MembershipApplied`,
+`OverlayReady`, `DNSReady`, `PortForwardReady`, then `Ready`. When port
+forwarding is disabled, `PortForwardReady=True` with reason
+`PortForwardDisabled`; otherwise it reflects provider capability and rule
+reconciliation. If `MembershipApplied=False`, compare
+`status.overlay.desiredMembershipGeneration` and
+`status.overlay.appliedMembershipGeneration`. A brief mismatch is ordinary
+ConfigMap projection delay; a persistent `MembershipGenerationPending` or
+`MembershipObservationFailed` event identifies a stuck projection, manager, or
+tokenless observation path without requiring kernel inspection. Common causes
+of other failures are a missing credentials Secret key, an unsupported or
+mutable engine image, unavailable `/dev/net/tun`, blocked provider
+connectivity, blocked UDP 4789, or an invalid cluster resolver observation.
 
 The manager logs exclude provider response bodies, but logs can still contain operational IP addresses. Treat debug output as sensitive infrastructure metadata. Never print or decode the credentials Secret while collecting diagnostics.
 

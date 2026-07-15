@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,6 +23,20 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func desiredWithMembershipGeneration(t *testing.T, document string) string {
+	t.Helper()
+	var desired waygateway.DesiredState
+	if err := json.Unmarshal([]byte(document), &desired); err != nil {
+		t.Fatal(err)
+	}
+	desired.MembershipGeneration = waygateway.MembershipGeneration(desired.Members)
+	serialized, err := json.Marshal(desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(serialized)
+}
 
 func TestGatewayManagerObservesFakeEngineLossAndRecovery(t *testing.T) {
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
@@ -90,7 +105,7 @@ func TestGatewayManagerRenewsProtonNATPMPObservation(t *testing.T) {
 	ctx := context.Background()
 	must(t, direct.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 	t.Cleanup(func() { _ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}) })
-	desired := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"lease-target","overlayAddress":"172.30.99.10","underlayIP":"10.2.0.1"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881}]}`
+	desired := desiredWithMembershipGeneration(t, `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"lease-target","overlayAddress":"172.30.99.10","underlayIP":"10.2.0.1"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881}]}`)
 	must(t, direct.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gateway-config", Namespace: namespace}, Data: map[string]string{"gateway.json": desired}}))
 	no := false
 	runner := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: namespace}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "gateway-config"}}}}}}}
@@ -133,9 +148,10 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 	ctx := context.Background()
 	must(t, direct.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 	t.Cleanup(func() { _ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}) })
-	desired := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42000,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":1}]}`
-	desiredRotated := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`
-	desiredWithSecond := `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-two","internalPort":49153,"protocols":["TCP"],"targetAddress":"172.30.99.10","targetPort":8081,"leaseGeneration":1},{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`
+	desired := desiredWithMembershipGeneration(t, `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42000,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":1}]}`)
+	desiredRotated := desiredWithMembershipGeneration(t, `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`)
+	desiredWithSecond := desiredWithMembershipGeneration(t, `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"}],"portForwardLeases":[{"identity":"lease-two","internalPort":49153,"protocols":["TCP"],"targetAddress":"172.30.99.10","targetPort":8081,"leaseGeneration":1},{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`)
+	desiredWithExtraMember := desiredWithMembershipGeneration(t, `{"gatewayName":"private","overlayCIDR":"172.30.99.0/24","gatewayAddress":"172.30.99.1","vni":7999,"mtu":1320,"vxlanPort":4789,"tunnelInterface":"tunwaycloak","members":[{"id":"target","overlayAddress":"172.30.99.10","underlayIP":"192.0.2.2"},{"id":"unreachable-spare","overlayAddress":"172.30.99.11","underlayIP":"192.0.2.99"}],"portForwardLeases":[{"identity":"lease-uid","internalPort":49152,"suggestedExternalPort":42001,"protocols":["TCP","UDP"],"targetAddress":"172.30.99.10","targetPort":6881,"leaseGeneration":2}]}`)
 	must(t, direct.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gateway-config", Namespace: namespace}, Data: map[string]string{"gateway.json": desired}}))
 	no, yes := false, true
 	runner := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: namespace}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Privileged: &yes}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "gateway-config"}}}}}}}
@@ -224,6 +240,35 @@ func TestGatewayManagerAppliesObservedTCPAndUDPDNAT(t *testing.T) {
 	if !commandSucceeds(namespace, runner.Name, "nft list table ip waycloak_e2e_unrelated >/dev/null") {
 		t.Fatal("gateway reconciliation removed an unrelated nftables table")
 	}
+	oldMembershipGeneration := membershipGenerationFromDocument(t, desiredRotated)
+	newMembershipGeneration := membershipGenerationFromDocument(t, desiredWithExtraMember)
+	updateDesired(`{"membershipGeneration":`)
+	waitFor(t, 2*time.Minute, func() bool {
+		return !commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/readyz >/dev/null") && commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/gateway/observation | grep -q '"+oldMembershipGeneration+"'")
+	})
+	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf retained | nc -w 3 10.2.0.2 49152' | grep -q tcp-ok") {
+		t.Fatal("malformed projection disturbed the last-known-good kernel membership")
+	}
+	updateDesired(desiredWithExtraMember)
+	waitFor(t, 2*time.Minute, func() bool {
+		return commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/gateway/observation | grep -q '"+newMembershipGeneration+"'")
+	})
+	if !commandSucceeds(namespace, runner.Name, "ip netns exec source sh -c 'printf unaffected | nc -w 3 10.2.0.2 49152' | grep -q tcp-ok") {
+		t.Fatal("adding another member disturbed the existing allocation")
+	}
+	updateDesired(desiredRotated)
+	waitFor(t, 2*time.Minute, func() bool {
+		return commandSucceeds(namespace, runner.Name, "wget -qO- http://127.0.0.1:18080/v1/gateway/observation | grep -q '"+oldMembershipGeneration+"'")
+	})
+}
+
+func membershipGenerationFromDocument(t *testing.T, document string) string {
+	t.Helper()
+	var desired waygateway.DesiredState
+	if err := json.Unmarshal([]byte(document), &desired); err != nil {
+		t.Fatal(err)
+	}
+	return desired.MembershipGeneration
 }
 
 func startFakeEngine(t *testing.T, namespace, pod string) {
