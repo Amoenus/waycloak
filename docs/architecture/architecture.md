@@ -13,7 +13,7 @@ flowchart LR
     Controller --> Gateway["Waycloak gateway"]
     Controller --> Lease["Port-forward lease state"]
     Pod -->|"VXLAN overlay, fail closed"| Gateway
-    Gateway --> Engine["VPN engine: Gluetun"]
+    Gateway --> Engine["Configured VPN engine"]
     Engine --> Provider["VPN provider"]
     Provider --> Internet["Internet / peers"]
     Provider -->|"forwarded port"| Engine
@@ -43,9 +43,15 @@ Runs in the protected Pod's network namespace and owns only Waycloak-created int
 
 Runs beside the VPN engine in the gateway Pod. It configures overlay peers, forwarding/NAT, DNS forwarding, tunnel health checks, and provider port leases. Desired state arrives through a versioned ConfigMap or local control API; long term, a local API avoids rewriting large configs for each membership change.
 
-### VPN engine and provider driver
+### VPN engine and capability drivers
 
-The initial engine is Gluetun using OpenVPN or WireGuard as supported by the provider. Provider behavior is abstracted behind capabilities:
+The initial engine is Gluetun. The current `v0.2` controller translates a
+limited provider shape into Gluetun environment variables; issue #66 migrates
+that compatibility surface to operator-supplied native configuration under
+ADR 0017. Waycloak owns the engine Pod lifecycle and the small integration
+boundary required by the shared network namespace; it does not aim to mirror
+Gluetun's provider settings. Engine observation and provider-specific behavior
+are abstracted behind capabilities:
 
 - tunnel status;
 - observed public IP;
@@ -55,6 +61,16 @@ The initial engine is Gluetun using OpenVPN or WireGuard as supported by the pro
 - supported protocols.
 
 Waycloak does not assume that all providers or protocols support port forwarding.
+
+### Workload adapters
+
+Most applications require no adapter. When an application must apply
+provider-assigned metadata through a proprietary API, a separate unprivileged
+OCI sidecar implements the versioned Pod-local adapter protocol. It receives
+only the neutral lease contract and explicitly selected workload-owned
+configuration. Exact-generation acknowledgement returns through the local
+agent; adapters never run in a Waycloak control-plane or privileged data-plane
+process. ADR 0018 defines this extension boundary.
 
 ### Lease delivery agent
 
@@ -156,8 +172,12 @@ Required OCI artifacts:
 Optional artifacts:
 
 - KCL module;
+- conformant workload-adapter images;
 - kubectl plugin;
 - dashboards;
 - provider-specific example bundles.
 
-Gluetun remains an external pinned image dependency in the initial chart. Its version and digest are part of the tested release bill of materials.
+Gluetun remains an external pinned image dependency in the initial chart. Its
+version and digest are part of the tested release bill of materials. Native
+Gluetun configuration belongs to the operator; Waycloak reserves and validates
+only the settings documented by ADR 0017.

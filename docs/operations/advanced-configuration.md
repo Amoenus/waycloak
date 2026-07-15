@@ -82,11 +82,21 @@ encrypted DNS is still ordinary external traffic and therefore follows the
 protected default route, but Waycloak does not inspect or classify its
 application payload.
 
-## Provider credentials and secret systems
+## Engine configuration and secret systems
 
-`spec.provider.credentialsSecretRef` always names an ordinary Kubernetes
-Secret in the gateway namespace. The Proton/OpenVPN integration expects
-`username` and `password` keys.
+The generic contract is that Waycloak consumes an operator-configured VPN
+engine and reserves only the settings required for observed health, tunnel
+identity, firewall handoff, and port-forward ownership. Provider, protocol,
+server-selection, and custom configuration otherwise belong to the engine's
+native configuration surface. See
+[ADR 0017](../decisions/0017-engine-native-configuration-boundary.md).
+
+The current `v0.2` compatibility API still uses
+`spec.provider.credentialsSecretRef` and translates a limited provider shape
+into Gluetun settings. That reference names an ordinary Kubernetes Secret in
+the gateway namespace. The verified Proton/OpenVPN example expects `username`
+and `password` keys. Engine-native configuration and migration of these fields
+is tracked by issue #66.
 
 ESO, Secrets Store CSI, SOPS-driven GitOps, or another system may materialize
 that Secret. Waycloak neither depends on nor talks to those systems. Keep the

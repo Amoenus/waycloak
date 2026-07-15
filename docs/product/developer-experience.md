@@ -40,11 +40,24 @@ protected workloads only need egress. It must not encode provider-specific
 details. The first Phase 4 control-plane slice requires an explicit
 `PortForwardLease`; admission does not derive one from this annotation yet.
 
-For the initial `ProtonNatPmp` path, use Proton/OpenVPN credentials whose
-username already contains Proton's `+pmp` suffix. Waycloak mounts that Secret
-only in Gluetun, disables Gluetun's own port-forward loop, and reports provider
-acquisition separately from the still-pending gateway-rule and delivery
-conditions. A public port in status is not yet proof of inbound reachability.
+Provider port forwarding is a capability of the configured gateway, not part
+of the workload API. Provider-specific setup belongs in a provider guide. A
+public port in status is not proof of inbound reachability until gateway-rule,
+target, and delivery observations are also ready.
+
+## VPN engine configuration
+
+Applications never configure the VPN engine. Platform operators configure the
+engine using its native settings and reference credentials in the gateway
+namespace. Waycloak reserves only the settings required to observe and enforce
+the shared gateway contract.
+
+For example, Gluetun remains responsible for provider, OpenVPN/WireGuard,
+server-selection, custom-provider, DNS, and updater settings. Waycloak is a
+consumer of that configured engine; it does not aim to duplicate Gluetun's
+configuration schema. The current `v0.2` provider fields are a transitional
+compatibility surface whose engine-native replacement is tracked by issue #66
+and [ADR 0017](../decisions/0017-engine-native-configuration-boundary.md).
 
 ## KCL integration
 
@@ -134,6 +147,23 @@ An application adapter can watch the file or poll the local endpoint when it gen
 Ordinary listeners stay on the fixed `PortForwardLease.spec.target.port` while the gateway translates each provider public-port generation to that target. Applications may also advertise a peer port inside their own protocol; for those workloads Waycloak first tries a Pod-local standard such as NAT-PMP, PCP, or UPnP.
 
 qBitTorrent 5.2.3 is an evidence-backed exception. In the Phase 4 compatibility probe it accepted a PCP mapping from local port `6881` to external port `42000`, but its real HTTP tracker request still announced `port=6881`. The official integration therefore requires a narrow qBitTorrent sidecar that consumes only the neutral lease record and changes the application listener. It remains outside the controller, receives no Kubernetes or VPN credentials, and must acknowledge the exact lease generation before application delivery is considered observed.
+
+## Writing a workload adapter
+
+An adapter is an ordinary unprivileged OCI sidecar implementing Waycloak's
+versioned Pod-local lease protocol. It reads the neutral record, applies only
+application-owned configuration, verifies the resulting application state,
+and acknowledges the exact Pod UID, lease identity, generation, and applied
+port. It does not call Kubernetes or receive VPN credentials or networking
+capabilities.
+
+Waycloak will publish protocol schemas, fixtures, a black-box conformance
+suite, OCI metadata requirements, and a minimal sample. Authors may use any
+language; importing Waycloak's Go internals is not part of the contract. An
+operator explicitly trusts and installs digest-pinned adapters before a
+workload can select them. The complete extension contract is defined by
+[ADR 0018](../decisions/0018-workload-adapter-protocol.md) and tracked by
+[issue #67](https://github.com/Amoenus/waycloak/issues/67).
 
 ## Failure experience
 

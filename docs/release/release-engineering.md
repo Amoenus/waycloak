@@ -7,7 +7,8 @@ Waycloak follows the hardened OCI release pattern proven in the Magnetron projec
 - multi-architecture controller image;
 - multi-architecture agent image;
 - multi-architecture gateway-manager image;
-- multi-architecture qBitTorrent adapter image;
+- multi-architecture conformant workload-adapter images, initially the
+  qBitTorrent reference adapter;
 - Helm OCI chart;
 - optional KCL OCI module;
 - SPDX or CycloneDX SBOM for every image and package;
@@ -51,7 +52,8 @@ manifest ties together:
 - Git commit and source repository;
 - semantic version;
 - image/chart/module digests;
-- Gluetun tested digest;
+- tested external engine digests and native-configuration compatibility;
+- released adapter digests and supported adapter-protocol versions;
 - Kubernetes and CNI compatibility results;
 - CRD/storage versions;
 - required capability and Pod Security profile;

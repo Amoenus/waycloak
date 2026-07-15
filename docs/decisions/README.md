@@ -18,5 +18,8 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0014: Atomic port-forward DNAT](0014-atomic-port-forward-dnat.md)
 - [0015: Stable target ports and generic external-port presentation](0015-stable-target-port-translation.md)
 - [0016: Provider-assigned application-port handoff](0016-provider-assigned-application-port-handoff.md)
+- [0017: Engine-native configuration boundary](0017-engine-native-configuration-boundary.md)
+- [0018: Out-of-process workload adapter protocol](0018-workload-adapter-protocol.md)
+- [0019: Conformance-gated optional eBPF data plane](0019-optional-ebpf-data-plane.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

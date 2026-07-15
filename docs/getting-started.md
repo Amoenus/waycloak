@@ -5,6 +5,11 @@ creates a gateway, authorizes one namespace, and protects a disposable curl
 Deployment. Port forwarding and production hardening are deliberately left
 for later.
 
+This is a concrete Proton/OpenVPN example for the currently verified `v0.2`
+path, not Waycloak's generic provider model. Engine-native Gluetun
+configuration for its other supported providers and protocols is the next API
+slice described by [ADR 0017](decisions/0017-engine-native-configuration-boundary.md).
+
 ## What you need
 
 - a Linux Kubernetes cluster running a [supported Kubernetes and CNI

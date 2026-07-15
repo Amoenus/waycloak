@@ -2,7 +2,7 @@
 
 Status: Draft for implementation
 Owner: Waycloak maintainers
-Last updated: 2026-07-13
+Last updated: 2026-07-15
 
 ## Summary
 
@@ -20,7 +20,9 @@ Existing shared-gateway projects solve portions of routing but generally do not 
 
 ### Platform operator
 
-Installs Waycloak, defines gateways, references credentials, selects provider drivers, grants the minimum necessary security exception, and monitors gateway health.
+Installs Waycloak, defines gateways, supplies engine-native configuration and
+credential references, selects optional capability drivers, grants the minimum
+necessary security exception, and monitors gateway health.
 
 ### Application developer
 
@@ -54,6 +56,10 @@ details and lease churn belong behind the Waycloak boundary.
 11. Absorb provider port changes at the gateway so workload listeners stay
     stable, and present the current external port through generic standards
     when an application must advertise it.
+12. Consume mature VPN engines through their native configuration surfaces
+    rather than duplicating every provider and protocol option in Waycloak.
+13. Make unavoidable application adapters independently implementable,
+    conformant, least-privilege, and distributable as immutable OCI artifacts.
 
 ## Non-goals
 
@@ -91,9 +97,16 @@ As a platform operator, I can distinguish admission failure, route setup failure
 
 ## Functional requirements
 
-### FR-1: Gateway declaration
+### FR-1: Gateway declaration and engine configuration
 
-The `VPNGateway` CRD describes a gateway implementation, driver, network pool, credential Secret reference, DNS mode, port-forward capabilities, placement, resource policy, and allowed workload namespaces. Secrets are referenced, not copied into the resource or workloads.
+The `VPNGateway` CRD describes a gateway engine, engine-native configuration
+references, network pool, DNS mode, optional capability drivers, placement,
+resource policy, and allowed workload namespaces. Secrets are referenced, not
+copied into the resource, generated configuration, status, or workloads.
+Waycloak owns only the documented engine integration settings needed for
+observed health, deterministic tunnel identity, firewall handoff, and
+single-owner port forwarding. Provider configuration otherwise remains native
+to the selected engine.
 
 ### FR-2: Workload opt-in
 
@@ -132,6 +145,13 @@ HTTP API. It must remain an explicit, least-privilege workload integration
 outside the controller, and its design must document why the generic
 mechanisms are insufficient. Core conditions must not acquire
 application-specific semantics.
+
+Adapters implement a versioned, language-neutral Pod-local protocol and ship
+as separate immutable OCI images. Waycloak publishes schemas, fixtures, and a
+black-box conformance suite. Adapter selection is explicit and resolves only
+operator-trusted digest references; it does not permit arbitrary image
+injection. Adapters receive no Kubernetes token, VPN credential, networking
+capability, or implicit application credential.
 
 ### FR-9: Status
 
@@ -175,6 +195,9 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - Initial target: current Kubernetes minor and the two preceding minors at release time.
 - Support common iptables-nft Linux environments first; document legacy iptables limitations.
 - Test at least Kind and k3s/k3d.
+- Keep data-plane behavior behind a conformance-tested backend interface.
+  Optional eBPF support must be explicitly selected, preflighted per node, and
+  prove the same packet-level fail-closed behavior before it becomes supported.
 
 ## Release acceptance
 
@@ -218,6 +241,10 @@ productized port-forward release. They are tracked in `v0.3.0`.
 - Bitmagnet and Loadstone consumption of the neutral lease contract, with
   narrow adapters only where application semantics require them.
 - Broader provider/application troubleshooting evidence from real deployments.
+- Engine-native Gluetun configuration with migration from the initial
+  provider-shaped convenience fields.
+- A public workload-adapter protocol, conformance kit, trusted selection
+  mechanism, and qBitTorrent reference adapter.
 
 ### v0.4.0 — operational maturity
 
@@ -226,6 +253,8 @@ productized port-forward release. They are tracked in `v0.3.0`.
 - Upgrade and rollback tests.
 - Prometheus metrics and dashboards as optional artifacts.
 - Additional provider validation.
+- Evidence-based optional eBPF backend evaluation across supported amd64 and
+  arm64 kernel/CNI combinations.
 
 ## Success measures
 
@@ -249,3 +278,13 @@ productized port-forward release. They are tracked in `v0.3.0`.
   that must advertise it. Workload-specific adapters are last-resort, opt-in
   integrations and never controller behavior
   ([ADR 0015](../decisions/0015-stable-target-port-translation.md)).
+- VPN engines consume operator-owned native configuration while Waycloak
+  reserves only its health, interface, firewall, and ownership boundary
+  ([ADR 0017](../decisions/0017-engine-native-configuration-boundary.md)).
+- Workload-specific integrations use a versioned out-of-process adapter
+  protocol and trusted immutable OCI artifacts
+  ([ADR 0018](../decisions/0018-workload-adapter-protocol.md)).
+- eBPF remains a conformance-gated optional backend proposal; nftables/netlink
+  remains the supported production backend until measured evidence justifies
+  an accepted follow-up decision
+  ([ADR 0019](../decisions/0019-optional-ebpf-data-plane.md)).

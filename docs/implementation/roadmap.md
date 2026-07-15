@@ -90,6 +90,10 @@ gateway remains fail closed; and the verified final bundle is published.
   contract.
 - [ ] Record additional provider/application compatibility and troubleshooting
   evidence from real deployments.
+- [ ] Replace provider-shaped gateway convenience fields with engine-native
+  Gluetun configuration and a documented migration (#66).
+- [ ] Publish the workload-adapter protocol, trusted selection mechanism,
+  conformance kit, and qBitTorrent reference implementation (#67).
 
 Exit: qBitTorrent survives provider renewal or rotation without Pod
 replacement, and the additional reference workloads have documented neutral
@@ -107,6 +111,8 @@ or evidence-backed narrow integrations.
 - [ ] Optional metrics, alerts, and dashboards.
 - [ ] Performance/resource benchmarks.
 - [ ] Compatibility matrix across supported Kubernetes/CNI combinations.
+- [ ] Evaluate an optional eBPF backend through the shared fail-closed
+  conformance suite on capable amd64 and arm64 nodes (#65).
 
 ## Deferred backlog
 
@@ -114,6 +120,5 @@ or evidence-backed narrow integrations.
 - cross-namespace reference grants and deeper multi-tenancy;
 - Service-targeted lease handoff;
 - kubectl plugin;
-- eBPF data plane evaluation;
 - Gateway API or CNI-native integration exploration;
 - multi-cluster control plane.

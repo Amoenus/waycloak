@@ -16,6 +16,19 @@ Networking claims require packet-level evidence. Unit tests and “Pod Ready” 
 
 Run formatting, `go vet`, staticcheck, race tests, and fuzz tests for annotation/config parsing.
 
+### Change-sensitive CI
+
+Documentation-only changes use a lightweight gate for Markdown lint, local
+links, fenced examples, and changed-file secret scanning. They do not require
+the Go/race/envtest/Kind pipeline. Any change to workflows, source, API,
+generated manifests, Helm, KCL, build/generation scripts, tests, or dependency
+metadata runs the full pipeline. Mixed changes run both relevant layers.
+
+An always-present aggregate check reports classification and selected-job
+results so conditional execution cannot weaken branch protection. Unknown
+diff bases and workflow-classification changes fail safe to the full pipeline.
+Implementation is tracked by issue #64.
+
 ### Controller integration tests
 
 Use envtest for:
@@ -70,6 +83,23 @@ Mandatory scenarios:
   without the sidecar receiving Kubernetes or VPN credentials;
 - sustained qBitTorrent DHT health through lease renewal;
 - Bitmagnet and Loadstone can consume the neutral lease record.
+
+### Adapter conformance
+
+Every workload adapter image must pass the language-neutral black-box suite
+for current, rotated, expired, missing, duplicate, wrong-UID, and stale
+generations. The suite verifies exact acknowledgement, bounded retry,
+least-privilege execution, and readiness regression without direct-egress
+fallback. The qBitTorrent adapter is the reference implementation, not a
+special core code path.
+
+### Data-plane backend conformance
+
+Every supported backend passes the same packet-level startup, loss, drift,
+restart, detach, upgrade, and cleanup suite. Backend-specific tests supplement
+but never replace those assertions. eBPF evaluation must record actual kernel
+features, BTF, architecture, CNI, hooks, and verifier results; kernel version
+alone is insufficient evidence.
 
 ### Failure injection
 
