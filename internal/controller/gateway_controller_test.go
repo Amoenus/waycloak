@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -43,7 +44,8 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	workload := &wayv1.VPNWorkload{ObjectMeta: metav1.ObjectMeta{Name: "pod-member", Namespace: "apps", UID: types.UID("workload-uid")}, Spec: wayv1.VPNWorkloadSpec{PodRef: wayv1.PodReference{Name: memberPod.Name, UID: memberPod.UID}, GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name}}, Status: wayv1.VPNWorkloadStatus{Allocation: wayv1.AllocationStatus{Address: "172.30.99.2"}}}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}, &corev1.Pod{}).WithObjects(gateway, memberPod, workload).Build()
 	recorder := record.NewFakeRecorder(20)
-	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: recorder, ManagerImage: "registry.invalid/manager" + testDigest}
+	observer := &fakeManagerObserver{}
+	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Observer: observer, Recorder: recorder, ManagerImage: "registry.invalid/manager" + testDigest}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}}
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -67,6 +69,7 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	if desired := configMap.Data[waygateway.DesiredStateKey]; !strings.Contains(desired, `"overlayAddress":"172.30.99.2"`) || !strings.Contains(desired, `"underlayIP":"10.42.0.12"`) {
 		t.Fatalf("gateway desired state = %s", desired)
 	}
+	observer.observation.AppliedMembershipGeneration = configMap.Data[waygateway.DesiredMembershipGenerationKey]
 	var statefulSet appsv1.StatefulSet
 	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
 		t.Fatal(err)
@@ -102,6 +105,7 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	}
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionScheduled, metav1.ConditionTrue, waystatus.ReasonGatewayPodScheduled)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionTunnelReady, metav1.ConditionTrue, waystatus.ReasonTunnelObservedReady)
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionMembershipApplied, metav1.ConditionTrue, waystatus.ReasonMembershipGenerationApplied)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionOverlayReady, metav1.ConditionTrue, waystatus.ReasonOverlayObservedReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionDNSReady, metav1.ConditionTrue, waystatus.ReasonDNSObservedReady)
 	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady)
@@ -222,6 +226,48 @@ func TestGatewayStatusWaitsForAppliedMembershipGeneration(t *testing.T) {
 	}
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionMembershipApplied, metav1.ConditionTrue, waystatus.ReasonMembershipGenerationApplied)
 	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonGatewayReady)
+
+	observer.err = errors.New("dial timeout after 1 second")
+	pending, err = reconciler.observePod(context.Background(), gateway, desiredGeneration)
+	if err != nil || !pending {
+		t.Fatalf("observation failure pending=%v error=%v", pending, err)
+	}
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionMembershipApplied, metav1.ConditionFalse, waystatus.ReasonMembershipObservationFailed)
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "GatewayMembershipObservationFailed") {
+			t.Fatalf("observation failure event = %q", event)
+		}
+	default:
+		t.Fatal("observation failure transition did not emit an event")
+	}
+	observer.err = errors.New("dial timeout after 2 seconds")
+	if _, err := reconciler.observePod(context.Background(), gateway, desiredGeneration); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-recorder.Events:
+		t.Fatalf("volatile observation error emitted duplicate event %q", event)
+	default:
+	}
+}
+
+func TestGatewayStatusFailsClosedWithoutMembershipObserver(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := controllerTestGateway()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: gateway.Namespace, Labels: waygateway.SelectorLabels(gateway)}, Status: corev1.PodStatus{PodIP: "10.42.0.20", Conditions: []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}}, ContainerStatuses: []corev1.ContainerStatus{{Name: waygateway.ManagerContainer, Ready: true}}}}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	reconciler := &GatewayReconciler{Client: client}
+	desiredGeneration := waygateway.MembershipGeneration(nil)
+	pending, err := reconciler.observePod(context.Background(), gateway, desiredGeneration)
+	if err != nil || !pending {
+		t.Fatalf("pending=%v error=%v", pending, err)
+	}
+	if gateway.Status.Overlay.AppliedMembershipGeneration != "" {
+		t.Fatalf("unobserved applied generation = %q", gateway.Status.Overlay.AppliedMembershipGeneration)
+	}
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionMembershipApplied, metav1.ConditionFalse, waystatus.ReasonMembershipObservationFailed)
+	assertGatewayCondition(t, gateway.Status.Conditions, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady)
 }
 
 func TestGatewayPublishesOnlyObservedPortForwardLeaseIdentities(t *testing.T) {

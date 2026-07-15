@@ -289,6 +289,7 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 		copy := *existing
 		previousMembership = &copy
 	}
+	previousDesired := gateway.Status.Overlay.DesiredMembershipGeneration
 	previousApplied := gateway.Status.Overlay.AppliedMembershipGeneration
 	gateway.Status.Overlay = wayv1.GatewayOverlayStatus{DesiredMembershipGeneration: desiredMembershipGeneration, AppliedMembershipGeneration: previousApplied}
 	var pods corev1.PodList
@@ -326,10 +327,10 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 	membershipApplied := false
 	membershipReason := waystatus.ReasonMembershipGenerationPending
 	membershipMessage := "Waiting for the gateway manager to apply the desired membership generation"
-	if r.Observer == nil && managerReady {
-		gateway.Status.Overlay.AppliedMembershipGeneration = desiredMembershipGeneration
-		membershipApplied = true
-	} else if managerEndpoint != "" && r.Observer != nil {
+	if r.Observer == nil {
+		membershipReason = waystatus.ReasonMembershipObservationFailed
+		membershipMessage = "Gateway manager observation is not configured"
+	} else if managerEndpoint != "" {
 		observation, observationErr := r.Observer.Observe(ctx, managerEndpoint)
 		if observationErr != nil {
 			membershipReason = waystatus.ReasonMembershipObservationFailed
@@ -346,7 +347,7 @@ func (r *GatewayReconciler) observePod(ctx context.Context, gateway *wayv1.VPNGa
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionMembershipApplied, metav1.ConditionTrue, waystatus.ReasonMembershipGenerationApplied, "Gateway manager has applied the desired membership generation")
 	} else {
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionMembershipApplied, metav1.ConditionFalse, membershipReason, membershipMessage)
-		if r.Recorder != nil && (previousMembership == nil || previousMembership.Status != metav1.ConditionFalse || previousMembership.Reason != membershipReason || previousMembership.Message != membershipMessage) {
+		if r.Recorder != nil && (previousMembership == nil || previousMembership.Status != metav1.ConditionFalse || previousMembership.Reason != membershipReason || previousDesired != desiredMembershipGeneration || previousApplied != gateway.Status.Overlay.AppliedMembershipGeneration) {
 			eventType := corev1.EventTypeNormal
 			eventReason := "GatewayMembershipPending"
 			if membershipReason == waystatus.ReasonMembershipObservationFailed {

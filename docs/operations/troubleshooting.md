@@ -58,7 +58,10 @@ kubectl describe vpnworkload -n WORKLOAD_NAMESPACE WORKLOAD_NAME
 ## The gateway is not ready
 
 Inspect conditions in order: `Scheduled`, `TunnelReady`, `MembershipApplied`,
-`OverlayReady`, `DNSReady`, then `Ready`. If `MembershipApplied=False`, compare
+`OverlayReady`, `DNSReady`, `PortForwardReady`, then `Ready`. When port
+forwarding is disabled, `PortForwardReady=True` with reason
+`PortForwardDisabled`; otherwise it reflects provider capability and rule
+reconciliation. If `MembershipApplied=False`, compare
 `status.overlay.desiredMembershipGeneration` and
 `status.overlay.appliedMembershipGeneration`. A brief mismatch is ordinary
 ConfigMap projection delay; a persistent `MembershipGenerationPending` or
