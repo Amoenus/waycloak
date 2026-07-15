@@ -79,7 +79,7 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Require the qBitTorrent reference adapter to observe its active TCP
   listener before acknowledging provider-assigned delivery, with state-aware
   logs and real-image rotation coverage (#68).
-- [ ] Publish the signed `v0.2.1` patch bundle and update the real deployment
+- [x] Publish the signed `v0.2.1` patch bundle and update the real deployment
   to its immutable adapter digest.
 
 Exit: the signed OCI candidate replaces the PoC; qBitTorrent uses Waycloak for

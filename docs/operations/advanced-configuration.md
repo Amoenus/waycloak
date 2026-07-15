@@ -164,8 +164,8 @@ budget through chart values. Inspect the exact release values before applying
 site overrides:
 
 ```sh
-helm show values waycloak-0.2.0.tgz
-helm show readme waycloak-0.2.0.tgz
+helm show values waycloak-0.2.1.tgz
+helm show readme waycloak-0.2.1.tgz
 ```
 
 Protected agents and gateway Pods currently do not have configurable resource
@@ -179,7 +179,7 @@ or runtime dependency. Verify the KCL OCI reference from the signed release
 manifest, add the matching semantic tag, and commit the lock file:
 
 ```sh
-kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.2.0
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.2.1
 ```
 
 The module exposes `VPNGateway` and `PortForwardLease` schemas plus canonical
