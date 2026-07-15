@@ -157,6 +157,16 @@ and acknowledges the exact Pod UID, lease identity, generation, and applied
 port. It does not call Kubernetes or receive VPN credentials or networking
 capabilities.
 
+Adapter readiness is generation-bound. Missing, expired, ambiguous, or changed
+lease state; a missing application listener; and a rejected acknowledgement
+withdraw readiness immediately. An adapter may retain readiness through a
+bounded transient failure of an application control API only when the failure
+concerns the exact lease identity, generation, and application port that it
+most recently applied and verified. The reference qBitTorrent adapter permits
+at most two consecutive failed observations and 15 seconds from the first
+failure, whichever is reached first; a successful observation recovers
+immediately. Adapters must log state transitions without logging every poll.
+
 Waycloak will publish protocol schemas, fixtures, a black-box conformance
 suite, OCI metadata requirements, and a minimal sample. Authors may use any
 language; importing Waycloak's Go internals is not part of the contract. An

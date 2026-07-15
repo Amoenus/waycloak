@@ -81,6 +81,14 @@ Waycloak agent over Pod loopback, and acknowledges the exact applied lease
 generation. Pin the image by digest from the signed release manifest for a
 production deployment.
 
+Its readiness probe remains ready across at most two consecutive qBitTorrent
+control-API observation failures, bounded to 15 seconds from the first
+failure, when the already verified lease identity, generation, and application
+port are unchanged. It recovers immediately on the next successful
+observation. Lease loss, expiry, rotation, listener loss, application failure,
+or acknowledgement failure withdraws readiness immediately, so hysteresis
+cannot preserve an endpoint for stale provider state.
+
 Published releases also attach `qbittorrent-example.yaml`, rendered by the tag
 workflow with the exact adapter reference stored in the signed release
 manifest. Verify the release manifest, the release-file provenance, and that
