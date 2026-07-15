@@ -15,6 +15,7 @@ import (
 )
 
 const testAgentImage = "registry.example/waycloak-agent@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+const testAdmissionGeneration = "1111111111111111111111111111111111111111111111111111111111111111"
 
 func testMutator(t *testing.T, selector metav1.LabelSelector) *PodMutator {
 	t.Helper()
@@ -23,7 +24,9 @@ func testMutator(t *testing.T, selector metav1.LabelSelector) *PodMutator {
 	_ = wayv1.AddToScheme(scheme)
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps", Labels: map[string]string{"waycloak": "allowed"}}}
 	gw := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}, Spec: wayv1.VPNGatewaySpec{WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: selector}}}
-	return &PodMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, gw).Build(), Scheme: scheme, AgentImage: testAgentImage}
+	generation := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "admission-generation", Namespace: "system"}, Data: map[string]string{contract.AdmissionGenerationKey: testAdmissionGeneration}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, gw, generation).Build()
+	return &PodMutator{Client: cl, Scheme: scheme, AgentImage: testAgentImage, GenerationGate: &GenerationGate{Reader: cl, Namespace: "system", ConfigMap: generation.Name, Generation: testAdmissionGeneration}}
 }
 
 func TestUnannotatedPodCompletelyUnchanged(t *testing.T) {
@@ -61,6 +64,9 @@ func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
 		t.Fatal("token automount not disabled")
 	}
+	if pod.Annotations[contract.AdmissionGenerationAnnotation] != testAdmissionGeneration {
+		t.Fatalf("admission generation = %q", pod.Annotations[contract.AdmissionGenerationAnnotation])
+	}
 	if pod.Spec.Volumes[len(pod.Spec.Volumes)-1].ConfigMap.Optional == nil || *pod.Spec.Volumes[len(pod.Spec.Volumes)-1].ConfigMap.Optional {
 		t.Fatal("allocation volume must be required")
 	}
@@ -79,6 +85,22 @@ func TestAnnotatedMutationIsDeterministicAndIdempotent(t *testing.T) {
 	agent := pod.Spec.Containers[len(pod.Spec.Containers)-1]
 	if agent.Name != contract.AgentContainer || agent.ReadinessProbe == nil || agent.ReadinessProbe.Exec == nil || !reflect.DeepEqual(agent.ReadinessProbe.Exec.Command, []string{"/proc/1/exe", "probe"}) {
 		t.Fatalf("agent readiness probe = %#v", agent.ReadinessProbe)
+	}
+}
+
+func TestStaleGenerationRejectsOnlyAnnotatedPods(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	m.GenerationGate.Generation = "stale"
+	protected := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private"}}}
+	if _, err := m.Mutate(context.Background(), protected); err == nil {
+		t.Fatal("stale webhook admitted an annotated Pod")
+	} else if rejection, ok := err.(*Rejection); !ok || rejection.Reason != waystatus.ReasonAdmissionGenerationConflict {
+		t.Fatalf("error = %#v", err)
+	}
+	plain := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "apps"}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "app"}}}}
+	before := plain.DeepCopy()
+	if changed, err := m.Mutate(context.Background(), plain); err != nil || changed || !reflect.DeepEqual(before, plain) {
+		t.Fatalf("stale gate changed unannotated Pod: changed=%v error=%v", changed, err)
 	}
 }
 

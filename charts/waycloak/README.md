@@ -5,7 +5,12 @@ First-time users should follow the repository's
 release manifest, pulls this chart by its recorded OCI digest, prepares webhook
 TLS, creates a gateway, and protects a disposable workload.
 
-This chart installs the Waycloak CRDs, controller/webhook Deployment, Service, least-privilege RBAC, admission configurations, and controller disruption budget.
+This chart installs the Waycloak CRDs, controller/webhook Deployment, Service,
+least-privilege RBAC, admission configurations, controller disruption budget,
+and the desired admission-generation ConfigMap. The generation is a
+deterministic hash of the immutable controller and injected-agent identities;
+stale webhook replicas become unready and reject opted-in admission without
+affecting unannotated Pods.
 
 All three image digests and webhook TLS are mandatory. By default the chart
 consumes an externally managed TLS Secret and CA bundle. Clusters that already

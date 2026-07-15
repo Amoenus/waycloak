@@ -90,6 +90,14 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
+- [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
+  lease and listener loss fail closed (#71).
+- [x] Preserve a previously proven qBitTorrent Service endpoint across bounded
+  transient local API timeouts, then withdraw it on sustained failure (#75).
+- [ ] Add an observed admission release/generation gate that prevents mixed
+  injected agent identities during zero-unavailable webhook upgrades (#55).
+- [ ] Expose desired and last-known-good applied gateway membership generations
+  without weakening malformed-projection handling (#48).
 - [ ] Complete sustained real-provider qBitTorrent ingress, advertisement,
   DHT, renewal, and actual rotation certification using the existing gated
   harness.
@@ -108,8 +116,6 @@ or evidence-backed narrow integrations.
 
 ## Phase 6 — operational maturity (`v0.4.0`)
 
-- [ ] Add an observed admission release/generation gate that prevents mixed
-  injected agent identities during zero-unavailable webhook upgrades (#55).
 - [ ] Retain automatic same-Pod gateway endpoint recovery as a release
   regression after its `v0.2.2` delivery (#70).
 - [ ] Multiple named gateways.

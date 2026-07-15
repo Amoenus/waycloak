@@ -66,6 +66,7 @@ const (
 	ReasonGatewayComponentsNotReady       = "GatewayComponentsNotReady"
 	ReasonGatewayNotFound                 = "GatewayNotFound"
 	ReasonUnauthorizedGateway             = "UnauthorizedGateway"
+	ReasonAdmissionGenerationConflict     = "AdmissionGenerationConflict"
 	ReasonAdmissionVersionConflict        = "AdmissionVersionConflict"
 	ReasonApplicationCredentialsForbidden = "ApplicationCredentialsForbidden"
 )

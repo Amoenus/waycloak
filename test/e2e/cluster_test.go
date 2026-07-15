@@ -36,6 +36,8 @@ import (
 )
 
 const e2eAgentImage = "registry.k8s.io/pause@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+const e2eAdmissionGeneration = "1111111111111111111111111111111111111111111111111111111111111111"
+const e2eAdmissionGenerationConfigMap = "admission-generation"
 
 func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
@@ -113,6 +115,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 	cert, key, ca := certificates(t, serviceHost)
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "webhook-certs", Namespace: namespace}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: cert, corev1.TLSPrivateKeyKey: key}}
 	must(t, direct.Create(ctx, secret))
+	must(t, direct.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: e2eAdmissionGenerationConfigMap, Namespace: namespace}, Data: map[string]string{contract.AdmissionGenerationKey: e2eAdmissionGeneration}}))
 	createRunner(t, direct, namespace)
 	waitFor(t, 60*time.Second, func() bool {
 		var runner corev1.Pod
@@ -283,6 +286,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		var current wayv1.PortForwardLease
 		return apierrors.IsNotFound(direct.Get(ctx, client.ObjectKeyFromObject(lease), &current))
 	})
+	exerciseAdmissionGenerationRoll(t, direct, namespace, relativeBinary)
 	stopController(t, namespace)
 	plainOutage := pod("plain-outage", namespace, nil)
 	must(t, direct.Create(ctx, plainOutage, client.DryRunAll))
@@ -328,7 +332,12 @@ func createRunner(t *testing.T, c client.Client, namespace string) {
 	t.Helper()
 	ctx := context.Background()
 	must(t, c.Create(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-e2e-webhook", Namespace: namespace}, Spec: corev1.ServiceSpec{Selector: map[string]string{"app": "waycloak-e2e-controller"}, Ports: []corev1.ServicePort{{Name: "https", Port: 443, TargetPort: intstr.FromInt(9443)}}}}))
-	must(t, c.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "controller", Namespace: namespace, Labels: map[string]string{"app": "waycloak-e2e-controller"}}, Spec: corev1.PodSpec{ServiceAccountName: "controller", AutomountServiceAccountToken: boolPtr(true), NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, VolumeMounts: []corev1.VolumeMount{{Name: "certs", MountPath: "/certs", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "certs", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "webhook-certs"}}}}}}))
+	createControllerRunner(t, c, namespace, "controller")
+}
+
+func createControllerRunner(t *testing.T, c client.Client, namespace, name string) {
+	t.Helper()
+	must(t, c.Create(context.Background(), &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: map[string]string{"app": "waycloak-e2e-controller"}}, Spec: corev1.PodSpec{ServiceAccountName: "controller", AutomountServiceAccountToken: boolPtr(true), NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, VolumeMounts: []corev1.VolumeMount{{Name: "certs", MountPath: "/certs", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "certs", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "webhook-certs"}}}}}}))
 }
 
 func startController(t *testing.T, namespace string, controllers bool) {
@@ -338,19 +347,74 @@ func startController(t *testing.T, namespace string, controllers bool) {
 func startControllerWithImage(t *testing.T, namespace string, controllers bool, agentImage string) {
 	t.Helper()
 	stopController(t, namespace)
-	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-cert-dir=/certs --allocation-quarantine=1s --port-forward-deletion-quarantine=1s --agent-image=%s >/tmp/controller.log 2>&1 &", controllers, agentImage)
-	command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", commandLine)
+	startControllerProcess(t, namespace, "controller", controllers, agentImage, e2eAdmissionGeneration)
+}
+
+func startControllerProcess(t *testing.T, namespace, podName string, controllers bool, agentImage, generation string) {
+	t.Helper()
+	commandLine := fmt.Sprintf("nohup /tmp/waycloak-controller --leader-elect=false --controllers-enabled=%t --metrics-bind-address=0 --health-probe-bind-address=:8081 --webhook-cert-dir=/certs --allocation-quarantine=1s --port-forward-deletion-quarantine=1s --agent-image=%s --admission-generation=%s --admission-generation-configmap=%s --admission-generation-namespace=%s >/tmp/controller.log 2>&1 &", controllers, agentImage, generation, e2eAdmissionGenerationConfigMap, namespace)
+	command(t, nil, "kubectl", "exec", "-n", namespace, podName, "--", "sh", "-c", commandLine)
 	time.Sleep(2 * time.Second)
-	if !commandSucceeds(namespace, "controller", "pgrep waycloak-controller >/dev/null") {
-		log := command(t, nil, "kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", "cat /tmp/controller.log 2>/dev/null || true")
+	if !commandSucceeds(namespace, podName, "pgrep waycloak-controller >/dev/null") {
+		log := command(t, nil, "kubectl", "exec", "-n", namespace, podName, "--", "sh", "-c", "cat /tmp/controller.log 2>/dev/null || true")
 		t.Fatalf("controller process exited during startup:\n%s", log)
 	}
 }
 
 func stopController(t *testing.T, namespace string) {
 	t.Helper()
-	_ = exec.Command("kubectl", "exec", "-n", namespace, "controller", "--", "sh", "-c", "killall waycloak-controller 2>/dev/null || true").Run()
+	stopControllerProcess(namespace, "controller")
 	time.Sleep(time.Second)
+}
+
+func stopControllerProcess(namespace, podName string) {
+	_ = exec.Command("kubectl", "exec", "-n", namespace, podName, "--", "sh", "-c", "killall waycloak-controller 2>/dev/null || true").Run()
+}
+
+func exerciseAdmissionGenerationRoll(t *testing.T, direct client.Client, namespace, relativeBinary string) {
+	t.Helper()
+	const nextGeneration = "2222222222222222222222222222222222222222222222222222222222222222"
+	const nextAgentImage = "registry.k8s.io/pause@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	ctx := context.Background()
+	createControllerRunner(t, direct, namespace, "controller-new")
+	waitFor(t, 60*time.Second, func() bool {
+		var runner corev1.Pod
+		if direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "controller-new"}, &runner) != nil {
+			return false
+		}
+		return runner.Status.Phase == corev1.PodRunning
+	})
+	command(t, nil, "kubectl", "cp", relativeBinary, namespace+"/controller-new:/tmp/waycloak-controller")
+	command(t, nil, "kubectl", "exec", "-n", namespace, "controller-new", "--", "chmod", "+x", "/tmp/waycloak-controller")
+	startControllerProcess(t, namespace, "controller-new", false, nextAgentImage, nextGeneration)
+	if commandSucceeds(namespace, "controller-new", "wget -qO- http://127.0.0.1:8081/readyz >/dev/null") {
+		t.Fatal("new webhook became ready before its generation was selected")
+	}
+	var generation corev1.ConfigMap
+	must(t, direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: e2eAdmissionGenerationConfigMap}, &generation))
+	generation.Data[contract.AdmissionGenerationKey] = nextGeneration
+	must(t, direct.Update(ctx, &generation))
+	waitFor(t, 20*time.Second, func() bool {
+		return !commandSucceeds(namespace, "controller", "wget -qO- http://127.0.0.1:8081/readyz >/dev/null") && commandSucceeds(namespace, "controller-new", "wget -qO- http://127.0.0.1:8081/readyz >/dev/null")
+	})
+	stopControllerProcess(namespace, "controller")
+	waitFor(t, 20*time.Second, func() bool {
+		candidate := pod("generation-probe", namespace, map[string]string{contract.GatewayAnnotation: namespace + "/private"})
+		if err := direct.Create(ctx, candidate, client.DryRunAll); err != nil {
+			return false
+		}
+		return candidate.Annotations[contract.AdmissionGenerationAnnotation] == nextGeneration && injectedImage(candidate, contract.AgentContainer) == nextAgentImage
+	})
+	stopControllerProcess(namespace, "controller-new")
+}
+
+func injectedImage(pod *corev1.Pod, name string) string {
+	for _, container := range append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...) {
+		if container.Name == name {
+			return container.Image
+		}
+	}
+	return ""
 }
 
 func webhookConfigurations(mutatingName, validatingName, namespace string, ca []byte) (*admissionv1.MutatingWebhookConfiguration, *admissionv1.ValidatingWebhookConfiguration) {

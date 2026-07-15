@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Amoenus/waycloak/internal/contract"
+	waystatus "github.com/Amoenus/waycloak/internal/status"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -94,6 +95,15 @@ func TestHelmInstallAndAdmissionBoundary(t *testing.T) {
 	if deployment.Status.ReadyReplicas != 2 {
 		t.Fatalf("controller ready replicas = %d", deployment.Status.ReadyReplicas)
 	}
+	if deployment.Spec.Strategy.RollingUpdate == nil || deployment.Spec.Strategy.RollingUpdate.MaxSurge == nil || deployment.Spec.Strategy.RollingUpdate.MaxSurge.String() != "100%" {
+		t.Fatalf("controller generation rollout surge = %#v", deployment.Spec.Strategy.RollingUpdate)
+	}
+	var admissionGeneration corev1.ConfigMap
+	must(t, direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: release + "-admission-generation"}, &admissionGeneration))
+	initialAdmissionGeneration := admissionGeneration.Data[contract.AdmissionGenerationKey]
+	if initialAdmissionGeneration == "" || deployment.Spec.Template.Annotations["admission.networking.waycloak.io/generation"] != initialAdmissionGeneration {
+		t.Fatalf("initial admission generation: ConfigMap=%q Pod=%q", initialAdmissionGeneration, deployment.Spec.Template.Annotations["admission.networking.waycloak.io/generation"])
+	}
 	var pdb policyv1.PodDisruptionBudget
 	must(t, direct.Get(ctx, keyName, &pdb))
 	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 {
@@ -117,6 +127,22 @@ func TestHelmInstallAndAdmissionBoundary(t *testing.T) {
 	err = direct.Create(ctx, denied)
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "gateway") {
 		t.Fatalf("annotated Pod did not fail closed through installed admission: %v", err)
+	}
+
+	nextAgentDigest := "sha256:" + strings.Repeat("2", 64)
+	command(t, nil, "helm", "upgrade", release, chartPath, "--namespace", namespace, "--reuse-values",
+		"--set", "images.agent.digest="+nextAgentDigest, "--wait", "--timeout", "5m")
+	must(t, direct.Get(ctx, keyName, &deployment))
+	must(t, direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: release + "-admission-generation"}, &admissionGeneration))
+	upgradedAdmissionGeneration := admissionGeneration.Data[contract.AdmissionGenerationKey]
+	if upgradedAdmissionGeneration == initialAdmissionGeneration || deployment.Spec.Template.Annotations["admission.networking.waycloak.io/generation"] != upgradedAdmissionGeneration || deployment.Status.ReadyReplicas != 2 {
+		t.Fatalf("upgraded admission generation: old=%q ConfigMap=%q Pod=%q ready=%d", initialAdmissionGeneration, upgradedAdmissionGeneration, deployment.Spec.Template.Annotations["admission.networking.waycloak.io/generation"], deployment.Status.ReadyReplicas)
+	}
+	upgradedDenied := denied.DeepCopy()
+	upgradedDenied.Name = "missing-gateway-after-generation-roll"
+	err = direct.Create(ctx, upgradedDenied)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "gateway") || strings.Contains(err.Error(), waystatus.ReasonAdmissionGenerationConflict) {
+		t.Fatalf("generation rollout did not converge admission: %v", err)
 	}
 
 	command(t, nil, "helm", "upgrade", release, chartPath, "--namespace", namespace, "--reuse-values",

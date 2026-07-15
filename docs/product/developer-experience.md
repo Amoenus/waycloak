@@ -24,6 +24,13 @@ The annotation value is `<namespace>/<name>`. The gateway authorizes consumer na
 
 Removing the annotation only affects new Pods. Deployment rollout behavior remains standard Kubernetes behavior and should be made clear by status/events and documentation.
 
+Admission records
+`internal.networking.waycloak.io/admission-generation` on each injected Pod.
+This internal observation is the deterministic controller-and-agent generation
+that performed the mutation; operators compare it with the Helm-owned desired
+generation ConfigMap during upgrades. It is not a user input and must not be
+copied onto workload templates.
+
 ## Port-forward request
 
 The simplest product experience should remain one workload marker. Port-forward behavior belongs to the selected gateway profile or an additional explicit annotation only when the workload needs it:

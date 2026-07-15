@@ -1,6 +1,11 @@
 # Upgrade and rollback
 
-Waycloak controller/webhook replicas roll with `maxUnavailable: 0`. Gateway StatefulSets are deliberate singletons and use `OnDelete`: reconciling a new engine, manager image, or Pod template does not restart a working tunnel automatically.
+Waycloak controller/webhook replicas roll with `maxUnavailable: 0` and may
+surge by 100 percent. A generation change makes every old replica unready at
+once, so the full surge capacity is required to start a complete matching
+replica set without deadlocking the Deployment rollout. Gateway StatefulSets
+are deliberate singletons and use `OnDelete`: reconciling a new engine,
+manager image, or Pod template does not restart a working tunnel automatically.
 
 ## Verify release evidence
 
@@ -19,24 +24,36 @@ helm upgrade waycloak ./waycloak-NEW_VERSION.tgz \
   --wait --timeout 5m
 ```
 
-The source chart's released defaults contain immutable image digests. Explicit site overrides must also remain digest-pinned. Confirm both controller replicas are ready and admission still rejects an annotated missing-gateway reference while leaving an unannotated Pod unchanged.
+The source chart's released defaults contain immutable image digests. Explicit
+site overrides must also remain digest-pinned. The chart hashes the immutable
+controller and agent identities into a desired admission generation stored in
+`<release>-admission-generation`. Every replica compares its local generation
+with that ConfigMap through an uncached API read for readiness and again for
+each opted-in admission request. Confirm both controller replicas are Ready,
+their `admission.networking.waycloak.io/generation` Pod annotation matches the
+ConfigMap, and admission still rejects an annotated missing-gateway reference
+while leaving an unannotated Pod unchanged.
 
 ## Roll protected workloads after the control plane
 
-Treat an agent-changing upgrade as two phases. Do not change an opted-in
-workload template or deliberately recreate protected Pods until every
-controller/webhook replica is Ready on the intended immutable controller
-image. During a zero-unavailable webhook rollout, the Service can briefly send
-an admission request to either the old or new replica; a Pod admitted by the
-old replica receives that release's injected agent even if its application
-sidecars already reference the new release.
+The generation gate makes an agent-changing rollout fail closed. After Helm
+updates the desired generation, an old replica immediately becomes unready and
+rejects any opted-in request that reaches it with
+`AdmissionGenerationConflict`; a new replica does the same until its local
+generation is selected. The webhook match condition still excludes
+unannotated Pods, so their admission does not depend on this gate.
+
+Keep the two-phase sequence as the low-disruption procedure: wait for the
+control plane before deliberately rolling protected workloads. Concurrent
+GitOps application is safe from mixed injection, but an opted-in Pod creation
+may be rejected and retried while replicas transition.
 
 After the control plane converges, roll protected workloads and confirm each
 new Pod's `waycloak-prepare`, `waycloak-verify`, and `waycloak-agent` image
-references match the intended release manifest. Unannotated Pods remain
-outside this sequencing requirement. Issue
-[#55](https://github.com/Amoenus/waycloak/issues/55) tracks a future observed
-admission-generation mechanism that removes this operator gate.
+references match the intended release manifest. Its
+`internal.networking.waycloak.io/admission-generation` annotation must match
+the selected ConfigMap generation. Unannotated Pods remain outside this
+sequencing requirement.
 
 ## Activate gateway changes
 

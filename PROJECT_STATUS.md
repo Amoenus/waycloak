@@ -288,6 +288,21 @@ installed TCP and UDP listeners, all lease conditions returned True, protected
 egress succeeded, and the public route returned HTTP 200. Issue #70 is
 complete.
 
+The first `v0.3.0` reliability slice is complete. PR
+[#80](https://github.com/Amoenus/waycloak/pull/80) closes issues #71 and #75
+with a generation-bound qBitTorrent adapter readiness state machine. Initial
+lease acquisition no longer depends on application Pod readiness, brief local
+API timeouts preserve a previously proven endpoint for a bounded interval,
+and lease loss, listener loss, rotation mismatch, API rejection, or sustained
+timeouts still withdraw readiness. The Kind acceptance suite proves bootstrap,
+transient-stall retention, sustained-stall withdrawal, recovery, rotation, and
+tracker behavior; workflow run
+[29439966576](https://github.com/Amoenus/waycloak/actions/runs/29439966576)
+passed the complete verification, security, review, and Kind gates. This work
+is merged on `main` but is not yet a published release. The next ordered slice
+is the observed admission generation gate in #55, followed by applied gateway
+membership generation in #48.
+
 ## Release progression
 
 `v0.1.0` delivered the first usable private-egress foundation: a single shared
@@ -298,8 +313,11 @@ The `v0.2.0` release adds provider-neutral `PortForwardLease`, Proton
 NAT-PMP, stable gateway translation, renewable UID-bound delivery, the narrow
 qBitTorrent adapter, signed OCI Helm and optional KCL publication, and real
 homelab adoption. `v0.2.1` is the listener-observation and adapter-log hardening
-patch. `v0.3.0` is the sustained real-provider tracker, peer-ingress, DHT,
-rotation, and additional-workload certification milestone.
+patch, and `v0.2.2` adds automatic same-Pod recovery after gateway endpoint
+replacement. `v0.3.0` begins with admission, membership-observation, and
+adapter-readiness hardening, then delivers engine-native Gluetun configuration,
+the workload-adapter protocol, sustained real-provider tracker/peer-ingress/DHT
+and rotation proof, and additional-workload certification.
 
 ## Definition of “implemented”
 
