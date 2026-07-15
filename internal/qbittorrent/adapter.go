@@ -57,6 +57,9 @@ func (adapter *Adapter) Reconcile(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := adapter.Client.VerifyListener(ctx, selected.ApplicationPort); err != nil {
+		return err
+	}
 	acknowledgement := delivery.ApplicationAcknowledgement{Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}
 	payload, err := json.Marshal(acknowledgement)
 	if err != nil {

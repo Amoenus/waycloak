@@ -93,13 +93,26 @@ func run(args []string) error {
 	}()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	wasReady := false
+	lastPendingMessage := ""
+	lastPendingLog := time.Time{}
 	for {
 		reconcileCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := adapter.Reconcile(reconcileCtx)
 		cancel()
 		ready.Store(err == nil)
 		if err != nil {
-			log.Printf("lease application pending: %v", err)
+			message := err.Error()
+			if message != lastPendingMessage || time.Since(lastPendingLog) >= time.Minute {
+				log.Printf("lease application pending: %s", message)
+				lastPendingMessage = message
+				lastPendingLog = time.Now()
+			}
+			wasReady = false
+		} else if !wasReady {
+			log.Printf("lease application ready")
+			wasReady = true
+			lastPendingMessage = ""
 		}
 		select {
 		case <-ctx.Done():
