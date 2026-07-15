@@ -124,19 +124,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	desiredConfigMap, err := allocationConfigMap(&pod, &workload, &gateway, gns, gname, cmName, deliveryDocument)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	var cm corev1.ConfigMap
 	if err := r.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: cmName}, &cm); apierrors.IsNotFound(err) {
-		gatewayAddr, e := allocation.GatewayAddress(gateway.Spec.Overlay.CIDR)
-		if e != nil {
-			return ctrl.Result{}, e
-		}
-		clusterMode := gateway.Spec.ClusterTraffic.Mode
-		if clusterMode == "" {
-			clusterMode = "Preserve"
-		}
-		clusterCIDRs := append([]string(nil), gateway.Spec.ClusterTraffic.CIDRs...)
-		sort.Strings(clusterCIDRs)
-		cm = corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: pod.Namespace, Labels: map[string]string{"app.kubernetes.io/managed-by": "waycloak"}}, Data: map[string]string{"version": contract.AllocationVersion, "podUID": string(pod.UID), "gateway": gns + "/" + gname, "address": workload.Status.Allocation.Address, "overlayCIDR": gateway.Spec.Overlay.CIDR, "gatewayAddress": gatewayAddr.String(), "gatewayEndpoint": gateway.Status.Overlay.Endpoint, "gatewayHealthPort": fmt.Sprint(gateway.Status.Overlay.HealthPort), "vni": fmt.Sprint(gateway.Spec.Overlay.VNI), "mtu": fmt.Sprint(gateway.Spec.Overlay.MTU), "clusterTrafficMode": clusterMode, "clusterCIDRs": strings.Join(clusterCIDRs, ","), "allocationGeneration": fmt.Sprint(workload.Status.Allocation.Generation), contract.PortForwardLeasesKey: deliveryDocument}}
+		cm = *desiredConfigMap
 		if err := ctrl.SetControllerReference(&pod, &cm, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -155,19 +149,24 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		r.Recorder.Event(&pod, corev1.EventTypeWarning, "StaleAllocationRemoved", "Removed allocation ConfigMap owned by a different Pod UID")
 		return ctrl.Result{Requeue: true}, nil
-	} else if cm.Data == nil || cm.Data[contract.PortForwardLeasesKey] != deliveryDocument {
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
-		}
-		cm.Data[contract.PortForwardLeasesKey] = deliveryDocument
+	} else if !apiequality.Semantic.DeepEqual(cm.Data, desiredConfigMap.Data) {
+		previousEndpoint := cm.Data["gatewayEndpoint"]
+		cm.Data = desiredConfigMap.Data
 		if err := r.Update(ctx, &cm); err != nil {
 			return ctrl.Result{}, err
 		}
 		if err := r.publishDeliveryDigest(ctx, &pod, deliveryDocument); err != nil {
 			return ctrl.Result{}, err
 		}
-		r.Recorder.Event(&pod, corev1.EventTypeNormal, "PortForwardDeliveryPublished", "Published current Pod-UID-bound port-forward delivery records")
+		if previousEndpoint != desiredConfigMap.Data["gatewayEndpoint"] {
+			r.Recorder.Eventf(&pod, corev1.EventTypeNormal, "GatewayEndpointUpdated", "Updated protected-path gateway endpoint from %s to %s", previousEndpoint, desiredConfigMap.Data["gatewayEndpoint"])
+		} else {
+			r.Recorder.Event(&pod, corev1.EventTypeNormal, "AllocationUpdated", "Published current UID-bound protected-path configuration")
+		}
 		return ctrl.Result{Requeue: true}, nil
+	}
+	if err := r.publishDeliveryDigest(ctx, &pod, deliveryDocument); err != nil {
+		return ctrl.Result{}, err
 	}
 	previous := workload.Status
 	previous.Conditions = append([]metav1.Condition(nil), workload.Status.Conditions...)
@@ -179,6 +178,38 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
+}
+
+func allocationConfigMap(pod *corev1.Pod, workload *wayv1.VPNWorkload, gateway *wayv1.VPNGateway, gatewayNamespace, gatewayName, name, deliveryDocument string) (*corev1.ConfigMap, error) {
+	gatewayAddress, err := allocation.GatewayAddress(gateway.Spec.Overlay.CIDR)
+	if err != nil {
+		return nil, err
+	}
+	clusterMode := gateway.Spec.ClusterTraffic.Mode
+	if clusterMode == "" {
+		clusterMode = "Preserve"
+	}
+	clusterCIDRs := append([]string(nil), gateway.Spec.ClusterTraffic.CIDRs...)
+	sort.Strings(clusterCIDRs)
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: pod.Namespace, Labels: map[string]string{"app.kubernetes.io/managed-by": "waycloak"}},
+		Data: map[string]string{
+			"version":                     contract.AllocationVersion,
+			"podUID":                      string(pod.UID),
+			"gateway":                     gatewayNamespace + "/" + gatewayName,
+			"address":                     workload.Status.Allocation.Address,
+			"overlayCIDR":                 gateway.Spec.Overlay.CIDR,
+			"gatewayAddress":              gatewayAddress.String(),
+			"gatewayEndpoint":             gateway.Status.Overlay.Endpoint,
+			"gatewayHealthPort":           fmt.Sprint(gateway.Status.Overlay.HealthPort),
+			"vni":                         fmt.Sprint(gateway.Spec.Overlay.VNI),
+			"mtu":                         fmt.Sprint(gateway.Spec.Overlay.MTU),
+			"clusterTrafficMode":          clusterMode,
+			"clusterCIDRs":                strings.Join(clusterCIDRs, ","),
+			"allocationGeneration":        fmt.Sprint(workload.Status.Allocation.Generation),
+			contract.PortForwardLeasesKey: deliveryDocument,
+		},
+	}, nil
 }
 
 func (r *PodReconciler) publishDeliveryDigest(ctx context.Context, pod *corev1.Pod, document string) error {
@@ -268,6 +299,27 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: namespace, Name: lease.Status.Target.PodRef.Name}}}
 		})).
+		Watches(&wayv1.VPNGateway{}, handler.EnqueueRequestsFromMapFunc(r.podsForGateway)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
+}
+
+func (r *PodReconciler) podsForGateway(ctx context.Context, object client.Object) []reconcile.Request {
+	gateway, ok := object.(*wayv1.VPNGateway)
+	if !ok {
+		return nil
+	}
+	var workloads wayv1.VPNWorkloadList
+	if err := r.List(ctx, &workloads); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0)
+	for i := range workloads.Items {
+		workload := &workloads.Items[i]
+		if workload.Spec.GatewayRef.Namespace != gateway.Namespace || workload.Spec.GatewayRef.Name != gateway.Name || workload.Spec.PodRef.Name == "" {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: workload.Namespace, Name: workload.Spec.PodRef.Name}})
+	}
+	return requests
 }

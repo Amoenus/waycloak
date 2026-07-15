@@ -81,6 +81,8 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
   logs and real-image rotation coverage (#68).
 - [x] Publish the signed `v0.2.1` patch bundle and update the real deployment
   to its immutable adapter digest.
+- [ ] Publish the signed `v0.2.2` reliability patch and prove automatic
+  same-Pod recovery after a singleton gateway endpoint replacement (#70).
 
 Exit: the signed OCI candidate replaces the PoC; qBitTorrent uses Waycloak for
 protected egress and provider-port delivery during ordinary operation; the
@@ -108,8 +110,8 @@ or evidence-backed narrow integrations.
 
 - [ ] Add an observed admission release/generation gate that prevents mixed
   injected agent identities during zero-unavailable webhook upgrades (#55).
-- [ ] Recover existing protected Pod UIDs automatically after a singleton
-  gateway endpoint replacement while remaining fail closed (#61).
+- [ ] Retain automatic same-Pod gateway endpoint recovery as a release
+  regression after its `v0.2.2` delivery (#70).
 - [ ] Multiple named gateways.
 - [ ] Gateway sharding design and implementation.
 - [ ] Upgrade, rollback, backup, and disaster-recovery tests.
