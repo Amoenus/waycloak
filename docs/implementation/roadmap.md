@@ -76,6 +76,11 @@ Exit: e2e acceptance proves annotated VPN IP, unannotated normal IP, fail-closed
 - [x] Replace the originating homelab PoC with the immutable release candidate
   and resolve findings that block ordinary protected operation.
 - [x] Publish final `v0.2.0` from a main-contained signed tag.
+- [x] Require the qBitTorrent reference adapter to observe its active TCP
+  listener before acknowledging provider-assigned delivery, with state-aware
+  logs and real-image rotation coverage (#68).
+- [ ] Publish the signed `v0.2.1` patch bundle and update the real deployment
+  to its immutable adapter digest.
 
 Exit: the signed OCI candidate replaces the PoC; qBitTorrent uses Waycloak for
 protected egress and provider-port delivery during ordinary operation; the
