@@ -96,6 +96,21 @@ func (client *Client) SetListenPort(ctx context.Context, port uint16) error {
 	return nil
 }
 
+func (client *Client) VerifyListener(ctx context.Context, port uint16) error {
+	if port == 0 {
+		return errors.New("qBitTorrent listen port is required")
+	}
+	dialer := &net.Dialer{Timeout: time.Second}
+	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
+	if err != nil {
+		return fmt.Errorf("qBitTorrent is not accepting connections on listen port %d: %w", port, err)
+	}
+	if err := connection.Close(); err != nil {
+		return fmt.Errorf("close qBitTorrent listener probe: %w", err)
+	}
+	return nil
+}
+
 func (client *Client) request(ctx context.Context, method, path string, body *strings.Reader) (*http.Request, error) {
 	if err := client.Validate(); err != nil {
 		return nil, err
