@@ -81,4 +81,28 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 	if after.Status.Allocation.Address != first.Status.Allocation.Address {
 		t.Fatalf("restart changed allocation: %s -> %s", first.Status.Allocation.Address, after.Status.Allocation.Address)
 	}
+	var currentGateway wayv1.VPNGateway
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "egress", Name: "private"}, &currentGateway); err != nil {
+		t.Fatal(err)
+	}
+	currentGateway.Status.Overlay.Endpoint = "10.42.1.9:4789"
+	if err := c.Update(context.Background(), &currentGateway); err != nil {
+		t.Fatal(err)
+	}
+	requests := restarted.podsForGateway(context.Background(), &currentGateway)
+	if len(requests) != 1 || requests[0].NamespacedName != req.NamespacedName {
+		t.Fatalf("gateway update requests = %#v", requests)
+	}
+	if _, err := restarted.Reconcile(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: allocationName}, &cm); err != nil {
+		t.Fatal(err)
+	}
+	if cm.Data["gatewayEndpoint"] != "10.42.1.9:4789" {
+		t.Fatalf("gateway endpoint was not reconciled: %q", cm.Data["gatewayEndpoint"])
+	}
+	if cm.Data["address"] != first.Status.Allocation.Address {
+		t.Fatalf("gateway replacement changed allocation: %s -> %s", first.Status.Allocation.Address, cm.Data["address"])
+	}
 }

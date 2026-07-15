@@ -447,13 +447,30 @@ func addPolicyRule(family, priority, table int, prefix netip.Prefix) error {
 }
 
 func ensureVXLAN(cfg Config, name string, underlay netlink.Link, route netlink.Route) (netlink.Link, error) {
+	source, err := vxlanSource(cfg, underlay, route)
+	if err != nil {
+		return nil, err
+	}
 	if existing, err := netlink.LinkByName(name); err == nil {
 		vxlan, ok := existing.(*netlink.Vxlan)
-		if !ok || vxlan.VxlanId != int(cfg.VNI) || vxlan.Port != int(cfg.GatewayEndpoint.Port()) {
+		if !ok {
 			return nil, fmt.Errorf("owned overlay link %q has conflicting attributes", name)
 		}
-		return existing, nil
+		if vxlanMatches(vxlan, cfg, underlay, source) {
+			return existing, nil
+		}
+		if err := netlink.LinkDel(existing); err != nil {
+			return nil, fmt.Errorf("replace stale owned overlay link %q: %w", name, err)
+		}
 	}
+	vxlan := &netlink.Vxlan{LinkAttrs: netlink.LinkAttrs{Name: name, MTU: cfg.MTU}, VxlanId: int(cfg.VNI), VtepDevIndex: underlay.Attrs().Index, SrcAddr: source, Group: net.IP(cfg.GatewayEndpoint.Addr().AsSlice()), Port: int(cfg.GatewayEndpoint.Port()), Learning: false, NoAge: true}
+	if err := netlink.LinkAdd(vxlan); err != nil {
+		return nil, fmt.Errorf("create VXLAN overlay: %w", err)
+	}
+	return vxlan, nil
+}
+
+func vxlanSource(cfg Config, underlay netlink.Link, route netlink.Route) (net.IP, error) {
 	source := route.Src
 	if len(source) == 0 {
 		addrs, err := netlink.AddrList(underlay, familyFor(cfg.GatewayEndpoint.Addr()))
@@ -462,11 +479,16 @@ func ensureVXLAN(cfg Config, name string, underlay netlink.Link, route netlink.R
 		}
 		source = addrs[0].IP
 	}
-	vxlan := &netlink.Vxlan{LinkAttrs: netlink.LinkAttrs{Name: name, MTU: cfg.MTU}, VxlanId: int(cfg.VNI), VtepDevIndex: underlay.Attrs().Index, SrcAddr: source, Group: net.IP(cfg.GatewayEndpoint.Addr().AsSlice()), Port: int(cfg.GatewayEndpoint.Port()), Learning: false, NoAge: true}
-	if err := netlink.LinkAdd(vxlan); err != nil {
-		return nil, fmt.Errorf("create VXLAN overlay: %w", err)
-	}
-	return vxlan, nil
+	return source, nil
+}
+
+func vxlanMatches(vxlan *netlink.Vxlan, cfg Config, underlay netlink.Link, source net.IP) bool {
+	return vxlan.VxlanId == int(cfg.VNI) &&
+		vxlan.Port == int(cfg.GatewayEndpoint.Port()) &&
+		vxlan.VtepDevIndex == underlay.Attrs().Index &&
+		vxlan.Attrs().MTU == cfg.MTU &&
+		addrEqual(vxlan.Group, cfg.GatewayEndpoint.Addr()) &&
+		vxlan.SrcAddr.Equal(source)
 }
 
 func ensureOverlayAddress(link netlink.Link, prefix netip.Prefix) error {

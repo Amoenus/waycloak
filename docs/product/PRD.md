@@ -161,6 +161,14 @@ Resources expose `observedGeneration`, conditions with stable reason codes, allo
 
 Membership changes should update gateway state without restarting the VPN tunnel. If a disruptive change is unavoidable, status and events must state it and protected workloads must remain fail-closed.
 
+When a serving gateway Pod is replaced and its observed underlay endpoint
+changes, Waycloak must propagate the new endpoint to every bound UID-specific
+allocation record and the running agents must replace only their owned overlay
+peer. The application Pod UID, overlay address, and lease identities remain
+stable; application containers are not restarted. Traffic remains fail closed
+from loss of the old endpoint until the replacement gateway is observed
+healthy, and the transition emits a bounded, useful Kubernetes event.
+
 ### FR-11: Uninstall safety
 
 Uninstall documentation must state ordering. The webhook is removed without trapping unrelated Pods, while annotated workloads cannot be recreated unprotected. Finalizers must not indefinitely block namespace deletion.
@@ -232,6 +240,16 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 Forced provider rotation, sustained DHT certification, and additional workload
 adapters are compatibility expansion rather than blockers for the first
 productized port-forward release. They are tracked in `v0.3.0`.
+
+### v0.2.2 — automatic gateway endpoint recovery
+
+- A replacement singleton gateway endpoint is propagated to existing
+  UID-bound allocation projections.
+- Running agents replace a stale Waycloak-owned VXLAN peer without replacing
+  or restarting application containers.
+- Overlay addresses and port-forward lease identities remain stable.
+- Packaged-image lifecycle acceptance proves fail-closed loss and automatic
+  same-Pod recovery against a replacement endpoint.
 
 ### v0.3.0 — provider and workload compatibility
 

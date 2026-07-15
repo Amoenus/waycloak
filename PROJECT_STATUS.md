@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 ## Current phase
 
@@ -251,6 +251,20 @@ all lease conditions are True, qBitTorrent reports `connected`, TCP and UDP
 listen on the provider-assigned port across the Pod and overlay addresses,
 and the public route returns successfully. The adapter emitted one pending
 state per transition or rate-limit interval and a single recovery event.
+
+The `v0.2.2` reliability patch implements automatic recovery for issue #70.
+`VPNGateway` status changes now enqueue every bound workload, the Pod
+controller reconciles the complete UID-bound allocation document rather than
+treating its routing fields as create-once, and the Linux agent replaces a
+Waycloak-owned VXLAN link when its observed remote endpoint or other immutable
+attributes no longer match desired state. The application Pod UID, overlay
+address, and lease identity remain stable, while existing fail-closed policy
+stays installed until the replacement gateway health check succeeds. Unit,
+envtest, Linux compilation, privileged drift coverage, and a packaged-image
+gateway-loss/replacement lifecycle regression cover the boundary. The shared
+cluster harness also records pre-existing CRDs and no longer deletes resources
+it did not create. Signed publication and no-intervention homelab replacement
+proof remain before issue #70 can close.
 
 ## Release progression
 

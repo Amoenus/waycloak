@@ -433,6 +433,32 @@ func TestRepairOwnedFirewallAndLinkDrift(t *testing.T) {
 	}
 	assertDNSReachability(t, true)
 	assertGatewayClusterPath(t, true)
+
+	link, err = netlink.LinkByName(overlayName(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	underlay, route, err := resolveUnderlay(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := vxlanSource(cfg, underlay, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := netlink.LinkDel(link); err != nil {
+		t.Fatalf("remove current overlay for endpoint replacement test: %v", err)
+	}
+	stale := &netlink.Vxlan{LinkAttrs: netlink.LinkAttrs{Name: overlayName(cfg), MTU: cfg.MTU}, VxlanId: int(cfg.VNI), VtepDevIndex: underlay.Attrs().Index, SrcAddr: source, Group: net.ParseIP("192.0.2.51"), Port: int(cfg.GatewayEndpoint.Port()), Learning: false, NoAge: true}
+	if err := netlink.LinkAdd(stale); err != nil {
+		t.Fatalf("create stale gateway endpoint: %v", err)
+	}
+	if err := agent.Repair(context.Background(), cfg); err != nil {
+		t.Fatalf("replace stale gateway endpoint: %v", err)
+	}
+	if err := connect("172.30.99.1:18080", 2*time.Second); err != nil {
+		t.Fatalf("protected path after gateway endpoint replacement: %v", err)
+	}
 }
 
 func TestClusterTrafficModes(t *testing.T) {

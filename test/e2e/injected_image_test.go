@@ -45,6 +45,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	imageTar, imageTag := buildAgentTarball(t, suffix)
 
 	crdPath := filepath.Join("..", "..", "config", "crd", "bases")
+	createdCRDs := missingWaycloakCRDs()
 	command(t, nil, "kubectl", "apply", "-f", crdPath)
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
@@ -79,7 +80,11 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 		_ = direct.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
 		_ = direct.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
 		_ = direct.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: deniedNamespace}})
-		_ = exec.Command("kubectl", "delete", "-f", crdPath, "--ignore-not-found", "--wait=true").Run()
+		if len(createdCRDs) != 0 {
+			arguments := append([]string{"delete", "crd"}, createdCRDs...)
+			arguments = append(arguments, "--ignore-not-found", "--wait=true")
+			_ = exec.Command("kubectl", arguments...).Run()
+		}
 	})
 
 	createInfrastructure(t, direct, namespace, deniedNamespace, roleName)
@@ -90,6 +95,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	}
 	ns.Labels["pod-security.kubernetes.io/enforce"] = "privileged"
 	ns.Labels["pod-security.kubernetes.io/enforce-version"] = "latest"
+	ns.Labels["networking.waycloak.io/e2e-isolated"] = "true"
 	must(t, direct.Update(ctx, &ns))
 
 	serviceHost := "waycloak-e2e-webhook." + namespace + ".svc"
@@ -145,6 +151,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitFor(t, 30*time.Second, func() bool {
 		return direct.Get(ctx, client.ObjectKeyFromObject(protected), protected) == nil && protected.Status.PodIP != ""
 	})
+	allocationKey := client.ObjectKey{Namespace: namespace, Name: protected.Annotations[contract.AllocationNameAnnotation]}
 	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gatewayPod.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "sh", "-c", gatewayCommand)
 	waitFor(t, 20*time.Second, func() bool {
@@ -152,9 +159,38 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	})
 	waitForPodReady(t, direct, protected)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	protectedUID := protected.UID
 	assertInjectedRuntime(t, protected, imageRef)
 	assertFilteredDeliveryMount(t, protected)
 	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "sh", "-c", "test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token && set -- /run/waycloak/port-forward/* && test $# -eq 1 && test $(basename \"$1\") = port-forward-leases.json")
+
+	must(t, direct.Delete(ctx, gatewayPod, client.GracePeriodSeconds(0)))
+	waitFor(t, 30*time.Second, func() bool { return !podReady(t, direct, protected) })
+	replacementGateway := netnsRunner("gateway-replacement", namespace)
+	replacementGateway.Spec.NodeSelector = nil
+	replacementGateway.Spec.NodeName = nodeName
+	must(t, direct.Create(ctx, replacementGateway))
+	waitForPodReady(t, direct, replacementGateway)
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(replacementGateway), replacementGateway))
+	copyTestBinary(t, dataplaneBinary, namespace, replacementGateway.Name)
+	replacementCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", replacementGateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	command(t, nil, "kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "sh", "-c", replacementCommand)
+	waitFor(t, 20*time.Second, func() bool {
+		return exec.Command("kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
+	})
+	updateGatewayEndpoint(t, direct, gw, replacementGateway.Status.PodIP+":4789", 18080)
+	waitFor(t, 90*time.Second, func() bool {
+		var current corev1.ConfigMap
+		return direct.Get(ctx, allocationKey, &current) == nil && current.Data["gatewayEndpoint"] == replacementGateway.Status.PodIP+":4789"
+	})
+	waitForPodReady(t, direct, protected)
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	if protected.UID != protectedUID {
+		t.Fatalf("gateway replacement changed protected Pod UID: %s -> %s", protectedUID, protected.UID)
+	}
+	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "getent", "hosts", "kubernetes.default")
+	gatewayPod = replacementGateway
+
 	stopController(t, namespace)
 	identity := "e2e-renewable-lease"
 	publishDeliveryDocument(t, direct, protected, identity, 1, 42000)
@@ -188,6 +224,21 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	must(t, direct.Create(ctx, plain))
 	waitForPodReady(t, direct, plain)
 	command(t, nil, "kubectl", "exec", "-n", namespace, plain.Name, "--", "getent", "hosts", "kubernetes.default")
+}
+
+func missingWaycloakCRDs() []string {
+	names := []string{
+		"portforwardleases.networking.waycloak.io",
+		"vpngateways.networking.waycloak.io",
+		"vpnworkloads.networking.waycloak.io",
+	}
+	missing := make([]string, 0, len(names))
+	for _, name := range names {
+		if exec.Command("kubectl", "get", "crd", name).Run() != nil {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 func buildAgentTarball(t *testing.T, suffix string) (string, string) {

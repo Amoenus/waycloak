@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waycloak gateway replacement recovery — as built</title>
+  <style>
+    :root { color-scheme: light dark; --accent: #3867d6; --muted: #6b7280; --border: #9ca3af55; }
+    body { font: 16px/1.55 system-ui, sans-serif; max-width: 1100px; margin: 0 auto; padding: 2rem; }
+    h1, h2 { line-height: 1.2; } h2 { margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: .35rem; }
+    table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid var(--border); padding: .55rem; text-align: left; vertical-align: top; }
+    th { background: #3867d618; } code, pre { font-family: ui-monospace, monospace; }
+    pre { padding: 1rem; border: 1px solid var(--border); border-radius: .4rem; overflow: auto; }
+    .card { border-left: .3rem solid var(--accent); padding: .75rem 1rem; background: #3867d610; }
+    .high { color: #16803a; font-weight: 700; } .medium { color: #a16207; font-weight: 700; }
+    nav a { margin-right: 1rem; } small { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gateway replacement recovery — as-built architecture</h1>
+    <p><small>Generated 2026-07-15 18:33:32 Europe/Riga · focused production-debugging snapshot</small></p>
+    <nav><a href="#summary">Summary</a><a href="#map">System map</a><a href="#flow">Failure flow</a><a href="#tests">Tests</a><a href="#risks">Risks</a></nav>
+  </header>
+
+  <section id="scope">
+    <h2>Scope and assumptions</h2>
+    <p>This run examined only the path that propagates an observed singleton gateway Pod endpoint into an existing protected Pod and the path by which the running Linux agent repairs its VXLAN peer. Controller, agent, gateway-manager, port-forward observation, targeted tests, and bounded live-cluster evidence were inspected. Provider credentials and Secret contents were not read. The broader product architecture was not re-audited.</p>
+  </section>
+
+  <section id="summary">
+    <h2>Executive summary</h2>
+    <div class="card"><strong>Observed root cause:</strong> the allocation ConfigMap was create-once for routing fields, and the agent accepted an existing VXLAN link without comparing its remote endpoint. A replacement gateway therefore left both persisted and kernel state pointing at the former Pod IP.</div>
+    <ul>
+      <li>The gateway controller correctly observes the serving gateway Pod IP in <code>VPNGateway.status.overlay.endpoint</code>.</li>
+      <li>The Pod controller previously updated only the port-forward delivery field after allocation creation and did not watch gateway status changes.</li>
+      <li>The agent already polls its projected allocation every two seconds and calls <code>Repair</code>.</li>
+      <li>The Linux repair path previously compared VXLAN VNI and UDP port but not the remote group address, so polling could not repair the stale peer.</li>
+      <li>The gateway manager already polls its desired-state file. A measured rules-generation delay converged without restart and was consistent with kubelet projected ConfigMap latency, not a missing manager reload feature.</li>
+      <li>Fail-closed policy worked: the protected application became unavailable but did not fall back to ordinary egress.</li>
+    </ul>
+  </section>
+
+  <section id="map">
+    <h2>As-built system map</h2>
+    <table>
+      <thead><tr><th>Component</th><th>Current responsibility</th><th>Key evidence</th><th>Confidence</th></tr></thead>
+      <tbody>
+        <tr><td>Gateway reconciler</td><td>Owns gateway resources and publishes the observed serving Pod endpoint into gateway status.</td><td><code>internal/controller/gateway_controller.go</code></td><td class="high">High</td></tr>
+        <tr><td>Pod reconciler</td><td>Owns the UID-bound <code>VPNWorkload</code> and allocation ConfigMap. The fix makes the whole document desired state and fans gateway changes out to bound Pods.</td><td><code>internal/controller/pod_controller.go</code></td><td class="high">High</td></tr>
+        <tr><td>Allocation projection</td><td>Transfers the observed endpoint and stable allocation into the Pod without granting Kubernetes API credentials.</td><td><code>internal/agentconfig/config.go</code></td><td class="high">High</td></tr>
+        <tr><td>Pod agent</td><td>Polls configuration, repairs kernel state, verifies gateway health, and controls readiness.</td><td><code>cmd/agent/main.go</code></td><td class="high">High</td></tr>
+        <tr><td>Linux dataplane</td><td>Maintains fail-closed nftables, policy routing, and the Waycloak-owned VXLAN link. The fix replaces the link when immutable peer attributes drift.</td><td><code>internal/dataplane/backend_linux.go</code></td><td class="high">High</td></tr>
+        <tr><td>Gateway manager</td><td>Polls desired gateway state, reconciles overlay/forwarding/provider state, and publishes observations.</td><td><code>cmd/gateway-manager/main.go</code>, <code>internal/gateway/manager.go</code></td><td class="high">High</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="flow">
+    <h2>Representative failure and recovery flow</h2>
+    <pre>Gateway Pod replacement
+        |
+        v
+gateway status receives a new observed endpoint
+        |
+        +-- previous build: no Pod fan-out; allocation remains stale
+        |                   agent polls, but accepts stale VXLAN peer
+        |                   readiness fails closed indefinitely
+        |
+        `-- fixed build: bound Pods are enqueued
+                        complete allocation document is reconciled
+                        projected file changes
+                        agent detects remote-peer drift
+                        owned VXLAN link is replaced
+                        gateway health succeeds; Pod becomes Ready
+
+Stable throughout: application Pod UID, overlay address, lease identity
+Never allowed: ordinary-egress fallback</pre>
+  </section>
+
+  <section id="tests">
+    <h2>Test suite interpretation</h2>
+    <table>
+      <thead><tr><th>Evidence</th><th>What it proves</th><th>Qualification</th></tr></thead>
+      <tbody>
+        <tr><td>Controller unit regression</td><td>A gateway status endpoint change enqueues the bound Pod, rewrites the allocation endpoint, and preserves its allocation.</td><td class="high">High confidence</td></tr>
+        <tr><td>Linux comparison unit</td><td>The desired remote address is part of VXLAN identity and a stale address is rejected.</td><td class="high">High confidence; Linux build</td></tr>
+        <tr><td>Privileged dataplane lifecycle case</td><td><code>Repair</code> replaces a deliberately stale peer and restores protected gateway reachability.</td><td class="medium">Compiled locally; executes in the Linux e2e job</td></tr>
+        <tr><td>Packaged-image lifecycle case</td><td>Gateway loss makes the Pod unready; a different replacement endpoint updates the projection and must recover the same Pod UID.</td><td class="medium">Added; local shared-cluster run was blocked by node image-loader readiness and must pass CI/isolated execution</td></tr>
+        <tr><td>Live incident recovery</td><td>The production failure was stale endpoint/link state; manual state replacement restored the same Pod UID with fail-closed behavior.</td><td class="high">High confidence, reproduced twice</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="observations">
+    <h2>Architecture observations</h2>
+    <p><strong>Observed:</strong> desired-state propagation and kernel reconciliation each lacked one half of endpoint replacement. Both are required; fixing only the ConfigMap leaves the immutable VXLAN peer stale, and fixing only the agent leaves it without new desired state.</p>
+    <p><strong>Inferred:</strong> normal gateway manager projection latency is acceptable while provider renewal retains safety margin, but it should remain measured in rotation tests.</p>
+    <p><strong>Unknown:</strong> recovery latency across every supported kubelet ConfigMap sync configuration and CNI remains unverified.</p>
+  </section>
+
+  <section id="risks">
+    <h2>Risks and friction</h2>
+    <table>
+      <thead><tr><th>Finding</th><th>Why it matters</th><th>Suggested verification</th></tr></thead>
+      <tbody>
+        <tr><td>Projected volume propagation is eventually consistent.</td><td>Recovery is automatic but may take approximately a kubelet sync interval.</td><td>Record endpoint-observed, projection-updated, link-replaced, and Ready timestamps.</td></tr>
+        <tr><td>Shared-cluster e2e previously deleted all test-applied CRDs.</td><td>A disposable-cluster assumption can destroy live custom resources.</td><td>The harness now deletes only CRDs proven absent before the run; retain a regression review for cluster-scoped ownership.</td></tr>
+        <tr><td>Gateway fan-out lists all workloads.</td><td>Correct for current scale but may become expensive in large clusters.</td><td>Add a gateway-reference field index before high-scale certification.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="commands">
+    <h2>Command log</h2>
+    <table>
+      <thead><tr><th>Command class</th><th>Purpose</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>go test ./...</code></td><td>Unit/package regression</td><td>Passed</td></tr>
+        <tr><td><code>go vet ./...</code></td><td>Static diagnostics</td><td>Passed</td></tr>
+        <tr><td><code>go test -race ./...</code></td><td>Race detector</td><td>Unsupported in the local Windows CGO environment; delegated to Linux CI</td></tr>
+        <tr><td>envtest integration suite</td><td>Real API-server reconciliation</td><td>Passed</td></tr>
+        <tr><td>Linux and e2e cross-compilation</td><td>Compile Linux-only reconciliation cases</td><td>Passed</td></tr>
+        <tr><td>Live Kubernetes observations</td><td>Validate fail-closed outage and restored conditions</td><td>Recovered; all lease conditions True and public route healthy</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="next">
+    <h2>Next verification steps</h2>
+    <ol>
+      <li>Pass Linux race, static analysis, and packaged-image lifecycle in CI.</li>
+      <li>Publish immutable v0.2.2 controller and agent images from a main-contained tag.</li>
+      <li>Deploy the signed release, replace the singleton gateway Pod, and verify automatic same-UID recovery without manual ConfigMap, link, or process changes.</li>
+      <li>Close issue #70 only after that production proof.</li>
+    </ol>
+  </section>
+</body>
+</html>
