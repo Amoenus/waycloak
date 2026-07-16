@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,8 +56,8 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	adapterImage := requireImmutableEnvironment(t, "WAYCLOAK_REAL_QBITTORRENT_ADAPTER_IMAGE")
 	soak := realAcceptanceDuration(t, "WAYCLOAK_REAL_PORT_FORWARD_SOAK", 10*time.Minute, 10*time.Minute)
 	rotationTimeout := realAcceptanceDuration(t, "WAYCLOAK_REAL_PORT_ROTATION_TIMEOUT", time.Hour, 10*time.Minute)
-	if exec.Command("kubectl", "get", "secret", "-n", namespace, secretName, "-o", "name").Run() != nil {
-		t.Fatal("the configured credential Secret does not exist; expected opaque keys username and password")
+	if !realCredentialSecretHasExpectedKeys(namespace, secretName) {
+		t.Fatal("the configured credential Secret must exist and contain only username and password keys")
 	}
 
 	observerBinary := filepath.Join(t.TempDir(), "qbittorrent-observer")
@@ -71,7 +72,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	suffix := fmt.Sprintf("%x", time.Now().UnixNano())
 	prefix := "waycloak-real-pf-" + suffix
 
-	gateway := realPortForwardGateway(namespace, prefix+"-gateway", secretName)
+	engineConfig := realPortForwardEngineConfig(namespace, prefix+"-engine")
+	must(t, direct.Create(ctx, engineConfig))
+	gateway := realPortForwardGateway(namespace, prefix+"-gateway", secretName, engineConfig.Name)
 	must(t, direct.Create(ctx, gateway))
 	t.Cleanup(func() {
 		removeRealPortForwardResources(t, ctx, direct, namespace, prefix, gateway)
@@ -193,14 +196,12 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	waitForDHTNodes(t, namespace, protected.Name, 5*time.Minute)
 }
 
-func realPortForwardGateway(namespace, name, secretName string) *wayv1.VPNGateway {
-	region := strings.TrimSpace(os.Getenv("WAYCLOAK_REAL_VPN_REGION"))
-	if region == "" {
-		region = "Switzerland"
-	}
+func realPortForwardGateway(namespace, name, secretName, engineConfigName string) *wayv1.VPNGateway {
 	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
-		Engine:         wayv1.EngineSpec{Type: "Gluetun", Image: realPortForwardEngineImage},
-		Provider:       &wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", Region: region, CredentialsSecretRef: corev1.LocalObjectReference{Name: secretName}},
+		Engine: wayv1.EngineSpec{Type: "Gluetun", Image: realPortForwardEngineImage, Config: &wayv1.EngineNativeConfigSpec{
+			EnvFrom: []corev1.LocalObjectReference{{Name: engineConfigName}},
+			Files:   []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: secretName}, MountPath: "/run/engine-native/credentials"}},
+		}},
 		Overlay:        wayv1.OverlaySpec{CIDR: "172.30.252.0/29", VNI: 10992, MTU: 1320},
 		ClusterTraffic: wayv1.ClusterTrafficSpec{Mode: "Gateway"},
 		PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"},
@@ -208,11 +209,46 @@ func realPortForwardGateway(namespace, name, secretName string) *wayv1.VPNGatewa
 	}}
 }
 
-func TestRealPortForwardGatewayUsesCanonicalProtocol(t *testing.T) {
-	gateway := realPortForwardGateway("acceptance", "gateway", "credentials")
-	if gateway.Spec.Provider.Protocol != "openvpn" {
-		t.Fatalf("real-provider gateway protocol = %q, want openvpn", gateway.Spec.Provider.Protocol)
+func realPortForwardEngineConfig(namespace, name string) *corev1.ConfigMap {
+	region := strings.TrimSpace(os.Getenv("WAYCLOAK_REAL_VPN_REGION"))
+	if region == "" {
+		region = "Switzerland"
 	}
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Data: map[string]string{
+		"VPN_SERVICE_PROVIDER":        "protonvpn",
+		"VPN_TYPE":                    "openvpn",
+		"SERVER_COUNTRIES":            region,
+		"OPENVPN_USER_SECRETFILE":     "/run/engine-native/credentials/username",
+		"OPENVPN_PASSWORD_SECRETFILE": "/run/engine-native/credentials/password",
+	}}
+}
+
+func TestRealPortForwardGatewayUsesNativeGluetunConfiguration(t *testing.T) {
+	gateway := realPortForwardGateway("acceptance", "gateway", "credentials", "engine-config")
+	if gateway.Spec.Provider != nil {
+		t.Fatal("real-provider gateway retained the legacy provider configuration")
+	}
+	if gateway.Spec.Engine.Config == nil || len(gateway.Spec.Engine.Config.EnvFrom) != 1 || gateway.Spec.Engine.Config.EnvFrom[0].Name != "engine-config" {
+		t.Fatal("real-provider gateway omitted its native Gluetun environment reference")
+	}
+	if len(gateway.Spec.Engine.Config.Files) != 1 || gateway.Spec.Engine.Config.Files[0].SecretRef == nil || gateway.Spec.Engine.Config.Files[0].SecretRef.Name != "credentials" {
+		t.Fatal("real-provider gateway omitted its engine-only credential mount")
+	}
+	config := realPortForwardEngineConfig("acceptance", "engine-config")
+	if config.Data["VPN_SERVICE_PROVIDER"] != "protonvpn" || config.Data["VPN_TYPE"] != "openvpn" {
+		t.Fatal("real-provider native Gluetun configuration is not compatible with Proton NAT-PMP")
+	}
+}
+
+func realCredentialSecretHasExpectedKeys(namespace, name string) bool {
+	template := `{{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}`
+	output, err := exec.Command("kubectl", "get", "secret", "-n", namespace, name, "-o", "go-template="+template).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	keys := strings.Fields(string(output))
+	sort.Strings(keys)
+	return len(keys) == 2 && keys[0] == "password" && keys[1] == "username"
 }
 
 func realQBittorrentAuthSecret(name, namespace, apiKey string) *corev1.Secret {
@@ -411,6 +447,7 @@ func removeRealPortForwardResources(t *testing.T, ctx context.Context, c client.
 		_ = c.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}, client.GracePeriodSeconds(0))
 	}
 	_ = c.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-auth", Namespace: namespace}})
+	_ = c.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-engine", Namespace: namespace}})
 	_ = c.Delete(ctx, gateway)
 }
 

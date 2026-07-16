@@ -3,9 +3,13 @@
 This gated suite proves the Phase 4 behavior that a local NAT-PMP fixture
 cannot: actual Proton ingress, renewal, provider port rotation, qBitTorrent
 advertisement, DHT health, and fail-closed recovery. It is destructive only to
-resources it creates under the `waycloak-real-pf-` prefix. The test process
-never reads VPN Secret data. Public endpoint values are held in memory only for
-assertions and are never printed, persisted, or published.
+resources it creates under the `waycloak-real-pf-` prefix. The test creates a
+Gluetun-native `engine.config` gateway: non-secret provider, protocol, and
+region settings live in a temporary ConfigMap, while the rotated credential
+Secret is mounted read-only only into the engine container. The test process
+enumerates only Secret key names and never reads VPN Secret values. Public
+endpoint values are held in memory only for assertions and are never printed,
+persisted, or published.
 
 Run it only from a reviewed commit already contained in `main`, using a signed
 pre-release produced by the protected tag workflow. A locally built controller,
@@ -58,9 +62,13 @@ export WAYCLOAK_REAL_PORT_FORWARD_SOAK=10m
 export WAYCLOAK_REAL_PORT_ROTATION_TIMEOUT=1h
 
 kubectl get secret -n "$WAYCLOAK_REAL_VPN_NAMESPACE" \
-  "$WAYCLOAK_REAL_VPN_SECRET" -o name
+  "$WAYCLOAK_REAL_VPN_SECRET" \
+  -o 'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}'
 make e2e-real-port-forward
 ```
+
+The preflight and test require exactly the `username` and `password` key names;
+the template above does not render their values.
 
 The test deliberately fails if the provider does not rotate the public port
 within the configured timeout. Raising the timeout is valid; replacing actual
@@ -73,6 +81,8 @@ then proves:
 
 - admission injected the protected Pod while leaving the ordinary Pod outside
   Waycloak;
+- the gateway uses the v0.3 Gluetun-native ConfigMap and engine-only Secret file
+  contract, with no legacy `provider` object;
 - the protected public egress differs from ordinary egress without logging
   either value;
 - the real lease reaches observed `Ready=True` for the exact target Pod UID;
