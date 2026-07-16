@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,28 +61,19 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	previous.Conditions = append([]metav1.Condition(nil), gateway.Status.Conditions...)
 
 	if reason, message := validateGateway(&gateway, r.ManagerImage); reason != "" {
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
-		gateway.Status.ObservedGeneration = gateway.Generation
-		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
+		return r.rejectGateway(ctx, &gateway, previous, ctrl.Result{}, reason, message)
 	}
 	engineConfig, reason, message := r.observeEngineConfig(ctx, &gateway)
 	if reason != "" {
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
-		gateway.Status.ObservedGeneration = gateway.Generation
 		result := ctrl.Result{}
 		if reason == waystatus.ReasonEngineConfigurationUnavailable {
 			result.RequeueAfter = 2 * time.Second
 		}
-		return result, r.updateStatus(ctx, &gateway, previous)
+		return r.rejectGateway(ctx, &gateway, previous, result, reason, message)
 	}
 	if gateway.Spec.PortForwarding.Enabled && (!strings.EqualFold(engineConfig.Provider, "protonvpn") || !strings.EqualFold(engineConfig.Protocol, "openvpn")) {
 		message := "ProtonNatPmp requires effective Gluetun configuration for protonvpn with OpenVPN"
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, waystatus.ReasonPortForwardUnsupported, message)
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonPortForwardUnsupported, message)
-		gateway.Status.ObservedGeneration = gateway.Generation
-		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
+		return r.rejectGateway(ctx, &gateway, previous, ctrl.Result{}, waystatus.ReasonPortForwardUnsupported, message)
 	}
 
 	if r.ManagerImage == "" {
@@ -108,6 +100,44 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *GatewayReconciler) rejectGateway(ctx context.Context, gateway *wayv1.VPNGateway, previous wayv1.VPNGatewayStatus, result ctrl.Result, reason, message string) (ctrl.Result, error) {
+	setGatewayPending(gateway, "Gateway workload is quarantined because its configuration is not accepted")
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
+	gateway.Status.Overlay.Endpoint = ""
+	gateway.Status.Overlay.HealthPort = 0
+	gateway.Status.Overlay.AppliedMembershipGeneration = ""
+	gateway.Status.ObservedGeneration = gateway.Generation
+	if err := r.quarantineGateway(ctx, gateway); err != nil {
+		return ctrl.Result{}, err
+	}
+	return result, r.updateStatus(ctx, gateway, previous)
+}
+
+func (r *GatewayReconciler) quarantineGateway(ctx context.Context, gateway *wayv1.VPNGateway) error {
+	var statefulSet appsv1.StatefulSet
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	if err := r.Get(ctx, key, &statefulSet); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("read gateway StatefulSet for quarantine: %w", err)
+	}
+	if statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas == 0 {
+		return nil
+	}
+	before := statefulSet.DeepCopy()
+	zero := int32(0)
+	statefulSet.Spec.Replicas = &zero
+	if err := r.Patch(ctx, &statefulSet, client.MergeFrom(before)); err != nil {
+		return fmt.Errorf("quarantine gateway StatefulSet: %w", err)
+	}
+	if r.Recorder != nil {
+		r.Recorder.Event(gateway, corev1.EventTypeWarning, "GatewayQuarantined", "Scaled the gateway workload to zero because its configuration is not accepted")
+	}
+	return nil
 }
 
 func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, string) {

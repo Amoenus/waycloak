@@ -72,11 +72,13 @@ mutable engine image, unavailable `/dev/net/tun`, blocked provider
 connectivity, blocked UDP 4789, or an invalid cluster resolver observation.
 
 For an engine-native gateway, `EngineConfigurationUnavailable` means a
-referenced ConfigMap does not exist yet and is retried. `InvalidEngineConfiguration`
-means a native environment key, source, or mount conflicts with the engine
-integration contract. Events and conditions identify ConfigMap and key names
-but never configuration values; compare against the reserved list in the
-[native configuration guide](../guides/gluetun-native-configuration.md).
+referenced ConfigMap lookup failed and is retried. The ConfigMap may be missing,
+temporarily unavailable through the Kubernetes API, or inaccessible because of
+controller RBAC. `InvalidEngineConfiguration` instead means a native
+environment key, source, or mount conflicts with the engine integration
+contract. Events and conditions identify ConfigMap and key names but never
+configuration values; compare against the reserved list in the [native
+configuration guide](../guides/gluetun-native-configuration.md).
 
 The manager logs exclude provider response bodies, but logs can still contain operational IP addresses. Treat debug output as sensitive infrastructure metadata. Never print or decode the credentials Secret while collecting diagnostics.
 

@@ -259,7 +259,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 	}
 	if gateway.Spec.Provider != nil {
 		volumes = append(volumes, corev1.Volume{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}})
-	} else if gateway.Spec.Engine.Config != nil {
+	} else if strings.EqualFold(gateway.Spec.Engine.Type, "Gluetun") && gateway.Spec.Engine.Config != nil {
 		for index, source := range gateway.Spec.Engine.Config.Files {
 			volume := corev1.Volume{Name: nativeFileVolumeName(index)}
 			if source.ConfigMapRef != nil {

@@ -21,8 +21,10 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +52,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
 	must(t, rbacv1.AddToScheme(scheme))
 	must(t, admissionv1.AddToScheme(scheme))
 	must(t, wayv1.AddToScheme(scheme))
@@ -217,6 +220,10 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
 		return accepted != nil && accepted.Status == metav1.ConditionTrue
 	})
+	oneReplica := int32(1)
+	quarantineLabels := map[string]string{"app": "native-quarantine-target"}
+	quarantineTarget := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: waygateway.ResourceName(nativeGateway.Name), Namespace: namespace}, Spec: appsv1.StatefulSetSpec{ServiceName: "unused", Replicas: &oneReplica, Selector: &metav1.LabelSelector{MatchLabels: quarantineLabels}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: quarantineLabels}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "fixture", Image: "registry.k8s.io/pause:3.10.1"}}}}}}
+	must(t, direct.Create(ctx, quarantineTarget))
 	nativeConfig.Data["VPN_INTERFACE"] = "conflicting-interface"
 	must(t, direct.Update(ctx, nativeConfig))
 	waitFor(t, 30*time.Second, func() bool {
@@ -225,6 +232,10 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 		}
 		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
 		return accepted != nil && accepted.Status == metav1.ConditionFalse && accepted.Reason == waystatus.ReasonInvalidEngineConfiguration && !strings.Contains(accepted.Message, "conflicting-interface")
+	})
+	waitFor(t, 30*time.Second, func() bool {
+		var statefulSet appsv1.StatefulSet
+		return direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: waygateway.ResourceName(nativeGateway.Name)}, &statefulSet) == nil && statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas == 0
 	})
 	delete(nativeConfig.Data, "VPN_INTERFACE")
 	must(t, direct.Update(ctx, nativeConfig))

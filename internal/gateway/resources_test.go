@@ -108,6 +108,26 @@ func TestDesiredStatefulSetUsesNativeGluetunConfigurationWithoutReadingSecrets(t
 	}
 }
 
+func TestDesiredStatefulSetDoesNotCreateUnconsumedNativeVolumesForOtherEngines(t *testing.T) {
+	gateway := testGateway()
+	gateway.Spec.Engine.Type = "Test"
+	gateway.Spec.Provider = nil
+	gateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{
+		EnvFrom: []corev1.LocalObjectReference{{Name: "native"}},
+		Files:   []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "native-secret"}, MountPath: "/run/engine-native/credentials"}},
+	}
+	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager")})
+	engine := statefulSet.Spec.Template.Spec.Containers[0]
+	if len(engine.EnvFrom) != 0 || hasMount(engine, "engine-native-file-0") {
+		t.Fatalf("non-Gluetun engine consumed native projection: envFrom=%#v mounts=%#v", engine.EnvFrom, engine.VolumeMounts)
+	}
+	for _, volume := range statefulSet.Spec.Template.Spec.Volumes {
+		if volume.Name == "engine-native-file-0" {
+			t.Fatalf("non-Gluetun engine received an unmounted native volume: %#v", volume)
+		}
+	}
+}
+
 func TestMembershipGenerationIsDeterministicAndChangesOnlyWithMembership(t *testing.T) {
 	members := []Member{{ID: "b", OverlayAddress: "172.30.99.3", UnderlayIP: "10.42.0.3"}, {ID: "a", OverlayAddress: "172.30.99.2", UnderlayIP: "10.42.0.2"}}
 	first := MembershipGeneration(members)

@@ -227,7 +227,8 @@ func TestGatewayNativeConfigurationGatesProtonPortForwardCapability(t *testing.T
 		reason string
 	}{
 		{name: "compatible", data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn"}, status: metav1.ConditionTrue, reason: waystatus.ReasonAccepted},
-		{name: "wrong-provider", data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}, status: metav1.ConditionFalse, reason: waystatus.ReasonPortForwardUnsupported},
+		{name: "wrong-provider", data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "openvpn"}, status: metav1.ConditionFalse, reason: waystatus.ReasonPortForwardUnsupported},
+		{name: "wrong-protocol", data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "wireguard"}, status: metav1.ConditionFalse, reason: waystatus.ReasonPortForwardUnsupported},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			gateway := nativeControllerTestGateway("native")
@@ -245,6 +246,60 @@ func TestGatewayNativeConfigurationGatesProtonPortForwardCapability(t *testing.T
 			}
 			assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionAccepted, test.status, test.reason)
 		})
+	}
+}
+
+func TestGatewayQuarantinesAndRecoversAfterNativeConfigurationTransition(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := nativeControllerTestGateway("native")
+	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "native", Namespace: gateway.Namespace}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}).WithObjects(gateway, configMap).Build()
+	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: record.NewFakeRecorder(10), ManagerImage: "registry.invalid/manager" + testDigest}
+	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	var statefulSet appsv1.StatefulSet
+	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
+		t.Fatal(err)
+	}
+	if statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 1 {
+		t.Fatalf("accepted gateway replicas = %v", statefulSet.Spec.Replicas)
+	}
+	configMap.Data["VPN_INTERFACE"] = "must-not-be-reported"
+	if err := client.Update(context.Background(), configMap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
+		t.Fatal(err)
+	}
+	if statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 0 {
+		t.Fatalf("quarantined gateway replicas = %v", statefulSet.Spec.Replicas)
+	}
+	var observed wayv1.VPNGateway
+	if err := client.Get(context.Background(), request.NamespacedName, &observed); err != nil {
+		t.Fatal(err)
+	}
+	assertGatewayCondition(t, observed.Status.Conditions, waystatus.ConditionAccepted, metav1.ConditionFalse, waystatus.ReasonInvalidEngineConfiguration)
+	if strings.Contains(apimeta.FindStatusCondition(observed.Status.Conditions, waystatus.ConditionAccepted).Message, "must-not-be-reported") {
+		t.Fatal("rejection condition exposed a native configuration value")
+	}
+	delete(configMap.Data, "VPN_INTERFACE")
+	if err := client.Update(context.Background(), configMap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
+		t.Fatal(err)
+	}
+	if statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 1 {
+		t.Fatalf("recovered gateway replicas = %v", statefulSet.Spec.Replicas)
 	}
 }
 

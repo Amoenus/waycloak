@@ -201,7 +201,51 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	})
 	waitFor(t, 10*time.Second, func() bool {
 		var statefulSet appsv1.StatefulSet
-		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &statefulSet) == nil
+		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(nativeGateway.Name)}, &statefulSet) == nil && statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas == 0
+	})
+	delete(nativeConfig.Data, "VPN_INTERFACE")
+	must(t, mgr.GetClient().Update(ctx, nativeConfig))
+	waitFor(t, 10*time.Second, func() bool {
+		var current wayv1.VPNGateway
+		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(nativeGateway), &current) != nil {
+			return false
+		}
+		condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionAccepted)
+		return condition != nil && condition.Status == metav1.ConditionTrue
+	})
+	waitFor(t, 10*time.Second, func() bool {
+		var statefulSet appsv1.StatefulSet
+		return mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(nativeGateway.Name)}, &statefulSet) == nil && statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas == 1
+	})
+	rollbackConfig := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gluetun-proton-rollback", Namespace: nsName}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn", "SERVER_COUNTRIES": "Netherlands", "OPENVPN_USER_SECRETFILE": "/run/engine-native/credentials/username", "OPENVPN_PASSWORD_SECRETFILE": "/run/engine-native/credentials/password"}}
+	must(t, mgr.GetClient().Create(ctx, rollbackConfig))
+	rollbackGateway := gw.DeepCopy()
+	rollbackGateway.Name = "native-proton-rollback"
+	rollbackGateway.ResourceVersion = ""
+	rollbackGateway.UID = ""
+	rollbackGateway.Spec.Engine.Type = "Gluetun"
+	rollbackGateway.Spec.Provider = nil
+	rollbackGateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{EnvFrom: []corev1.LocalObjectReference{{Name: rollbackConfig.Name}}, Files: []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "credentials"}, MountPath: "/run/engine-native/credentials"}}}
+	must(t, mgr.GetClient().Create(ctx, rollbackGateway))
+	waitFor(t, 10*time.Second, func() bool {
+		var current wayv1.VPNGateway
+		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(rollbackGateway), &current) != nil {
+			return false
+		}
+		condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionAccepted)
+		return condition != nil && condition.Status == metav1.ConditionTrue
+	})
+	must(t, mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(rollbackGateway), rollbackGateway))
+	rollbackGateway.Spec.Engine.Config = nil
+	rollbackGateway.Spec.Provider = &wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", Region: "Netherlands", CredentialsSecretRef: corev1.LocalObjectReference{Name: "credentials"}}
+	must(t, mgr.GetClient().Update(ctx, rollbackGateway))
+	waitFor(t, 10*time.Second, func() bool {
+		var current wayv1.VPNGateway
+		if mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(rollbackGateway), &current) != nil {
+			return false
+		}
+		condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionAccepted)
+		return current.Status.ObservedGeneration == current.Generation && current.Spec.Provider != nil && current.Spec.Engine.Config == nil && condition != nil && condition.Status == metav1.ConditionTrue
 	})
 	var service corev1.Service
 	must(t, mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: nsName, Name: waygateway.ResourceName(gw.Name)}, &service))

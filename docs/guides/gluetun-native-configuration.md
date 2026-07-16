@@ -142,7 +142,10 @@ address/authentication setting. It also rejects file mounts that mask `/dev`,
 Native files must mount below `/gluetun/` or in `/run/engine-native`.
 The rejection uses stable `InvalidEngineConfiguration` or
 `EngineConfigurationUnavailable` reasons and never includes a configuration
-value.
+value. If a previously accepted gateway becomes invalid or unavailable, the
+controller quarantines it by scaling the gateway StatefulSet to zero; protected
+traffic therefore remains fail closed instead of using stale engine settings.
+Restoring an accepted configuration returns the StatefulSet to one replica.
 
 ## Migration and rollback
 
@@ -152,6 +155,11 @@ references. A ConfigMap change updates the StatefulSet template digest and
 emits `GatewayRolloutRequired`; delete the singleton gateway Pod only during an
 approved fail-closed maintenance window.
 
-Before rolling back to a pre-v0.3 controller, migrate native gateways back to
-the legacy `provider` object. An older controller does not understand
-`engine.config` and cannot safely operate a native gateway.
+Rollback to a pre-v0.3 controller is supported only for the Proton/OpenVPN shape
+above when its provider, protocol, single country selector, and
+`username`/`password` Secret map losslessly to the legacy `provider` object.
+Migrate that gateway atomically and verify it is accepted before downgrading.
+Mullvad/WireGuard, custom WireGuard or OpenVPN, and configurations using other
+native-only Gluetun settings have no lossless legacy mapping and must remain on
+v0.3 or newer. An older controller does not understand `engine.config` and
+cannot safely operate those gateways.
