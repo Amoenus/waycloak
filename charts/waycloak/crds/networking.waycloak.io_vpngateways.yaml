@@ -195,7 +195,8 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: enabled port forwarding requires driver ProtonNatPmp
-                  rule: '!self.enabled || (has(self.driver) && self.driver == ''ProtonNatPmp'')'
+                  rule: '!has(self.enabled) || !self.enabled || (has(self.driver)
+                    && self.driver == ''ProtonNatPmp'')'
               provider:
                 properties:
                   credentialsSecretRef:

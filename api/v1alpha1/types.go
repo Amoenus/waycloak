@@ -72,7 +72,7 @@ type ClusterTrafficSpec struct {
 	CIDRs []string `json:"cidrs,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.driver) && self.driver == 'ProtonNatPmp')",message="enabled port forwarding requires driver ProtonNatPmp"
+// +kubebuilder:validation:XValidation:rule="!has(self.enabled) || !self.enabled || (has(self.driver) && self.driver == 'ProtonNatPmp')",message="enabled port forwarding requires driver ProtonNatPmp"
 type PortForwardingSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// +kubebuilder:validation:Enum=ProtonNatPmp
