@@ -34,6 +34,27 @@ their `admission.networking.waycloak.io/generation` Pod annotation matches the
 ConfigMap, and admission still rejects an annotated missing-gateway reference
 while leaving an unannotated Pod unchanged.
 
+### From v0.2.2 to the v0.3.0-alpha.1 certification candidate
+
+Install only the chart package and digest identities from the signed
+`v0.3.0-alpha.1` release manifest. The candidate adds the cluster-scoped
+`WorkloadAdapter` trust API and the native `VPNGateway.spec.engine.config`
+surface while retaining the mutually exclusive legacy `spec.provider` shape.
+Apply the CRDs through the chart before creating either new object shape.
+
+Upgrade the control plane first and verify its admission generation before
+rolling protected workloads. Existing legacy Proton/OpenVPN gateways may
+remain unchanged during this candidate upgrade. Migrating one to native
+configuration changes the gateway Pod template but does not restart the
+singleton automatically; validate the ConfigMap and engine-only Secret
+references, then perform the documented maintenance-window Pod deletion.
+Protected workloads remain fail closed throughout that restart.
+
+This prerelease is a certification input, not proof that the v0.3 compatibility
+gate is complete. Do not promote it to production consumers or retire the PoC
+until the signed real-provider qBitTorrent run and Bitmagnet/Loadstone adoption
+have produced their required evidence.
+
 ## Roll protected workloads after the control plane
 
 The generation gate makes an agent-changing rollout fail closed. After Helm

@@ -90,6 +90,11 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
+The source tree is versioned `v0.3.0-alpha.1` for the first signed
+certification candidate. This candidate exists to run the native Gluetun
+real-provider gate from reviewed `main`; publication alone does not complete
+the unchecked compatibility or workload-adoption items below.
+
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
 - [x] Preserve a previously proven qBitTorrent Service endpoint across bounded

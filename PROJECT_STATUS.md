@@ -363,6 +363,20 @@ the trust API, while the release manifest records the protocol, reference
 compatibility, and attested conformance-kit asset. The next ordered v0.3 work
 is sustained real-provider certification and additional workload adoption.
 
+PR [#85](https://github.com/Amoenus/waycloak/pull/85) aligns the destructive
+real-provider release gate with the v0.3 native engine contract. The harness
+now creates a non-secret Proton/OpenVPN ConfigMap, mounts the dedicated
+`username`/`password` Secret read-only only into Gluetun, and rejects any
+unexpected Secret key shape without reading a value. It retains the real TCP
+and UDP ingress, tracker, DHT, renewal, provider rotation, unchanged Pod UID,
+gateway-loss, stale-ingress, and recovery assertions. All unit, race, envtest,
+generated-artifact, security, and Kind acceptance gates passed on the reviewed
+main-contained change. The chart and optional KCL module are now versioned
+`0.3.0-alpha.1` for the signed certification candidate. This version change is
+not evidence for issue #4 by itself: #4 remains open until the signed candidate
+is installed and the gated real-provider run succeeds without publishing
+credentials or endpoint values.
+
 ## Release progression
 
 `v0.1.0` delivered the first usable private-egress foundation: a single shared
