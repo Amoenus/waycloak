@@ -1,5 +1,11 @@
 # qBitTorrent example
 
+This example also installs the cluster-scoped `WorkloadAdapter` trust record
+for the exact qBitTorrent adapter digest. The Pod template independently names
+that trust record and its adapter container, so operator approval and workload
+intent are both visible. Release rendering replaces both placeholder image
+references with the same signed immutable digest.
+
 This example keeps the declared Waycloak target at TCP/UDP `6881` while a
 narrow, unprivileged adapter makes qBitTorrent listen on each current provider
 port. Waycloak translates the stable target locally and translates outbound

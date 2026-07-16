@@ -1,0 +1,10 @@
+apiVersion: networking.waycloak.io/v1alpha1
+kind: WorkloadAdapter
+metadata:
+  name: qbittorrent
+  labels:
+    app.kubernetes.io/name: waycloak-qbittorrent-adapter
+    app.kubernetes.io/part-of: waycloak
+spec:
+  protocolVersion: networking.waycloak.io/adapter/v1alpha1
+  image: waycloak.invalid/qbittorrent-adapter@sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -171,7 +172,13 @@ func leaseHandler(deliveries *delivery.Store) http.Handler {
 				return
 			}
 			var acknowledgement delivery.ApplicationAcknowledgement
-			if err := json.NewDecoder(http.MaxBytesReader(response, request.Body, 4096)).Decode(&acknowledgement); err != nil {
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 4096))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&acknowledgement); err != nil {
+				http.Error(response, "invalid acknowledgement", http.StatusBadRequest)
+				return
+			}
+			if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 				http.Error(response, "invalid acknowledgement", http.StatusBadRequest)
 				return
 			}

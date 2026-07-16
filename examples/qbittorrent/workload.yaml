@@ -14,6 +14,8 @@ spec:
         app.kubernetes.io/name: qbittorrent
       annotations:
         networking.waycloak.io/gateway: waycloak-system/private-egress
+        networking.waycloak.io/workload-adapter: qbittorrent
+        networking.waycloak.io/adapter-container: waycloak-qbittorrent-adapter
     spec:
       automountServiceAccountToken: false
       initContainers:

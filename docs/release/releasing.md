@@ -42,13 +42,14 @@ The workflow publishes these multi-architecture image repositories by digest:
 
 The chart is published at `oci://ghcr.io/amoenus/charts/waycloak`. Before packaging, the workflow writes the exact released controller, agent, gateway-manager, and adapter image identities into the chart defaults. It never publishes `latest`.
 
-The chart package contains the `VPNGateway`, `VPNWorkload`, and
-`PortForwardLease` CRDs under `crds/`, so a Helm install creates the API before
+The chart package contains the `VPNGateway`, `VPNWorkload`,
+`PortForwardLease`, and cluster-scoped `WorkloadAdapter` CRDs under `crds/`, so
+a Helm install creates the API before
 the controller resources. The optional KCL authoring module is published
 separately at `oci://ghcr.io/amoenus/waycloak-kcl`; its version matches the
 chart and its generated schemas are verified against those same CRDs.
 
-`release-manifest.json` follows [the release manifest schema](manifest.schema.json). Its Sigstore bundle, chart package, digest-resolved `qbittorrent-example.yaml`, and filesystem/image SBOMs are attached to the GitHub release. The workflow renders that example with the exact adapter reference recorded in the signed manifest and rejects placeholders or mutable images. OCI signatures, SBOM attestations, and provenance remain alongside each registry artifact.
+`release-manifest.json` follows [the release manifest schema](manifest.schema.json). Its Sigstore bundle, chart package, digest-resolved `qbittorrent-example.yaml`, workload-adapter protocol/conformance kit, and filesystem/image SBOMs are attached to the GitHub release. The signed manifest names the adapter protocol, kit, and reference compatibility range. The workflow renders the qBitTorrent trust record and workload with the same exact adapter reference and rejects placeholders or mutable images. OCI signatures, SBOM attestations, and provenance remain alongside each registry artifact.
 
 ## Verify a release
 

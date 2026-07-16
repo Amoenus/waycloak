@@ -3,16 +3,19 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/Amoenus/waycloak/internal/contract"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 type PodValidator struct {
 	AgentImage     string
 	GenerationGate *GenerationGate
+	Reader         client.Reader
 }
 
 func (v *PodValidator) Handle(ctx context.Context, req cradmission.Request) cradmission.Response {
@@ -33,6 +36,15 @@ func (v *PodValidator) Handle(ctx context.Context, req cradmission.Request) crad
 	}
 	if pod.Annotations[contract.InjectionVersionAnnotation] != contract.InjectionVersion {
 		return cradmission.Denied(waystatus.ReasonAdmissionVersionConflict + ": annotated Pod is not injected with the required version")
+	}
+	if (pod.Annotations[contract.WorkloadAdapterAnnotation] != "" || pod.Annotations[contract.AdapterContainerAnnotation] != "") && v.Reader == nil {
+		return cradmission.Errored(500, errors.New("adapter trust reader is not configured"))
+	}
+	if _, err := reconcileAdapterSelection(ctx, v.Reader, &pod, false); err != nil {
+		if rejection, ok := err.(*Rejection); ok {
+			return cradmission.Denied(rejection.Error())
+		}
+		return cradmission.Errored(500, err)
 	}
 	if err := validateInjected(&pod, v.AgentImage); err != nil {
 		return cradmission.Denied(waystatus.ReasonAdmissionVersionConflict + ": " + err.Error())

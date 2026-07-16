@@ -70,7 +70,11 @@ OCI sidecar implements the versioned Pod-local adapter protocol. It receives
 only the neutral lease contract and explicitly selected workload-owned
 configuration. Exact-generation acknowledgement returns through the local
 agent; adapters never run in a Waycloak control-plane or privileged data-plane
-process. ADR 0018 defines this extension boundary.
+process. A cluster-scoped `WorkloadAdapter` records the operator-approved
+protocol and immutable digest; the Pod template separately selects that trust
+record and an existing sidecar. Admission validates the exact image and
+least-privilege posture, then supplies only the protocol and loopback endpoint.
+ADR 0018 defines this extension boundary.
 
 ### Lease delivery agent
 

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waycloak.io/protocol/adapter/v1alpha1/acknowledgement.schema.json",
+  "title": "Waycloak workload-adapter acknowledgement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "podUID", "leaseIdentity", "generation", "applicationPort"],
+  "properties": {
+    "apiVersion": { "const": "networking.waycloak.io/adapter/v1alpha1" },
+    "podUID": { "type": "string", "minLength": 1 },
+    "leaseIdentity": { "type": "string", "minLength": 1 },
+    "generation": { "type": "integer", "minimum": 1 },
+    "applicationPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+  }
+}

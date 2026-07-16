@@ -24,6 +24,7 @@ import (
 
 type PodMutator struct {
 	Client         client.Client
+	AdapterReader  client.Reader
 	Scheme         *runtime.Scheme
 	AgentImage     string
 	GenerationGate *GenerationGate
@@ -102,6 +103,14 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 	if err != nil {
 		return false, err
 	}
+	adapterReader := m.AdapterReader
+	if adapterReader == nil {
+		adapterReader = m.Client
+	}
+	adapterChanged, err := reconcileAdapterSelection(ctx, adapterReader, pod, true)
+	if err != nil {
+		return false, err
+	}
 	if m.AgentImage == "" {
 		return false, fmt.Errorf("agent image is not configured")
 	}
@@ -119,7 +128,7 @@ func (m *PodMutator) mutate(ctx context.Context, pod *corev1.Pod, admissionIdent
 		if m.GenerationGate != nil && pod.Annotations[contract.AdmissionGenerationAnnotation] != m.GenerationGate.Generation {
 			return false, &Rejection{Reason: waystatus.ReasonAdmissionGenerationConflict, Message: "Pod carries a different admission generation"}
 		}
-		return credentialsRemoved, nil
+		return credentialsRemoved || adapterChanged, nil
 	}
 	if hasReservedNames(pod) {
 		return false, &Rejection{Reason: waystatus.ReasonAdmissionVersionConflict, Message: "Pod already uses Waycloak-reserved container or volume names"}

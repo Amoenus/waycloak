@@ -59,7 +59,11 @@ controller-image-oci:
 
 qbittorrent-adapter-image-oci:
 	mkdir -p $(dir $(QBITTORRENT_ADAPTER_OCI_LAYOUT))
-	KO_DOCKER_REPO=$(QBITTORRENT_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(QBITTORRENT_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/qbittorrent-adapter
+	KO_DOCKER_REPO=$(QBITTORRENT_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(QBITTORRENT_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 \
+		--image-label=io.waycloak.adapter.protocol=networking.waycloak.io/adapter/v1alpha1 \
+		--image-label=io.waycloak.adapter.application=qbittorrent \
+		--image-label=io.waycloak.adapter.application.version='>=5.2.3 <6.0.0' \
+		./cmd/qbittorrent-adapter
 
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)
@@ -73,6 +77,7 @@ verify-chart-generated:
 	diff -u config/crd/bases/networking.waycloak.io_portforwardleases.yaml charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpngateways.yaml charts/waycloak/crds/networking.waycloak.io_vpngateways.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpnworkloads.yaml charts/waycloak/crds/networking.waycloak.io_vpnworkloads.yaml
+	diff -u config/crd/bases/networking.waycloak.io_workloadadapters.yaml charts/waycloak/crds/networking.waycloak.io_workloadadapters.yaml
 	diff -u config/rbac/role.yaml charts/waycloak/files/manager-role.yaml
 
 verify-kcl-generated:

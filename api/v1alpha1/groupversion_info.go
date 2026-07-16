@@ -19,7 +19,7 @@ var (
 )
 
 func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(GroupVersion, &VPNGateway{}, &VPNGatewayList{}, &VPNWorkload{}, &VPNWorkloadList{}, &PortForwardLease{}, &PortForwardLeaseList{})
+	scheme.AddKnownTypes(GroupVersion, &VPNGateway{}, &VPNGatewayList{}, &VPNWorkload{}, &VPNWorkloadList{}, &PortForwardLease{}, &PortForwardLeaseList{}, &WorkloadAdapter{}, &WorkloadAdapterList{})
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil
 }

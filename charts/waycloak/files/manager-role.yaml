@@ -101,6 +101,14 @@ rules:
   verbs:
   - update
 - apiGroups:
+  - networking.waycloak.io
+  resources:
+  - workloadadapters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - policy
   resources:
   - poddisruptionbudgets

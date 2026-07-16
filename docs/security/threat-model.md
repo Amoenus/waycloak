@@ -99,6 +99,20 @@ scanning in CI.
 
 **Control:** UID-bound leases, stable allocator generations, atomic rule replacement, expiry, and target readiness checks.
 
+### Unreviewed workload-adapter execution
+
+**Threat:** a workload annotation causes the privileged admission path to
+inject or trust an arbitrary third-party image, or an adapter receives
+Kubernetes/VPN credentials or extra host privilege.
+
+**Control:** only an operator-created cluster-scoped `WorkloadAdapter` can
+approve a digest and protocol. Workload intent separately names that record and
+an existing container whose image must match exactly. Admission requires a
+readiness probe, non-root/read-only execution, seccomp, `drop: [ALL]`, no added
+capabilities, hostPath, hostPort, device, or projected service-account token.
+Application credentials remain workload-owned and explicitly mounted only
+where needed.
+
 ### Shared-gateway blast radius
 
 **Threat:** one gateway outage interrupts all members.

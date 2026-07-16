@@ -88,6 +88,16 @@ func TestReconciliationPersistsAllocationAndConfigMap(t *testing.T) {
 	nsName := "waycloak-envtest-" + fmt.Sprint(time.Now().UnixNano())
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}}
 	must(t, mgr.GetClient().Create(ctx, ns))
+	trustedAdapter := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "envtest-adapter"}, Spec: wayv1.WorkloadAdapterSpec{ProtocolVersion: contract.AdapterProtocolVersion, Image: "registry.invalid/adapter@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}
+	must(t, apiClient.Create(ctx, trustedAdapter))
+	mutableAdapter := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "mutable-adapter"}, Spec: wayv1.WorkloadAdapterSpec{ProtocolVersion: contract.AdapterProtocolVersion, Image: "registry.invalid/adapter:latest"}}
+	if err := apiClient.Create(ctx, mutableAdapter); err == nil {
+		t.Fatal("API server accepted a mutable workload-adapter image")
+	}
+	unsupportedAdapter := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "unsupported-adapter"}, Spec: wayv1.WorkloadAdapterSpec{ProtocolVersion: "networking.waycloak.io/adapter/v2", Image: trustedAdapter.Spec.Image}}
+	if err := apiClient.Create(ctx, unsupportedAdapter); err == nil {
+		t.Fatal("API server accepted an unsupported workload-adapter protocol")
+	}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()

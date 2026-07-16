@@ -160,6 +160,15 @@ Set `networking.waycloak.io/port-forward-container: <container>` on the opted-in
 
 An application adapter can watch the file or poll the local endpoint when it genuinely needs provider metadata. In the default `Fixed` mode, `Delivered=True` means the target Pod agent loaded the exact unexpired UID/generation record; it does not claim that an arbitrary application consumed it. In `ProviderAssigned` mode, the adapter must additionally acknowledge the exact generation and applied application port, and the agent must reconcile the corresponding local redirect before delivery becomes observed.
 
+Application-specific adapters use the public
+`networking.waycloak.io/adapter/v1alpha1` contract. Operators approve an exact
+digest with a cluster-scoped `WorkloadAdapter`; workload authors select that
+trust record and an explicitly authored sidecar with the
+`networking.waycloak.io/workload-adapter` and
+`networking.waycloak.io/adapter-container` Pod-template annotations. Waycloak
+validates the selection but does not invent application configuration or mount
+workload credentials automatically.
+
 Ordinary listeners stay on the fixed `PortForwardLease.spec.target.port` while the gateway translates each provider public-port generation to that target. Applications may also advertise a peer port inside their own protocol; for those workloads Waycloak first tries a Pod-local standard such as NAT-PMP, PCP, or UPnP.
 
 qBitTorrent 5.2.3 is an evidence-backed exception. In the Phase 4 compatibility probe it accepted a PCP mapping from local port `6881` to external port `42000`, but its real HTTP tracker request still announced `port=6881`. The official integration therefore requires a narrow qBitTorrent sidecar that consumes only the neutral lease record and changes the application listener. It remains outside the controller, receives no Kubernetes or VPN credentials, and must acknowledge the exact lease generation before application delivery is considered observed.

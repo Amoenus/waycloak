@@ -69,7 +69,7 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if listenPort != applicationPort || acknowledgement.Generation != 4 || acknowledgement.ApplicationPort != uint16(applicationPort) {
+	if listenPort != applicationPort || acknowledgement.APIVersion != delivery.AcknowledgementAPIVersion || acknowledgement.PodUID != "pod-uid" || acknowledgement.LeaseIdentity != "lease-uid" || acknowledgement.Generation != 4 || acknowledgement.ApplicationPort != uint16(applicationPort) {
 		t.Fatalf("listenPort=%d acknowledgement=%#v", listenPort, acknowledgement)
 	}
 }

@@ -1,0 +1,7 @@
+apiVersion: networking.waycloak.io/v1alpha1
+kind: WorkloadAdapter
+metadata:
+  name: example
+spec:
+  protocolVersion: networking.waycloak.io/adapter/v1alpha1
+  image: ghcr.io/example/adapter@sha256:0000000000000000000000000000000000000000000000000000000000000000

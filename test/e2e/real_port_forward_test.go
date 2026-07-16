@@ -93,7 +93,10 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	auth := realQBittorrentAuthSecret(prefix+"-auth", namespace, apiKey)
 	must(t, direct.Create(ctx, auth))
 	leaseName := prefix + "-lease"
-	protected := realQBittorrentPod(prefix+"-qbittorrent", namespace, nodeName, gateway.Name, auth.Name, adapterImage, leaseName, prefix)
+	adapterTrust := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-qbittorrent"}, Spec: wayv1.WorkloadAdapterSpec{ProtocolVersion: contract.AdapterProtocolVersion, Image: adapterImage}}
+	must(t, direct.Create(ctx, adapterTrust))
+	t.Cleanup(func() { _ = direct.Delete(context.Background(), adapterTrust) })
+	protected := realQBittorrentPod(prefix+"-qbittorrent", namespace, nodeName, gateway.Name, auth.Name, adapterTrust.Name, adapterImage, leaseName, prefix)
 	must(t, direct.Create(ctx, protected))
 	waitFor(t, 3*time.Minute, func() bool {
 		if direct.Get(ctx, client.ObjectKeyFromObject(protected), protected) != nil || protected.Status.PodIP == "" {
@@ -217,16 +220,16 @@ func realQBittorrentAuthSecret(name, namespace, apiKey string) *corev1.Secret {
 	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, StringData: map[string]string{"api-key": apiKey, "qBittorrent.conf": configuration}}
 }
 
-func realQBittorrentPod(name, namespace, node, gateway, auth, adapterImage, leaseName, run string) *corev1.Pod {
+func realQBittorrentPod(name, namespace, node, gateway, auth, adapterTrust, adapterImage, leaseName, run string) *corev1.Pod {
 	no := false
 	yes := true
 	runAs := int64(65532)
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: map[string]string{"acceptance.networking.waycloak.io/run": run}, Annotations: map[string]string{contract.GatewayAnnotation: namespace + "/" + gateway}}, Spec: corev1.PodSpec{
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: map[string]string{"acceptance.networking.waycloak.io/run": run}, Annotations: map[string]string{contract.GatewayAnnotation: namespace + "/" + gateway, contract.WorkloadAdapterAnnotation: adapterTrust, contract.AdapterContainerAnnotation: "waycloak-qbittorrent-adapter"}}, Spec: corev1.PodSpec{
 		NodeName: node, AutomountServiceAccountToken: &no,
 		InitContainers: []corev1.Container{{Name: "configure", Image: "alpine:3.22.1", Command: []string{"sh", "-ec"}, Args: []string{"mkdir -p /config/qBittorrent; cp /bootstrap/qBittorrent.conf /config/qBittorrent/qBittorrent.conf; chown -R 1000:1000 /config"}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "bootstrap", MountPath: "/bootstrap", ReadOnly: true}}}},
 		Containers: []corev1.Container{
 			{Name: "qbittorrent", Image: realQBittorrentImage, Env: []corev1.EnvVar{{Name: "PUID", Value: "1000"}, {Name: "PGID", Value: "1000"}, {Name: "TZ", Value: "Etc/UTC"}}, Ports: []corev1.ContainerPort{{Name: "bittorrent-tcp", ContainerPort: 6881, Protocol: corev1.ProtocolTCP}, {Name: "bittorrent-udp", ContainerPort: 6881, Protocol: corev1.ProtocolUDP}, {Name: "webui", ContainerPort: 8080, Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromString("webui")}}, PeriodSeconds: 5}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "downloads", MountPath: "/downloads"}}},
-			{Name: "waycloak-qbittorrent-adapter", Image: adapterImage, Args: []string{"run"}, Env: []corev1.EnvVar{{Name: "WAYCLOAK_QBITTORRENT_API_KEY_FILE", Value: "/adapter-auth/api-key"}, {Name: "WAYCLOAK_LEASE_NAME", Value: leaseName}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"/ko-app/qbittorrent-adapter", "probe"}}}, PeriodSeconds: 2}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &yes, RunAsUser: &runAs, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "adapter-auth", MountPath: "/adapter-auth", ReadOnly: true}}},
+			{Name: "waycloak-qbittorrent-adapter", Image: adapterImage, Args: []string{"run"}, Env: []corev1.EnvVar{{Name: "WAYCLOAK_QBITTORRENT_API_KEY_FILE", Value: "/adapter-auth/api-key"}, {Name: "WAYCLOAK_LEASE_NAME", Value: leaseName}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"/ko-app/qbittorrent-adapter", "probe"}}}, PeriodSeconds: 2}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &yes, RunAsUser: &runAs, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}, VolumeMounts: []corev1.VolumeMount{{Name: "adapter-auth", MountPath: "/adapter-auth", ReadOnly: true}}},
 			{Name: "acceptance-observer", Image: "alpine:3.22.1", Command: []string{"sleep", "86400"}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "observer", MountPath: "/tmp"}, {Name: "adapter-auth", MountPath: "/secrets", ReadOnly: true}}},
 		},
 		Volumes: []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}, {Name: "downloads", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}, {Name: "observer", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}, {Name: "bootstrap", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: auth, Items: []corev1.KeyToPath{{Key: "qBittorrent.conf", Path: "qBittorrent.conf"}}}}}, {Name: "adapter-auth", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: auth, Items: []corev1.KeyToPath{{Key: "api-key", Path: "api-key"}}}}}},

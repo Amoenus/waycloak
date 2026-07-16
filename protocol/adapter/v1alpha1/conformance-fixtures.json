@@ -1,0 +1,14 @@
+{
+  "apiVersion": "networking.waycloak.io/adapter-conformance/v1alpha1",
+  "podUID": "pod-uid-1",
+  "leaseIdentity": "lease-uid-1",
+  "scenarios": [
+    { "name": "current", "document": "current.json", "acknowledgement": "current-ack.json", "ready": true },
+    { "name": "rotated", "document": "rotated.json", "acknowledgement": "rotated-ack.json", "ready": true },
+    { "name": "expired", "document": "expired.json", "ready": false },
+    { "name": "missing", "document": "missing.json", "ready": false },
+    { "name": "duplicate", "document": "duplicate.json", "ready": false },
+    { "name": "wrong-pod-uid", "document": "current.json", "acknowledgement": "wrong-pod-uid-ack.json", "ready": false },
+    { "name": "stale-generation", "document": "rotated.json", "acknowledgement": "current-ack.json", "ready": false }
+  ]
+}

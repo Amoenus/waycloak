@@ -36,6 +36,11 @@ pod_template_annotations = {
 `VPNWorkload` is included because it is a served, inspectable API, but it is
 controller-owned and consumers must not author it. The module contains no
 credentials, private endpoints, provider defaults, or homelab-specific values.
+`WorkloadAdapter` is also generated from the served CRD. Operators may author
+it to approve an exact adapter digest; workload templates use
+`helpers.workloadAdapterAnnotation` and `helpers.adapterContainerAnnotation`
+to declare the matching workload intent.
+See `examples/workload-adapter.k` for the minimal digest-pinned trust record.
 
 Start with the egress-only example:
 

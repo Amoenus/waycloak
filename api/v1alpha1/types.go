@@ -241,3 +241,36 @@ type PortForwardLeaseList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []PortForwardLease `json:"items"`
 }
+
+// WorkloadAdapterSpec is an operator-approved adapter identity. Workloads
+// select this object by name; the admission webhook only accepts an existing
+// sidecar whose immutable image and protocol version exactly match it.
+type WorkloadAdapterSpec struct {
+	// ProtocolVersion is the public Pod-local adapter protocol implemented by
+	// the image.
+	// +kubebuilder:validation:Enum=networking.waycloak.io/adapter/v1alpha1
+	ProtocolVersion string `json:"protocolVersion"`
+	// Image must be an immutable OCI manifest or index reference.
+	// +kubebuilder:validation:Pattern=`^[^\s@]+@sha256:[a-f0-9]{64}$`
+	Image string `json:"image"`
+}
+
+// WorkloadAdapter is cluster-scoped operator trust policy, not a workload
+// execution request. Creating one asserts that the referenced digest and its
+// supply-chain evidence have been reviewed by the cluster operator.
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Cluster,shortName=wcadapter
+// +kubebuilder:printcolumn:name="Protocol",type=string,JSONPath=`.spec.protocolVersion`
+// +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
+type WorkloadAdapter struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              WorkloadAdapterSpec `json:"spec"`
+}
+
+// +kubebuilder:object:root=true
+type WorkloadAdapterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []WorkloadAdapter `json:"items"`
+}

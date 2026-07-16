@@ -91,8 +91,8 @@ func main() {
 		}
 	}
 	generationGate := &wayadmission.GenerationGate{Reader: mgr.GetAPIReader(), Namespace: admissionGenerationNamespace, ConfigMap: admissionGenerationConfigMap, Generation: admissionGeneration}
-	mgr.GetWebhookServer().Register("/mutate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodMutator{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage, GenerationGate: generationGate}})
-	mgr.GetWebhookServer().Register("/validate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodValidator{AgentImage: agentImage, GenerationGate: generationGate}})
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodMutator{Client: mgr.GetClient(), AdapterReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(), AgentImage: agentImage, GenerationGate: generationGate}})
+	mgr.GetWebhookServer().Register("/validate-v1-pod", &cradmission.Webhook{Handler: &wayadmission.PodValidator{AgentImage: agentImage, GenerationGate: generationGate, Reader: mgr.GetAPIReader()}})
 	_ = corev1.NamespaceDefault
 	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Error(err, "health check")
