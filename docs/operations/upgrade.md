@@ -78,6 +78,17 @@ helm rollback waycloak PREVIOUS_REVISION -n waycloak-system --wait --timeout 5m
 
 Rollback restores the previous digest values and controller template stored by Helm. Gateway Pods still use `OnDelete`; if a gateway was already restarted onto the new manager or engine, restore the previous `VPNGateway` specification and then delete that gateway Pod during another maintenance window.
 
+Rollback below v0.3.0 is supported only for the documented Proton/OpenVPN
+native shape whose provider, protocol, single country selector, and
+`username`/`password` Secret map losslessly to the mutually exclusive legacy
+`spec.provider` fields. Convert and verify those gateways before downgrading.
+Mullvad/WireGuard, custom WireGuard or OpenVPN, and configurations using other
+native-only Gluetun settings have no lossless legacy representation and must
+remain on v0.3.0 or newer. Pre-v0.3 controllers do not understand native engine
+references. Do not rely on CRD rollback: Helm does not safely downgrade stored
+custom resources, and an old controller must remain fail closed rather than
+infer provider settings.
+
 ## Rotate webhook TLS
 
 Rotate trust without an admission outage:

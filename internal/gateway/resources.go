@@ -37,6 +37,7 @@ const (
 	EnginePostRulesKey             = "post-rules.txt"
 	DesiredStateKey                = "gateway.json"
 	DesiredMembershipGenerationKey = "membership-generation"
+	EngineConfigDigestAnnotation   = "internal.networking.waycloak.io/engine-config-digest"
 
 	// StatefulSet controller revision labels append "-" and a 10-character
 	// hash to the workload name. Reserve that space so the generated label
@@ -45,7 +46,8 @@ const (
 )
 
 type WorkloadOptions struct {
-	ManagerImage string
+	ManagerImage       string
+	EngineConfigDigest string
 }
 
 type Member struct {
@@ -163,6 +165,9 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 	root := int64(0)
 	labels := SelectorLabels(gateway)
 	annotations := map[string]string{GatewayNameAnnotation: gateway.Name}
+	if options.EngineConfigDigest != "" {
+		annotations[EngineConfigDigestAnnotation] = options.EngineConfigDigest
+	}
 	manager := corev1.Container{
 		Name:            ManagerContainer,
 		Image:           options.ManagerImage,
@@ -203,32 +208,66 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER", "NET_ADMIN", "SETGID", "SETUID"}}},
 		VolumeMounts: []corev1.VolumeMount{
-			{Name: "credentials", MountPath: "/run/waycloak/credentials", ReadOnly: true},
 			{Name: "engine-auth", MountPath: "/run/waycloak/engine-auth", ReadOnly: true},
 			{Name: "engine-firewall", MountPath: "/iptables", ReadOnly: true},
 			{Name: "tun", MountPath: "/dev/net/tun"},
 			{Name: "engine-state", MountPath: "/gluetun"},
 		},
 	}
+	if gateway.Spec.Provider != nil {
+		engine.VolumeMounts = append(engine.VolumeMounts, corev1.VolumeMount{Name: "credentials", MountPath: "/run/waycloak/credentials", ReadOnly: true})
+	}
 	if strings.EqualFold(gateway.Spec.Engine.Type, "Gluetun") {
 		engine.Env = []corev1.EnvVar{
-			{Name: "VPN_SERVICE_PROVIDER", Value: gateway.Spec.Provider.Name},
-			{Name: "VPN_TYPE", Value: strings.ToLower(gateway.Spec.Provider.Protocol)},
-			{Name: "SERVER_COUNTRIES", Value: gateway.Spec.Provider.Region},
-			{Name: "OPENVPN_USER_SECRETFILE", Value: "/run/waycloak/credentials/username"},
-			{Name: "OPENVPN_PASSWORD_SECRETFILE", Value: "/run/waycloak/credentials/password"},
 			{Name: "HEALTH_SERVER_ADDRESS", Value: "127.0.0.1:9999"},
 			{Name: "HTTP_CONTROL_SERVER_ADDRESS", Value: "127.0.0.1:8000"},
 			{Name: "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", Value: "/run/waycloak/engine-auth/config.toml"},
 			{Name: "PUBLICIP_ENABLED", Value: "on"},
 			{Name: "VPN_INTERFACE", Value: TunnelInterface},
 			{Name: "FIREWALL_INPUT_PORTS", Value: fmt.Sprint(HealthPort)},
+			{Name: "DNS_ADDRESS", Value: "127.0.0.1"},
+			{Name: "VPN_PORT_FORWARDING", Value: "off"},
+		}
+		if gateway.Spec.Provider != nil {
+			engine.Env = append(engine.Env,
+				corev1.EnvVar{Name: "VPN_SERVICE_PROVIDER", Value: gateway.Spec.Provider.Name},
+				corev1.EnvVar{Name: "VPN_TYPE", Value: strings.ToLower(gateway.Spec.Provider.Protocol)},
+				corev1.EnvVar{Name: "SERVER_COUNTRIES", Value: gateway.Spec.Provider.Region},
+				corev1.EnvVar{Name: "OPENVPN_USER_SECRETFILE", Value: "/run/waycloak/credentials/username"},
+				corev1.EnvVar{Name: "OPENVPN_PASSWORD_SECRETFILE", Value: "/run/waycloak/credentials/password"},
+			)
+		} else if gateway.Spec.Engine.Config != nil {
+			for _, source := range gateway.Spec.Engine.Config.EnvFrom {
+				engine.EnvFrom = append(engine.EnvFrom, corev1.EnvFromSource{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: source}})
+			}
+			for index, source := range gateway.Spec.Engine.Config.Files {
+				engine.VolumeMounts = append(engine.VolumeMounts, corev1.VolumeMount{Name: nativeFileVolumeName(index), MountPath: source.MountPath, ReadOnly: true})
+			}
 		}
 		if gateway.Spec.PortForwarding.Enabled {
-			engine.Env = append(engine.Env,
-				corev1.EnvVar{Name: "PORT_FORWARD_ONLY", Value: "on"},
-				corev1.EnvVar{Name: "VPN_PORT_FORWARDING", Value: "off"},
-			)
+			engine.Env = append(engine.Env, corev1.EnvVar{Name: "PORT_FORWARD_ONLY", Value: "on"})
+		}
+	}
+	volumes := []corev1.Volume{
+		{Name: "engine-auth", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}}}},
+		{Name: "engine-firewall-base", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: EnginePostRulesKey, Path: EnginePostRulesKey}}}}},
+		{Name: "engine-firewall", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "gateway-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: DesiredStateKey, Path: DesiredStateKey}}}}},
+		{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: hostPathType(corev1.HostPathCharDev)}}},
+		{Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "runtime", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+	}
+	if gateway.Spec.Provider != nil {
+		volumes = append(volumes, corev1.Volume{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}})
+	} else if strings.EqualFold(gateway.Spec.Engine.Type, "Gluetun") && gateway.Spec.Engine.Config != nil {
+		for index, source := range gateway.Spec.Engine.Config.Files {
+			volume := corev1.Volume{Name: nativeFileVolumeName(index)}
+			if source.ConfigMapRef != nil {
+				volume.ConfigMap = &corev1.ConfigMapVolumeSource{LocalObjectReference: *source.ConfigMapRef}
+			} else if source.SecretRef != nil {
+				volume.Secret = &corev1.SecretVolumeSource{SecretName: source.SecretRef.Name}
+			}
+			volumes = append(volumes, volume)
 		}
 	}
 	return &appsv1.StatefulSet{
@@ -246,20 +285,15 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 					SecurityContext:              &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
 					InitContainers:               []corev1.Container{init},
 					Containers:                   []corev1.Container{engine, manager},
-					Volumes: []corev1.Volume{
-						{Name: "credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: gateway.Spec.Provider.CredentialsSecretRef.Name}}},
-						{Name: "engine-auth", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}}}},
-						{Name: "engine-firewall-base", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: EnginePostRulesKey, Path: EnginePostRulesKey}}}}},
-						{Name: "engine-firewall", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-						{Name: "gateway-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: ResourceName(gateway.Name)}, Items: []corev1.KeyToPath{{Key: DesiredStateKey, Path: DesiredStateKey}}}}},
-						{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: hostPathType(corev1.HostPathCharDev)}}},
-						{Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-						{Name: "runtime", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-					},
+					Volumes:                      volumes,
 				},
 			},
 		},
 	}
+}
+
+func nativeFileVolumeName(index int) string {
+	return fmt.Sprintf("engine-native-file-%d", index)
 }
 
 func enginePostRules(gateway *wayv1.VPNGateway) string {

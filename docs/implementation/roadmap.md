@@ -105,7 +105,7 @@ gateway remains fail closed; and the verified final bundle is published.
   contract.
 - [ ] Record additional provider/application compatibility and troubleshooting
   evidence from real deployments.
-- [ ] Replace provider-shaped gateway convenience fields with engine-native
+- [x] Replace provider-shaped gateway convenience fields with engine-native
   Gluetun configuration and a documented migration (#66).
 - [ ] Publish the workload-adapter protocol, trusted selection mechanism,
   conformance kit, and qBitTorrent reference implementation (#67).

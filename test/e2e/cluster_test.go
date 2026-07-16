@@ -21,8 +21,10 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/contract"
+	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +52,7 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
 	must(t, rbacv1.AddToScheme(scheme))
 	must(t, admissionv1.AddToScheme(scheme))
 	must(t, wayv1.AddToScheme(scheme))
@@ -202,6 +205,47 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 
 	startController(t, namespace, true)
 	waitFor(t, 30*time.Second, func() bool { return direct.Get(ctx, cmKey, &cm) == nil })
+	nativeConfig := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gluetun-native", Namespace: namespace}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}}
+	must(t, direct.Create(ctx, nativeConfig))
+	nativeGateway := gateway(namespace)
+	nativeGateway.Name = "native"
+	nativeGateway.Spec.Provider = nil
+	nativeGateway.Spec.PortForwarding = wayv1.PortForwardingSpec{}
+	nativeGateway.Spec.Engine.Config = &wayv1.EngineNativeConfigSpec{EnvFrom: []corev1.LocalObjectReference{{Name: nativeConfig.Name}}, Files: []wayv1.EngineFileSource{{SecretRef: &corev1.LocalObjectReference{Name: "wireguard-config"}, MountPath: "/gluetun/wireguard"}}}
+	must(t, direct.Create(ctx, nativeGateway))
+	waitFor(t, 30*time.Second, func() bool {
+		if direct.Get(ctx, client.ObjectKeyFromObject(nativeGateway), nativeGateway) != nil {
+			return false
+		}
+		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionTrue
+	})
+	oneReplica := int32(1)
+	quarantineLabels := map[string]string{"app": "native-quarantine-target"}
+	quarantineTarget := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: waygateway.ResourceName(nativeGateway.Name), Namespace: namespace}, Spec: appsv1.StatefulSetSpec{ServiceName: "unused", Replicas: &oneReplica, Selector: &metav1.LabelSelector{MatchLabels: quarantineLabels}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: quarantineLabels}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "fixture", Image: "registry.k8s.io/pause:3.10.1"}}}}}}
+	must(t, direct.Create(ctx, quarantineTarget))
+	nativeConfig.Data["VPN_INTERFACE"] = "conflicting-interface"
+	must(t, direct.Update(ctx, nativeConfig))
+	waitFor(t, 30*time.Second, func() bool {
+		if direct.Get(ctx, client.ObjectKeyFromObject(nativeGateway), nativeGateway) != nil {
+			return false
+		}
+		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionFalse && accepted.Reason == waystatus.ReasonInvalidEngineConfiguration && !strings.Contains(accepted.Message, "conflicting-interface")
+	})
+	waitFor(t, 30*time.Second, func() bool {
+		var statefulSet appsv1.StatefulSet
+		return direct.Get(ctx, types.NamespacedName{Namespace: namespace, Name: waygateway.ResourceName(nativeGateway.Name)}, &statefulSet) == nil && statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas == 0
+	})
+	delete(nativeConfig.Data, "VPN_INTERFACE")
+	must(t, direct.Update(ctx, nativeConfig))
+	waitFor(t, 30*time.Second, func() bool {
+		if direct.Get(ctx, client.ObjectKeyFromObject(nativeGateway), nativeGateway) != nil {
+			return false
+		}
+		accepted := apiMeta.FindStatusCondition(nativeGateway.Status.Conditions, waystatus.ConditionAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionTrue
+	})
 	var workloads wayv1.VPNWorkloadList
 	must(t, direct.List(ctx, &workloads, client.InNamespace(namespace)))
 	if len(workloads.Items) != 1 {
@@ -432,7 +476,7 @@ func webhookConfigurations(mutatingName, validatingName, namespace string, ca []
 }
 
 func gateway(namespace string) *wayv1.VPNGateway {
-	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test"}, Provider: wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "unused"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{"waycloak-e2e": "allowed"}}}}}
+	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{Engine: wayv1.EngineSpec{Type: "Test"}, Provider: &wayv1.ProviderSpec{Name: "protonvpn", Protocol: "openvpn", CredentialsSecretRef: corev1.LocalObjectReference{Name: "unused"}}, Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29", VNI: 7999}, PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"}, WorkloadAccess: wayv1.WorkloadAccessSpec{NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{"waycloak-e2e": "allowed"}}}}}
 }
 
 func certificates(t *testing.T, host string) ([]byte, []byte, []byte) {

@@ -82,6 +82,82 @@ spec:
                 type: object
               engine:
                 properties:
+                  config:
+                    properties:
+                      envFrom:
+                        description: |-
+                          EnvFrom imports engine-native non-secret environment variables. Waycloak
+                          validates reserved integration keys but never copies values into the Pod specification.
+                        items:
+                          description: |-
+                            LocalObjectReference contains enough information to let you locate the
+                            referenced object inside the same namespace.
+                          properties:
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        maxItems: 8
+                        minItems: 1
+                        type: array
+                      files:
+                        description: Files mounts operator-owned ConfigMaps or Secrets
+                          only into the engine.
+                        items:
+                          properties:
+                            configMapRef:
+                              description: |-
+                                LocalObjectReference contains enough information to let you locate the
+                                referenced object inside the same namespace.
+                              properties:
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            mountPath:
+                              pattern: ^/.*
+                              type: string
+                            secretRef:
+                              description: |-
+                                LocalObjectReference contains enough information to let you locate the
+                                referenced object inside the same namespace.
+                              properties:
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                              type: object
+                              x-kubernetes-map-type: atomic
+                          required:
+                          - mountPath
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of configMapRef or secretRef is required
+                            rule: has(self.configMapRef) != has(self.secretRef)
+                        maxItems: 8
+                        type: array
+                    required:
+                    - envFrom
+                    type: object
                   image:
                     type: string
                   type:
@@ -119,7 +195,8 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: enabled port forwarding requires driver ProtonNatPmp
-                  rule: '!self.enabled || (has(self.driver) && self.driver == ''ProtonNatPmp'')'
+                  rule: '!has(self.enabled) || !self.enabled || (has(self.driver)
+                    && self.driver == ''ProtonNatPmp'')'
               provider:
                 properties:
                   credentialsSecretRef:
@@ -205,14 +282,11 @@ spec:
             required:
             - engine
             - overlay
-            - provider
             - workloadAccess
             type: object
             x-kubernetes-validations:
-            - message: ProtonNatPmp requires provider.name protonvpn and provider.protocol
-                openvpn
-              rule: '!self.portForwarding.enabled || (self.provider.name == ''protonvpn''
-                && self.provider.protocol == ''openvpn'')'
+            - message: exactly one of legacy provider or engine.config is required
+              rule: has(self.provider) != has(self.engine.config)
           status:
             properties:
               clientCount:

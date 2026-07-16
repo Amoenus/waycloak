@@ -137,7 +137,7 @@ admission does not inject it into unrelated applications.
 | --- | --- | --- |
 | Helm release and webhook TLS | Cluster operator | Waycloak control plane |
 | `VPNGateway` | Platform/network operator | Waycloak controller and gateway manager |
-| Provider credentials Secret | Platform operator or external secret system | Mounted only into the VPN engine |
+| Native engine ConfigMaps and credential/configuration Secrets | Platform operator or external secret system | ConfigMaps are validated by Waycloak; Secrets mount only into the VPN engine |
 | Gateway StatefulSet, Service, ConfigMap, PDB | Waycloak controller | Waycloak and Gluetun |
 | Workload namespace authorization label | Platform operator | Kubernetes admission |
 | Gateway annotation on a Pod template | Workload owner | Waycloak admission |

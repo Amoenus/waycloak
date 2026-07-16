@@ -23,5 +23,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0019: Conformance-gated optional eBPF data plane](0019-optional-ebpf-data-plane.md)
 - [0020: Observed admission generation gates webhook upgrades](0020-observed-admission-generation.md)
 - [0021: Gateway membership uses desired and applied generations](0021-observed-membership-generation.md)
+- [0022: Native engine inputs use ConfigMap environment and engine-only file mounts](0022-native-engine-input-projection.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

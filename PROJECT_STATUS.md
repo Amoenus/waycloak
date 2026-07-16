@@ -330,6 +330,23 @@ gateway test exercises malformed projection retention and add/remove generation
 advancement without disrupting an existing allocation. ADR 0021 records the
 contract. The next ordered work is engine-native Gluetun configuration in #66.
 
+The fourth `v0.3.0` slice implements the engine-native boundary from #66.
+`VPNGateway.spec.engine.config` now imports Gluetun-native non-secret
+environment from same-namespace ConfigMaps and mounts ConfigMap or Secret files
+read-only only into the engine. Provider, OpenVPN/WireGuard, server filters,
+custom-provider paths, non-conflicting DNS, and updater settings no longer need
+Waycloak fields. The controller rejects reserved health, control-auth,
+interface, firewall, DNS-bind, and competing port-forward keys with stable
+redacted reasons; it hashes only non-secret ConfigMap inputs into an opaque
+`OnDelete` rollout annotation and never reads native Secrets. The legacy
+`provider` object remains mutually exclusive migration compatibility.
+Proton NAT-PMP is gated by the effective non-secret provider/protocol and still
+requires runtime lease observation. Unit, envtest, generated CRD/KCL, example,
+and Kind coverage exercise Proton/OpenVPN, Mullvad/WireGuard, custom OpenVPN,
+reserved conflicts, ConfigMap rotation, migration skew, and engine-only Secret
+projection. ADR 0022 records the concrete projection contract. The next
+ordered work is the workload-adapter protocol and reference packaging in #67.
+
 ## Release progression
 
 `v0.1.0` delivered the first usable private-egress foundation: a single shared

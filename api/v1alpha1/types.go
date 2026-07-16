@@ -14,9 +14,30 @@ type NamespacedNameReference struct {
 	Name      string `json:"name"`
 }
 type EngineSpec struct {
-	Type  string `json:"type"`
-	Image string `json:"image,omitempty"`
+	Type   string                  `json:"type"`
+	Image  string                  `json:"image,omitempty"`
+	Config *EngineNativeConfigSpec `json:"config,omitempty"`
 }
+
+type EngineNativeConfigSpec struct {
+	// EnvFrom imports engine-native non-secret environment variables. Waycloak
+	// validates reserved integration keys but never copies values into the Pod specification.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	EnvFrom []corev1.LocalObjectReference `json:"envFrom"`
+	// Files mounts operator-owned ConfigMaps or Secrets only into the engine.
+	// +kubebuilder:validation:MaxItems=8
+	Files []EngineFileSource `json:"files,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="has(self.configMapRef) != has(self.secretRef)",message="exactly one of configMapRef or secretRef is required"
+type EngineFileSource struct {
+	ConfigMapRef *corev1.LocalObjectReference `json:"configMapRef,omitempty"`
+	SecretRef    *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+	// +kubebuilder:validation:Pattern=`^/.*`
+	MountPath string `json:"mountPath"`
+}
+
 type ProviderSpec struct {
 	Name                 string                      `json:"name"`
 	Protocol             string                      `json:"protocol,omitempty"`
@@ -51,7 +72,7 @@ type ClusterTrafficSpec struct {
 	CIDRs []string `json:"cidrs,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.driver) && self.driver == 'ProtonNatPmp')",message="enabled port forwarding requires driver ProtonNatPmp"
+// +kubebuilder:validation:XValidation:rule="!has(self.enabled) || !self.enabled || (has(self.driver) && self.driver == 'ProtonNatPmp')",message="enabled port forwarding requires driver ProtonNatPmp"
 type PortForwardingSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// +kubebuilder:validation:Enum=ProtonNatPmp
@@ -61,10 +82,10 @@ type WorkloadAccessSpec struct {
 	NamespaceSelector metav1.LabelSelector `json:"namespaceSelector"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!self.portForwarding.enabled || (self.provider.name == 'protonvpn' && self.provider.protocol == 'openvpn')",message="ProtonNatPmp requires provider.name protonvpn and provider.protocol openvpn"
+// +kubebuilder:validation:XValidation:rule="has(self.provider) != has(self.engine.config)",message="exactly one of legacy provider or engine.config is required"
 type VPNGatewaySpec struct {
 	Engine         EngineSpec         `json:"engine"`
-	Provider       ProviderSpec       `json:"provider"`
+	Provider       *ProviderSpec      `json:"provider,omitempty"`
 	Overlay        OverlaySpec        `json:"overlay"`
 	DNS            DNSSpec            `json:"dns,omitempty"`
 	ClusterTraffic ClusterTrafficSpec `json:"clusterTraffic,omitempty"`

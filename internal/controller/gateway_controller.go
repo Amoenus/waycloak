@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -59,10 +61,19 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	previous.Conditions = append([]metav1.Condition(nil), gateway.Status.Conditions...)
 
 	if reason, message := validateGateway(&gateway, r.ManagerImage); reason != "" {
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
-		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
-		gateway.Status.ObservedGeneration = gateway.Generation
-		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
+		return r.rejectGateway(ctx, &gateway, previous, ctrl.Result{}, reason, message)
+	}
+	engineConfig, reason, message := r.observeEngineConfig(ctx, &gateway)
+	if reason != "" {
+		result := ctrl.Result{}
+		if reason == waystatus.ReasonEngineConfigurationUnavailable {
+			result.RequeueAfter = 2 * time.Second
+		}
+		return r.rejectGateway(ctx, &gateway, previous, result, reason, message)
+	}
+	if gateway.Spec.PortForwarding.Enabled && (!strings.EqualFold(engineConfig.Provider, "protonvpn") || !strings.EqualFold(engineConfig.Protocol, "openvpn")) {
+		message := "ProtonNatPmp requires effective Gluetun configuration for protonvpn with OpenVPN"
+		return r.rejectGateway(ctx, &gateway, previous, ctrl.Result{}, waystatus.ReasonPortForwardUnsupported, message)
 	}
 
 	if r.ManagerImage == "" {
@@ -72,7 +83,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
 	}
 
-	desiredMembershipGeneration, err := r.reconcileResources(ctx, &gateway)
+	desiredMembershipGeneration, err := r.reconcileResources(ctx, &gateway, engineConfig.Digest)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -91,6 +102,44 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
+func (r *GatewayReconciler) rejectGateway(ctx context.Context, gateway *wayv1.VPNGateway, previous wayv1.VPNGatewayStatus, result ctrl.Result, reason, message string) (ctrl.Result, error) {
+	setGatewayPending(gateway, "Gateway workload is quarantined because its configuration is not accepted")
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
+	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
+	gateway.Status.Overlay.Endpoint = ""
+	gateway.Status.Overlay.HealthPort = 0
+	gateway.Status.Overlay.AppliedMembershipGeneration = ""
+	gateway.Status.ObservedGeneration = gateway.Generation
+	if err := r.quarantineGateway(ctx, gateway); err != nil {
+		return ctrl.Result{}, err
+	}
+	return result, r.updateStatus(ctx, gateway, previous)
+}
+
+func (r *GatewayReconciler) quarantineGateway(ctx context.Context, gateway *wayv1.VPNGateway) error {
+	var statefulSet appsv1.StatefulSet
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	if err := r.Get(ctx, key, &statefulSet); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("read gateway StatefulSet for quarantine: %w", err)
+	}
+	if statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas == 0 {
+		return nil
+	}
+	before := statefulSet.DeepCopy()
+	zero := int32(0)
+	statefulSet.Spec.Replicas = &zero
+	if err := r.Patch(ctx, &statefulSet, client.MergeFrom(before)); err != nil {
+		return fmt.Errorf("quarantine gateway StatefulSet: %w", err)
+	}
+	if r.Recorder != nil {
+		r.Recorder.Event(gateway, corev1.EventTypeWarning, "GatewayQuarantined", "Scaled the gateway workload to zero because its configuration is not accepted")
+	}
+	return nil
+}
+
 func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, string) {
 	prefix, err := netip.ParsePrefix(gateway.Spec.Overlay.CIDR)
 	if err != nil || !prefix.Addr().Is4() || prefix.Bits() > 30 {
@@ -100,8 +149,41 @@ func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, st
 		if gateway.Spec.PortForwarding.Driver != "ProtonNatPmp" {
 			return waystatus.ReasonPortForwardUnsupported, "enabled port forwarding requires driver ProtonNatPmp"
 		}
-		if !strings.EqualFold(gateway.Spec.Provider.Name, "protonvpn") || !strings.EqualFold(gateway.Spec.Provider.Protocol, "openvpn") {
-			return waystatus.ReasonPortForwardUnsupported, "ProtonNatPmp requires the protonvpn provider with OpenVPN"
+	}
+	if (gateway.Spec.Provider == nil) == (gateway.Spec.Engine.Config == nil) {
+		return waystatus.ReasonInvalidEngineConfiguration, "exactly one of legacy provider or engine.config is required"
+	}
+	if gateway.Spec.Provider != nil && gateway.Spec.Provider.CredentialsSecretRef.Name == "" {
+		return waystatus.ReasonInvalidCredentialsReference, "provider.credentialsSecretRef.name is required"
+	}
+	if config := gateway.Spec.Engine.Config; config != nil {
+		if len(config.EnvFrom) == 0 {
+			return waystatus.ReasonInvalidEngineConfiguration, "engine.config.envFrom requires at least one ConfigMap reference"
+		}
+		for _, source := range config.EnvFrom {
+			if source.Name == "" {
+				return waystatus.ReasonInvalidEngineConfiguration, "engine.config.envFrom ConfigMap names must not be empty"
+			}
+		}
+		mounts := make(map[string]struct{}, len(config.Files))
+		for _, source := range config.Files {
+			if (source.ConfigMapRef == nil) == (source.SecretRef == nil) {
+				return waystatus.ReasonInvalidEngineConfiguration, "each engine.config.files entry requires exactly one source reference"
+			}
+			name := ""
+			if source.ConfigMapRef != nil {
+				name = source.ConfigMapRef.Name
+			} else {
+				name = source.SecretRef.Name
+			}
+			if name == "" || !validEngineMountPath(source.MountPath) {
+				return waystatus.ReasonInvalidEngineConfiguration, "engine.config.files requires a named source and a non-reserved absolute mountPath"
+			}
+			clean := path.Clean(source.MountPath)
+			if _, duplicate := mounts[clean]; duplicate {
+				return waystatus.ReasonInvalidEngineConfiguration, "engine.config.files mountPath values must be unique"
+			}
+			mounts[clean] = struct{}{}
 		}
 	}
 	if managerImage == "" {
@@ -112,9 +194,6 @@ func validateGateway(gateway *wayv1.VPNGateway, managerImage string) (string, st
 	}
 	if !immutableImage(managerImage) {
 		return waystatus.ReasonInvalidEngineImage, "configured gateway-manager image must be an immutable sha256 digest reference"
-	}
-	if gateway.Spec.Provider.CredentialsSecretRef.Name == "" {
-		return waystatus.ReasonInvalidCredentialsReference, "provider.credentialsSecretRef.name is required"
 	}
 	return "", ""
 }
@@ -129,7 +208,7 @@ func immutableImage(image string) bool {
 	return err == nil
 }
 
-func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway) (string, error) {
+func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *wayv1.VPNGateway, engineConfigDigest string) (string, error) {
 	members, err := r.members(ctx, gateway)
 	if err != nil {
 		return "", err
@@ -183,7 +262,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 		r.Recorder.Eventf(gateway, corev1.EventTypeNormal, "GatewayDisruptionBudgetCreated", "Created singleton gateway PodDisruptionBudget %s", pdb.Name)
 	}
 
-	desiredStatefulSet := waygateway.DesiredStatefulSet(gateway, waygateway.WorkloadOptions{ManagerImage: r.ManagerImage})
+	desiredStatefulSet := waygateway.DesiredStatefulSet(gateway, waygateway.WorkloadOptions{ManagerImage: r.ManagerImage, EngineConfigDigest: engineConfigDigest})
 	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: desiredStatefulSet.Name, Namespace: desiredStatefulSet.Namespace}}
 	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, statefulSet, func() error {
 		statefulSet.Labels = desiredStatefulSet.Labels
@@ -433,6 +512,7 @@ func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&policyv1.PodDisruptionBudget{}).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForEngineConfigMap)).
 		Watches(&wayv1.VPNWorkload{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			workload, ok := object.(*wayv1.VPNWorkload)
 			if !ok || workload.Spec.GatewayRef.Name == "" || workload.Spec.GatewayRef.Namespace == "" {
@@ -470,4 +550,30 @@ func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}}}
 		})).
 		Complete(r)
+}
+
+func (r *GatewayReconciler) gatewaysForEngineConfigMap(ctx context.Context, object client.Object) []reconcile.Request {
+	var gateways wayv1.VPNGatewayList
+	if err := r.List(ctx, &gateways, client.InNamespace(object.GetNamespace())); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0)
+	for index := range gateways.Items {
+		gateway := &gateways.Items[index]
+		config := gateway.Spec.Engine.Config
+		if config == nil {
+			continue
+		}
+		matched := false
+		for _, reference := range config.EnvFrom {
+			matched = matched || reference.Name == object.GetName()
+		}
+		for _, source := range config.Files {
+			matched = matched || source.ConfigMapRef != nil && source.ConfigMapRef.Name == object.GetName()
+		}
+		if matched {
+			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}})
+		}
+	}
+	return requests
 }

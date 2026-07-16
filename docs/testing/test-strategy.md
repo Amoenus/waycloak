@@ -10,6 +10,8 @@ Networking claims require packet-level evidence. Unit tests and “Pod Ready” 
 - stable allocation and quarantine;
 - condition transitions and observed generations;
 - provider capability decisions;
+- native engine ConfigMap precedence, reserved-key redaction, mount isolation,
+  and deterministic rollout digests;
 - lease renewal state machine;
 - redaction and error classification;
 - nftables/netlink desired-state calculation using fakes.
@@ -59,6 +61,10 @@ Mandatory scenarios:
 11. adding/removing members does not renumber allocations;
 12. unrelated nftables rules survive agent setup and cleanup;
 13. no provider Secret or ServiceAccount token appears in an application container.
+14. engine-native ConfigMap changes reconcile, reserved conflicts fail
+    `Accepted`, and no Secret file mount appears outside the engine container;
+15. legacy and native gateway shapes remain mutually exclusive across API and
+    controller version-skew tests.
 
 ### Port-forward tests
 

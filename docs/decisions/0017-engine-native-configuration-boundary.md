@@ -3,6 +3,8 @@
 Status: Accepted
 Date: 2026-07-15
 
+Implemented by [ADR 0022](0022-native-engine-input-projection.md).
+
 ## Context
 
 ADR 0003 selected Gluetun as the first VPN engine behind a capability
@@ -71,8 +73,8 @@ observe and control the same tunnel and firewall namespace.
 - Operators retain native Gluetun knowledge and configuration portability.
 - Waycloak must define safe references, reserved-key validation, migration,
   and status for invalid or incompatible engine configuration.
-- The current `v1alpha1` provider fields remain a compatibility limitation
-  until issue #66 implements the migration.
+- The `v1alpha1` provider fields remain only as mutually exclusive migration
+  compatibility while native references become the preferred shape.
 - Additional engines can use different native input forms behind the same
   observed capability boundary.
 
