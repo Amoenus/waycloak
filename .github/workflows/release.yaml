@@ -97,9 +97,17 @@ jobs:
           build_image() {
             local key="$1" name="$2" package="$3"
             local ref tagged_name repository_name
+            local -a image_labels=()
+            if [[ "$name" == "qbittorrent-adapter" ]]; then
+              image_labels+=(
+                --image-label=io.waycloak.adapter.protocol=networking.waycloak.io/adapter/v1alpha1
+                --image-label=io.waycloak.adapter.application=qbittorrent
+                '--image-label=io.waycloak.adapter.application.version=>=5.2.3 <6.0.0'
+              )
+            fi
             ref="$(KO_DOCKER_REPO="ghcr.io/$owner/waycloak-$name" \
               go run github.com/google/ko@v0.19.1 build --bare --sbom=spdx \
-                --platform=linux/amd64,linux/arm64 --tags="$VERSION" "$package" | tail -n 1)"
+                --platform=linux/amd64,linux/arm64 --tags="$VERSION" "${image_labels[@]}" "$package" | tail -n 1)"
             [[ "$ref" =~ ^.+@sha256:[a-f0-9]{64}$ ]]
             tagged_name="${ref%@*}"
             repository_name="${tagged_name%:*}"
@@ -121,9 +129,11 @@ jobs:
           cp -R examples/qbittorrent "$example"
           go run ./hack/releaseexample \
             --input "$example/workload.yaml" --adapter "$ADAPTER"
+          go run ./hack/releaseexample \
+            --input "$example/adapter.yaml" --adapter "$ADAPTER"
           mkdir -p dist
           kubectl kustomize "$example" >dist/qbittorrent-example.yaml
-          test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 1
+          test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 2
           if grep -Fq 'waycloak.invalid/qbittorrent-adapter' dist/qbittorrent-example.yaml; then
             exit 1
           fi
@@ -161,7 +171,7 @@ jobs:
           trivy config --severity CRITICAL --exit-code 1 charts/waycloak
           trivy fs --format spdx-json --output dist/helm-chart.spdx.json charts/waycloak
           helm package charts/waycloak --destination dist
-          test "$(tar -tzf "dist/waycloak-$VERSION.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpngateways|vpnworkloads)\.yaml$')" -eq 3
+          test "$(tar -tzf "dist/waycloak-$VERSION.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpngateways|vpnworkloads|workloadadapters)\.yaml$')" -eq 4
           printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           push_output="$(helm push "dist/waycloak-$VERSION.tgz" "oci://ghcr.io/$owner/charts")"
           digest="$(awk '$1 == "Digest:" {print $2}' <<<"$push_output")"
@@ -178,10 +188,12 @@ jobs:
           module_version="$(awk '$1 == "version" {gsub(/\"/, "", $3); print $3; exit}' kcl/waycloak/kcl.mod)"
           test "$module_version" = "$VERSION"
           kcl run kcl/waycloak/examples/basic.k -S items >dist/kcl-example.yaml
+          kcl run kcl/waycloak/examples/workload-adapter.k -S items >dist/kcl-workload-adapter-example.yaml
           test "$(grep -c '^kind: VPNGateway$' dist/kcl-example.yaml)" -eq 1
           test "$(grep -c '^kind: PortForwardLease$' dist/kcl-example.yaml)" -eq 1
+          test "$(grep -c '^kind: WorkloadAdapter$' dist/kcl-workload-adapter-example.yaml)" -eq 1
           (cd kcl/waycloak && kcl mod pkg --target "$GITHUB_WORKSPACE/dist")
-          test "$(tar -tf "dist/waycloak_${VERSION}.tar" | grep -Ec '^(helpers/annotations\.k|v1alpha1/networking_waycloak_io_v1alpha1_(port_forward_lease|v_p_n_gateway|v_p_n_workload)\.k)$')" -eq 4
+          test "$(tar -tf "dist/waycloak_${VERSION}.tar" | grep -Ec '^(helpers/annotations\.k|v1alpha1/networking_waycloak_io_v1alpha1_(port_forward_lease|v_p_n_gateway|v_p_n_workload|workload_adapter)\.k)$')" -eq 5
           trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 kcl/waycloak
           trivy fs --format spdx-json --output dist/kcl-module.spdx.json kcl/waycloak
           (cd kcl/waycloak && kcl mod push "oci://ghcr.io/$owner/waycloak-kcl")
@@ -228,6 +240,13 @@ jobs:
               ([.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"])
             ' >/dev/null
           done
+          for platform in linux/amd64 linux/arm64; do
+            "${crane[@]}" config --platform "$platform" "$ADAPTER" | jq -e '
+              .config.Labels["io.waycloak.adapter.protocol"] == "networking.waycloak.io/adapter/v1alpha1" and
+              .config.Labels["io.waycloak.adapter.application"] == "qbittorrent" and
+              .config.Labels["io.waycloak.adapter.application.version"] == ">=5.2.3 <6.0.0"
+            ' >/dev/null
+          done
           "${crane[@]}" manifest "$CHART" | jq -e '
             .schemaVersion == 2 and
             (.mediaType == null or .mediaType == "application/vnd.oci.image.manifest.v1+json") and
@@ -261,6 +280,15 @@ jobs:
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/adapter.spdx.json "$ADAPTER"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/helm-chart.spdx.json "$CHART"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/kcl-module.spdx.json "$KCL"
+      - name: Package workload-adapter protocol and conformance kit
+        run: |
+          stage="$RUNNER_TEMP/workload-adapter-kit-v1alpha1"
+          mkdir -p "$stage/protocol" "$stage/examples" "$stage/docs"
+          cp -R protocol/adapter/v1alpha1 "$stage/protocol/"
+          cp -R examples/workload-adapter-python "$stage/examples/"
+          cp docs/guides/workload-adapter-authoring.md "$stage/docs/"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -C "$stage" -cf - . | gzip -n >dist/workload-adapter-kit-v1alpha1.tar.gz
       - name: Attest controller image provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
@@ -318,7 +346,7 @@ jobs:
           jq -e --arg adapter "$ADAPTER" --arg kcl "$KCL" \
             '.artifacts.qbittorrentAdapterImage.reference == $adapter and .artifacts.kclModule.reference == $kcl' \
             dist/release-manifest.json >/dev/null
-          test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 1
+          test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 2
           ./hack/cosign-retry.sh sign-blob --yes --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
       - name: Verify signatures before release
         env:

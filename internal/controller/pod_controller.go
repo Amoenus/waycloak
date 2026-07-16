@@ -3,6 +3,8 @@
 
 package controller
 
+// +kubebuilder:rbac:groups=networking.waycloak.io,resources=workloadadapters,verbs=get;list;watch
+
 import (
 	"context"
 	"fmt"

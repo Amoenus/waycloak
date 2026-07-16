@@ -107,7 +107,7 @@ gateway remains fail closed; and the verified final bundle is published.
   evidence from real deployments.
 - [x] Replace provider-shaped gateway convenience fields with engine-native
   Gluetun configuration and a documented migration (#66).
-- [ ] Publish the workload-adapter protocol, trusted selection mechanism,
+- [x] Publish the workload-adapter protocol, trusted selection mechanism,
   conformance kit, and qBitTorrent reference implementation (#67).
 
 Exit: qBitTorrent survives provider renewal or rotation without Pod

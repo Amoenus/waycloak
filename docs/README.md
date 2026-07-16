@@ -9,8 +9,9 @@ Start here if you found Waycloak and want to evaluate it in your own cluster:
 2. [Architecture and ownership](concepts/architecture-and-ownership.md)
 3. [Security exceptions](operations/security-exceptions.md)
 4. [Gluetun-native configuration](guides/gluetun-native-configuration.md)
-5. [Troubleshooting](operations/troubleshooting.md)
-6. [Advanced configuration](operations/advanced-configuration.md)
+5. [Workload-adapter authoring](guides/workload-adapter-authoring.md)
+6. [Troubleshooting](operations/troubleshooting.md)
+7. [Advanced configuration](operations/advanced-configuration.md)
 7. [Upgrade and rollback](operations/upgrade.md)
 8. [Uninstall](operations/uninstall.md)
 
@@ -22,6 +23,7 @@ adds the more advanced provider-assigned port workflow.
 
 - [Detailed installation and release verification](operations/install.md)
 - [Gluetun-native configuration](guides/gluetun-native-configuration.md)
+- [Workload-adapter authoring](guides/workload-adapter-authoring.md)
 - [Security exceptions](operations/security-exceptions.md)
 - [Troubleshooting](operations/troubleshooting.md)
 - [Advanced configuration](operations/advanced-configuration.md)

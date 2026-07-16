@@ -14,6 +14,7 @@ kcl import --mode crd \
   config/crd/bases/networking.waycloak.io_vpngateways.yaml \
   config/crd/bases/networking.waycloak.io_vpnworkloads.yaml \
   config/crd/bases/networking.waycloak.io_portforwardleases.yaml \
+  config/crd/bases/networking.waycloak.io_workloadadapters.yaml \
   --output "$output" \
   --package waycloak
 

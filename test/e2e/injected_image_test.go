@@ -231,6 +231,7 @@ func missingWaycloakCRDs() []string {
 		"portforwardleases.networking.waycloak.io",
 		"vpngateways.networking.waycloak.io",
 		"vpnworkloads.networking.waycloak.io",
+		"workloadadapters.networking.waycloak.io",
 	}
 	missing := make([]string, 0, len(names))
 	for _, name := range names {

@@ -237,3 +237,70 @@ func TestPortForwardFileMountRejectsMissingContainer(t *testing.T) {
 		t.Fatalf("error = %#v", err)
 	}
 }
+
+func TestTrustedWorkloadAdapterSelectionIsExactAndIdempotent(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	image := "registry.example/qbittorrent-adapter@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	trusted := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent"}, Spec: wayv1.WorkloadAdapterSpec{ProtocolVersion: contract.AdapterProtocolVersion, Image: image}}
+	if err := m.Client.Create(context.Background(), trusted); err != nil {
+		t.Fatal(err)
+	}
+	no := false
+	yes := true
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{
+		contract.GatewayAnnotation:          "egress/private",
+		contract.WorkloadAdapterAnnotation:  "qbittorrent",
+		contract.AdapterContainerAnnotation: "adapter",
+	}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{
+		Name: "app", Image: "app",
+	}, {
+		Name:            "adapter",
+		Image:           image,
+		ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"adapter", "probe"}}}},
+		SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &yes, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
+	}}}}
+	changed, err := m.Mutate(context.Background(), pod)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v error=%v", changed, err)
+	}
+	adapter := pod.Spec.Containers[1]
+	want := map[string]string{contract.AdapterProtocolEnv: contract.AdapterProtocolVersion, contract.AdapterLeaseEndpointEnv: "http://127.0.0.1:9809/v1/port-forward/leases"}
+	for _, env := range adapter.Env {
+		delete(want, env.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing admission-owned adapter environment: %v", want)
+	}
+	if changed, err := m.Mutate(context.Background(), pod); err != nil || changed {
+		t.Fatalf("reinvocation changed=%v error=%v", changed, err)
+	}
+}
+
+func TestWorkloadAdapterRejectsUntrustedImageAndPrivilege(t *testing.T) {
+	m := testMutator(t, metav1.LabelSelector{})
+	trustedImage := "registry.example/adapter@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	trusted := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "sample"}, Spec: wayv1.WorkloadAdapterSpec{ProtocolVersion: contract.AdapterProtocolVersion, Image: trustedImage}}
+	if err := m.Client.Create(context.Background(), trusted); err != nil {
+		t.Fatal(err)
+	}
+	no := false
+	yes := true
+	base := corev1.Container{Name: "adapter", Image: trustedImage, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"probe"}}}}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, RunAsNonRoot: &yes, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}}
+	newPod := func(container corev1.Container) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "apps", Annotations: map[string]string{contract.GatewayAnnotation: "egress/private", contract.WorkloadAdapterAnnotation: "sample", contract.AdapterContainerAnnotation: "adapter"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
+	}
+	untrusted := base.DeepCopy()
+	untrusted.Image = "registry.example/adapter@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	if _, err := m.Mutate(context.Background(), newPod(*untrusted)); err == nil {
+		t.Fatal("untrusted adapter digest was accepted")
+	} else if rejection, ok := err.(*Rejection); !ok || rejection.Reason != "UntrustedAdapterImage" {
+		t.Fatalf("untrusted error = %#v", err)
+	}
+	privileged := base.DeepCopy()
+	privileged.SecurityContext.Capabilities.Add = []corev1.Capability{"NET_ADMIN"}
+	if _, err := m.Mutate(context.Background(), newPod(*privileged)); err == nil {
+		t.Fatal("privileged adapter was accepted")
+	} else if rejection, ok := err.(*Rejection); !ok || rejection.Reason != "UnsafeWorkloadAdapter" {
+		t.Fatalf("privileged error = %#v", err)
+	}
+}

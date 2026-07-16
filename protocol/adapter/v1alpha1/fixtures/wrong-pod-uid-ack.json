@@ -1,0 +1,1 @@
+{"apiVersion":"networking.waycloak.io/adapter/v1alpha1","podUID":"pod-uid-other","leaseIdentity":"lease-uid-1","generation":1,"applicationPort":42000}

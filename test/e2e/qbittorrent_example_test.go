@@ -20,10 +20,17 @@ func TestQBittorrentExampleRendersProviderAssignedAdapter(t *testing.T) {
 		"automountServiceAccountToken: false",
 		"drop:\n            - ALL",
 		"WAYCLOAK_QBITTORRENT_API_KEY_FILE",
+		"kind: WorkloadAdapter",
+		"protocolVersion: networking.waycloak.io/adapter/v1alpha1",
+		"networking.waycloak.io/workload-adapter: qbittorrent",
+		"networking.waycloak.io/adapter-container: waycloak-qbittorrent-adapter",
 	} {
 		if !strings.Contains(rendered, required) {
 			t.Fatalf("rendered qBitTorrent example does not contain %q", required)
 		}
+	}
+	if strings.Count(rendered, "waycloak.invalid/qbittorrent-adapter@sha256:") != 2 {
+		t.Fatal("rendered qBitTorrent example must bind the workload and trust record to the same adapter digest")
 	}
 	if strings.Contains(rendered, ":latest") {
 		t.Fatal("rendered qBitTorrent example contains a mutable latest image")

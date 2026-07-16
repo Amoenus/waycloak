@@ -91,7 +91,7 @@ func TestReconcileLoopAppliesOnlyAcknowledgedProviderPortRedirect(t *testing.T) 
 	if err := store.Refresh(directory); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Acknowledge("lease-uid", delivery.ApplicationAcknowledgement{Generation: 4, ApplicationPort: 42000}); err != nil {
+	if err := store.Acknowledge("lease-uid", delivery.ApplicationAcknowledgement{APIVersion: delivery.AcknowledgementAPIVersion, PodUID: "pod-uid", LeaseIdentity: "lease-uid", Generation: 4, ApplicationPort: 42000}); err != nil {
 		t.Fatal(err)
 	}
 	backend := &loopBackend{}
@@ -184,19 +184,19 @@ func TestLeaseHandlerAcceptsOnlyExactProviderAssignedAcknowledgement(t *testing.
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/lease-uid/ack", strings.NewReader(`{"generation":4,"applicationPort":42000}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/lease-uid/ack", strings.NewReader(`{"apiVersion":"networking.waycloak.io/adapter/v1alpha1","podUID":"pod-uid","leaseIdentity":"lease-uid","generation":4,"applicationPort":42000}`))
 	leaseHandler(store).ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent || len(store.RequestedRedirects()) != 1 {
 		t.Fatalf("acknowledgement status=%d redirects=%#v", response.Code, store.RequestedRedirects())
 	}
 	response = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/lease-uid/ack", strings.NewReader(`{"generation":3,"applicationPort":42000}`))
+	request = httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/lease-uid/ack", strings.NewReader(`{"apiVersion":"networking.waycloak.io/adapter/v1alpha1","podUID":"pod-uid","leaseIdentity":"lease-uid","generation":3,"applicationPort":42000}`))
 	leaseHandler(store).ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("stale acknowledgement status=%d", response.Code)
 	}
 	response = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/unknown/ack", strings.NewReader(`{"generation":4,"applicationPort":42000}`))
+	request = httptest.NewRequest(http.MethodPost, "/v1/port-forward/leases/unknown/ack", strings.NewReader(`{"apiVersion":"networking.waycloak.io/adapter/v1alpha1","podUID":"pod-uid","leaseIdentity":"unknown","generation":4,"applicationPort":42000}`))
 	leaseHandler(store).ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("unknown acknowledgement status=%d", response.Code)

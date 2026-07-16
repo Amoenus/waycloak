@@ -17,7 +17,7 @@ func TestBuildManifestTiesImmutableArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value.SchemaVersion != "1.1.0" || value.Artifacts["controllerImage"].Digest != "sha256:"+strings.Repeat("a", 64) || value.Artifacts["qbittorrentAdapterImage"].Reference != reference || value.Artifacts["kclModule"].Reference != reference || value.Security.TestedGluetun != testedGluetun || value.Compatibility.CRDStorageVersion != "v1alpha1" {
+	if value.SchemaVersion != "1.2.0" || value.Artifacts["controllerImage"].Digest != "sha256:"+strings.Repeat("a", 64) || value.Artifacts["qbittorrentAdapterImage"].Reference != reference || value.Artifacts["kclModule"].Reference != reference || value.Security.TestedGluetun != testedGluetun || value.Compatibility.CRDStorageVersion != "v1alpha1" || value.Compatibility.WorkloadAdapterProtocol != "networking.waycloak.io/adapter/v1alpha1" || value.Compatibility.WorkloadAdapterConformanceKit != "workload-adapter-kit-v1alpha1.tar.gz" || value.Compatibility.ReferenceAdapters["qbittorrent"] != ">=5.2.3 <6.0.0" {
 		t.Fatalf("manifest = %#v", value)
 	}
 }

@@ -65,6 +65,10 @@ func run(args []string) error {
 	if leaseEndpoint == "" {
 		leaseEndpoint = fmt.Sprintf("http://127.0.0.1:%d/v1/port-forward/leases", contract.AgentLeasePort)
 	}
+	protocol := strings.TrimSpace(os.Getenv(contract.AdapterProtocolEnv))
+	if protocol != "" && protocol != contract.AdapterProtocolVersion {
+		return fmt.Errorf("unsupported adapter protocol %q", protocol)
+	}
 	adapter := &qbittorrent.Adapter{Client: &qbittorrent.Client{BaseURL: baseURL, APIKey: strings.TrimSpace(string(key))}, LeaseEndpoint: leaseEndpoint, LeaseName: strings.TrimSpace(os.Getenv("WAYCLOAK_LEASE_NAME"))}
 	ready := &atomic.Bool{}
 	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", contract.QBittorrentAdapterHealthPort), Handler: http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

@@ -87,7 +87,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 	if err := adapter.Client.VerifyListener(ctx, selected.ApplicationPort); err != nil {
 		return revision, critical(revision, err)
 	}
-	acknowledgement := delivery.ApplicationAcknowledgement{Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}
+	acknowledgement := delivery.ApplicationAcknowledgement{APIVersion: delivery.AcknowledgementAPIVersion, PodUID: document.PodUID, LeaseIdentity: selected.Identity, Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}
 	payload, err := json.Marshal(acknowledgement)
 	if err != nil {
 		return revision, critical(revision, err)

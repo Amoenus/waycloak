@@ -365,6 +365,7 @@ func createInfrastructure(t *testing.T, c client.Client, namespace, deniedNamesp
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpngateways/status", "vpnworkloads/status"}, Verbs: []string{"get", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpnworkloads"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"portforwardleases"}, Verbs: []string{"get", "list", "watch", "update", "patch"}},
+		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"workloadadapters"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"portforwardleases/status"}, Verbs: []string{"get", "update", "patch"}},
 		{APIGroups: []string{"networking.waycloak.io"}, Resources: []string{"vpnworkloads/finalizers"}, Verbs: []string{"update"}},
 	}

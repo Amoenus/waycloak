@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## Current phase
 
@@ -344,8 +344,24 @@ Proton NAT-PMP is gated by the effective non-secret provider/protocol and still
 requires runtime lease observation. Unit, envtest, generated CRD/KCL, example,
 and Kind coverage exercise Proton/OpenVPN, Mullvad/WireGuard, custom OpenVPN,
 reserved conflicts, ConfigMap rotation, migration skew, and engine-only Secret
-projection. ADR 0022 records the concrete projection contract. The next
-ordered work is the workload-adapter protocol and reference packaging in #67.
+projection. ADR 0022 records the concrete projection contract.
+
+The v0.3 workload-adapter extension boundary is now implemented. The public
+`networking.waycloak.io/adapter/v1alpha1` HTTP/JSON contract publishes schemas
+and portable current, rotated, expired, missing, duplicate, wrong-Pod-UID, and
+stale-generation vectors. A cluster-scoped `WorkloadAdapter` records an
+operator-approved immutable digest and protocol; protected Pod templates
+separately select that trust record and an existing sidecar. Admission requires
+an exact image match, readiness probe, non-root/read-only execution, seccomp,
+no added capability, hostPath, hostPort, device, or projected API token, and
+supplies only reserved protocol/loopback environment. A standard-library-only
+Python sample proves authors need no Waycloak Go internals. The qBitTorrent
+reference adapter posts Pod-UID/lease-UID/generation/port-exact
+acknowledgements, carries compatibility OCI labels on both release platforms,
+and remains an independently signed artifact. Helm and generated KCL include
+the trust API, while the release manifest records the protocol, reference
+compatibility, and attested conformance-kit asset. The next ordered v0.3 work
+is sustained real-provider certification and additional workload adoption.
 
 ## Release progression
 

@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["schemaVersion", "version", "source", "artifacts", "compatibility", "security"],
   "properties": {
-    "schemaVersion": {"const": "1.1.0"},
+    "schemaVersion": {"const": "1.2.0"},
     "version": {"type": "string", "minLength": 1},
     "source": {
       "type": "object",
@@ -29,7 +29,24 @@
         "additionalProperties": false
       }
     },
-    "compatibility": {"type": "object"},
+    "compatibility": {
+      "type": "object",
+      "required": ["kubernetes", "cni", "crdStorageVersion", "workloadAdapterProtocol", "workloadAdapterConformanceKit", "referenceAdapters"],
+      "properties": {
+        "kubernetes": {"type": "array", "items": {"type": "string"}},
+        "cni": {"type": "array", "items": {"type": "string"}},
+        "crdStorageVersion": {"type": "string"},
+        "workloadAdapterProtocol": {"const": "networking.waycloak.io/adapter/v1alpha1"},
+        "workloadAdapterConformanceKit": {"const": "workload-adapter-kit-v1alpha1.tar.gz"},
+        "referenceAdapters": {
+          "type": "object",
+          "required": ["qbittorrent"],
+          "properties": {"qbittorrent": {"type": "string", "minLength": 1}},
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
     "security": {"type": "object"}
   },
   "additionalProperties": false

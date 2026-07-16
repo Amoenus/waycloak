@@ -13,6 +13,8 @@ import (
 const (
 	GatewayAnnotation              = "networking.waycloak.io/gateway"
 	PortForwardContainerAnnotation = "networking.waycloak.io/port-forward-container"
+	WorkloadAdapterAnnotation      = "networking.waycloak.io/workload-adapter"
+	AdapterContainerAnnotation     = "networking.waycloak.io/adapter-container"
 	InjectionVersionAnnotation     = "internal.networking.waycloak.io/injection-version"
 	AdmissionGenerationAnnotation  = "internal.networking.waycloak.io/admission-generation"
 	AllocationNameAnnotation       = "internal.networking.waycloak.io/allocation-configmap"
@@ -30,6 +32,9 @@ const (
 	PortForwardLeasesKey           = "port-forward-leases.json"
 	AdmissionGenerationKey         = "generation"
 	ApplicationLeaseMountPath      = "/run/waycloak/port-forward"
+	AdapterProtocolVersion         = "networking.waycloak.io/adapter/v1alpha1"
+	AdapterProtocolEnv             = "WAYCLOAK_ADAPTER_PROTOCOL"
+	AdapterLeaseEndpointEnv        = "WAYCLOAK_LEASE_ENDPOINT"
 	GatewayDNSPort                 = 1053
 	WorkloadFinalizer              = "networking.waycloak.io/allocation-quarantine"
 	PortForwardLeaseFinalizer      = "networking.waycloak.io/provider-lease-quarantine"

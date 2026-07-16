@@ -124,19 +124,21 @@ jobs:
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"
           chart_version="$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
           cmp "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" "$RUNNER_TEMP/chart-2/waycloak-$chart_version.tgz"
-          test "$(tar -tzf "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpngateways|vpnworkloads)\.yaml$')" -eq 3
+          test "$(tar -tzf "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpngateways|vpnworkloads|workloadadapters)\.yaml$')" -eq 4
       - name: Verify KCL rendering and deterministic package
         run: |
           module_version="$(awk '$1 == "version" {gsub(/\"/, "", $3); print $3; exit}' kcl/waycloak/kcl.mod)"
           test "$module_version" = "$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
           kcl run kcl/waycloak/examples/basic.k -S items >"$RUNNER_TEMP/kcl-example.yaml"
+          kcl run kcl/waycloak/examples/workload-adapter.k -S items >"$RUNNER_TEMP/kcl-workload-adapter-example.yaml"
           test "$(grep -c '^kind: VPNGateway$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
           test "$(grep -c '^kind: PortForwardLease$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
+          test "$(grep -c '^kind: WorkloadAdapter$' "$RUNNER_TEMP/kcl-workload-adapter-example.yaml")" -eq 1
           mkdir -p "$RUNNER_TEMP/kcl-1" "$RUNNER_TEMP/kcl-2"
           (cd kcl/waycloak && kcl mod pkg --target "$RUNNER_TEMP/kcl-1")
           (cd kcl/waycloak && kcl mod pkg --target "$RUNNER_TEMP/kcl-2")
           cmp "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" "$RUNNER_TEMP/kcl-2/waycloak_${module_version}.tar"
-          test "$(tar -tf "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" | grep -Ec '^(helpers/annotations\.k|v1alpha1/networking_waycloak_io_v1alpha1_(port_forward_lease|v_p_n_gateway|v_p_n_workload)\.k)$')" -eq 4
+          test "$(tar -tf "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" | grep -Ec '^(helpers/annotations\.k|v1alpha1/networking_waycloak_io_v1alpha1_(port_forward_lease|v_p_n_gateway|v_p_n_workload|workload_adapter)\.k)$')" -eq 5
       - name: Run envtest reconciliation
         run: |
           KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"

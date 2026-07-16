@@ -18,6 +18,7 @@ import (
 )
 
 const APIVersion = "networking.waycloak.io/v1alpha1"
+const AcknowledgementAPIVersion = contract.AdapterProtocolVersion
 
 const (
 	ApplicationPortModeFixed            = "Fixed"
@@ -63,6 +64,9 @@ type Observation struct {
 }
 
 type ApplicationAcknowledgement struct {
+	APIVersion      string `json:"apiVersion"`
+	PodUID          string `json:"podUID"`
+	LeaseIdentity   string `json:"leaseIdentity"`
 	Generation      int64  `json:"generation"`
 	ApplicationPort uint16 `json:"applicationPort"`
 }
@@ -221,7 +225,7 @@ func (store *Store) Acknowledge(identity string, acknowledgement ApplicationAckn
 		if record.Identity != identity {
 			continue
 		}
-		if record.ApplicationPortMode == ApplicationPortModeProviderAssigned && record.Generation == acknowledgement.Generation && record.ApplicationPort == acknowledgement.ApplicationPort && store.now().Before(record.ExpiresAt) {
+		if acknowledgement.APIVersion == AcknowledgementAPIVersion && acknowledgement.PodUID == store.document.PodUID && acknowledgement.LeaseIdentity == identity && record.ApplicationPortMode == ApplicationPortModeProviderAssigned && record.Generation == acknowledgement.Generation && record.ApplicationPort == acknowledgement.ApplicationPort && store.now().Before(record.ExpiresAt) {
 			if store.requested == nil {
 				store.requested = map[string]ApplicationAcknowledgement{}
 			}
@@ -254,7 +258,7 @@ func (store *Store) MarkApplied(redirects []PortRedirect) {
 	defer store.mu.Unlock()
 	store.applied = make(map[string]ApplicationAcknowledgement, len(redirects))
 	for _, redirect := range redirects {
-		store.applied[redirect.Identity] = ApplicationAcknowledgement{Generation: redirect.Generation, ApplicationPort: redirect.ApplicationPort}
+		store.applied[redirect.Identity] = ApplicationAcknowledgement{APIVersion: AcknowledgementAPIVersion, PodUID: store.document.PodUID, LeaseIdentity: redirect.Identity, Generation: redirect.Generation, ApplicationPort: redirect.ApplicationPort}
 	}
 }
 

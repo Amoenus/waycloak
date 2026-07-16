@@ -39,12 +39,13 @@ The protocol is defined independently of the Waycloak Go packages. Waycloak
 will publish schemas, fixtures, a black-box conformance suite, and a minimal
 sample adapter. Language-specific helper libraries are optional conveniences.
 
-Adapters are selected through explicit workload intent and an
-operator-trusted installation mechanism to be finalized by issue #67. The
-selection resolves to an immutable image digest and a declared protocol
-version. It must not permit an unprivileged workload author to cause an
-unreviewed image to be injected merely by naming an arbitrary registry
-reference.
+Adapters are selected through explicit workload intent and a cluster-scoped,
+operator-authored `WorkloadAdapter`. The Pod template names that trust record
+and an existing adapter container; admission requires the container image to
+exactly match the trusted immutable digest and validates its least-privilege
+security posture. This deliberately keeps application configuration in the
+workload while preventing an annotation from making Waycloak trust or inject
+an arbitrary registry reference.
 
 Application credentials and configuration remain workload-owned. Only
 explicitly selected mounts or environment references may reach an adapter.

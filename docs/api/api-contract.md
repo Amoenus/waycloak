@@ -290,6 +290,28 @@ after a ready record is available. The controller never rolls an arbitrary
 workload owner to refresh environment state. [ADR 0011](../decisions/0011-renewable-port-lease-delivery.md)
 fixes these semantics.
 
+## `WorkloadAdapter`
+
+`WorkloadAdapter` is a cluster-scoped operator trust record. Its
+`spec.protocolVersion` selects the public workload-adapter wire version and
+`spec.image` is an immutable OCI digest. It does not execute an adapter or
+contain application configuration.
+
+A protected Pod selects the trust record and one existing sidecar through:
+
+- `networking.waycloak.io/workload-adapter: <WorkloadAdapter name>`
+- `networking.waycloak.io/adapter-container: <container name>`
+
+Both annotations are required together. Admission requires an exact image
+match, a readiness probe, non-root execution, a read-only root filesystem,
+RuntimeDefault or Localhost seccomp, no added capabilities, `drop: [ALL]`, no
+privilege escalation, and no hostPath, hostPort, device, or projected
+service-account-token access. It adds the selected protocol version and
+Pod-loopback lease endpoint as reserved environment variables.
+
+The versioned JSON/HTTP contract, acknowledgement identity, lifecycle, and
+conformance vectors are published under `protocol/adapter/v1alpha1`.
+
 ## Common condition conventions
 
 All APIs use Kubernetes-style conditions with:
