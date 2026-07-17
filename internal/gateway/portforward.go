@@ -150,9 +150,12 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 			leases[intent.Identity] = managed
 			continue
 		}
-		suggestedPort := intent.SuggestedExternalPort
-		if exists && managed.observation.PublicPort != 0 {
-			suggestedPort = managed.observation.PublicPort
+		var suggestedPort uint16
+		if capabilities.SupportsRequestedPort {
+			suggestedPort = intent.SuggestedExternalPort
+			if exists && managed.observation.PublicPort != 0 {
+				suggestedPort = managed.observation.PublicPort
+			}
 		}
 		observation, err := manager.Driver.EnsureLease(ctx, providerRequest(intent, suggestedPort))
 		if err != nil {
