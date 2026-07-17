@@ -1,8 +1,21 @@
 # Project status
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 ## Current phase
+
+The `v0.3.0-alpha.2` candidate adds the second narrow reference workload
+adapter under issue #5. The Bitmagnet adapter consumes only the Pod-local,
+provider-neutral lease protocol, atomically stages `dht_server.port`, observes
+the actual UDP listener in the shared Pod network namespace, and acknowledges
+only the exact Pod UID, lease identity, generation, and applied port. Its
+separate restart probe coordinates Bitmagnet's restart-coupled configuration
+without adding application semantics to the controller or granting the
+application Kubernetes credentials, VPN credentials, or Linux capabilities.
+The signed release manifest schema advances to `1.3.0` and records the new
+multi-architecture adapter artifact and compatibility range. Real deployment
+and rotation evidence remains required before issue #5 is complete; Loadstone
+validation remains independently open.
 
 Waycloak has completed the Phase 1 control-plane exit and the Phase 2 fail-closed data-plane proof. The Go/controller-runtime control plane defines `VPNGateway` and controller-owned `VPNWorkload`, persists stable overlay allocations, quarantines released addresses, performs authorized and idempotent Pod admission, and publishes the UID-bound allocation ConfigMap required by ADR 0005. Admission places the lockdown and verifier init containers before every user init container, including native sidecars.
 

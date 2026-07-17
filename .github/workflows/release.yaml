@@ -104,6 +104,12 @@ jobs:
                 --image-label=io.waycloak.adapter.application=qbittorrent
                 '--image-label=io.waycloak.adapter.application.version=>=5.2.3 <6.0.0'
               )
+            elif [[ "$name" == "bitmagnet-adapter" ]]; then
+              image_labels+=(
+                --image-label=io.waycloak.adapter.protocol=networking.waycloak.io/adapter/v1alpha1
+                --image-label=io.waycloak.adapter.application=bitmagnet
+                '--image-label=io.waycloak.adapter.application.version=>=0.10.1-beta.1 <1.0.0'
+              )
             fi
             ref="$(KO_DOCKER_REPO="ghcr.io/$owner/waycloak-$name" \
               go run github.com/google/ko@v0.19.1 build --bare --sbom=spdx \
@@ -121,6 +127,7 @@ jobs:
           build_image agent agent ./cmd/agent
           build_image manager gateway-manager ./cmd/gateway-manager
           build_image adapter qbittorrent-adapter ./cmd/qbittorrent-adapter
+          build_image bitmagnet_adapter bitmagnet-adapter ./cmd/bitmagnet-adapter
       - name: Render digest-pinned qBitTorrent example evidence
         env:
           ADAPTER: ${{ steps.images.outputs.adapter }}
@@ -144,9 +151,10 @@ jobs:
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
+          BITMAGNET_ADAPTER: ${{ steps.images.outputs.bitmagnet_adapter }}
         run: |
           mkdir -p dist
-          for entry in CONTROLLER AGENT MANAGER ADAPTER; do
+          for entry in CONTROLLER AGENT MANAGER ADAPTER BITMAGNET_ADAPTER; do
             ref="${!entry}"
             output="dist/$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]').spdx.json"
             trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$ref"
@@ -229,11 +237,12 @@ jobs:
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
+          BITMAGNET_ADAPTER: ${{ steps.images.outputs.bitmagnet_adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
           KCL: ${{ steps.kcl.outputs.reference }}
         run: |
           crane=(go run github.com/google/go-containerregistry/cmd/crane@v0.20.6)
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$BITMAGNET_ADAPTER"; do
             test "$("${crane[@]}" digest "${ref%@*}")" = "${ref##*@}"
             "${crane[@]}" manifest "$ref" | jq -e '
               .mediaType == "application/vnd.oci.image.index.v1+json" and
@@ -245,6 +254,11 @@ jobs:
               .config.Labels["io.waycloak.adapter.protocol"] == "networking.waycloak.io/adapter/v1alpha1" and
               .config.Labels["io.waycloak.adapter.application"] == "qbittorrent" and
               .config.Labels["io.waycloak.adapter.application.version"] == ">=5.2.3 <6.0.0"
+            ' >/dev/null
+            "${crane[@]}" config --platform "$platform" "$BITMAGNET_ADAPTER" | jq -e '
+              .config.Labels["io.waycloak.adapter.protocol"] == "networking.waycloak.io/adapter/v1alpha1" and
+              .config.Labels["io.waycloak.adapter.application"] == "bitmagnet" and
+              .config.Labels["io.waycloak.adapter.application.version"] == ">=0.10.1-beta.1 <1.0.0"
             ' >/dev/null
           done
           "${crane[@]}" manifest "$CHART" | jq -e '
@@ -269,15 +283,17 @@ jobs:
           MANAGER: ${{ steps.images.outputs.manager }}
           CHART: ${{ steps.chart.outputs.reference }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
+          BITMAGNET_ADAPTER: ${{ steps.images.outputs.bitmagnet_adapter }}
           KCL: ${{ steps.kcl.outputs.reference }}
         run: |
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART" "$KCL"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$BITMAGNET_ADAPTER" "$CHART" "$KCL"; do
             ./hack/cosign-retry.sh sign --yes "$ref"
           done
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/controller.spdx.json "$CONTROLLER"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/agent.spdx.json "$AGENT"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/manager.spdx.json "$MANAGER"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/adapter.spdx.json "$ADAPTER"
+          ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/bitmagnet_adapter.spdx.json "$BITMAGNET_ADAPTER"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/helm-chart.spdx.json "$CHART"
           ./hack/cosign-retry.sh attest --yes --type spdxjson --predicate dist/kcl-module.spdx.json "$KCL"
       - name: Package workload-adapter protocol and conformance kit
@@ -313,6 +329,12 @@ jobs:
           subject-name: ${{ steps.images.outputs.adapter_name }}
           subject-digest: ${{ steps.images.outputs.adapter_digest }}
           push-to-registry: true
+      - name: Attest Bitmagnet adapter image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.images.outputs.bitmagnet_adapter_name }}
+          subject-digest: ${{ steps.images.outputs.bitmagnet_adapter_digest }}
+          push-to-registry: true
       - name: Attest Helm chart provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
@@ -332,6 +354,7 @@ jobs:
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
+          BITMAGNET_ADAPTER: ${{ steps.images.outputs.bitmagnet_adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
           KCL: ${{ steps.kcl.outputs.reference }}
         run: |
@@ -342,9 +365,9 @@ jobs:
             --commit "$GITHUB_SHA" \
             --workflow-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --controller "$CONTROLLER" --agent "$AGENT" --gateway-manager "$MANAGER" \
-            --qbittorrent-adapter "$ADAPTER" --chart "$CHART" --kcl-module "$KCL"
-          jq -e --arg adapter "$ADAPTER" --arg kcl "$KCL" \
-            '.artifacts.qbittorrentAdapterImage.reference == $adapter and .artifacts.kclModule.reference == $kcl' \
+            --qbittorrent-adapter "$ADAPTER" --bitmagnet-adapter "$BITMAGNET_ADAPTER" --chart "$CHART" --kcl-module "$KCL"
+          jq -e --arg adapter "$ADAPTER" --arg bitmagnet "$BITMAGNET_ADAPTER" --arg kcl "$KCL" \
+            '.artifacts.qbittorrentAdapterImage.reference == $adapter and .artifacts.bitmagnetAdapterImage.reference == $bitmagnet and .artifacts.kclModule.reference == $kcl' \
             dist/release-manifest.json >/dev/null
           test "$(grep -Fc "image: $ADAPTER" dist/qbittorrent-example.yaml)" -eq 2
           ./hack/cosign-retry.sh sign-blob --yes --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
@@ -354,11 +377,12 @@ jobs:
           AGENT: ${{ steps.images.outputs.agent }}
           MANAGER: ${{ steps.images.outputs.manager }}
           ADAPTER: ${{ steps.images.outputs.adapter }}
+          BITMAGNET_ADAPTER: ${{ steps.images.outputs.bitmagnet_adapter }}
           CHART: ${{ steps.chart.outputs.reference }}
           KCL: ${{ steps.kcl.outputs.reference }}
         run: |
           identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yaml@refs/tags/${GITHUB_REF_NAME}"
-          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$CHART" "$KCL"; do
+          for ref in "$CONTROLLER" "$AGENT" "$MANAGER" "$ADAPTER" "$BITMAGNET_ADAPTER" "$CHART" "$KCL"; do
             ./hack/cosign-retry.sh verify --certificate-identity "$identity" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
           done

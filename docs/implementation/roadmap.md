@@ -107,7 +107,9 @@ the unchecked compatibility or workload-adoption items below.
   DHT, renewal, and actual rotation certification using the existing gated
   harness.
 - [ ] Validate Bitmagnet and Loadstone consumption of the neutral lease
-  contract.
+  contract. The Bitmagnet adapter now stages provider-assigned DHT ports,
+  observes the UDP listener, and acknowledges exact generations; real
+  deployment/rotation evidence and Loadstone validation remain.
 - [ ] Record additional provider/application compatibility and troubleshooting
   evidence from real deployments.
 - [x] Replace provider-shaped gateway convenience fields with engine-native

@@ -29,6 +29,7 @@ const (
 	AgentHealthPort                = 9808
 	AgentLeasePort                 = 9809
 	QBittorrentAdapterHealthPort   = 9810
+	BitmagnetAdapterHealthPort     = 9811
 	PortForwardLeasesKey           = "port-forward-leases.json"
 	AdmissionGenerationKey         = "generation"
 	ApplicationLeaseMountPath      = "/run/waycloak/port-forward"

@@ -127,9 +127,10 @@ application-neutral.
 
 Most applications need no adapter. An adapter is justified only when an
 application advertises the external port inside its protocol and cannot learn
-it through a standard mechanism. The qBitTorrent adapter is one such narrow
-exception. It is Waycloak-built but explicitly declared by the workload owner;
-admission does not inject it into unrelated applications.
+it through a standard mechanism. The qBitTorrent and Bitmagnet adapters are
+such narrow exceptions. They are Waycloak-built but explicitly declared by
+the workload owner; admission does not inject them into unrelated
+applications.
 
 ## Who defines what
 
@@ -147,7 +148,7 @@ admission does not inject it into unrelated applications.
 | Workload agent sidecar | Waycloak admission | Waycloak |
 | Application container | Workload owner | Workload owner |
 | `PortForwardLease` | Workload owner | Waycloak controller, manager, and agent |
-| qBitTorrent adapter and API-key Secret | Workload owner when needed | Waycloak-built adapter and qBitTorrent |
+| Application adapter and application-owned configuration or credential | Workload owner when needed | Waycloak-built adapter and the selected application |
 | KCL definitions | Optional authoring tool | No runtime dependency |
 
 ## Minimal declarations
