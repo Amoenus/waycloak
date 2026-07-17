@@ -106,6 +106,9 @@ func TestDesiredStatefulSetUsesNativeGluetunConfigurationWithoutReadingSecrets(t
 			t.Fatalf("native engine is missing reserved setting %s: %#v", reserved, engine.Env)
 		}
 	}
+	assertGluetunProbe(t, "startup", engine.StartupProbe, 2, 1, 150)
+	assertGluetunProbe(t, "readiness", engine.ReadinessProbe, 2, 1, 1)
+	assertGluetunProbe(t, "liveness", engine.LivenessProbe, 10, 2, 12)
 }
 
 func TestDesiredStatefulSetDoesNotCreateUnconsumedNativeVolumesForOtherEngines(t *testing.T) {
@@ -118,6 +121,9 @@ func TestDesiredStatefulSetDoesNotCreateUnconsumedNativeVolumesForOtherEngines(t
 	}
 	statefulSet := DesiredStatefulSet(gateway, WorkloadOptions{ManagerImage: digestImage("manager")})
 	engine := statefulSet.Spec.Template.Spec.Containers[0]
+	if engine.StartupProbe != nil || engine.ReadinessProbe != nil || engine.LivenessProbe != nil {
+		t.Fatalf("non-Gluetun engine received Gluetun health probes: %#v", engine)
+	}
 	if len(engine.EnvFrom) != 0 || hasMount(engine, "engine-native-file-0") {
 		t.Fatalf("non-Gluetun engine consumed native projection: envFrom=%#v mounts=%#v", engine.EnvFrom, engine.VolumeMounts)
 	}
@@ -125,6 +131,16 @@ func TestDesiredStatefulSetDoesNotCreateUnconsumedNativeVolumesForOtherEngines(t
 		if volume.Name == "engine-native-file-0" {
 			t.Fatalf("non-Gluetun engine received an unmounted native volume: %#v", volume)
 		}
+	}
+}
+
+func assertGluetunProbe(t *testing.T, name string, probe *corev1.Probe, periodSeconds, timeoutSeconds, failureThreshold int32) {
+	t.Helper()
+	if probe == nil || probe.Exec == nil || !reflect.DeepEqual(probe.Exec.Command, []string{"wget", "-q", "-O", "/dev/null", GluetunHealthURL}) {
+		t.Fatalf("%s probe = %#v", name, probe)
+	}
+	if probe.PeriodSeconds != periodSeconds || probe.TimeoutSeconds != timeoutSeconds || probe.FailureThreshold != failureThreshold {
+		t.Fatalf("%s probe timing = period %d timeout %d failures %d", name, probe.PeriodSeconds, probe.TimeoutSeconds, probe.FailureThreshold)
 	}
 }
 

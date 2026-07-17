@@ -30,6 +30,7 @@ const (
 	DNSPort                   = 53
 	GatewayDNSPort            = contract.GatewayDNSPort
 	TunnelInterface           = "tunwaycloak"
+	GluetunHealthURL          = "http://127.0.0.1:9999/"
 
 	GatewayNameAnnotation          = "internal.networking.waycloak.io/gateway-name"
 	GatewayLabel                   = "internal.networking.waycloak.io/gateway"
@@ -218,6 +219,9 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		engine.VolumeMounts = append(engine.VolumeMounts, corev1.VolumeMount{Name: "credentials", MountPath: "/run/waycloak/credentials", ReadOnly: true})
 	}
 	if strings.EqualFold(gateway.Spec.Engine.Type, "Gluetun") {
+		engine.StartupProbe = gluetunHealthProbe(2, 1, 150)
+		engine.ReadinessProbe = gluetunHealthProbe(2, 1, 1)
+		engine.LivenessProbe = gluetunHealthProbe(10, 2, 12)
 		engine.Env = []corev1.EnvVar{
 			{Name: "HEALTH_SERVER_ADDRESS", Value: "127.0.0.1:9999"},
 			{Name: "HTTP_CONTROL_SERVER_ADDRESS", Value: "127.0.0.1:8000"},
@@ -289,6 +293,17 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 				},
 			},
 		},
+	}
+}
+
+func gluetunHealthProbe(periodSeconds, timeoutSeconds, failureThreshold int32) *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{
+			"wget", "-q", "-O", "/dev/null", GluetunHealthURL,
+		}}},
+		PeriodSeconds:    periodSeconds,
+		TimeoutSeconds:   timeoutSeconds,
+		FailureThreshold: failureThreshold,
 	}
 }
 

@@ -4,6 +4,20 @@ Last updated: 2026-07-17
 
 ## Current phase
 
+The `v0.3.0-alpha.4` candidate addresses live issue #90. A sustained Gluetun
+DNS/tunnel health failure correctly withdrew composite gateway and protected
+workload readiness, but Gluetun remained alive with HTTP 500 health while its
+OpenVPN child failed to complete the internal restart. Because the generated
+engine container had no Kubernetes probes, recovery required deleting the
+singleton gateway Pod. Gluetun gateways now use a loopback exec startup probe,
+fast readiness probe, and delayed liveness probe: traffic remains fail closed
+immediately, while two minutes of continuous post-startup failure restarts only
+the engine container. API-server defaults are also treated as compatible during
+StatefulSet reconciliation, eliminating the semantic no-op update loop,
+optimistic-concurrency errors, and spurious rollout-required events observed
+during the incident. Unit and envtest verification pass; packaged real-provider
+failure injection and homelab soak remain release gates.
+
 The `v0.3.0-alpha.3` candidate fixes a real multi-lease starvation found while
 adding Bitmagnet beside qBitTorrent (#88). Provider acquisition and renewal now
 run against a private reconciliation copy instead of holding the published

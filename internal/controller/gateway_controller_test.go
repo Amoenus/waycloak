@@ -172,6 +172,47 @@ func TestGatewayRejectsMutableEngineImageWithoutCreatingResources(t *testing.T) 
 	}
 }
 
+func TestGatewayStatefulSetServerDefaultsDoNotRequireRollout(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := controllerTestGateway()
+	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}).WithObjects(gateway).Build()
+	recorder := record.NewFakeRecorder(10)
+	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: recorder, ManagerImage: "registry.invalid/manager" + testDigest}
+	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name}}
+
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	for len(recorder.Events) > 0 {
+		<-recorder.Events
+	}
+
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	var statefulSet appsv1.StatefulSet
+	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
+		t.Fatal(err)
+	}
+	seconds := int64(30)
+	statefulSet.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	statefulSet.Spec.Template.Spec.DNSPolicy = corev1.DNSClusterFirst
+	statefulSet.Spec.Template.Spec.RestartPolicy = corev1.RestartPolicyAlways
+	statefulSet.Spec.Template.Spec.SchedulerName = corev1.DefaultSchedulerName
+	if err := client.Update(context.Background(), &statefulSet); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-recorder.Events:
+		if strings.Contains(event, "GatewayRolloutRequired") {
+			t.Fatalf("server defaults caused a rollout-required event: %s", event)
+		}
+	default:
+	}
+}
+
 func TestGatewayReadyRequiresEnabledComponents(t *testing.T) {
 	gateway := controllerTestGateway()
 	gateway.Spec.PortForwarding.Enabled = true
