@@ -90,7 +90,7 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-alpha.1` for the first signed
+The source tree is versioned `v0.3.0-alpha.3` for the current signed
 certification candidate. This candidate exists to run the native Gluetun
 real-provider gate from reviewed `main`; publication alone does not complete
 the unchecked compatibility or workload-adoption items below.
@@ -103,6 +103,8 @@ the unchecked compatibility or workload-adoption items below.
   injected agent identities during zero-unavailable webhook upgrades (#55).
 - [x] Expose desired and last-known-good applied gateway membership generations
   without weakening malformed-projection handling (#48).
+- [x] Keep published lease observations readable and expiry-aware while slow
+  provider renewal I/O is in flight (#88).
 - [ ] Complete sustained real-provider qBitTorrent ingress, advertisement,
   DHT, renewal, and actual rotation certification using the existing gated
   harness.

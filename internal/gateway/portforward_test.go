@@ -6,6 +6,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -71,6 +72,67 @@ func TestPortForwardManagerKeepsUnexpiredObservationDuringRenewalFailure(t *test
 	}
 }
 
+func TestPortForwardManagerSnapshotRemainsResponsiveDuringProviderIO(t *testing.T) {
+	issuedAt := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	var nowUnix atomic.Int64
+	nowUnix.Store(issuedAt.Unix())
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}
+	driver := &blockingPortForwardDriver{started: make(chan struct{}, 1), release: make(chan struct{})}
+	manager := &PortForwardManager{
+		Driver:               driver,
+		Now:                  func() time.Time { return time.Unix(nowUnix.Load(), 0).UTC() },
+		capabilitiesObserved: true,
+		capabilities:         provider.PortForwardCapabilities{Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}},
+		leases: map[string]managedPortForwardLease{
+			intent.Identity: {
+				intent: intent,
+				observation: PortForwardObservation{
+					Identity:     intent.Identity,
+					InternalPort: intent.InternalPort,
+					Protocols:    intent.Protocols,
+					PublicPort:   42000,
+					IssuedAt:     issuedAt.Add(-45 * time.Second),
+					RenewAfter:   issuedAt,
+					ExpiresAt:    issuedAt.Add(15 * time.Second),
+					Ready:        true,
+					Message:      "Provider mapping is current",
+				},
+			},
+		},
+	}
+
+	reconciled := make(chan error, 1)
+	go func() { reconciled <- manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}) }()
+	select {
+	case <-driver.started:
+	case <-time.After(time.Second):
+		close(driver.release)
+		t.Fatal("provider renewal did not start")
+	}
+
+	snapshots := make(chan []PortForwardObservation, 1)
+	go func() { snapshots <- manager.Snapshot() }()
+	select {
+	case snapshot := <-snapshots:
+		if len(snapshot) != 1 || !snapshot[0].Ready || snapshot[0].PublicPort != 42000 {
+			t.Fatalf("in-flight snapshot = %#v", snapshot)
+		}
+	case <-time.After(250 * time.Millisecond):
+		close(driver.release)
+		<-reconciled
+		t.Fatal("snapshot blocked behind provider I/O")
+	}
+
+	nowUnix.Store(issuedAt.Add(16 * time.Second).Unix())
+	if snapshot := manager.Snapshot(); len(snapshot) != 1 || snapshot[0].Ready {
+		t.Fatalf("expired in-flight snapshot = %#v", snapshot)
+	}
+	close(driver.release)
+	if err := <-reconciled; err == nil {
+		t.Fatal("blocked provider renewal failure was not returned")
+	}
+}
+
 func TestPortForwardManagerRejectsDuplicateInternalPorts(t *testing.T) {
 	manager := &PortForwardManager{Driver: &fakePortForwardDriver{}}
 	err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{{Identity: "a", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}, {Identity: "b", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolUDP}}})
@@ -103,6 +165,25 @@ type fakePortForwardDriver struct {
 	ports           []uint16
 	ensureErr       error
 	releaseErr      error
+}
+
+type blockingPortForwardDriver struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (driver *blockingPortForwardDriver) ObserveCapabilities(context.Context) (provider.PortForwardCapabilities, error) {
+	return provider.PortForwardCapabilities{}, errors.New("unexpected capability observation")
+}
+
+func (driver *blockingPortForwardDriver) EnsureLease(context.Context, provider.PortForwardLeaseRequest) (provider.PortForwardLeaseObservation, error) {
+	driver.started <- struct{}{}
+	<-driver.release
+	return provider.PortForwardLeaseObservation{}, errors.New("renewal failed")
+}
+
+func (driver *blockingPortForwardDriver) ReleaseLease(context.Context, provider.PortForwardLeaseRequest) error {
+	return errors.New("unexpected release")
 }
 
 func (driver *fakePortForwardDriver) ObserveCapabilities(context.Context) (provider.PortForwardCapabilities, error) {

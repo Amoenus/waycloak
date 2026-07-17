@@ -50,6 +50,7 @@ type PortForwardManager struct {
 	Driver provider.PortForwardDriver
 	Now    func() time.Time
 
+	reconcileMu              sync.Mutex
 	mu                       sync.RWMutex
 	leases                   map[string]managedPortForwardLease
 	capabilities             provider.PortForwardCapabilities
@@ -64,16 +65,28 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 		}
 		return errors.New("port-forward provider driver is not configured")
 	}
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if manager.leases == nil {
-		manager.leases = map[string]managedPortForwardLease{}
+	manager.reconcileMu.Lock()
+	defer manager.reconcileMu.Unlock()
+
+	manager.mu.RLock()
+	leases := cloneManagedPortForwardLeases(manager.leases)
+	capabilities := clonePortForwardCapabilities(manager.capabilities)
+	capabilitiesObserved := manager.capabilitiesObserved
+	capabilityObservationErr := manager.capabilityObservationErr
+	manager.mu.RUnlock()
+	if leases == nil {
+		leases = map[string]managedPortForwardLease{}
 	}
-	if !manager.capabilitiesObserved {
-		manager.capabilities, manager.capabilityObservationErr = manager.Driver.ObserveCapabilities(ctx)
-		manager.capabilitiesObserved = manager.capabilityObservationErr == nil
-		if manager.capabilityObservationErr != nil {
-			return manager.capabilityObservationErr
+	if !capabilitiesObserved {
+		capabilities, capabilityObservationErr = manager.Driver.ObserveCapabilities(ctx)
+		capabilitiesObserved = capabilityObservationErr == nil
+		manager.mu.Lock()
+		manager.capabilities = clonePortForwardCapabilities(capabilities)
+		manager.capabilitiesObserved = capabilitiesObserved
+		manager.capabilityObservationErr = capabilityObservationErr
+		manager.mu.Unlock()
+		if capabilityObservationErr != nil {
+			return capabilityObservationErr
 		}
 	}
 
@@ -94,33 +107,38 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 	}
 
 	var reconcileErr error
-	for identity, managed := range manager.leases {
+	for identity, managed := range leases {
 		if _, exists := wanted[identity]; exists {
 			continue
 		}
 		managed.observation.Ready = false
 		managed.observation.Releasing = true
 		managed.observation.Message = "Provider mapping release is pending"
-		manager.leases[identity] = managed
+		leases[identity] = managed
+		manager.publishState(leases, capabilities, capabilitiesObserved, capabilityObservationErr)
 		request := providerRequest(managed.intent, managed.observation.PublicPort)
 		if err := manager.Driver.ReleaseLease(ctx, request); err != nil {
 			managed.observation.Message = "Provider mapping release failed: " + err.Error()
-			manager.leases[identity] = managed
+			leases[identity] = managed
 			reconcileErr = errors.Join(reconcileErr, err)
 			continue
 		}
-		delete(manager.leases, identity)
+		delete(leases, identity)
 	}
 
 	now := manager.now()
 	for _, intent := range desired {
-		managed, exists := manager.leases[intent.Identity]
+		managed, exists := leases[intent.Identity]
 		intentChanged := exists && !reflect.DeepEqual(providerRequest(managed.intent, 0), providerRequest(intent, 0))
 		if intentChanged {
+			managed.observation.Ready = false
+			managed.observation.Releasing = true
+			managed.observation.Message = "Provider mapping replacement is pending"
+			leases[intent.Identity] = managed
+			manager.publishState(leases, capabilities, capabilitiesObserved, capabilityObservationErr)
 			if err := manager.Driver.ReleaseLease(ctx, providerRequest(managed.intent, managed.observation.PublicPort)); err != nil {
-				managed.observation.Ready = false
 				managed.observation.Message = "Previous provider mapping release failed: " + err.Error()
-				manager.leases[intent.Identity] = managed
+				leases[intent.Identity] = managed
 				reconcileErr = errors.Join(reconcileErr, err)
 				continue
 			}
@@ -129,7 +147,7 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 		needsEnsure := !exists || !managed.observation.Ready || !now.Before(managed.observation.RenewAfter)
 		if !needsEnsure {
 			managed.intent = intent
-			manager.leases[intent.Identity] = managed
+			leases[intent.Identity] = managed
 			continue
 		}
 		suggestedPort := intent.SuggestedExternalPort
@@ -143,7 +161,7 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 			}
 			managed.intent = intent
 			managed.observation.Message = "Provider mapping renewal failed: " + err.Error()
-			manager.leases[intent.Identity] = managed
+			leases[intent.Identity] = managed
 			reconcileErr = errors.Join(reconcileErr, err)
 			continue
 		}
@@ -155,8 +173,9 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 		managed.observation.ExpiresAt = observation.ExpiresAt
 		managed.observation.Ready = true
 		managed.observation.Message = "Provider mapping is current"
-		manager.leases[intent.Identity] = managed
+		leases[intent.Identity] = managed
 	}
+	manager.publishState(leases, capabilities, capabilitiesObserved, capabilityObservationErr)
 	return reconcileErr
 }
 
@@ -180,9 +199,35 @@ func (manager *PortForwardManager) Snapshot() []PortForwardObservation {
 func (manager *PortForwardManager) Capabilities() (provider.PortForwardCapabilities, bool, error) {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
-	capabilities := manager.capabilities
-	capabilities.Protocols = append([]provider.PortForwardProtocol(nil), capabilities.Protocols...)
+	capabilities := clonePortForwardCapabilities(manager.capabilities)
 	return capabilities, manager.capabilitiesObserved, manager.capabilityObservationErr
+}
+
+func cloneManagedPortForwardLeases(source map[string]managedPortForwardLease) map[string]managedPortForwardLease {
+	if source == nil {
+		return nil
+	}
+	cloned := make(map[string]managedPortForwardLease, len(source))
+	for identity, managed := range source {
+		managed.intent.Protocols = append([]provider.PortForwardProtocol(nil), managed.intent.Protocols...)
+		managed.observation.Protocols = append([]provider.PortForwardProtocol(nil), managed.observation.Protocols...)
+		cloned[identity] = managed
+	}
+	return cloned
+}
+
+func clonePortForwardCapabilities(capabilities provider.PortForwardCapabilities) provider.PortForwardCapabilities {
+	capabilities.Protocols = append([]provider.PortForwardProtocol(nil), capabilities.Protocols...)
+	return capabilities
+}
+
+func (manager *PortForwardManager) publishState(leases map[string]managedPortForwardLease, capabilities provider.PortForwardCapabilities, capabilitiesObserved bool, capabilityObservationErr error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.leases = cloneManagedPortForwardLeases(leases)
+	manager.capabilities = clonePortForwardCapabilities(capabilities)
+	manager.capabilitiesObserved = capabilitiesObserved
+	manager.capabilityObservationErr = capabilityObservationErr
 }
 
 func providerRequest(intent PortForwardLeaseIntent, suggestedExternalPort uint16) provider.PortForwardLeaseRequest {
