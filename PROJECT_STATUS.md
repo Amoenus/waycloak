@@ -4,6 +4,16 @@ Last updated: 2026-07-17
 
 ## Current phase
 
+The `v0.3.0-alpha.3` candidate fixes a real multi-lease starvation found while
+adding Bitmagnet beside qBitTorrent (#88). Provider acquisition and renewal now
+run against a private reconciliation copy instead of holding the published
+observation mutex across network I/O. The manager atomically publishes complete
+updates, keeps the last complete observation readable while renewal is in
+flight, expires stale observations locally, and publishes removals or mapping
+replacements as non-ready before provider release I/O. Unit coverage holds a
+provider call blocked while proving bounded snapshot reads and fail-closed
+expiry. Real two-client Proton convergence remains an explicit release gate.
+
 The `v0.3.0-alpha.2` candidate adds the second narrow reference workload
 adapter under issue #5. The Bitmagnet adapter consumes only the Pod-local,
 provider-neutral lease protocol, atomically stages `dht_server.port`, observes
