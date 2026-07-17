@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["schemaVersion", "version", "source", "artifacts", "compatibility", "security"],
   "properties": {
-    "schemaVersion": {"const": "1.2.0"},
+    "schemaVersion": {"const": "1.3.0"},
     "version": {"type": "string", "minLength": 1},
     "source": {
       "type": "object",
@@ -18,7 +18,7 @@
     },
     "artifacts": {
       "type": "object",
-      "required": ["controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart", "kclModule"],
+      "required": ["controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "bitmagnetAdapterImage", "helmChart", "kclModule"],
       "additionalProperties": {
         "type": "object",
         "required": ["reference", "digest"],
@@ -40,8 +40,11 @@
         "workloadAdapterConformanceKit": {"const": "workload-adapter-kit-v1alpha1.tar.gz"},
         "referenceAdapters": {
           "type": "object",
-          "required": ["qbittorrent"],
-          "properties": {"qbittorrent": {"type": "string", "minLength": 1}},
+          "required": ["qbittorrent", "bitmagnet"],
+          "properties": {
+            "qbittorrent": {"type": "string", "minLength": 1},
+            "bitmagnet": {"type": "string", "minLength": 1}
+          },
           "additionalProperties": {"type": "string", "minLength": 1}
         }
       },

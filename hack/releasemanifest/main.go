@@ -17,7 +17,7 @@ const testedGluetun = "docker.io/qmcgaw/gluetun:v3.41.0@sha256:6b54856716d0de56e
 
 var sha256Reference = regexp.MustCompile(`^.+@sha256:[a-f0-9]{64}$`)
 
-var requiredArtifacts = []string{"controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "helmChart", "kclModule"}
+var requiredArtifacts = []string{"controllerImage", "agentImage", "gatewayManagerImage", "qbittorrentAdapterImage", "bitmagnetAdapterImage", "helmChart", "kclModule"}
 
 type manifest struct {
 	SchemaVersion string              `json:"schemaVersion"`
@@ -63,10 +63,11 @@ func main() {
 	agent := flag.String("agent", "", "agent digest reference")
 	gatewayManager := flag.String("gateway-manager", "", "gateway-manager digest reference")
 	qbittorrentAdapter := flag.String("qbittorrent-adapter", "", "qBitTorrent adapter digest reference")
+	bitmagnetAdapter := flag.String("bitmagnet-adapter", "", "Bitmagnet adapter digest reference")
 	chart := flag.String("chart", "", "Helm chart digest reference")
 	kclModule := flag.String("kcl-module", "", "KCL module digest reference")
 	flag.Parse()
-	value, err := buildManifest(*version, *repository, *commit, *workflowRun, map[string]string{"controllerImage": *controller, "agentImage": *agent, "gatewayManagerImage": *gatewayManager, "qbittorrentAdapterImage": *qbittorrentAdapter, "helmChart": *chart, "kclModule": *kclModule})
+	value, err := buildManifest(*version, *repository, *commit, *workflowRun, map[string]string{"controllerImage": *controller, "agentImage": *agent, "gatewayManagerImage": *gatewayManager, "qbittorrentAdapterImage": *qbittorrentAdapter, "bitmagnetAdapterImage": *bitmagnetAdapter, "helmChart": *chart, "kclModule": *kclModule})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -103,11 +104,11 @@ func buildManifest(version, repository, commit, workflowRun string, references m
 		artifacts[name] = artifact{Reference: reference, Digest: reference[strings.LastIndex(reference, "@")+1:]}
 	}
 	return manifest{
-		SchemaVersion: "1.2.0",
+		SchemaVersion: "1.3.0",
 		Version:       version,
 		Source:        source{Repository: repository, Commit: commit, WorkflowRun: workflowRun},
 		Artifacts:     artifacts,
-		Compatibility: compatibility{Kubernetes: []string{"1.35", "1.36"}, CNI: []string{"kindnet", "flannel"}, CRDStorageVersion: "v1alpha1", WorkloadAdapterProtocol: "networking.waycloak.io/adapter/v1alpha1", WorkloadAdapterConformanceKit: "workload-adapter-kit-v1alpha1.tar.gz", ReferenceAdapters: map[string]string{"qbittorrent": ">=5.2.3 <6.0.0"}},
+		Compatibility: compatibility{Kubernetes: []string{"1.35", "1.36"}, CNI: []string{"kindnet", "flannel"}, CRDStorageVersion: "v1alpha1", WorkloadAdapterProtocol: "networking.waycloak.io/adapter/v1alpha1", WorkloadAdapterConformanceKit: "workload-adapter-kit-v1alpha1.tar.gz", ReferenceAdapters: map[string]string{"qbittorrent": ">=5.2.3 <6.0.0", "bitmagnet": ">=0.10.1-beta.1 <1.0.0"}},
 		Security: security{TestedGluetun: testedGluetun, RequiredCapabilities: map[string][]string{
 			"agent":          {"NET_ADMIN"},
 			"gatewayManager": {"NET_ADMIN"},

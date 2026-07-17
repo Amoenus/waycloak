@@ -38,7 +38,8 @@ The workflow publishes these multi-architecture image repositories by digest:
 - `ghcr.io/amoenus/waycloak-controller`;
 - `ghcr.io/amoenus/waycloak-agent`;
 - `ghcr.io/amoenus/waycloak-gateway-manager`;
-- `ghcr.io/amoenus/waycloak-qbittorrent-adapter`.
+- `ghcr.io/amoenus/waycloak-qbittorrent-adapter`;
+- `ghcr.io/amoenus/waycloak-bitmagnet-adapter`.
 
 The chart is published at `oci://ghcr.io/amoenus/charts/waycloak`. Before packaging, the workflow writes the exact released controller, agent, gateway-manager, and adapter image identities into the chart defaults. It never publishes `latest`.
 
@@ -72,7 +73,7 @@ cosign verify-blob \
 ```
 
 Repeat OCI verification for the agent, gateway manager, qBitTorrent adapter,
-Helm chart, and KCL module identities recorded in the manifest. GitHub
+Bitmagnet adapter, Helm chart, and KCL module identities recorded in the manifest. GitHub
 attestations can additionally be verified with `gh attestation verify` against
 this repository. After verifying the KCL tag-to-digest identity, commit the
 consumer's generated `kcl.mod.lock`; never track an unverified moving tag.

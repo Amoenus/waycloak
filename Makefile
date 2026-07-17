@@ -7,15 +7,17 @@ IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-agent
 GATEWAY_MANAGER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-manager
 CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-controller
 QBITTORRENT_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-qbittorrent-adapter
+BITMAGNET_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-bitmagnet-adapter
 OCI_LAYOUT ?= dist/agent
 GATEWAY_MANAGER_OCI_LAYOUT ?= dist/gateway-manager
 CONTROLLER_OCI_LAYOUT ?= dist/controller
 QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
+BITMAGNET_ADAPTER_OCI_LAYOUT ?= dist/bitmagnet-adapter
 CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci chart-package kcl-package verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci bitmagnet-adapter-image-oci chart-package kcl-package verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
 
@@ -64,6 +66,14 @@ qbittorrent-adapter-image-oci:
 		--image-label=io.waycloak.adapter.application=qbittorrent \
 		--image-label=io.waycloak.adapter.application.version='>=5.2.3 <6.0.0' \
 		./cmd/qbittorrent-adapter
+
+bitmagnet-adapter-image-oci:
+	mkdir -p $(dir $(BITMAGNET_ADAPTER_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(BITMAGNET_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(BITMAGNET_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 \
+		--image-label=io.waycloak.adapter.protocol=networking.waycloak.io/adapter/v1alpha1 \
+		--image-label=io.waycloak.adapter.application=bitmagnet \
+		--image-label=io.waycloak.adapter.application.version='>=0.10.1-beta.1 <1.0.0' \
+		./cmd/bitmagnet-adapter
 
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)
