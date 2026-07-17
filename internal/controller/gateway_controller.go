@@ -267,7 +267,14 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, statefulSet, func() error {
 		statefulSet.Labels = desiredStatefulSet.Labels
 		statefulSet.Annotations = desiredStatefulSet.Annotations
-		statefulSet.Spec = desiredStatefulSet.Spec
+		// The API server adds defaults throughout StatefulSetSpec and PodSpec.
+		// Replacing the live spec with the non-defaulted desired object on every
+		// reconcile creates a permanent update loop and races the StatefulSet
+		// controller's own writes. Treat those server-owned defaults as compatible
+		// while still replacing the spec when any declared Waycloak field differs.
+		if !apiequality.Semantic.DeepDerivative(desiredStatefulSet.Spec, statefulSet.Spec) {
+			statefulSet.Spec = desiredStatefulSet.Spec
+		}
 		return ctrl.SetControllerReference(gateway, statefulSet, r.Scheme)
 	})
 	if err != nil {

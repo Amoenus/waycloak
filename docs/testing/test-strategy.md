@@ -115,12 +115,17 @@ Capture packets at the protected Pod, node/CNI interface, gateway overlay, and t
 - gateway node drain;
 - tunnel interface removal;
 - DNS failure;
+- sustained engine-health failure, proving fast readiness withdrawal followed
+  by an engine-container-only restart and automatic protected-path recovery;
 - stale desired generation;
 - provider API timeout;
 - controller/webhook restart;
 - CNI packet loss and MTU mismatch.
 
-The key assertion is absence of direct packets, not only expected application errors.
+The key assertion is absence of direct packets, not only expected application
+errors. Recovery tests also assert stable gateway and workload Pod UIDs, stable
+overlay and lease identities, and an increased VPN-engine container restart
+count before readiness returns.
 
 ## Credentialed tests
 

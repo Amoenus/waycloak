@@ -96,6 +96,15 @@ Gluetun records manager health polling as HTTP access logs. Repeated successful
 `/v1/dns/status` and `/v1/publicip/ip` requests are noisy but are not tunnel
 failures.
 
+On releases containing engine auto-healing, an unhealthy Gluetun endpoint makes
+the engine and gateway unready immediately. Kubernetes restarts only
+`vpn-engine` after two minutes of continuous failure; the Pod UID and manager
+remain stable. Check `.status.containerStatuses` for an increasing engine
+restart count and follow the new engine logs for tunnel establishment. Do not
+bypass the outage with an alternate route or resolver. If the engine repeatedly
+restarts, investigate provider reachability, credentials, and native engine
+configuration rather than deleting protected workloads.
+
 ## A PortForwardLease is not ready
 
 Inspect conditions in dependency order:

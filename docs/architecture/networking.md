@@ -131,3 +131,18 @@ Waycloak must publish a preflight Job or CLI check that reports these prerequisi
 ## Recovery and drift
 
 The agent monitors link state, gateway liveness, desired generation, routes, and owned firewall objects. It rereads desired configuration and repairs in process. A ConfigMap update should not require application restart. Gateway configuration changes should be applied incrementally and should not restart the VPN tunnel for ordinary membership changes.
+
+Engine readiness and engine recovery are separate controls. For Gluetun,
+Waycloak probes the loopback-only health server from inside the engine
+container. Readiness fails on the first unhealthy observation so the composite
+gateway and every protected workload remain fail closed. A startup probe allows
+five minutes for initial provider establishment. After startup, twelve
+consecutive ten-second liveness failures restart only the engine container.
+The gateway Pod, manager, overlay allocations, lease identities, and protected
+workload Pods remain in place while the engine re-establishes the tunnel.
+
+The liveness delay is intentionally longer than readiness failure: short
+provider or DNS disturbances withdraw service without creating a restart
+storm, while a live-but-stuck engine is recovered without an operator deleting
+the singleton gateway Pod. Engines without an equivalent local health contract
+do not inherit the Gluetun probe.
