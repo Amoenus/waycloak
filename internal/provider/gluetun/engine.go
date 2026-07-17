@@ -18,9 +18,8 @@ import (
 )
 
 var (
-	ErrTunnelUnhealthy     = errors.New("gluetun tunnel health check failed")
-	ErrDNSUnhealthy        = errors.New("gluetun DNS is not running")
-	ErrPublicIPUnavailable = errors.New("gluetun public IP is unavailable")
+	ErrTunnelUnhealthy = errors.New("gluetun tunnel health check failed")
+	ErrDNSUnhealthy    = errors.New("gluetun DNS is not running")
 )
 
 type Engine struct {
@@ -51,14 +50,12 @@ func (engine *Engine) Observe(ctx context.Context) (provider.EngineObservation, 
 	var publicIP struct {
 		PublicIP string `json:"public_ip"`
 	}
-	if err := engine.getJSON(ctx, engine.ControlURL+"/v1/publicip/ip", &publicIP); err != nil {
-		return observation, ErrPublicIPUnavailable
+	if err := engine.getJSON(ctx, engine.ControlURL+"/v1/publicip/ip", &publicIP); err == nil {
+		address, parseErr := netip.ParseAddr(strings.TrimSpace(publicIP.PublicIP))
+		if parseErr == nil && address.IsGlobalUnicast() {
+			observation.PublicIP = address
+		}
 	}
-	address, err := netip.ParseAddr(strings.TrimSpace(publicIP.PublicIP))
-	if err != nil || !address.IsGlobalUnicast() {
-		return observation, ErrPublicIPUnavailable
-	}
-	observation.PublicIP = address
 	return observation, nil
 }
 

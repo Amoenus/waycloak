@@ -150,3 +150,9 @@ provider or DNS disturbances withdraw service without creating a restart
 storm, while a live-but-stuck engine is recovered without an operator deleting
 the singleton gateway Pod. Engines without an equivalent local health contract
 do not inherit the Gluetun probe.
+
+Observed public-IP metadata is telemetry, not a data-plane dependency. A
+missing or malformed Gluetun public-IP response does not make the gateway
+unready when the tunnel and protected DNS path are healthy. Tunnel health, DNS,
+overlay reconciliation, forwarding policy, and provider lease/rule observations
+remain mandatory readiness inputs.

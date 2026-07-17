@@ -4,7 +4,7 @@ Last updated: 2026-07-18
 
 ## Current phase
 
-The `v0.3.0-alpha.5` candidate addresses live issues #90 and #92. A sustained Gluetun
+The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected
 workload readiness, but Gluetun remained alive with HTTP 500 health while its
 OpenVPN child failed to complete the internal restart. Because the generated
@@ -27,6 +27,12 @@ both acquisition and renewal whenever the provider capability says requests
 are unsupported, while retaining the last public port only for drivers that
 explicitly support it. The public lease generation therefore changes only on
 an actual provider rotation.
+
+Issue #94 was exposed by the alpha.5 rollout when Gluetun's one-time public-IP
+metadata lookup timed out even though OpenVPN, tunnel health, and DNS were
+ready. Public-IP metadata is not used by routing, NAT-PMP, DNS, or fail-closed
+enforcement, so it is now best-effort telemetry and no longer gates gateway
+readiness. Tunnel health and DNS observation remain mandatory.
 
 The `v0.3.0-alpha.3` candidate fixes a real multi-lease starvation found while
 adding Bitmagnet beside qBitTorrent (#88). Provider acquisition and renewal now

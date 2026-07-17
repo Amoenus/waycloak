@@ -124,7 +124,7 @@ func (manager *HealthManager) PortForwardingSnapshot() []PortForwardObservation 
 func (manager *HealthManager) Ready() bool {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
-	return manager.err == nil && manager.configErr == nil && manager.networkErr == nil && manager.forwardingErr == nil && manager.dnsErr == nil && manager.portForwardingErr == nil && manager.portForwardRulesErr == nil && manager.observation.TunnelReady && manager.observation.DNSReady && manager.observation.PublicIP.IsValid()
+	return manager.err == nil && manager.configErr == nil && manager.networkErr == nil && manager.forwardingErr == nil && manager.dnsErr == nil && manager.portForwardingErr == nil && manager.portForwardRulesErr == nil && manager.observation.TunnelReady && manager.observation.DNSReady
 }
 
 func (manager *HealthManager) Error() error {

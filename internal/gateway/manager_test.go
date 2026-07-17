@@ -71,10 +71,10 @@ func TestHealthManagerTracksObservedEngineState(t *testing.T) {
 		t.Fatal("manager reported desired registration as ready")
 	}
 	engine.err = nil
-	engine.observation = provider.EngineObservation{TunnelReady: true, DNSReady: true, PublicIP: netip.MustParseAddr("203.0.113.10")}
+	engine.observation = provider.EngineObservation{TunnelReady: true, DNSReady: true}
 	manager.Reconcile(context.Background())
 	if !manager.Ready() {
-		t.Fatal("manager did not report a complete observation as ready")
+		t.Fatal("manager required optional public-IP metadata for readiness")
 	}
 	engine.observation.DNSReady = false
 	manager.Reconcile(context.Background())
