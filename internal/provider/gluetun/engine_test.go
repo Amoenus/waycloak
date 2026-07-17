@@ -11,8 +11,10 @@ import (
 	"testing"
 )
 
-func TestObserveRequiresTunnelDNSAndPublicIP(t *testing.T) {
+func TestObserveRequiresTunnelAndDNSWhilePublicIPIsBestEffort(t *testing.T) {
 	dnsRunning := true
+	publicIPResponse := `{"public_ip":"203.0.113.10"}`
+	publicIPStatus := http.StatusOK
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/health":
@@ -24,7 +26,8 @@ func TestObserveRequiresTunnelDNSAndPublicIP(t *testing.T) {
 				_, _ = response.Write([]byte(`{"status":"stopped"}`))
 			}
 		case "/v1/publicip/ip":
-			_, _ = response.Write([]byte(`{"public_ip":"203.0.113.10"}`))
+			response.WriteHeader(publicIPStatus)
+			_, _ = response.Write([]byte(publicIPResponse))
 		default:
 			http.NotFound(response, request)
 		}
@@ -37,6 +40,21 @@ func TestObserveRequiresTunnelDNSAndPublicIP(t *testing.T) {
 	}
 	if !observation.TunnelReady || !observation.DNSReady || observation.PublicIP.String() != "203.0.113.10" {
 		t.Fatalf("observation = %#v", observation)
+	}
+	publicIPResponse = `{"public_ip":""}`
+	observation, err = engine.Observe(context.Background())
+	if err != nil || !observation.TunnelReady || !observation.DNSReady || observation.PublicIP.IsValid() {
+		t.Fatalf("missing public IP observation=%#v error=%v", observation, err)
+	}
+	publicIPResponse = `{"public_ip":"not-an-ip"}`
+	observation, err = engine.Observe(context.Background())
+	if err != nil || !observation.TunnelReady || !observation.DNSReady || observation.PublicIP.IsValid() {
+		t.Fatalf("malformed public IP observation=%#v error=%v", observation, err)
+	}
+	publicIPStatus = http.StatusInternalServerError
+	observation, err = engine.Observe(context.Background())
+	if err != nil || !observation.TunnelReady || !observation.DNSReady || observation.PublicIP.IsValid() {
+		t.Fatalf("failed public IP lookup observation=%#v error=%v", observation, err)
 	}
 	dnsRunning = false
 	observation, err = engine.Observe(context.Background())

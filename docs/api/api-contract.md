@@ -109,7 +109,7 @@ published with the controller-owned gateway ConfigMap.
 manager's tokenless observation endpoint. `OverlayReady` and overall `Ready`
 remain false while they differ, even if the manager Pod is otherwise healthy.
 
-Status includes provider capabilities, current client count, address-pool usage, resolved image digests, observed public IP with configurable redaction, and last health verification. The controller also records the observed VXLAN underlay endpoint and overlay health port used in each UID-bound allocation handshake; workloads never infer those values from desired registration.
+Status includes provider capabilities, current client count, address-pool usage, resolved image digests, optional observed public IP with configurable redaction, and last health verification. Public-IP metadata is informational and does not gate `Ready`; the observed tunnel, protected DNS, overlay, forwarding, and applicable port-forward paths do. The controller also records the observed VXLAN underlay endpoint and overlay health port used in each UID-bound allocation handshake; workloads never infer those values from desired registration.
 
 ## Workload annotation
 

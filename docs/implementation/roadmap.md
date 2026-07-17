@@ -90,7 +90,7 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-alpha.5` for the current signed
+The source tree is versioned `v0.3.0-alpha.6` for the current signed
 certification candidate. This candidate exists to run the native Gluetun
 real-provider gate from reviewed `main`; publication alone does not complete
 the unchecked compatibility or workload-adoption items below.
