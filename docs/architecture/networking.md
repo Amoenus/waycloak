@@ -91,6 +91,10 @@ Waycloak renews at 75 percent of the returned lifetime and increments the
 public lease generation only on rotation. Gluetun's own NAT-PMP loop remains
 off to avoid competing owners. These mappings do not admit traffic until the
 separate UID-keyed DNAT generation is installed and observed.
+When a provider capability reports that requested external ports are
+unsupported, acquisition and renewal send a zero public-port suggestion; the
+stable internal port is the mapping identity. A previously observed public
+port is suggested only to drivers that explicitly support requested ports.
 
 The gateway manager installs active generations in the same Waycloak-owned
 IPv4 nftables table as gateway forwarding. One transaction replaces the table

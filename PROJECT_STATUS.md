@@ -1,10 +1,10 @@
 # Project status
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 ## Current phase
 
-The `v0.3.0-alpha.4` candidate addresses live issue #90. A sustained Gluetun
+The `v0.3.0-alpha.5` candidate addresses live issues #90 and #92. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected
 workload readiness, but Gluetun remained alive with HTTP 500 health while its
 OpenVPN child failed to complete the internal restart. Because the generated
@@ -17,6 +17,16 @@ StatefulSet reconciliation, eliminating the semantic no-op update loop,
 optimistic-concurrency errors, and spurious rollout-required events observed
 during the incident. Unit and envtest verification pass; packaged real-provider
 failure injection and homelab soak remain release gates.
+
+The same live gate exposed issue #92: renewal requests reused the last public
+port even though Proton advertises that requested external ports are
+unsupported. Proton therefore returned a new random port on each 45-second
+renewal, repeatedly reconfiguring qBittorrent and forcing Bitmagnet into
+restart backoff. The manager now sends a zero external-port suggestion for
+both acquisition and renewal whenever the provider capability says requests
+are unsupported, while retaining the last public port only for drivers that
+explicitly support it. The public lease generation therefore changes only on
+an actual provider rotation.
 
 The `v0.3.0-alpha.3` candidate fixes a real multi-lease starvation found while
 adding Bitmagnet beside qBitTorrent (#88). Provider acquisition and renewal now

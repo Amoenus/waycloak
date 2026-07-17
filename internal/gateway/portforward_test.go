@@ -17,7 +17,7 @@ func TestPortForwardManagerAcquiresRenewsAndReleasesByIdentity(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	driver := &fakePortForwardDriver{ports: []uint16{42000, 42001}}
 	manager := &PortForwardManager{Driver: driver, Now: func() time.Time { return now }}
-	intent := PortForwardLeaseIntent{Identity: "lease-b", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}}
+	intent := PortForwardLeaseIntent{Identity: "lease-b", InternalPort: 7, SuggestedExternalPort: 41000, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}}
 	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestPortForwardManagerAcquiresRenewsAndReleasesByIdentity(t *testing.T) {
 	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
 		t.Fatal(err)
 	}
-	if len(driver.ensureRequests) != 2 || driver.ensureRequests[1].SuggestedExternalPort != 42000 || manager.Snapshot()[0].PublicPort != 42001 {
+	if len(driver.ensureRequests) != 2 || driver.ensureRequests[1].SuggestedExternalPort != 0 || manager.Snapshot()[0].PublicPort != 42001 {
 		t.Fatalf("renewal requests=%#v snapshot=%#v", driver.ensureRequests, manager.Snapshot())
 	}
 	if err := manager.Reconcile(context.Background(), nil); err != nil {
@@ -43,6 +43,26 @@ func TestPortForwardManagerAcquiresRenewsAndReleasesByIdentity(t *testing.T) {
 	}
 	if len(driver.releaseRequests) != 1 || driver.releaseRequests[0].Identity != intent.Identity || len(manager.Snapshot()) != 0 {
 		t.Fatalf("release requests=%#v snapshot=%#v", driver.releaseRequests, manager.Snapshot())
+	}
+}
+
+func TestPortForwardManagerReusesPublicPortOnlyWhenDriverSupportsRequests(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	driver := &fakePortForwardDriver{ports: []uint16{42000, 42000}, supportsRequestedPort: true}
+	manager := &PortForwardManager{Driver: driver, Now: func() time.Time { return now }}
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 7, SuggestedExternalPort: 41000, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	if driver.ensureRequests[0].SuggestedExternalPort != 41000 {
+		t.Fatalf("initial request = %#v", driver.ensureRequests[0])
+	}
+	now = now.Add(45 * time.Second)
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.ensureRequests) != 2 || driver.ensureRequests[1].SuggestedExternalPort != 42000 {
+		t.Fatalf("renewal requests = %#v", driver.ensureRequests)
 	}
 }
 
@@ -159,12 +179,13 @@ func TestPortForwardManagerDoesNotRotateProviderMappingWhenOnlyTargetChanges(t *
 }
 
 type fakePortForwardDriver struct {
-	capabilityCalls int
-	ensureRequests  []provider.PortForwardLeaseRequest
-	releaseRequests []provider.PortForwardLeaseRequest
-	ports           []uint16
-	ensureErr       error
-	releaseErr      error
+	capabilityCalls       int
+	ensureRequests        []provider.PortForwardLeaseRequest
+	releaseRequests       []provider.PortForwardLeaseRequest
+	ports                 []uint16
+	ensureErr             error
+	releaseErr            error
+	supportsRequestedPort bool
 }
 
 type blockingPortForwardDriver struct {
@@ -188,7 +209,7 @@ func (driver *blockingPortForwardDriver) ReleaseLease(context.Context, provider.
 
 func (driver *fakePortForwardDriver) ObserveCapabilities(context.Context) (provider.PortForwardCapabilities, error) {
 	driver.capabilityCalls++
-	return provider.PortForwardCapabilities{Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, SharedPort: true}, nil
+	return provider.PortForwardCapabilities{Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, SharedPort: true, SupportsRequestedPort: driver.supportsRequestedPort}, nil
 }
 
 func (driver *fakePortForwardDriver) EnsureLease(_ context.Context, request provider.PortForwardLeaseRequest) (provider.PortForwardLeaseObservation, error) {
