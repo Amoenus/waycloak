@@ -30,6 +30,12 @@ this release gate.
 - an amd64 worker node with working VXLAN, nftables, netlink, and external
   ingress to the VPN endpoint.
 
+On a multi-node acceptance cluster, verify bidirectional Pod-CIDR reachability
+to the selected worker before the run. Set `WAYCLOAK_REAL_VPN_NODE` to that
+reviewed Ready, schedulable amd64 node when the first Ready amd64 node is not
+the intended acceptance target. The harness validates the override and pins
+only the temporary acceptance Pods; it does not change production scheduling.
+
 Do not pass credential values through environment variables, command-line
 arguments, test logs, or repository files. Provision the Secret from secure
 files or the cluster's approved secret manager.
@@ -58,6 +64,7 @@ export WAYCLOAK_REAL_VPN_SECRET=waycloak-proton-acceptance
 export WAYCLOAK_REAL_QBITTORRENT_ADAPTER_IMAGE="$(
   jq -r '.artifacts.qbittorrentAdapterImage.reference' release-manifest.json
 )"
+export WAYCLOAK_REAL_VPN_NODE=reviewed-amd64-worker
 export WAYCLOAK_REAL_PORT_FORWARD_SOAK=10m
 export WAYCLOAK_REAL_PORT_ROTATION_TIMEOUT=1h
 

@@ -4,15 +4,17 @@ Last updated: 2026-07-18
 
 ## Current phase
 
-The `v0.3.0-rc.1` candidate fixes a release-gate defect exposed by the signed
-alpha.6 real-provider harness before any public endpoint assertion ran. Long
-gateway names deliberately use a shorter hash-stable StatefulSet name so
-Kubernetes can append Pod and controller-revision suffixes, but provider-lease
-observation and fail-closed quarantine still looked up the longer shared
-Service/ConfigMap name (#96). The manager acquired the provider observation while the
-lease controller remained pending. Both controller paths now use the actual
-bounded StatefulSet identity, with long-name regressions, and the credentialed
-harness uses the same Gluetun identity recorded in the signed release manifest.
+The source tree is `v0.3.0-rc.2`. RC1 fixed the long-name StatefulSet lookup
+defect exposed by the signed alpha.6 real-provider harness (#96), and its live
+GitOps rollout preserved fail-closed gateway replacement while aligning the
+controller, agent, manager, qBitTorrent adapter, Bitmagnet adapter, and tested
+Gluetun digests. The first RC1 acceptance run then selected an amd64 worker
+with independently reproduced asymmetric Pod-CIDR reachability: traffic from
+another worker to the acceptance Pod timed out while the reverse direction
+succeeded. The protected Pod correctly remained NotReady and the run cleaned
+all temporary resources. RC2 adds a validated, operator-selected Ready amd64
+node for this destructive gate so certification can target a reviewed cluster
+path without changing production scheduling or any runtime readiness rule.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected

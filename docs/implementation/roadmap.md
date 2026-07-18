@@ -90,11 +90,13 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-rc.1` for the next signed certification
+The source tree is versioned `v0.3.0-rc.2` for the next signed certification
 candidate. The alpha.6 deployment completed engine auto-healing and stable
-renewal validation. The first full real-provider harness run then exposed a
-long-name StatefulSet lookup defect before ingress assertions; rc.1 carries the
-bounded-identity fix and must pass the complete gate from reviewed `main`.
+renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
+first full harness run. Its next run proved the startup deny gate but selected
+a worker with independently reproduced asymmetric Pod-CIDR reachability. RC2
+adds a validated reviewed-node override for the destructive gate; the complete
+gate must still pass from reviewed `main` without relaxing runtime readiness.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
