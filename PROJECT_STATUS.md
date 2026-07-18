@@ -4,7 +4,7 @@ Last updated: 2026-07-18
 
 ## Current phase
 
-The source tree is `v0.3.0-rc.4`. RC1 fixed the long-name StatefulSet lookup
+The source tree is `v0.3.0-rc.5`. RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
 controller, agent, manager, qBitTorrent adapter, Bitmagnet adapter, and tested
@@ -29,6 +29,17 @@ WebUI to loopback, while the Kubernetes TCP probe targeted the Pod IP and could
 never succeed. RC4 changes only that application probe to execute against the
 actual loopback endpoint and adds a focused contract test; Waycloak gateway,
 lease, agent, and adapter readiness rules are unchanged.
+The signed RC4 run then reached real ingress and a fully Ready Pod/lease but
+reported zero DHT nodes for the full acceptance window. Runtime isolation
+showed that generic protected UDP and lease-port UDP both succeeded, while
+qBitTorrent opened DHT sockets on both the Kubernetes Pod address and the
+Waycloak overlay. Its bootstrap selected the Pod-address path, which the
+gateway correctly rejected rather than weakening the overlay-source invariant.
+RC5 makes the unprivileged qBitTorrent adapter discover the single Waycloak
+interface, apply its exact name and IPv4 address through the loopback-only API,
+and restart DHT only when an enabled DHT is rebound. It also makes the
+disposable fixture's DHT setting explicit and tests the idempotent binding and
+restart contract.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected

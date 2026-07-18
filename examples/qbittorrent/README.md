@@ -8,9 +8,12 @@ references with the same signed immutable digest.
 
 This example keeps the declared Waycloak target at TCP/UDP `6881` while a
 narrow, unprivileged adapter makes qBitTorrent listen on each current provider
-port. Waycloak translates the stable target locally and translates outbound
-listener traffic back to the provider mapping at the gateway. qBitTorrent's
-ordinary configuration and consumers remain unaware of lease generations.
+port and binds it to the Pod's single Waycloak overlay interface/address. When
+that binding changes while DHT is enabled, the adapter restarts DHT bootstrap
+through qBitTorrent's loopback-only API. Waycloak translates the stable target
+locally and translates outbound listener traffic back to the provider mapping
+at the gateway. qBitTorrent's ordinary configuration and consumers remain
+unaware of lease generations.
 
 The manifests are intentionally disposable: configuration and downloads use
 `emptyDir`. Replace both with persistent volumes before storing data.

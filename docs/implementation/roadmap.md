@@ -90,7 +90,7 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-rc.4` for the next signed certification
+The source tree is versioned `v0.3.0-rc.5` for the next signed certification
 candidate. The alpha.6 deployment completed engine auto-healing and stable
 renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
 first full harness run. Its next run proved the startup deny gate but selected
@@ -105,6 +105,13 @@ That path reached a real Ready lease but exposed a harness-only qBitTorrent
 probe mismatch: the WebUI was intentionally loopback-bound while the Pod probe
 targeted its Pod IP. RC4 probes the actual loopback endpoint without changing
 any Waycloak readiness condition.
+RC4 subsequently reached real ingress and a fully Ready Pod/lease, but
+qBitTorrent DHT selected a socket bound to the Kubernetes Pod address instead
+of its Waycloak overlay address. The gateway correctly dropped that source.
+RC5 makes the qBitTorrent adapter bind the application to the single observed
+Waycloak interface/address, restart an enabled DHT only when that binding
+changes, and explicitly enable DHT in the disposable fixture. Focused tests
+protect the idempotent binding, restart, and fixture contracts.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).

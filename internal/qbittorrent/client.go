@@ -24,6 +24,13 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+type Preferences struct {
+	ListenPort       int    `json:"listen_port"`
+	DHTEnabled       bool   `json:"dht"`
+	NetworkInterface string `json:"current_network_interface"`
+	InterfaceAddress string `json:"current_interface_address"`
+}
+
 func (client *Client) Validate() error {
 	endpoint, err := url.Parse(client.BaseURL)
 	if err != nil || endpoint.Scheme != "http" || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" {
@@ -41,33 +48,87 @@ func (client *Client) Validate() error {
 }
 
 func (client *Client) ListenPort(ctx context.Context) (uint16, error) {
-	request, err := client.request(ctx, http.MethodGet, "/api/v2/app/preferences", nil)
+	preferences, err := client.Preferences(ctx)
 	if err != nil {
 		return 0, err
 	}
+	return uint16(preferences.ListenPort), nil
+}
+
+func (client *Client) Preferences(ctx context.Context) (Preferences, error) {
+	request, err := client.request(ctx, http.MethodGet, "/api/v2/app/preferences", nil)
+	if err != nil {
+		return Preferences{}, err
+	}
 	response, err := client.http().Do(request)
 	if err != nil {
-		return 0, fmt.Errorf("query qBitTorrent preferences: %w", err)
+		return Preferences{}, fmt.Errorf("query qBitTorrent preferences: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return 0, fmt.Errorf("qBitTorrent preferences returned HTTP %d", response.StatusCode)
+		return Preferences{}, fmt.Errorf("qBitTorrent preferences returned HTTP %d", response.StatusCode)
 	}
-	var preferences struct {
-		ListenPort int `json:"listen_port"`
-	}
+	var preferences Preferences
 	if err := json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&preferences); err != nil || preferences.ListenPort < 1 || preferences.ListenPort > 65535 {
-		return 0, errors.New("qBitTorrent returned an invalid listen port")
+		return Preferences{}, errors.New("qBitTorrent returned invalid preferences")
 	}
-	return uint16(preferences.ListenPort), nil
+	return preferences, nil
 }
 
 func (client *Client) SetListenPort(ctx context.Context, port uint16) error {
 	if port == 0 {
 		return errors.New("qBitTorrent listen port is required")
 	}
-	payload, err := json.Marshal(map[string]int{"listen_port": int(port)})
+	if err := client.setPreferences(ctx, map[string]any{"listen_port": int(port)}); err != nil {
+		return fmt.Errorf("update qBitTorrent listen port: %w", err)
+	}
+	observed, err := client.ListenPort(ctx)
+	if err != nil {
+		return err
+	}
+	if observed != port {
+		return fmt.Errorf("qBitTorrent listen port is %s after update", strconv.Itoa(int(observed)))
+	}
+	return nil
+}
+
+func (client *Client) SetNetworkBinding(ctx context.Context, interfaceName, address string) error {
+	if strings.TrimSpace(interfaceName) == "" || net.ParseIP(strings.TrimSpace(address)) == nil {
+		return errors.New("qBitTorrent network binding is invalid")
+	}
+	if err := client.setPreferences(ctx, map[string]any{"current_network_interface": interfaceName, "current_interface_address": address}); err != nil {
+		return fmt.Errorf("update qBitTorrent network binding: %w", err)
+	}
+	observed, err := client.Preferences(ctx)
+	if err != nil {
+		return err
+	}
+	if observed.NetworkInterface != interfaceName || observed.InterfaceAddress != address {
+		return errors.New("qBitTorrent did not apply the Waycloak network binding")
+	}
+	return nil
+}
+
+func (client *Client) RestartDHT(ctx context.Context) error {
+	if err := client.setPreferences(ctx, map[string]any{"dht": false}); err != nil {
+		return fmt.Errorf("stop qBitTorrent DHT: %w", err)
+	}
+	if err := client.setPreferences(ctx, map[string]any{"dht": true}); err != nil {
+		return fmt.Errorf("restart qBitTorrent DHT: %w", err)
+	}
+	observed, err := client.Preferences(ctx)
+	if err != nil {
+		return err
+	}
+	if !observed.DHTEnabled {
+		return errors.New("qBitTorrent DHT remained disabled after restart")
+	}
+	return nil
+}
+
+func (client *Client) setPreferences(ctx context.Context, values map[string]any) error {
+	payload, err := json.Marshal(values)
 	if err != nil {
 		return err
 	}
@@ -79,19 +140,12 @@ func (client *Client) SetListenPort(ctx context.Context, port uint16) error {
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := client.http().Do(request)
 	if err != nil {
-		return fmt.Errorf("update qBitTorrent listen port: %w", err)
+		return err
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("qBitTorrent preference update returned HTTP %d", response.StatusCode)
-	}
-	observed, err := client.ListenPort(ctx)
-	if err != nil {
-		return err
-	}
-	if observed != port {
-		return fmt.Errorf("qBitTorrent listen port is %s after update", strconv.Itoa(int(observed)))
 	}
 	return nil
 }

@@ -298,6 +298,21 @@ func TestRealQBittorrentReadinessUsesLoopback(t *testing.T) {
 	t.Fatal("qBitTorrent container is missing")
 }
 
+func TestRealQBittorrentConfigurationEnablesDHT(t *testing.T) {
+	secret := realQBittorrentAuthSecret("auth", "acceptance", "test-key")
+	configuration := secret.StringData["qBittorrent.conf"]
+	if !strings.Contains(configuration, "Session\\DHTEnabled=true") {
+		t.Fatal("real-provider qBitTorrent configuration must explicitly enable DHT")
+	}
+}
+
+func TestRandomAPIKeyMatchesQBittorrentFormat(t *testing.T) {
+	key := randomAPIKey(t)
+	if len(key) != 32 || !strings.HasPrefix(key, "qbt_") {
+		t.Fatalf("qBitTorrent API key has invalid format: length=%d", len(key))
+	}
+}
+
 func realPortForwardGateway(namespace, name, secretName, engineConfigName string) *wayv1.VPNGateway {
 	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
 		Engine: wayv1.EngineSpec{Type: "Gluetun", Image: realPortForwardEngineImage, Config: &wayv1.EngineNativeConfigSpec{
@@ -354,7 +369,7 @@ func realCredentialSecretHasExpectedKeys(namespace, name string) bool {
 }
 
 func realQBittorrentAuthSecret(name, namespace, apiKey string) *corev1.Secret {
-	configuration := "[BitTorrent]\nSession\\Port=6881\nSession\\UseRandomPort=false\n\n[LegalNotice]\nAccepted=true\n\n[Network]\nPortForwardingEnabled=false\n\n[Preferences]\nConnection\\PortRangeMin=6881\nConnection\\UPnP=false\nWebUI\\Address=127.0.0.1\nWebUI\\APIKey=" + apiKey + "\nWebUI\\Port=8080\n"
+	configuration := "[BitTorrent]\nSession\\DHTEnabled=true\nSession\\Port=6881\nSession\\UseRandomPort=false\n\n[LegalNotice]\nAccepted=true\n\n[Network]\nPortForwardingEnabled=false\n\n[Preferences]\nConnection\\PortRangeMin=6881\nConnection\\UPnP=false\nWebUI\\Address=127.0.0.1\nWebUI\\APIKey=" + apiKey + "\nWebUI\\Port=8080\n"
 	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, StringData: map[string]string{"api-key": apiKey, "qBittorrent.conf": configuration}}
 }
 

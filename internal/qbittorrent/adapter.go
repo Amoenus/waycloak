@@ -20,11 +20,17 @@ import (
 )
 
 type Adapter struct {
-	Client        *Client
-	LeaseEndpoint string
-	LeaseName     string
-	HTTP          *http.Client
-	Now           func() time.Time
+	Client         *Client
+	LeaseEndpoint  string
+	LeaseName      string
+	NetworkBinding func() (NetworkBinding, error)
+	HTTP           *http.Client
+	Now            func() time.Time
+}
+
+type NetworkBinding struct {
+	InterfaceName string
+	Address       string
 }
 
 type LeaseRevision struct {
@@ -72,15 +78,33 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 	if adapter.Client == nil {
 		return revision, critical(revision, errors.New("qBitTorrent client is required"))
 	}
-	current, err := adapter.Client.ListenPort(ctx)
+	preferences, err := adapter.Client.Preferences(ctx)
 	if err != nil {
 		if transientControlObservation(err) {
 			return revision, &ReconcileError{Kind: FailureTransientControlObservation, Revision: revision, Err: err}
 		}
 		return revision, critical(revision, err)
 	}
-	if current != selected.ApplicationPort {
+	bindingChanged := false
+	if adapter.NetworkBinding != nil {
+		binding, err := adapter.NetworkBinding()
+		if err != nil {
+			return revision, critical(revision, err)
+		}
+		if preferences.NetworkInterface != binding.InterfaceName || preferences.InterfaceAddress != binding.Address {
+			if err := adapter.Client.SetNetworkBinding(ctx, binding.InterfaceName, binding.Address); err != nil {
+				return revision, critical(revision, err)
+			}
+			bindingChanged = true
+		}
+	}
+	if preferences.ListenPort != int(selected.ApplicationPort) {
 		if err := adapter.Client.SetListenPort(ctx, selected.ApplicationPort); err != nil {
+			return revision, critical(revision, err)
+		}
+	}
+	if bindingChanged && preferences.DHTEnabled {
+		if err := adapter.Client.RestartDHT(ctx); err != nil {
 			return revision, critical(revision, err)
 		}
 	}
@@ -158,4 +182,31 @@ func (adapter *Adapter) now() time.Time {
 		return adapter.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func DiscoverWaycloakBinding() (NetworkBinding, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return NetworkBinding{}, fmt.Errorf("list workload network interfaces: %w", err)
+	}
+	var discovered []NetworkBinding
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&net.FlagUp == 0 || !strings.HasPrefix(networkInterface.Name, "wc") {
+			continue
+		}
+		addresses, err := networkInterface.Addrs()
+		if err != nil {
+			return NetworkBinding{}, fmt.Errorf("list addresses for Waycloak interface %s: %w", networkInterface.Name, err)
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err == nil && ip.To4() != nil && !ip.IsLoopback() {
+				discovered = append(discovered, NetworkBinding{InterfaceName: networkInterface.Name, Address: ip.String()})
+			}
+		}
+	}
+	if len(discovered) != 1 {
+		return NetworkBinding{}, fmt.Errorf("expected one Waycloak IPv4 network binding, observed %d", len(discovered))
+	}
+	return discovered[0], nil
 }
