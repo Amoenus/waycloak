@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 const (
@@ -68,7 +69,7 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	direct, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
 	must(t, err)
 	ctx := context.Background()
-	nodeName := amd64Node(t, direct)
+	nodeName := realPortForwardNode(t, direct)
 	suffix := fmt.Sprintf("%x", time.Now().UnixNano())
 	prefix := "waycloak-real-pf-" + suffix
 
@@ -194,6 +195,45 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	probeRealPort(t, namespace, plain.Name, vpnIP, uint16(current.Status.PublicPort), true)
 	waitForTrackerPort(t, namespace, protected.Name, uint16(current.Status.PublicPort), 2*time.Minute)
 	waitForDHTNodes(t, namespace, protected.Name, 5*time.Minute)
+}
+
+func realPortForwardNode(t *testing.T, c client.Client) string {
+	t.Helper()
+	configured := strings.TrimSpace(os.Getenv("WAYCLOAK_REAL_VPN_NODE"))
+	if configured == "" {
+		return amd64Node(t, c)
+	}
+	var node corev1.Node
+	must(t, c.Get(context.Background(), client.ObjectKey{Name: configured}, &node))
+	if node.Labels[corev1.LabelArchStable] != "amd64" {
+		t.Fatalf("configured real-provider node %q is not amd64", configured)
+	}
+	if node.Spec.Unschedulable {
+		t.Fatalf("configured real-provider node %q is unschedulable", configured)
+	}
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+			return node.Name
+		}
+	}
+	t.Fatalf("configured real-provider node %q is not Ready", configured)
+	return ""
+}
+
+func TestRealPortForwardNodeOverride(t *testing.T) {
+	t.Setenv("WAYCLOAK_REAL_VPN_NODE", "reviewed-worker")
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "reviewed-worker", Labels: map[string]string{corev1.LabelArchStable: "amd64"}},
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+			Type: corev1.NodeReady, Status: corev1.ConditionTrue,
+		}}},
+	}
+	direct := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	if got := realPortForwardNode(t, direct); got != node.Name {
+		t.Fatalf("real provider node = %q, want %q", got, node.Name)
+	}
 }
 
 func realPortForwardGateway(namespace, name, secretName, engineConfigName string) *wayv1.VPNGateway {
