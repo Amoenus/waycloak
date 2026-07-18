@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -280,6 +279,25 @@ func TestRealPortForwardExistingGateway(t *testing.T) {
 	}
 }
 
+func TestRealQBittorrentReadinessUsesLoopback(t *testing.T) {
+	pod := realQBittorrentPod("qbittorrent", "acceptance", "worker", "gateway", "auth", "adapter", "example.invalid/adapter:1@sha256:"+strings.Repeat("a", 64), "lease", "run")
+	for i := range pod.Spec.Containers {
+		container := &pod.Spec.Containers[i]
+		if container.Name != "qbittorrent" {
+			continue
+		}
+		if container.ReadinessProbe == nil || container.ReadinessProbe.Exec == nil {
+			t.Fatal("qBitTorrent readiness must execute inside the shared network namespace")
+		}
+		command := strings.Join(container.ReadinessProbe.Exec.Command, " ")
+		if !strings.Contains(command, "http://127.0.0.1:8080/") {
+			t.Fatalf("qBitTorrent readiness command does not use the loopback WebUI: %q", command)
+		}
+		return
+	}
+	t.Fatal("qBitTorrent container is missing")
+}
+
 func realPortForwardGateway(namespace, name, secretName, engineConfigName string) *wayv1.VPNGateway {
 	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
 		Engine: wayv1.EngineSpec{Type: "Gluetun", Image: realPortForwardEngineImage, Config: &wayv1.EngineNativeConfigSpec{
@@ -348,7 +366,7 @@ func realQBittorrentPod(name, namespace, node, gateway, auth, adapterTrust, adap
 		NodeName: node, AutomountServiceAccountToken: &no,
 		InitContainers: []corev1.Container{{Name: "configure", Image: "alpine:3.22.1", Command: []string{"sh", "-ec"}, Args: []string{"mkdir -p /config/qBittorrent; cp /bootstrap/qBittorrent.conf /config/qBittorrent/qBittorrent.conf; chown -R 1000:1000 /config"}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "bootstrap", MountPath: "/bootstrap", ReadOnly: true}}}},
 		Containers: []corev1.Container{
-			{Name: "qbittorrent", Image: realQBittorrentImage, Env: []corev1.EnvVar{{Name: "PUID", Value: "1000"}, {Name: "PGID", Value: "1000"}, {Name: "TZ", Value: "Etc/UTC"}}, Ports: []corev1.ContainerPort{{Name: "bittorrent-tcp", ContainerPort: 6881, Protocol: corev1.ProtocolTCP}, {Name: "bittorrent-udp", ContainerPort: 6881, Protocol: corev1.ProtocolUDP}, {Name: "webui", ContainerPort: 8080, Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromString("webui")}}, PeriodSeconds: 5}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "downloads", MountPath: "/downloads"}}},
+			{Name: "qbittorrent", Image: realQBittorrentImage, Env: []corev1.EnvVar{{Name: "PUID", Value: "1000"}, {Name: "PGID", Value: "1000"}, {Name: "TZ", Value: "Etc/UTC"}}, Ports: []corev1.ContainerPort{{Name: "bittorrent-tcp", ContainerPort: 6881, Protocol: corev1.ProtocolTCP}, {Name: "bittorrent-udp", ContainerPort: 6881, Protocol: corev1.ProtocolUDP}, {Name: "webui", ContainerPort: 8080, Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-ec", "wget -qO- -T 2 http://127.0.0.1:8080/ >/dev/null"}}}, PeriodSeconds: 5}, VolumeMounts: []corev1.VolumeMount{{Name: "config", MountPath: "/config"}, {Name: "downloads", MountPath: "/downloads"}}},
 			{Name: "waycloak-qbittorrent-adapter", Image: adapterImage, Args: []string{"run"}, Env: []corev1.EnvVar{{Name: "WAYCLOAK_QBITTORRENT_API_KEY_FILE", Value: "/adapter-auth/api-key"}, {Name: "WAYCLOAK_LEASE_NAME", Value: leaseName}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"/ko-app/qbittorrent-adapter", "probe"}}}, PeriodSeconds: 2}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &yes, RunAsUser: &runAs, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}, VolumeMounts: []corev1.VolumeMount{{Name: "adapter-auth", MountPath: "/adapter-auth", ReadOnly: true}}},
 			{Name: "acceptance-observer", Image: "alpine:3.22.1", Command: []string{"sleep", "86400"}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "observer", MountPath: "/tmp"}, {Name: "adapter-auth", MountPath: "/secrets", ReadOnly: true}}},
 		},
