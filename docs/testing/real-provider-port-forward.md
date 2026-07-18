@@ -2,14 +2,17 @@
 
 This gated suite proves the Phase 4 behavior that a local NAT-PMP fixture
 cannot: actual Proton ingress, renewal, provider port rotation, qBitTorrent
-advertisement, DHT health, and fail-closed recovery. It is destructive only to
-resources it creates under the `waycloak-real-pf-` prefix. The test creates a
-Gluetun-native `engine.config` gateway: non-secret provider, protocol, and
-region settings live in a temporary ConfigMap, while the rotated credential
-Secret is mounted read-only only into the engine container. The test process
-enumerates only Secret key names and never reads VPN Secret values. Public
-endpoint values are held in memory only for assertions and are never printed,
-persisted, or published.
+advertisement, DHT health, and fail-closed recovery. By default it is
+destructive only to resources it creates under the `waycloak-real-pf-` prefix.
+The test creates a Gluetun-native `engine.config` gateway: non-secret provider,
+protocol, and region settings live in a temporary ConfigMap, while the rotated
+credential Secret is mounted read-only only into the engine container. For a
+provider account that rejects concurrent sessions, the operator can instead
+select a reviewed existing gateway; that mode replaces the existing gateway
+Pod once to prove gateway-loss denial and recovery, but does not delete or
+modify the gateway object. The test process enumerates only Secret key names
+and never reads VPN Secret values. Public endpoint values are held in memory
+only for assertions and are never printed, persisted, or published.
 
 Run it only from a reviewed commit already contained in `main`, using a signed
 pre-release produced by the protected tag workflow. A locally built controller,
@@ -25,7 +28,8 @@ this release gate.
 - a dedicated namespace carrying the documented Waycloak Pod Security
   exception;
 - a newly rotated Proton/OpenVPN credential Secret in that namespace with
-  opaque `username` and `password` keys;
+  opaque `username` and `password` keys, unless the test reuses an existing
+  gateway whose engine already owns the provider session;
 - the signed qBitTorrent adapter digest from the same release manifest;
 - an amd64 worker node with working VXLAN, nftables, netlink, and external
   ingress to the VPN endpoint.
@@ -76,6 +80,23 @@ make e2e-real-port-forward
 
 The preflight and test require exactly the `username` and `password` key names;
 the template above does not render their values.
+
+If the provider account does not permit the temporary gateway to authenticate
+while another gateway uses the same credential, select the existing reviewed
+gateway instead of setting `WAYCLOAK_REAL_VPN_SECRET`:
+
+```sh
+export WAYCLOAK_REAL_VPN_GATEWAY=waycloak-proton
+unset WAYCLOAK_REAL_VPN_SECRET
+make e2e-real-port-forward
+```
+
+The existing gateway must already be `Ready`, use the manifest-tested Gluetun
+image, and enable the `ProtonNatPmp` driver. This mode still creates isolated
+acceptance workload and lease resources. During the gateway-loss assertion it
+deletes the serving gateway Pod; the controller-owned StatefulSet must replace
+that Pod, and all existing protected workloads are expected to remain
+fail-closed until observed recovery completes.
 
 The test deliberately fails if the provider does not rotate the public port
 within the configured timeout. Raising the timeout is valid; replacing actual

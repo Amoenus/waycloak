@@ -53,13 +53,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 		t.Skip("set WAYCLOAK_E2E_ALLOW_NON_KIND=1 to authorize the selected non-Kind cluster")
 	}
 	namespace := requireRealVPNEnvironment(t, "WAYCLOAK_REAL_VPN_NAMESPACE")
-	secretName := requireRealVPNEnvironment(t, "WAYCLOAK_REAL_VPN_SECRET")
 	adapterImage := requireImmutableEnvironment(t, "WAYCLOAK_REAL_QBITTORRENT_ADAPTER_IMAGE")
 	soak := realAcceptanceDuration(t, "WAYCLOAK_REAL_PORT_FORWARD_SOAK", 10*time.Minute, 10*time.Minute)
 	rotationTimeout := realAcceptanceDuration(t, "WAYCLOAK_REAL_PORT_ROTATION_TIMEOUT", time.Hour, 10*time.Minute)
-	if !realCredentialSecretHasExpectedKeys(namespace, secretName) {
-		t.Fatal("the configured credential Secret must exist and contain only username and password keys")
-	}
 
 	observerBinary := filepath.Join(t.TempDir(), "qbittorrent-observer")
 	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "build", "-trimpath", "-o", observerBinary, "../fixtures/qbittorrent-observer")
@@ -73,12 +69,23 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	suffix := fmt.Sprintf("%x", time.Now().UnixNano())
 	prefix := "waycloak-real-pf-" + suffix
 
-	engineConfig := realPortForwardEngineConfig(namespace, prefix+"-engine")
-	must(t, direct.Create(ctx, engineConfig))
-	gateway := realPortForwardGateway(namespace, prefix+"-gateway", secretName, engineConfig.Name)
-	must(t, direct.Create(ctx, gateway))
+	gatewayName := strings.TrimSpace(os.Getenv("WAYCLOAK_REAL_VPN_GATEWAY"))
+	ownedGateway := gatewayName == ""
+	var gateway *wayv1.VPNGateway
+	if ownedGateway {
+		secretName := requireRealVPNEnvironment(t, "WAYCLOAK_REAL_VPN_SECRET")
+		if !realCredentialSecretHasExpectedKeys(namespace, secretName) {
+			t.Fatal("the configured credential Secret must exist and contain only username and password keys")
+		}
+		engineConfig := realPortForwardEngineConfig(namespace, prefix+"-engine")
+		must(t, direct.Create(ctx, engineConfig))
+		gateway = realPortForwardGateway(namespace, prefix+"-gateway", secretName, engineConfig.Name)
+		must(t, direct.Create(ctx, gateway))
+	} else {
+		gateway = realPortForwardExistingGateway(t, ctx, direct, namespace, gatewayName)
+	}
 	t.Cleanup(func() {
-		removeRealPortForwardResources(t, ctx, direct, namespace, prefix, gateway)
+		removeRealPortForwardResources(t, ctx, direct, namespace, prefix, gateway, ownedGateway)
 	})
 	waitFor(t, 10*time.Minute, func() bool {
 		var current wayv1.VPNGateway
@@ -197,6 +204,23 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	waitForDHTNodes(t, namespace, protected.Name, 5*time.Minute)
 }
 
+func realPortForwardExistingGateway(t *testing.T, ctx context.Context, c client.Client, namespace, name string) *wayv1.VPNGateway {
+	t.Helper()
+	var gateway wayv1.VPNGateway
+	must(t, c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &gateway))
+	ready := apiMeta.FindStatusCondition(gateway.Status.Conditions, waystatus.ConditionReady)
+	if ready == nil || ready.Status != metav1.ConditionTrue {
+		t.Fatalf("configured existing gateway %s/%s is not Ready", namespace, name)
+	}
+	if gateway.Spec.Engine.Image != realPortForwardEngineImage {
+		t.Fatalf("configured existing gateway %s/%s does not use the tested Gluetun image", namespace, name)
+	}
+	if !gateway.Spec.PortForwarding.Enabled || gateway.Spec.PortForwarding.Driver != "ProtonNatPmp" {
+		t.Fatalf("configured existing gateway %s/%s does not provide Proton NAT-PMP port forwarding", namespace, name)
+	}
+	return &gateway
+}
+
 func realPortForwardNode(t *testing.T, c client.Client) string {
 	t.Helper()
 	configured := strings.TrimSpace(os.Getenv("WAYCLOAK_REAL_VPN_NODE"))
@@ -233,6 +257,26 @@ func TestRealPortForwardNodeOverride(t *testing.T) {
 	direct := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	if got := realPortForwardNode(t, direct); got != node.Name {
 		t.Fatalf("real provider node = %q, want %q", got, node.Name)
+	}
+}
+
+func TestRealPortForwardExistingGateway(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, wayv1.AddToScheme(scheme))
+	gateway := &wayv1.VPNGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: "reviewed-gateway", Namespace: "acceptance"},
+		Spec: wayv1.VPNGatewaySpec{
+			Engine:         wayv1.EngineSpec{Type: "Gluetun", Image: realPortForwardEngineImage},
+			PortForwarding: wayv1.PortForwardingSpec{Enabled: true, Driver: "ProtonNatPmp"},
+		},
+		Status: wayv1.VPNGatewayStatus{Conditions: []metav1.Condition{{
+			Type: waystatus.ConditionReady, Status: metav1.ConditionTrue,
+		}}},
+	}
+	direct := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway).Build()
+	got := realPortForwardExistingGateway(t, context.Background(), direct, gateway.Namespace, gateway.Name)
+	if got.UID != gateway.UID || got.Name != gateway.Name {
+		t.Fatalf("existing gateway = %s/%s, want %s/%s", got.Namespace, got.Name, gateway.Namespace, gateway.Name)
 	}
 }
 
@@ -441,7 +485,7 @@ func assertRealQBittorrentIsolation(t *testing.T, pod *corev1.Pod) {
 	}
 }
 
-func removeRealPortForwardResources(t *testing.T, ctx context.Context, c client.Client, namespace, prefix string, gateway *wayv1.VPNGateway) {
+func removeRealPortForwardResources(t *testing.T, ctx context.Context, c client.Client, namespace, prefix string, gateway *wayv1.VPNGateway, ownedGateway bool) {
 	t.Helper()
 	var leases wayv1.PortForwardLeaseList
 	if c.List(ctx, &leases, client.InNamespace(namespace)) == nil {
@@ -488,7 +532,9 @@ func removeRealPortForwardResources(t *testing.T, ctx context.Context, c client.
 	}
 	_ = c.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-auth", Namespace: namespace}})
 	_ = c.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-engine", Namespace: namespace}})
-	_ = c.Delete(ctx, gateway)
+	if ownedGateway {
+		_ = c.Delete(ctx, gateway)
+	}
 }
 
 func randomAPIKey(t *testing.T) string {

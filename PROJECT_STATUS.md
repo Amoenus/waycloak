@@ -4,7 +4,7 @@ Last updated: 2026-07-18
 
 ## Current phase
 
-The source tree is `v0.3.0-rc.2`. RC1 fixed the long-name StatefulSet lookup
+The source tree is `v0.3.0-rc.3`. RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
 controller, agent, manager, qBitTorrent adapter, Bitmagnet adapter, and tested
@@ -15,6 +15,14 @@ succeeded. The protected Pod correctly remained NotReady and the run cleaned
 all temporary resources. RC2 adds a validated, operator-selected Ready amd64
 node for this destructive gate so certification can target a reviewed cluster
 path without changing production scheduling or any runtime readiness rule.
+The signed RC2 gate then exposed the provider account's concurrent-session
+boundary: a temporary second Gluetun instance repeatedly received
+authentication failures while the reviewed production gateway held the same
+credential session. RC3 adds an explicit existing-gateway acceptance mode. It
+requires that gateway to be observed Ready, use the manifest-tested Gluetun
+digest, and enable Proton NAT-PMP; it preserves isolated acceptance workloads
+and leases, and still replaces the serving gateway Pod to prove fail-closed
+loss and observed recovery without creating a competing provider session.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected
