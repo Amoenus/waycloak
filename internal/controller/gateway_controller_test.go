@@ -71,7 +71,8 @@ func TestGatewayReconcilesOwnedResourcesAndObservedStatus(t *testing.T) {
 	}
 	observer.observation.AppliedMembershipGeneration = configMap.Data[waygateway.DesiredMembershipGenerationKey]
 	var statefulSet appsv1.StatefulSet
-	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
+	statefulSetKey := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.StatefulSetResourceName(gateway.Name)}
+	if err := client.Get(context.Background(), statefulSetKey, &statefulSet); err != nil {
 		t.Fatal(err)
 	}
 	if len(statefulSet.OwnerReferences) != 1 || statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 1 {
@@ -187,7 +188,7 @@ func TestGatewayStatefulSetServerDefaultsDoNotRequireRollout(t *testing.T) {
 		<-recorder.Events
 	}
 
-	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.StatefulSetResourceName(gateway.Name)}
 	var statefulSet appsv1.StatefulSet
 	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
 		t.Fatal(err)
@@ -293,6 +294,7 @@ func TestGatewayNativeConfigurationGatesProtonPortForwardCapability(t *testing.T
 func TestGatewayQuarantinesAndRecoversAfterNativeConfigurationTransition(t *testing.T) {
 	scheme := gatewayTestScheme(t)
 	gateway := nativeControllerTestGateway("native")
+	gateway.Name = "waycloak-real-pf-18c36e699e8e06b08-gateway"
 	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "native", Namespace: gateway.Namespace}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}).WithObjects(gateway, configMap).Build()
 	reconciler := &GatewayReconciler{Client: client, Scheme: scheme, Recorder: record.NewFakeRecorder(10), ManagerImage: "registry.invalid/manager" + testDigest}
@@ -300,7 +302,7 @@ func TestGatewayQuarantinesAndRecoversAfterNativeConfigurationTransition(t *test
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
-	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.StatefulSetResourceName(gateway.Name)}
 	var statefulSet appsv1.StatefulSet
 	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
 		t.Fatal(err)

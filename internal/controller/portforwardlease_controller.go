@@ -245,7 +245,7 @@ func deliveryObservationMismatch(lease *wayv1.PortForwardLease, target *corev1.P
 
 func (r *PortForwardLeaseReconciler) observeProviderLease(ctx context.Context, gateway *wayv1.VPNGateway, lease *wayv1.PortForwardLease) (waygateway.PortForwardObservation, error) {
 	var statefulSet appsv1.StatefulSet
-	if err := r.Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}, &statefulSet); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.StatefulSetResourceName(gateway.Name)}, &statefulSet); err != nil {
 		return waygateway.PortForwardObservation{}, fmt.Errorf("read serving gateway StatefulSet: %w", err)
 	}
 	var pods corev1.PodList

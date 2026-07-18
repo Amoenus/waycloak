@@ -92,7 +92,9 @@ func ResourceName(name string) string {
 	return boundedResourceName(name, 63)
 }
 
-func statefulSetResourceName(name string) string {
+// StatefulSetResourceName reserves space for StatefulSet-generated Pod and
+// controller-revision suffixes while retaining the gateway identity hash.
+func StatefulSetResourceName(name string) string {
 	return boundedResourceName(name, statefulSetNameMaxLength)
 }
 
@@ -275,7 +277,7 @@ func DesiredStatefulSet(gateway *wayv1.VPNGateway, options WorkloadOptions) *app
 		}
 	}
 	return &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: statefulSetResourceName(gateway.Name), Namespace: gateway.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: StatefulSetResourceName(gateway.Name), Namespace: gateway.Namespace},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName:         ResourceName(gateway.Name),
 			Replicas:            &one,

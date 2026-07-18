@@ -146,7 +146,7 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	reconciler.Now = func() time.Time { return now }
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"}}
 	yes := true
-	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: waygateway.ResourceName(gateway.Name), Namespace: gateway.Namespace, UID: types.UID("gateway-statefulset-uid")}}
+	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: waygateway.StatefulSetResourceName(gateway.Name), Namespace: gateway.Namespace, UID: types.UID("gateway-statefulset-uid")}}
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "egress", Labels: waygateway.SelectorLabels(gateway), OwnerReferences: []metav1.OwnerReference{{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: "StatefulSet", Name: statefulSet.Name, UID: statefulSet.UID, Controller: &yes}}}, Status: corev1.PodStatus{PodIP: "10.42.0.10"}}
 	if err := reconciler.Create(context.Background(), statefulSet); err != nil {
 		t.Fatal(err)
@@ -195,6 +195,30 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
+}
+
+func TestObserveProviderLeaseUsesBoundedStatefulSetName(t *testing.T) {
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-real-pf-18c36e699e8e06b08-gateway", Namespace: "egress"}}
+	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{UID: types.UID("lease-uid")}}
+	yes := true
+	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: waygateway.StatefulSetResourceName(gateway.Name), Namespace: gateway.Namespace, UID: types.UID("gateway-statefulset-uid")}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: statefulSet.Name + "-0", Namespace: gateway.Namespace, Labels: waygateway.SelectorLabels(gateway), OwnerReferences: []metav1.OwnerReference{{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: "StatefulSet", Name: statefulSet.Name, UID: statefulSet.UID, Controller: &yes}}}, Status: corev1.PodStatus{PodIP: "10.42.0.10"}}
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := appsv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID)}}
+	reconciler := &PortForwardLeaseReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(statefulSet, pod).Build(), Observer: observer}
+	observation, err := reconciler.observeProviderLease(context.Background(), gateway, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Identity != string(lease.UID) {
+		t.Fatalf("observation identity = %q", observation.Identity)
+	}
 }
 
 func TestProviderAssignedDeliveryRequiresCurrentApplicationPort(t *testing.T) {

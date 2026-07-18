@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	realPortForwardEngineImage = "ghcr.io/qdm12/gluetun@sha256:b0ee2135e6ba52ad3f102aae9663707cd1c9531485117067a380d3b2b6dd991d"
+	realPortForwardEngineImage = "docker.io/qmcgaw/gluetun:v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045"
 	realQBittorrentImage       = "lscr.io/linuxserver/qbittorrent:5.2.3@sha256:352371a7242e8b4aa10958ca02076d1023758070519b89a10251475fb9f1a35a"
 )
 
