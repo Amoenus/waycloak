@@ -4,7 +4,7 @@ Last updated: 2026-07-18
 
 ## Current phase
 
-The source tree is `v0.3.0-rc.3`. RC1 fixed the long-name StatefulSet lookup
+The source tree is `v0.3.0-rc.4`. RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
 controller, agent, manager, qBitTorrent adapter, Bitmagnet adapter, and tested
@@ -23,6 +23,12 @@ requires that gateway to be observed Ready, use the manifest-tested Gluetun
 digest, and enable Proton NAT-PMP; it preserves isolated acceptance workloads
 and leases, and still replaces the serving gateway Pod to prove fail-closed
 loss and observed recovery without creating a competing provider session.
+The first RC3 existing-gateway run reached an observed Ready real-provider
+lease, then exposed a test-Pod probe mismatch: qBitTorrent correctly bound its
+WebUI to loopback, while the Kubernetes TCP probe targeted the Pod IP and could
+never succeed. RC4 changes only that application probe to execute against the
+actual loopback endpoint and adds a focused contract test; Waycloak gateway,
+lease, agent, and adapter readiness rules are unchanged.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected

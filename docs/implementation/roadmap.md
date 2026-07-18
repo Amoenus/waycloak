@@ -90,7 +90,7 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-rc.3` for the next signed certification
+The source tree is versioned `v0.3.0-rc.4` for the next signed certification
 candidate. The alpha.6 deployment completed engine auto-healing and stable
 renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
 first full harness run. Its next run proved the startup deny gate but selected
@@ -101,6 +101,10 @@ RC2 then proved the provider rejects a temporary second engine using the same
 active credential session. RC3 adds a strictly validated existing-gateway mode
 so the gate can reuse that reviewed provider session while retaining isolated
 workload/lease resources and the destructive gateway-loss assertion.
+That path reached a real Ready lease but exposed a harness-only qBitTorrent
+probe mismatch: the WebUI was intentionally loopback-bound while the Pod probe
+targeted its Pod IP. RC4 probes the actual loopback endpoint without changing
+any Waycloak readiness condition.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
