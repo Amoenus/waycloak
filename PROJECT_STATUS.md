@@ -4,6 +4,16 @@ Last updated: 2026-07-18
 
 ## Current phase
 
+The `v0.3.0-rc.1` candidate fixes a release-gate defect exposed by the signed
+alpha.6 real-provider harness before any public endpoint assertion ran. Long
+gateway names deliberately use a shorter hash-stable StatefulSet name so
+Kubernetes can append Pod and controller-revision suffixes, but provider-lease
+observation and fail-closed quarantine still looked up the longer shared
+Service/ConfigMap name (#96). The manager acquired the provider observation while the
+lease controller remained pending. Both controller paths now use the actual
+bounded StatefulSet identity, with long-name regressions, and the credentialed
+harness uses the same Gluetun identity recorded in the signed release manifest.
+
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected
 workload readiness, but Gluetun remained alive with HTTP 500 health while its
@@ -15,8 +25,9 @@ immediately, while two minutes of continuous post-startup failure restarts only
 the engine container. API-server defaults are also treated as compatible during
 StatefulSet reconciliation, eliminating the semantic no-op update loop,
 optimistic-concurrency errors, and spurious rollout-required events observed
-during the incident. Unit and envtest verification pass; packaged real-provider
-failure injection and homelab soak remain release gates.
+during the incident. Packaged real-provider failure injection and the homelab
+soak completed without replacing gateway or workload Pod identities and without
+direct-egress fallback.
 
 The same live gate exposed issue #92: renewal requests reused the last public
 port even though Proton advertises that requested external ports are

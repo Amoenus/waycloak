@@ -118,7 +118,7 @@ func (r *GatewayReconciler) rejectGateway(ctx context.Context, gateway *wayv1.VP
 
 func (r *GatewayReconciler) quarantineGateway(ctx context.Context, gateway *wayv1.VPNGateway) error {
 	var statefulSet appsv1.StatefulSet
-	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.ResourceName(gateway.Name)}
+	key := types.NamespacedName{Namespace: gateway.Namespace, Name: waygateway.StatefulSetResourceName(gateway.Name)}
 	if err := r.Get(ctx, key, &statefulSet); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil

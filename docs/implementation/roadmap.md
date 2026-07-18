@@ -90,10 +90,11 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-alpha.6` for the current signed
-certification candidate. This candidate exists to run the native Gluetun
-real-provider gate from reviewed `main`; publication alone does not complete
-the unchecked compatibility or workload-adoption items below.
+The source tree is versioned `v0.3.0-rc.1` for the next signed certification
+candidate. The alpha.6 deployment completed engine auto-healing and stable
+renewal validation. The first full real-provider harness run then exposed a
+long-name StatefulSet lookup defect before ingress assertions; rc.1 carries the
+bounded-identity fix and must pass the complete gate from reviewed `main`.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
@@ -105,7 +106,7 @@ the unchecked compatibility or workload-adoption items below.
   without weakening malformed-projection handling (#48).
 - [x] Keep published lease observations readable and expiry-aware while slow
   provider renewal I/O is in flight (#88).
-- [ ] Publish and deploy engine-container auto-healing, then prove that a
+- [x] Publish and deploy engine-container auto-healing, then prove that a
   sustained Gluetun health failure remains fail closed and restores the same
   gateway/workload Pod identities automatically (#90).
 - [ ] Complete sustained real-provider qBitTorrent ingress, advertisement,
