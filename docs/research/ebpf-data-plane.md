@@ -78,6 +78,19 @@ condition both match the requested mode. A label alone is not evidence. Loss of
 the observed capability after scheduling must make the selected path not ready
 and fail closed; it must not trigger a transparent switch to sidecar mode.
 
+Kubernetes required node affinity is `IgnoredDuringExecution`: it prevents
+initial placement when a label is absent, but a running Pod is not evicted or
+stopped merely because that label later changes. Admission should therefore add
+hard affinity for initial placement, using a protected administrator-controlled
+preparation label plus a Waycloak-observed capability label, but the node data
+plane must independently enforce and report runtime health. The controller must
+not treat scheduling metadata as a live enforcement signal. Where NodeRestriction
+is enabled, the administrator-intent key should use the reserved
+`node-restriction.kubernetes.io` segment so a kubelet cannot self-declare the
+trust prerequisite. Waycloak can optionally interoperate with Node Feature
+Discovery, but cannot require it; NFD labels are feature advertisements rather
+than executable proof of the complete Waycloak attachment contract.
+
 ## Product invariants used as evaluation criteria
 
 - Opt-in is explicit on the workload Pod template.
@@ -362,6 +375,18 @@ during Pod sandbox creation; a node agent adopts and repairs it.
 - May be acceptable only as an explicitly prepared-node integration; it cannot
   become a hard dependency for ordinary Waycloak installations.
 
+The CNI specification gives this model a real startup boundary: the runtime
+creates the network namespace before invoking plugins, invokes a chained list in
+order, and halts `ADD` on an error. A Waycloak chained plugin can therefore
+install Pod-netns deny state before the runtime proceeds. It also receives the
+network namespace and container identity and has defined `DEL`, `CHECK`, and
+`GC` operations. Those semantics are stronger than discovering a veth or cgroup
+after containers have begun, but they do not solve Kubernetes intent lookup,
+Pod UID joining, pinned-link ownership, or runtime-specific installation. The
+plugin must be idempotent, preserve `prevResult`, make `DEL` tolerate missing
+namespaces, and have an independent stale-state reconciler because catastrophic
+node loss can omit normal cleanup.
+
 ### E3: Host-veth tc/TCX tunnel and translation
 
 A node agent uses the cgroup gate for default deny, then a host-veth tc/TCX
@@ -421,6 +446,61 @@ sidecar; a tuned event-driven/diff-based sidecar retaining the same nftables and
 netlink contract; and any eBPF prototype with equivalent behavior. This prevents
 ordinary users on non-eBPF-ready nodes from being left with avoidable overhead
 and prevents a reconciliation optimization from being misattributed to eBPF.
+
+### Ten-workload real-provider burst
+
+A disposable Deployment pinned to one amd64 node was admitted through the
+released sidecar path and scaled from one to ten protected Pods. The first Pod
+reached `Initialized` 11 seconds after creation and `Ready` after 15 seconds.
+Scaling from one to ten reported rollout completion after 129 seconds. The nine
+new Pods were created within one second; their initialization completed 38-73
+seconds after creation and their first recorded `Ready` transitions occurred
+113-128 seconds after creation.
+
+Available replicas repeatedly rose and fell during the burst. Agent logs showed
+gateway-health HTTP 503 and timeout failures while preserving existing deny
+state. The gateway manager recorded five Gluetun loopback health failures
+(`EOF` or a closed idle connection) during the observation window. Once the
+provider health stabilized, all ten agents returned Ready without restart. This
+is useful system evidence: the current contract failed closed and recovered, but
+real-provider health churn dominated rollout latency. It is not valid evidence
+of nftables-versus-eBPF packet performance.
+
+The 50-workload real-provider step was deferred rather than amplifying a
+provider/control-plane transient and falsely attributing global readiness churn
+to either kernel backend. It should be rerun only as a deliberate system test of
+membership-burst blast radius and recovery, separately from deterministic
+backend performance.
+
+Cleanup removed the Deployment and all Pods. Their `VPNWorkload` objects
+immediately stopped contributing to desired gateway membership, while the
+objects themselves entered the intentional five-minute allocation-quarantine
+finalizer period. The gateway desired and applied membership generations both
+returned to the original two-workload digest before quarantine expired. Object
+retention is therefore address-reuse protection, not stale data-plane intent.
+
+### Deterministic healthy-repair baseline
+
+The existing fake-gateway end-to-end harness now contains a reproducible
+`BenchmarkRepairHealthy`. It verifies an already prepared path and then runs the
+complete current `Repair` operation: netlink configuration, nftables policy
+replacement, state verification, and a gateway health request over the VXLAN.
+Each architecture ran three samples of 20 repairs:
+
+| Node sample | Per-repair samples | Median | Range |
+| --- | ---: | ---: | ---: |
+| amd64, Intel N95 | 49.64, 45.38, 36.68 ms | 45.38 ms | 36.68-49.64 ms |
+| arm64, Raspberry Pi | 7.57, 7.20, 7.56 ms | 7.56 ms | 7.20-7.57 ms |
+
+Both runs also passed the surrounding VXLAN, DNS, cluster-traffic,
+drift-repair, agent-exit, and gateway-loss fail-closed tests. These are
+wall-clock `ns/op` results, not CPU profiles or packet-throughput measurements;
+they exclude allocation-file loading and the separate delivery-refresh loop.
+They show that a two-second full-repair loop has measurable and strongly
+platform-dependent work. They do not show that eBPF is faster. A filter-only
+eBPF program would leave most measured operations intact, while an event-driven
+or diff-based default agent could avoid many of them without changing the
+packet backend.
 
 A sidecarless design must also measure DaemonSet availability, node upgrade
 ordering, and blast radius. A filter-only design must show performance gains
@@ -493,6 +573,16 @@ Until this gate, the public PRD must not promise an eBPF backend.
   [network plugins](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/):
   container capability/syscall boundaries, startup ordering, readiness scope,
   and the runtime-owned CNI integration surface.
+- Kubernetes [assigning Pods to nodes](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/)
+  and [NodeRestriction admission](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#noderestriction):
+  hard initial node affinity, its ignored-during-execution limitation, and
+  administrator-controlled isolation labels.
+- The CNI project [specification](https://www.cni.dev/docs/spec/): network
+  namespace creation and chained `ADD` ordering, error handling, `prevResult`,
+  attachment identity, deletion, checking, and garbage collection.
+- Kubernetes SIGs [Node Feature Discovery](https://kubernetes-sigs.github.io/node-feature-discovery/master/get-started/introduction.html)
+  and its [customization guide](https://kubernetes-sigs.github.io/node-feature-discovery/master/usage/customization-guide.html):
+  optional node feature advertisement and custom labeling integration.
 - Cilium project [ebpf-go](https://github.com/cilium/ebpf): Go loading, BTF,
   link, pin, feature-probe, and code-generation surfaces and amd64/arm64 scope.
 
