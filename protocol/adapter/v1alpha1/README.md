@@ -35,8 +35,10 @@ are not part of v1alpha1. Records and protocol arrays are deterministically
 sorted; lease identities must be unique.
 
 The lease document retains its established
-`networking.waycloak.io/v1alpha1` API version so already-running v0.2 agents
-remain valid during a control-plane upgrade. Adapter selection and the exact
+`networking.waycloak.io/v1alpha1` API version. The v0.3 compatibility contract
+requires `publicAddress` alongside `publicPort`; an updated adapter therefore
+stays unready behind an older agent that cannot publish that field. Roll out
+the release-matched agent before the adapter. Adapter selection and the exact
 acknowledgement use `networking.waycloak.io/adapter/v1alpha1`; these two values
 are deliberately distinct.
 
@@ -49,9 +51,9 @@ are deliberately distinct.
 3. Apply `applicationPort` through the application's local API.
 4. Independently observe that the application is listening on that exact port.
 5. POST the exact acknowledgement and become ready only after `204`.
-6. On a generation, Pod UID, lease identity, application port, or expiry
-   change, discard the old revision and regress readiness until the new one is
-   applied and acknowledged.
+6. On a generation, Pod UID, lease identity, public address, application port,
+   or expiry change, discard the old revision and regress readiness until the
+   new one is applied and acknowledged.
 7. Retry local and loopback failures with bounded exponential backoff and
    jitter. A previously proven revision may tolerate a short, documented local
    observation timeout, but expiry, lease loss, identity change, and sustained

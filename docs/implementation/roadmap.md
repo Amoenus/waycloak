@@ -90,8 +90,9 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The source tree is versioned `v0.3.0-rc.5` for the next signed certification
-candidate. The alpha.6 deployment completed engine auto-healing and stable
+The reviewed base is the published and independently verified
+`v0.3.0-rc.7`; the next signed candidate carries the final real-provider
+endpoint correction. The alpha.6 deployment completed engine auto-healing and stable
 renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
 first full harness run. Its next run proved the startup deny gate but selected
 a worker with independently reproduced asymmetric Pod-CIDR reachability. RC2
@@ -112,6 +113,15 @@ RC5 makes the qBitTorrent adapter bind the application to the single observed
 Waycloak interface/address, restart an enabled DHT only when that binding
 changes, and explicitly enable DHT in the disposable fixture. Focused tests
 protect the idempotent binding, restart, and fixture contracts.
+RC7 reached the exact real-provider path and proved that Proton's NAT-PMP
+external address can differ from the tunnel's ordinary outbound source
+address. The next candidate therefore publishes the provider-observed address
+with the port, advances generation when either changes, configures and verifies
+qBitTorrent's tracker announce address, and probes ingress at that exact
+endpoint. The harness also rejects a second gateway that references credentials
+already used by a namespaced `VPNGateway`; final certification selects the
+existing production gateway and retains the destructive fail-closed replacement
+assertion without opening a competing OpenVPN session.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).

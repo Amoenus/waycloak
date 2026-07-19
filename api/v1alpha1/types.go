@@ -213,6 +213,7 @@ type PortForwardLeaseStatus struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	ProviderInternalPort int32              `json:"providerInternalPort,omitempty"`
+	PublicAddress        string             `json:"publicAddress,omitempty"`
 	PublicPort           int32              `json:"publicPort,omitempty"`
 	IssuedAt             *metav1.Time       `json:"issuedAt,omitempty"`
 	RenewAfter           *metav1.Time       `json:"renewAfter,omitempty"`

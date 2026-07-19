@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"net/netip"
 	"time"
 )
 
@@ -35,10 +36,11 @@ type PortForwardLeaseRequest struct {
 }
 
 type PortForwardLeaseObservation struct {
-	PublicPort uint16
-	IssuedAt   time.Time
-	RenewAfter time.Time
-	ExpiresAt  time.Time
+	PublicAddress netip.Addr
+	PublicPort    uint16
+	IssuedAt      time.Time
+	RenewAfter    time.Time
+	ExpiresAt     time.Time
 }
 
 // PortForwardDriver owns provider-specific acquisition and renewal only.

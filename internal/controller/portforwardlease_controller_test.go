@@ -139,7 +139,7 @@ func TestProviderAssignedTargetWaitsForInjectedAgent(t *testing.T) {
 func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
 	now := time.Date(2026, 7, 13, 12, 0, 0, 987654321, time.UTC)
-	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
+	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicAddress: "203.0.113.10", PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
 	reconciler.Observer = observer
 	deliveryObserver := &fakeDeliveryObserver{observation: delivery.Observation{APIVersion: delivery.APIVersion, Identity: string(lease.UID), PodUID: "pod-uid", Generation: 1, ExpiresAt: now.Add(60 * time.Second).Truncate(time.Second), Ready: true}}
 	reconciler.DeliveryObserver = deliveryObserver
@@ -195,6 +195,15 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
+	observer.observation.PublicAddress = "203.0.113.11"
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.PublicAddress != "203.0.113.11" || got.Status.LeaseGeneration != 3 {
+		t.Fatalf("rotated public-address generation status=%#v error=%v", got.Status, err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionFalse, waystatus.ReasonGatewayRulesPending)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending)
 }
 
 func TestObserveProviderLeaseUsesBoundedStatefulSetName(t *testing.T) {

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -61,8 +63,14 @@ func trackerHandler(output string) http.Handler {
 			http.Error(response, "invalid announced port", http.StatusBadRequest)
 			return
 		}
+		address, err := netip.ParseAddr(request.URL.Query().Get("ip"))
+		if err != nil || !address.Is4() || !address.IsGlobalUnicast() {
+			http.Error(response, "invalid announced address", http.StatusBadRequest)
+			return
+		}
+		addressHash := sha256.Sum256([]byte(address.String()))
 		temporary := output + ".tmp"
-		if err := os.WriteFile(temporary, []byte(fmt.Sprintf("%d\n", port)), 0o600); err != nil {
+		if err := os.WriteFile(temporary, []byte(fmt.Sprintf("%d\n%x\n", port, addressHash)), 0o600); err != nil {
 			http.Error(response, "store announced port", http.StatusInternalServerError)
 			return
 		}

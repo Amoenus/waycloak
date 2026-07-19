@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,6 +37,7 @@ type Record struct {
 	Name                string    `json:"name"`
 	State               string    `json:"state"`
 	Gateway             string    `json:"gateway"`
+	PublicAddress       string    `json:"publicAddress"`
 	PublicPort          uint16    `json:"publicPort"`
 	TargetPort          uint16    `json:"targetPort"`
 	ApplicationPort     uint16    `json:"applicationPort"`
@@ -92,7 +94,8 @@ func (document Document) Validate(now time.Time) error {
 		if record.ApplicationPort == 0 && record.ApplicationPortMode == ApplicationPortModeFixed {
 			record.ApplicationPort = record.TargetPort
 		}
-		if record.Identity == "" || record.Namespace == "" || record.Name == "" || record.State != "Active" || record.Gateway == "" || record.PublicPort == 0 || record.TargetPort == 0 || record.ApplicationPort == 0 || record.Generation < 1 || record.IssuedAt.IsZero() || record.RenewAfter.IsZero() || record.ExpiresAt.IsZero() || !record.IssuedAt.Before(record.ExpiresAt) || !record.RenewAfter.Before(record.ExpiresAt) || !now.Before(record.ExpiresAt) {
+		publicAddress, addressErr := netip.ParseAddr(record.PublicAddress)
+		if record.Identity == "" || record.Namespace == "" || record.Name == "" || record.State != "Active" || record.Gateway == "" || addressErr != nil || !publicAddress.Is4() || !publicAddress.IsGlobalUnicast() || record.PublicPort == 0 || record.TargetPort == 0 || record.ApplicationPort == 0 || record.Generation < 1 || record.IssuedAt.IsZero() || record.RenewAfter.IsZero() || record.ExpiresAt.IsZero() || !record.IssuedAt.Before(record.ExpiresAt) || !record.RenewAfter.Before(record.ExpiresAt) || !now.Before(record.ExpiresAt) {
 			return fmt.Errorf("port-forward delivery record %d is invalid", i)
 		}
 		if record.ApplicationPortMode != ApplicationPortModeFixed && record.ApplicationPortMode != ApplicationPortModeProviderAssigned || record.ApplicationPortMode == ApplicationPortModeFixed && record.ApplicationPort != record.TargetPort || record.ApplicationPortMode == ApplicationPortModeProviderAssigned && record.ApplicationPort != record.PublicPort {

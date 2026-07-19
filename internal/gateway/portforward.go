@@ -19,6 +19,7 @@ type PortForwardObservation struct {
 	Identity               string                         `json:"identity"`
 	InternalPort           uint16                         `json:"internalPort"`
 	Protocols              []provider.PortForwardProtocol `json:"protocols"`
+	PublicAddress          string                         `json:"publicAddress,omitempty"`
 	PublicPort             uint16                         `json:"publicPort,omitempty"`
 	IssuedAt               time.Time                      `json:"issuedAt,omitempty"`
 	RenewAfter             time.Time                      `json:"renewAfter,omitempty"`
@@ -158,6 +159,9 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 			}
 		}
 		observation, err := manager.Driver.EnsureLease(ctx, providerRequest(intent, suggestedPort))
+		if err == nil && !validPortForwardLeaseObservation(observation, now) {
+			err = errors.New("provider returned an invalid port-forward lease observation")
+		}
 		if err != nil {
 			if !exists || !now.Before(managed.observation.ExpiresAt) {
 				managed.observation = PortForwardObservation{Identity: intent.Identity, InternalPort: intent.InternalPort, Protocols: append([]provider.PortForwardProtocol(nil), intent.Protocols...)}
@@ -170,6 +174,7 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 		}
 		managed.intent = intent
 		managed.observation = PortForwardObservation{Identity: intent.Identity, InternalPort: intent.InternalPort, Protocols: append([]provider.PortForwardProtocol(nil), intent.Protocols...)}
+		managed.observation.PublicAddress = observation.PublicAddress.String()
 		managed.observation.PublicPort = observation.PublicPort
 		managed.observation.IssuedAt = observation.IssuedAt
 		managed.observation.RenewAfter = observation.RenewAfter
@@ -180,6 +185,12 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 	}
 	manager.publishState(leases, capabilities, capabilitiesObserved, capabilityObservationErr)
 	return reconcileErr
+}
+
+func validPortForwardLeaseObservation(observation provider.PortForwardLeaseObservation, now time.Time) bool {
+	return observation.PublicAddress.Is4() && observation.PublicAddress.IsGlobalUnicast() && observation.PublicPort != 0 &&
+		!observation.IssuedAt.IsZero() && !observation.RenewAfter.IsZero() && !observation.ExpiresAt.IsZero() &&
+		observation.IssuedAt.Before(observation.ExpiresAt) && observation.RenewAfter.Before(observation.ExpiresAt) && now.Before(observation.ExpiresAt)
 }
 
 func (manager *PortForwardManager) Snapshot() []PortForwardObservation {

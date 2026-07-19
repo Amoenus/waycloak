@@ -85,7 +85,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 		}
 		return revision, critical(revision, err)
 	}
-	bindingChanged := false
+	endpointChanged := false
 	listenerAddress := "127.0.0.1"
 	if adapter.NetworkBinding != nil {
 		binding, err := adapter.NetworkBinding()
@@ -96,7 +96,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 			if err := adapter.Client.SetNetworkBinding(ctx, binding.InterfaceName, binding.Address); err != nil {
 				return revision, critical(revision, err)
 			}
-			bindingChanged = true
+			endpointChanged = true
 		}
 		listenerAddress = binding.Address
 	}
@@ -104,8 +104,15 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 		if err := adapter.Client.SetListenPort(ctx, selected.ApplicationPort); err != nil {
 			return revision, critical(revision, err)
 		}
+		endpointChanged = true
 	}
-	if bindingChanged && preferences.DHTEnabled {
+	if preferences.AnnounceAddress != selected.PublicAddress {
+		if err := adapter.Client.SetAnnounceAddress(ctx, selected.PublicAddress); err != nil {
+			return revision, critical(revision, err)
+		}
+		endpointChanged = true
+	}
+	if endpointChanged && preferences.DHTEnabled {
 		if err := adapter.Client.RestartDHT(ctx); err != nil {
 			return revision, critical(revision, err)
 		}

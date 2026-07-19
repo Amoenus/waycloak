@@ -54,7 +54,7 @@ func New(tunnelInterface string) *Client {
 }
 
 func (client *Client) ObserveCapabilities(ctx context.Context) (provider.PortForwardCapabilities, error) {
-	if _, err := client.transact(ctx, []byte{0, opExternalAddress}, opExternalAddress, 12); err != nil {
+	if _, err := client.externalAddress(ctx); err != nil {
 		return provider.PortForwardCapabilities{}, err
 	}
 	return provider.PortForwardCapabilities{
@@ -91,14 +91,31 @@ func (client *Client) EnsureLease(ctx context.Context, request provider.PortForw
 	if externalPort == 0 || lifetime == 0 {
 		return provider.PortForwardLeaseObservation{}, errors.New("proton NAT-PMP returned an empty lease")
 	}
+	publicAddress, err := client.externalAddress(ctx)
+	if err != nil {
+		return provider.PortForwardLeaseObservation{}, err
+	}
 	issuedAt := client.now()
 	duration := time.Duration(lifetime) * time.Second
 	return provider.PortForwardLeaseObservation{
-		PublicPort: externalPort,
-		IssuedAt:   issuedAt,
-		RenewAfter: issuedAt.Add(time.Duration(float64(duration) * renewalFraction)),
-		ExpiresAt:  issuedAt.Add(duration),
+		PublicAddress: publicAddress,
+		PublicPort:    externalPort,
+		IssuedAt:      issuedAt,
+		RenewAfter:    issuedAt.Add(time.Duration(float64(duration) * renewalFraction)),
+		ExpiresAt:     issuedAt.Add(duration),
 	}, nil
+}
+
+func (client *Client) externalAddress(ctx context.Context) (netip.Addr, error) {
+	response, err := client.transact(ctx, []byte{0, opExternalAddress}, opExternalAddress, 12)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	address := netip.AddrFrom4([4]byte(response[8:12]))
+	if !address.IsGlobalUnicast() {
+		return netip.Addr{}, errors.New("proton NAT-PMP returned an invalid public address")
+	}
+	return address, nil
 }
 
 func (client *Client) ReleaseLease(ctx context.Context, request provider.PortForwardLeaseRequest) error {

@@ -1,10 +1,11 @@
 # Project status
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 
 ## Current phase
 
-The source tree is `v0.3.0-rc.5`. RC1 fixed the long-name StatefulSet lookup
+The reviewed base is the published and independently verified `v0.3.0-rc.7`.
+RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
 controller, agent, manager, qBitTorrent adapter, Bitmagnet adapter, and tested
@@ -40,6 +41,32 @@ interface, apply its exact name and IPv4 address through the loopback-only API,
 and restart DHT only when an enabled DHT is rebound. It also makes the
 disposable fixture's DHT setting explicit and tests the idempotent binding and
 restart contract.
+
+RC5 then passed the full source-level real-provider acceptance. RC7 corrected
+the chart and KCL release metadata, published the exact reviewed images and
+packages, and reached Healthy/Synced production state. Its fail-closed rollout
+withdrew both production leases before replacing the singleton gateway and
+restored them only after the replacement manager observed the data plane.
+
+The exact RC7 ingress gate exposed a provider compatibility boundary rather
+than a routing fallback: the NAT-PMP external address was a valid global IPv4
+address but differed from the tunnel's ordinary outbound source address.
+Waycloak recorded only the NAT-PMP port, so the harness probed the wrong
+address and qBitTorrent had no correct address to report to trackers. The next
+candidate carries the provider-observed public address through gateway
+observation, `PortForwardLease` status, the neutral adapter record, and
+qBitTorrent's `announce_ip`; an address or port change advances the lease
+generation and regresses downstream readiness until reapplied. The tracker
+acceptance records only a hash of the announced address while proving it
+matches the lease endpoint.
+
+The same run accidentally omitted RC3's existing-gateway selector and created
+a second temporary Gluetun/OpenVPN Pod beside production. The provider account
+had already demonstrated this concurrent-session authentication boundary in
+RC2. The harness now rejects creation when another `VPNGateway` references the
+selected credential Secret and directs the operator to
+`WAYCLOAK_REAL_VPN_GATEWAY`, ensuring final certification uses one provider
+session.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected

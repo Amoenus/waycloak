@@ -2,6 +2,7 @@
 """Minimal Waycloak adapter using only the Python standard library."""
 
 import json
+import ipaddress
 import os
 import pathlib
 import tempfile
@@ -34,6 +35,8 @@ def select_lease(document, lease_name):
     if len(matches) != 1:
         raise ValueError("exactly one current provider-assigned lease is required")
     record = matches[0]
+    if ipaddress.ip_address(record["publicAddress"]).version != 4:
+        raise ValueError("provider public address must be IPv4")
     if parse_time(record["expiresAt"]) <= datetime.now(timezone.utc):
         raise ValueError("lease is expired")
     return record

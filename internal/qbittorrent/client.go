@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ type Preferences struct {
 	DHTEnabled       bool   `json:"dht"`
 	NetworkInterface string `json:"current_network_interface"`
 	InterfaceAddress string `json:"current_interface_address"`
+	AnnounceAddress  string `json:"announce_ip"`
 }
 
 func (client *Client) Validate() error {
@@ -106,6 +108,24 @@ func (client *Client) SetNetworkBinding(ctx context.Context, interfaceName, addr
 	}
 	if observed.NetworkInterface != interfaceName || observed.InterfaceAddress != address {
 		return errors.New("qBitTorrent did not apply the Waycloak network binding")
+	}
+	return nil
+}
+
+func (client *Client) SetAnnounceAddress(ctx context.Context, address string) error {
+	publicAddress, err := netip.ParseAddr(strings.TrimSpace(address))
+	if err != nil || !publicAddress.Is4() || !publicAddress.IsGlobalUnicast() {
+		return errors.New("qBitTorrent announce address is invalid")
+	}
+	if err := client.setPreferences(ctx, map[string]any{"announce_ip": publicAddress.String()}); err != nil {
+		return fmt.Errorf("update qBitTorrent announce address: %w", err)
+	}
+	observed, err := client.Preferences(ctx)
+	if err != nil {
+		return err
+	}
+	if observed.AnnounceAddress != publicAddress.String() {
+		return errors.New("qBitTorrent did not apply the provider public address")
 	}
 	return nil
 }

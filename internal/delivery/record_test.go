@@ -144,5 +144,5 @@ func TestHTTPObserverSelectsExactIdentityWithoutLeakingBodies(t *testing.T) {
 }
 
 func testDocument(now time.Time) Document {
-	return Document{APIVersion: APIVersion, PodUID: "pod-uid", Leases: []Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 42000, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+	return Document{APIVersion: APIVersion, PodUID: "pod-uid", Leases: []Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: 42000, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 }

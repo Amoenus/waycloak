@@ -26,6 +26,12 @@ response bodies in errors. It requests one shared public port for the declared
 TCP/UDP protocol set, accepts provider rotation, renews at 75 percent of the
 returned lifetime, and sends a zero-lifetime request on release.
 
+Every successful lease observation also performs the NAT-PMP external-address
+operation and requires a valid global IPv4 address. The gateway publishes that
+address with the port; the controller advances the lease generation if either
+changes. The ordinary outbound source address is not substituted because a
+provider server may expose a distinct inbound mapping address.
+
 The controller persists a unique `providerInternalPort` in each
 `PortForwardLease` status. New allocations use the IANA dynamic/private range
 49152-65535 so provider mapping identities do not consume privileged or
@@ -35,8 +41,9 @@ previous public-port suggestion, protocols, exact overlay target, and current
 public-port generation only after exact target-UID readiness is observed. The manager exposes one current observation at a
 versioned, identity-addressed, read-only HTTP endpoint on the serving gateway
 Pod; it provides no enumeration endpoint. The controller reads that exact Pod
-IP and persists public port and timestamps. `leaseGeneration`
-increments only when the public port changes, not on a same-port renewal.
+IP and persists the public address, public port, and timestamps.
+`leaseGeneration` increments when the public address or port changes, not on a
+same-endpoint renewal.
 
 Gluetun receives `PORT_FORWARD_ONLY=on` for compatible server selection and
 `VPN_PORT_FORWARDING=off`, leaving acquisition to Waycloak. For Proton OpenVPN,

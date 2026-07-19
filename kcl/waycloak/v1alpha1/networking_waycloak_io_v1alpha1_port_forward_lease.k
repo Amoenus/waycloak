@@ -81,8 +81,6 @@ schema NetworkingWaycloakIoV1alpha1PortForwardLeaseSpecGatewayRef:
     name: str
 
     namespace: str
-
-
 schema NetworkingWaycloakIoV1alpha1PortForwardLeaseSpecTarget:
     r"""
     networking waycloak io v1alpha1 port forward lease spec target
@@ -178,6 +176,8 @@ schema NetworkingWaycloakIoV1alpha1PortForwardLeaseStatus:
         observed generation
     providerInternalPort : int, default is Undefined, optional
         provider internal port
+    publicAddress : str, default is Undefined, optional
+        public address
     publicPort : int, default is Undefined, optional
         public port
     renewAfter : str, default is Undefined, optional
@@ -198,6 +198,8 @@ schema NetworkingWaycloakIoV1alpha1PortForwardLeaseStatus:
     observedGeneration?: int
 
     providerInternalPort?: int
+
+    publicAddress?: str
 
     publicPort?: int
 

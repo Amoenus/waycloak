@@ -266,7 +266,7 @@ func (r *PodReconciler) deliveryDocument(ctx context.Context, pod *corev1.Pod) (
 		if mode == delivery.ApplicationPortModeProviderAssigned {
 			applicationPort = uint16(lease.Status.PublicPort)
 		}
-		records = append(records, delivery.Record{Identity: string(lease.UID), Namespace: lease.Namespace, Name: lease.Name, State: "Active", Gateway: gatewayNamespace + "/" + lease.Spec.GatewayRef.Name, PublicPort: uint16(lease.Status.PublicPort), TargetPort: uint16(lease.Status.Target.Port), ApplicationPort: applicationPort, ApplicationPortMode: mode, Protocols: protocols, Generation: lease.Status.LeaseGeneration, IssuedAt: lease.Status.IssuedAt.Time.UTC(), RenewAfter: lease.Status.RenewAfter.Time.UTC(), ExpiresAt: lease.Status.ExpiresAt.Time.UTC()})
+		records = append(records, delivery.Record{Identity: string(lease.UID), Namespace: lease.Namespace, Name: lease.Name, State: "Active", Gateway: gatewayNamespace + "/" + lease.Spec.GatewayRef.Name, PublicAddress: lease.Status.PublicAddress, PublicPort: uint16(lease.Status.PublicPort), TargetPort: uint16(lease.Status.Target.Port), ApplicationPort: applicationPort, ApplicationPortMode: mode, Protocols: protocols, Generation: lease.Status.LeaseGeneration, IssuedAt: lease.Status.IssuedAt.Time.UTC(), RenewAfter: lease.Status.RenewAfter.Time.UTC(), ExpiresAt: lease.Status.ExpiresAt.Time.UTC()})
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].Identity < records[j].Identity })
 	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: string(pod.UID), Leases: records}
