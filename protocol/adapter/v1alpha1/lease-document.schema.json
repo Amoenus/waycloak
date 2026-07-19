@@ -18,13 +18,14 @@
     "lease": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["identity", "namespace", "name", "state", "gateway", "publicPort", "targetPort", "applicationPort", "applicationPortMode", "protocols", "generation", "issuedAt", "renewAfter", "expiresAt"],
+      "required": ["identity", "namespace", "name", "state", "gateway", "publicAddress", "publicPort", "targetPort", "applicationPort", "applicationPortMode", "protocols", "generation", "issuedAt", "renewAfter", "expiresAt"],
       "properties": {
         "identity": { "type": "string", "minLength": 1 },
         "namespace": { "type": "string", "minLength": 1 },
         "name": { "type": "string", "minLength": 1 },
         "state": { "const": "Active" },
         "gateway": { "type": "string", "minLength": 1 },
+        "publicAddress": { "type": "string", "format": "ipv4" },
         "publicPort": { "$ref": "#/$defs/port" },
         "targetPort": { "$ref": "#/$defs/port" },
         "applicationPort": { "$ref": "#/$defs/port" },

@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"net/netip"
@@ -77,6 +78,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 		if !realCredentialSecretHasExpectedKeys(namespace, secretName) {
 			t.Fatal("the configured credential Secret must exist and contain only username and password keys")
 		}
+		if err := rejectCompetingCredentialGateway(ctx, direct, namespace, secretName); err != nil {
+			t.Fatal(err)
+		}
 		engineConfig := realPortForwardEngineConfig(namespace, prefix+"-engine")
 		must(t, direct.Create(ctx, engineConfig))
 		gateway = realPortForwardGateway(namespace, prefix+"-gateway", secretName, engineConfig.Name)
@@ -133,8 +137,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	must(t, direct.Create(ctx, lease))
 	current := waitForRealLeaseReady(t, ctx, direct, lease, 10*time.Minute)
 	initialPort := current.Status.PublicPort
+	publicAddress := realLeasePublicAddress(t, current)
 	if initialPort < 1 || current.Status.IssuedAt == nil {
-		t.Fatal("ready real-provider lease omitted public port or issue time")
+		t.Fatal("ready real-provider lease omitted public endpoint or issue time")
 	}
 	initialIssuedAt := current.Status.IssuedAt.Time
 	waitForPodReady(t, direct, protected)
@@ -145,9 +150,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	if vpnIP == plainIP {
 		t.Fatal("protected and ordinary probes observed the same public egress address")
 	}
-	probeRealPort(t, namespace, plain.Name, vpnIP, uint16(initialPort), true)
+	probeRealPort(t, namespace, plain.Name, publicAddress, uint16(initialPort), true)
 	addAcceptanceMagnet(t, namespace, protected.Name, suffix, trackerAddress)
-	waitForTrackerPort(t, namespace, protected.Name, uint16(initialPort), 2*time.Minute)
+	waitForTrackerEndpoint(t, namespace, protected.Name, publicAddress, uint16(initialPort), 2*time.Minute)
 	waitForDHTNodes(t, namespace, protected.Name, 10*time.Minute)
 
 	renewed := false
@@ -162,9 +167,13 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 		}
 		if current.Status.PublicPort != initialPort {
 			rotated = true
-			vpnIP = publicIPFromContainer(t, namespace, protected.Name, "qbittorrent")
-			probeRealPort(t, namespace, plain.Name, vpnIP, uint16(current.Status.PublicPort), true)
-			waitForTrackerPort(t, namespace, protected.Name, uint16(current.Status.PublicPort), 2*time.Minute)
+		}
+		currentPublicAddress := realLeasePublicAddress(t, current)
+		if current.Status.PublicPort != int32(initialPort) || currentPublicAddress != publicAddress {
+			probeRealPort(t, namespace, plain.Name, currentPublicAddress, uint16(current.Status.PublicPort), true)
+			waitForTrackerEndpoint(t, namespace, protected.Name, currentPublicAddress, uint16(current.Status.PublicPort), 2*time.Minute)
+			publicAddress = currentPublicAddress
+			initialPort = current.Status.PublicPort
 		}
 		if dhtNodes(namespace, protected.Name) < 1 {
 			t.Fatal("qBitTorrent DHT became unhealthy during real-provider soak")
@@ -179,7 +188,7 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	}
 
 	oldPort := uint16(current.Status.PublicPort)
-	oldVPNIP := vpnIP
+	oldPublicAddress := realLeasePublicAddress(t, current)
 	gatewayPod := servingGatewayPod(t, ctx, direct, gateway)
 	must(t, direct.Delete(ctx, gatewayPod, client.GracePeriodSeconds(0)))
 	waitFor(t, 2*time.Minute, func() bool {
@@ -193,7 +202,7 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	if exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "qbittorrent", "--", "wget", "-qO-", "-T", "5", "https://api.ipify.org").Run() == nil {
 		t.Fatal("protected qBitTorrent egress did not fail closed after gateway loss")
 	}
-	probeRealPort(t, namespace, plain.Name, oldVPNIP, oldPort, false)
+	probeRealPort(t, namespace, plain.Name, oldPublicAddress, oldPort, false)
 	current = waitForRealLeaseReady(t, ctx, direct, lease, 10*time.Minute)
 	if current.Status.PublicPort != int32(oldPort) {
 		rotated = true
@@ -201,8 +210,12 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	waitForPodReady(t, direct, protected)
 	assertPodUID(t, ctx, direct, protected, initialUID)
 	vpnIP = publicIPFromContainer(t, namespace, protected.Name, "qbittorrent")
-	probeRealPort(t, namespace, plain.Name, vpnIP, uint16(current.Status.PublicPort), true)
-	waitForTrackerPort(t, namespace, protected.Name, uint16(current.Status.PublicPort), 2*time.Minute)
+	if vpnIP == plainIP {
+		t.Fatal("recovered protected and ordinary probes observed the same public egress address")
+	}
+	publicAddress = realLeasePublicAddress(t, current)
+	probeRealPort(t, namespace, plain.Name, publicAddress, uint16(current.Status.PublicPort), true)
+	waitForTrackerEndpoint(t, namespace, protected.Name, publicAddress, uint16(current.Status.PublicPort), 2*time.Minute)
 	waitForDHTNodes(t, namespace, protected.Name, 5*time.Minute)
 	if !rotated {
 		t.Fatal("no real provider public-port rotation was observed during the soak or gateway replacement")
@@ -282,6 +295,21 @@ func TestRealPortForwardExistingGateway(t *testing.T) {
 	got := realPortForwardExistingGateway(t, context.Background(), direct, gateway.Namespace, gateway.Name)
 	if got.UID != gateway.UID || got.Name != gateway.Name {
 		t.Fatalf("existing gateway = %s/%s, want %s/%s", got.Namespace, got.Name, gateway.Namespace, gateway.Name)
+	}
+}
+
+func TestRejectCompetingCredentialGateway(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, wayv1.AddToScheme(scheme))
+	gateway := realPortForwardGateway("acceptance", "production", "proton-credentials", "engine-config")
+	direct := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway).Build()
+
+	err := rejectCompetingCredentialGateway(context.Background(), direct, gateway.Namespace, "proton-credentials")
+	if err == nil || !strings.Contains(err.Error(), "WAYCLOAK_REAL_VPN_GATEWAY=production") {
+		t.Fatalf("competing credential gateway error = %v", err)
+	}
+	if err := rejectCompetingCredentialGateway(context.Background(), direct, gateway.Namespace, "different-credentials"); err != nil {
+		t.Fatalf("unrelated credential gateway rejected: %v", err)
 	}
 }
 
@@ -374,6 +402,31 @@ func realCredentialSecretHasExpectedKeys(namespace, name string) bool {
 	return len(keys) == 2 && keys[0] == "password" && keys[1] == "username"
 }
 
+func rejectCompetingCredentialGateway(ctx context.Context, c client.Client, namespace, secretName string) error {
+	var gateways wayv1.VPNGatewayList
+	if err := c.List(ctx, &gateways, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("list VPNGateways before real-provider acceptance: %w", err)
+	}
+	var competing []string
+	for i := range gateways.Items {
+		gateway := &gateways.Items[i]
+		if gateway.Spec.Engine.Config == nil {
+			continue
+		}
+		for _, file := range gateway.Spec.Engine.Config.Files {
+			if file.SecretRef != nil && file.SecretRef.Name == secretName {
+				competing = append(competing, gateway.Name)
+				break
+			}
+		}
+	}
+	if len(competing) == 0 {
+		return nil
+	}
+	sort.Strings(competing)
+	return fmt.Errorf("credential Secret is already referenced by VPNGateway %s; select it with WAYCLOAK_REAL_VPN_GATEWAY=%s instead of creating a concurrent provider session", strings.Join(competing, ","), competing[0])
+}
+
 func realQBittorrentAuthSecret(name, namespace, apiKey string) *corev1.Secret {
 	configuration := "[BitTorrent]\nSession\\DHTEnabled=true\nSession\\Port=6881\nSession\\UseRandomPort=false\n\n[LegalNotice]\nAccepted=true\n\n[Network]\nPortForwardingEnabled=false\n\n[Preferences]\nConnection\\PortRangeMin=6881\nConnection\\UPnP=false\nWebUI\\Address=127.0.0.1\nWebUI\\APIKey=" + apiKey + "\nWebUI\\Port=8080\n"
 	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, StringData: map[string]string{"api-key": apiKey, "qBittorrent.conf": configuration}}
@@ -457,11 +510,21 @@ func protectedOverlayAddress(t *testing.T, namespace, pod string) netip.Addr {
 	panic("unreachable")
 }
 
-func waitForTrackerPort(t *testing.T, namespace, pod string, port uint16, timeout time.Duration) {
+func waitForTrackerEndpoint(t *testing.T, namespace, pod string, address netip.Addr, port uint16, timeout time.Duration) {
 	t.Helper()
+	addressHash := sha256.Sum256([]byte(address.String()))
 	waitFor(t, timeout, func() bool {
-		return commandSucceedsContainer(namespace, pod, "acceptance-observer", fmt.Sprintf("test \"$(cat /tmp/tracker-port 2>/dev/null)\" = %d", port))
+		return commandSucceedsContainer(namespace, pod, "acceptance-observer", fmt.Sprintf("test \"$(sed -n '1p' /tmp/tracker-port 2>/dev/null)\" = %d && test \"$(sed -n '2p' /tmp/tracker-port 2>/dev/null)\" = %x", port, addressHash))
 	})
+}
+
+func realLeasePublicAddress(t *testing.T, lease wayv1.PortForwardLease) netip.Addr {
+	t.Helper()
+	address, err := netip.ParseAddr(lease.Status.PublicAddress)
+	if err != nil || !address.Is4() || !address.IsGlobalUnicast() {
+		t.Fatal("ready real-provider lease omitted a valid public address")
+	}
+	return address
 }
 
 func waitForDHTNodes(t *testing.T, namespace, pod string, timeout time.Duration) {
@@ -504,14 +567,24 @@ with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as connection:
 
 func probeRealTransport(t *testing.T, namespace, pod string, address netip.Addr, port uint16, transport, program string, expectSuccess bool) {
 	t.Helper()
-	cmd := exec.Command("kubectl", "exec", "-i", "-n", namespace, pod, "-c", "probe", "--", "python", "-c", program)
-	cmd.Stdin = strings.NewReader(fmt.Sprintf("%s %d", address, port))
-	_, err := cmd.CombinedOutput()
-	if expectSuccess && err != nil {
-		t.Fatalf("real %s probe failed: %v", transport, err)
-	}
-	if !expectSuccess && err == nil {
-		t.Fatalf("stale real %s endpoint remained reachable", transport)
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		cmd := exec.Command("kubectl", "exec", "-i", "-n", namespace, pod, "-c", "probe", "--", "python", "-c", program)
+		cmd.Stdin = strings.NewReader(fmt.Sprintf("%s %d", address, port))
+		_, err := cmd.CombinedOutput()
+		if expectSuccess && err == nil {
+			return
+		}
+		if !expectSuccess {
+			if err == nil {
+				t.Fatalf("stale real %s endpoint remained reachable", transport)
+			}
+			return
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("real %s probe did not succeed before the retry deadline", transport)
+		}
+		time.Sleep(2 * time.Second)
 	}
 }
 

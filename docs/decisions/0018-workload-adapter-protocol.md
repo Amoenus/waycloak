@@ -26,7 +26,8 @@ webhook, gateway manager, or routing-agent process.
 
 The public adapter protocol consists of:
 
-- the neutral lease JSON schema exposed by file and loopback HTTP;
+- the neutral lease JSON schema, including the provider-observed public address
+  and port, exposed by file and loopback HTTP;
 - exact selection by lease identity or an unambiguous declared selector;
 - expiry and generation semantics;
 - an acknowledgement request bound to Pod UID, lease identity, generation,

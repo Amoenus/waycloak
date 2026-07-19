@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -189,6 +190,8 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
 	}
 	previousPort := lease.Status.PublicPort
+	previousAddress := lease.Status.PublicAddress
+	lease.Status.PublicAddress = observation.PublicAddress
 	lease.Status.PublicPort = int32(observation.PublicPort)
 	issuedAt := metav1.NewTime(observation.IssuedAt.UTC().Truncate(time.Second))
 	renewAfter := metav1.NewTime(observation.RenewAfter.UTC().Truncate(time.Second))
@@ -196,7 +199,7 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	lease.Status.IssuedAt = &issuedAt
 	lease.Status.RenewAfter = &renewAfter
 	lease.Status.ExpiresAt = &expiresAt
-	if lease.Status.LeaseGeneration == 0 || previousPort != lease.Status.PublicPort {
+	if lease.Status.LeaseGeneration == 0 || previousPort != lease.Status.PublicPort || previousAddress != lease.Status.PublicAddress {
 		lease.Status.LeaseGeneration++
 	}
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "A current provider mapping is observed through the serving gateway Pod")
@@ -270,7 +273,8 @@ func (r *PortForwardLeaseReconciler) observeProviderLease(ctx context.Context, g
 }
 
 func validProviderObservation(lease *wayv1.PortForwardLease, observation waygateway.PortForwardObservation, now time.Time) bool {
-	if !observation.Ready || observation.Identity != string(lease.UID) || observation.InternalPort != uint16(lease.Status.ProviderInternalPort) || observation.PublicPort == 0 || observation.IssuedAt.IsZero() || observation.RenewAfter.IsZero() || observation.ExpiresAt.IsZero() || !observation.IssuedAt.Before(observation.ExpiresAt) || !observation.RenewAfter.Before(observation.ExpiresAt) || !now.Before(observation.ExpiresAt) {
+	publicAddress, addressErr := netip.ParseAddr(observation.PublicAddress)
+	if !observation.Ready || observation.Identity != string(lease.UID) || observation.InternalPort != uint16(lease.Status.ProviderInternalPort) || addressErr != nil || !publicAddress.Is4() || !publicAddress.IsGlobalUnicast() || observation.PublicPort == 0 || observation.IssuedAt.IsZero() || observation.RenewAfter.IsZero() || observation.ExpiresAt.IsZero() || !observation.IssuedAt.Before(observation.ExpiresAt) || !observation.RenewAfter.Before(observation.ExpiresAt) || !now.Before(observation.ExpiresAt) {
 		return false
 	}
 	wanted := make([]string, 0, len(lease.Spec.Protocols))

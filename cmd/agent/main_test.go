@@ -78,7 +78,7 @@ func TestReadinessHandler(t *testing.T) {
 
 func TestReconcileLoopAppliesOnlyAcknowledgedProviderPortRedirect(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
-	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 42000, TargetPort: 6881, ApplicationPort: 42000, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: 42000, TargetPort: 6881, ApplicationPort: 42000, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 	serialized, err := delivery.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestLocalReadinessProbeRequiresHTTP200(t *testing.T) {
 
 func TestLeaseHandlersExposeValidatedReadOnlyPodRecord(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
-	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 42000, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: 42000, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 	serialized, err := delivery.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestLeaseHandlersExposeValidatedReadOnlyPodRecord(t *testing.T) {
 
 func TestLeaseHandlerAcceptsOnlyExactProviderAssignedAcknowledgement(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
-	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 42000, TargetPort: 6881, ApplicationPort: 42000, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: 42000, TargetPort: 6881, ApplicationPort: 42000, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 	serialized, err := delivery.Marshal(document)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +17,7 @@ import (
 
 func TestTrackerHandlerRecordsExactPort(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "tracker-port")
-	request := httptest.NewRequest(http.MethodGet, "/announce?port=42000", nil)
+	request := httptest.NewRequest(http.MethodGet, "/announce?port=42000&ip=203.0.113.10", nil)
 	response := httptest.NewRecorder()
 
 	trackerHandler(output).ServeHTTP(response, request)
@@ -27,7 +29,8 @@ func TestTrackerHandlerRecordsExactPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(observed) != "42000\n" {
+	addressHash := sha256.Sum256([]byte("203.0.113.10"))
+	if string(observed) != fmt.Sprintf("42000\n%x\n", addressHash) {
 		t.Fatalf("observed port = %q", observed)
 	}
 }
@@ -44,6 +47,21 @@ func TestTrackerHandlerRejectsInvalidPort(t *testing.T) {
 	}
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatal("invalid announcement created an observation")
+	}
+}
+
+func TestTrackerHandlerRejectsMissingAnnouncedAddress(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "tracker-port")
+	request := httptest.NewRequest(http.MethodGet, "/announce?port=42000", nil)
+	response := httptest.NewRecorder()
+
+	trackerHandler(output).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("tracker response status = %d", response.Code)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatal("missing announced address created an observation")
 	}
 }
 

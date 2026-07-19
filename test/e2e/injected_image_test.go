@@ -410,7 +410,7 @@ func assertFilteredDeliveryMount(t *testing.T, pod *corev1.Pod) {
 func publishDeliveryDocument(t *testing.T, c client.Client, pod *corev1.Pod, identity string, generation int64, publicPort uint16) {
 	t.Helper()
 	now := time.Now().UTC()
-	document, err := delivery.Marshal(delivery.Document{APIVersion: delivery.APIVersion, PodUID: string(pod.UID), Leases: []delivery.Record{{Identity: identity, Namespace: pod.Namespace, Name: "e2e", State: "Active", Gateway: pod.Namespace + "/private", PublicPort: publicPort, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(time.Minute), ExpiresAt: now.Add(2 * time.Minute)}}})
+	document, err := delivery.Marshal(delivery.Document{APIVersion: delivery.APIVersion, PodUID: string(pod.UID), Leases: []delivery.Record{{Identity: identity, Namespace: pod.Namespace, Name: "e2e", State: "Active", Gateway: pod.Namespace + "/private", PublicAddress: "203.0.113.10", PublicPort: publicPort, TargetPort: 6881, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(time.Minute), ExpiresAt: now.Add(2 * time.Minute)}}})
 	must(t, err)
 	ctx := context.Background()
 	var cm corev1.ConfigMap

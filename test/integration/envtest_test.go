@@ -406,7 +406,7 @@ type integrationLeaseObserver struct {
 }
 
 func (observer *integrationLeaseObserver) ObserveLease(_ context.Context, _ string, identity string) (waygateway.PortForwardObservation, error) {
-	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicPort: 42000, IssuedAt: observer.issuedAt, RenewAfter: observer.issuedAt.Add(10 * time.Second), ExpiresAt: observer.issuedAt.Add(20 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
+	return waygateway.PortForwardObservation{Identity: identity, InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicAddress: "203.0.113.10", PublicPort: 42000, IssuedAt: observer.issuedAt, RenewAfter: observer.issuedAt.Add(10 * time.Second), ExpiresAt: observer.issuedAt.Add(20 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.2", TargetPort: 6881}, nil
 }
 
 type integrationDeliveryObserver struct {

@@ -6,6 +6,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -66,6 +67,18 @@ func TestPortForwardManagerReusesPublicPortOnlyWhenDriverSupportsRequests(t *tes
 	}
 }
 
+func TestPortForwardLeaseObservationRequiresCurrentPublicEndpoint(t *testing.T) {
+	now := time.Date(2026, 7, 19, 8, 0, 0, 0, time.UTC)
+	valid := provider.PortForwardLeaseObservation{PublicAddress: netip.MustParseAddr("203.0.113.10"), PublicPort: 42000, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(44 * time.Second), ExpiresAt: now.Add(59 * time.Second)}
+	if !validPortForwardLeaseObservation(valid, now) {
+		t.Fatal("current provider public endpoint was rejected")
+	}
+	valid.PublicAddress = netip.Addr{}
+	if validPortForwardLeaseObservation(valid, now) {
+		t.Fatal("provider observation without a public address was accepted")
+	}
+}
+
 func TestPortForwardManagerKeepsUnexpiredObservationDuringRenewalFailure(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	driver := &fakePortForwardDriver{ports: []uint16{42000}}
@@ -107,15 +120,16 @@ func TestPortForwardManagerSnapshotRemainsResponsiveDuringProviderIO(t *testing.
 			intent.Identity: {
 				intent: intent,
 				observation: PortForwardObservation{
-					Identity:     intent.Identity,
-					InternalPort: intent.InternalPort,
-					Protocols:    intent.Protocols,
-					PublicPort:   42000,
-					IssuedAt:     issuedAt.Add(-45 * time.Second),
-					RenewAfter:   issuedAt,
-					ExpiresAt:    issuedAt.Add(15 * time.Second),
-					Ready:        true,
-					Message:      "Provider mapping is current",
+					Identity:      intent.Identity,
+					InternalPort:  intent.InternalPort,
+					Protocols:     intent.Protocols,
+					PublicAddress: "203.0.113.10",
+					PublicPort:    42000,
+					IssuedAt:      issuedAt.Add(-45 * time.Second),
+					RenewAfter:    issuedAt,
+					ExpiresAt:     issuedAt.Add(15 * time.Second),
+					Ready:         true,
+					Message:       "Provider mapping is current",
 				},
 			},
 		},
@@ -222,7 +236,7 @@ func (driver *fakePortForwardDriver) EnsureLease(_ context.Context, request prov
 		port = driver.ports[len(driver.ensureRequests)-1]
 	}
 	issued := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC).Add(time.Duration(len(driver.ensureRequests)-1) * 45 * time.Second)
-	return provider.PortForwardLeaseObservation{PublicPort: port, IssuedAt: issued, RenewAfter: issued.Add(45 * time.Second), ExpiresAt: issued.Add(60 * time.Second)}, nil
+	return provider.PortForwardLeaseObservation{PublicAddress: netip.MustParseAddr("203.0.113.10"), PublicPort: port, IssuedAt: issued, RenewAfter: issued.Add(45 * time.Second), ExpiresAt: issued.Add(60 * time.Second)}, nil
 }
 
 func (driver *fakePortForwardDriver) ReleaseLease(_ context.Context, request provider.PortForwardLeaseRequest) error {

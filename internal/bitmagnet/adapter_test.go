@@ -95,5 +95,5 @@ func TestStageIsIdempotent(t *testing.T) {
 }
 
 func document(now time.Time, generation int64, port uint16) delivery.Document {
-	return delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "bitmagnet", State: "Active", Gateway: "egress/private", PublicPort: port, TargetPort: 3334, ApplicationPort: port, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(30 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+	return delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "bitmagnet", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: port, TargetPort: 3334, ApplicationPort: port, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(30 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 }

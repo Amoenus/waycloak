@@ -190,6 +190,7 @@ spec:
     - UDP
 status:
   providerInternalPort: 49152
+  publicAddress: 203.0.113.10
   publicPort: 52197
   issuedAt: "2026-07-13T11:30:00Z"
   renewAfter: "2026-07-13T12:30:00Z"
@@ -207,7 +208,9 @@ lease. The target is accepted only when that Pod selects the same gateway and
 its controller-owned `VPNWorkload` binds the exact Pod UID to a persisted
 overlay allocation.
 Status records that observed Pod UID, workload reference, overlay address, and
-local port. The `PortForwardLease` object UID is the stable provider-facing
+local port. It also records the provider-observed public IPv4 address and port;
+`leaseGeneration` advances when either endpoint component changes. The
+`PortForwardLease` object UID is the stable provider-facing
 lease identity. The controller also persists a unique NAT-PMP internal port;
 neither value is derived from list order, and deletion quarantines the mapping
 identity across provider expiry. A future Service target may support controlled handoff during
@@ -246,13 +249,14 @@ does not read or rewrite that Secret value. Gluetun selects
 port-forward-capable servers but its own
 port-forward loop is disabled so the gateway manager remains the only mapping
 owner. Provider acquisition is observed through the exact serving gateway Pod
-and increments `leaseGeneration` only when the public port changes
+and increments `leaseGeneration` when the public address or port changes
 ([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md)).
 
 `spec.target.port` is the stable gateway-to-Pod target and, in the default
-`Fixed` mode, the application listener. The public provider port in status may
-rotate; gateway DNAT absorbs that transport change. Applications
-that advertise an external endpoint still need the current public port through
+`Fixed` mode, the application listener. The public provider address or port in
+status may rotate; gateway DNAT absorbs that transport change. Applications
+that advertise an external endpoint still need the current public address and
+port through
 the generic mapping presentation or neutral delivery contract; packet-header
 translation alone cannot rewrite application protocol messages
 ([ADR 0015](../decisions/0015-stable-target-port-translation.md)).
@@ -265,7 +269,8 @@ generation and its native local redirect is reconciled. Generation change,
 expiry, or agent restart clears that observation fail closed
 ([ADR 0016](../decisions/0016-provider-assigned-application-port-handoff.md)).
 
-The canonical renewable delivery record is versioned JSON exposed through an
+The canonical renewable delivery record includes `publicAddress` and
+`publicPort` and is versioned JSON exposed through an
 atomically replaced read-only file and a read-only Pod-loopback endpoint. A Pod
 may select exactly one application container with
 `networking.waycloak.io/port-forward-container: <container>`. Admission then

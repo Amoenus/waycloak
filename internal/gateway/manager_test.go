@@ -181,7 +181,7 @@ func TestHealthManagerInstallsGatewayLockdownBeforeOverlay(t *testing.T) {
 func TestHealthManagerAcquiresProviderLeaseOnlyThroughObservedTunnel(t *testing.T) {
 	engine := &fakeEngine{err: errors.New("tunnel down")}
 	driver := &fakePortForwardDriver{ports: []uint16{42000}}
-	portForwarding := &PortForwardManager{Driver: driver}
+	portForwarding := &PortForwardManager{Driver: driver, Now: func() time.Time { return time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC) }}
 	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}
 	manager := &HealthManager{Engine: engine, Source: staticSource{desired: DesiredState{PortForwardLeases: []PortForwardLeaseIntent{intent}}}, PortForwarding: portForwarding}
 	manager.Reconcile(context.Background())
@@ -198,7 +198,7 @@ func TestHealthManagerAcquiresProviderLeaseOnlyThroughObservedTunnel(t *testing.
 
 func TestHealthManagerReadinessIncludesPortForwardReconciliation(t *testing.T) {
 	driver := &fakePortForwardDriver{ensureErr: errors.New("provider unavailable")}
-	portForwarding := &PortForwardManager{Driver: driver}
+	portForwarding := &PortForwardManager{Driver: driver, Now: func() time.Time { return time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC) }}
 	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}}
 	manager := &HealthManager{
 		Engine:         &fakeEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true, PublicIP: netip.MustParseAddr("203.0.113.10")}},

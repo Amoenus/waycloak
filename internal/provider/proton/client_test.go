@@ -35,7 +35,7 @@ func TestEnsureLeaseMapsTCPAndUDPToOnePort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.PublicPort != 42000 || !observation.IssuedAt.Equal(now) || !observation.RenewAfter.Equal(now.Add(45*time.Second)) || !observation.ExpiresAt.Equal(now.Add(60*time.Second)) {
+	if observation.PublicAddress.String() != "203.0.113.10" || observation.PublicPort != 42000 || !observation.IssuedAt.Equal(now) || !observation.RenewAfter.Equal(now.Add(45*time.Second)) || !observation.ExpiresAt.Equal(now.Add(60*time.Second)) {
 		t.Fatalf("observation = %#v", observation)
 	}
 }
@@ -47,6 +47,17 @@ func TestEnsureLeaseRejectsSplitProtocolPorts(t *testing.T) {
 	client := testClient(server, time.Now())
 	_, err := client.EnsureLease(context.Background(), provider.PortForwardLeaseRequest{Identity: "lease-uid", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}})
 	if !errors.Is(err, ErrSharedPortMismatch) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestEnsureLeaseRejectsInvalidExternalAddress(t *testing.T) {
+	server := newNATPMPServerWithAddress(t, net.IPv4zero, func(request []byte, _ int) []byte {
+		return mappingReply(request, 42000, 60, 0)
+	})
+	client := testClient(server, time.Now())
+	_, err := client.EnsureLease(context.Background(), provider.PortForwardLeaseRequest{Identity: "lease-uid", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}})
+	if err == nil || err.Error() != "proton NAT-PMP returned an invalid public address" {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -131,6 +142,10 @@ type natpmpServer struct {
 }
 
 func newNATPMPServer(t *testing.T, response func([]byte, int) []byte) natpmpServer {
+	return newNATPMPServerWithAddress(t, net.ParseIP("203.0.113.10").To4(), response)
+}
+
+func newNATPMPServerWithAddress(t *testing.T, externalAddress net.IP, response func([]byte, int) []byte) natpmpServer {
 	t.Helper()
 	connection, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
@@ -152,8 +167,16 @@ func newNATPMPServer(t *testing.T, response func([]byte, int) []byte) natpmpServ
 				}
 				continue
 			}
-			count++
-			reply := response(append([]byte(nil), buffer[:length]...), count)
+			request := append([]byte(nil), buffer[:length]...)
+			var reply []byte
+			if request[1] == opExternalAddress {
+				reply = make([]byte, 12)
+				reply[1] = opExternalAddress | 0x80
+				copy(reply[8:12], externalAddress.To4())
+			} else {
+				count++
+				reply = response(request, count)
+			}
 			if reply != nil {
 				_, _ = connection.WriteTo(reply, peer)
 			}

@@ -32,7 +32,7 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			_ = json.NewEncoder(response).Encode(map[string]int{"listen_port": listenPort})
+			_ = json.NewEncoder(response).Encode(map[string]any{"listen_port": listenPort, "announce_ip": "203.0.113.10"})
 			return
 		}
 		if request.URL.Path == "/api/v2/app/setPreferences" {
@@ -50,7 +50,7 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 			return
 		}
 		if request.URL.Path == "/v1/port-forward/leases" {
-			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 			_ = json.NewEncoder(response).Encode(document)
 			return
 		}
@@ -77,7 +77,7 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 	now := time.Date(2026, 7, 18, 23, 30, 0, 0, time.UTC)
 	applicationPort := 0
-	preferences := map[string]any{"listen_port": 6881, "dht": true, "current_network_interface": "", "current_interface_address": ""}
+	preferences := map[string]any{"listen_port": 6881, "dht": true, "current_network_interface": "", "current_interface_address": "", "announce_ip": ""}
 	var updates []map[string]any
 	acknowledged := false
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -99,7 +99,7 @@ func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 			}
 			response.WriteHeader(http.StatusNoContent)
 		case "/v1/port-forward/leases":
-			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 5, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}})
+			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 5, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}})
 		case "/v1/port-forward/leases/lease-uid/ack":
 			acknowledged = true
 			response.WriteHeader(http.StatusNoContent)
@@ -124,10 +124,10 @@ func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 	if _, err := adapter.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if !acknowledged || len(updates) != 3 {
+	if !acknowledged || len(updates) != 4 {
 		t.Fatalf("acknowledged=%t updates=%#v", acknowledged, updates)
 	}
-	if updates[0]["current_network_interface"] != "wc123456789abc" || updates[0]["current_interface_address"] != "127.0.0.1" || updates[1]["dht"] != false || updates[2]["dht"] != true {
+	if updates[0]["current_network_interface"] != "wc123456789abc" || updates[0]["current_interface_address"] != "127.0.0.1" || updates[1]["announce_ip"] != "203.0.113.10" || updates[2]["dht"] != false || updates[3]["dht"] != true {
 		t.Fatalf("qBitTorrent compatibility updates = %#v", updates)
 	}
 }
@@ -146,9 +146,9 @@ func TestAdapterDoesNotAcknowledgeWhenQbittorrentListenerIsUnavailable(t *testin
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/api/v2/app/preferences":
-			_ = json.NewEncoder(response).Encode(map[string]int{"listen_port": unavailablePort})
+			_ = json.NewEncoder(response).Encode(map[string]any{"listen_port": unavailablePort, "announce_ip": "203.0.113.10"})
 		case "/v1/port-forward/leases":
-			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: uint16(unavailablePort), TargetPort: 6881, ApplicationPort: uint16(unavailablePort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(unavailablePort), TargetPort: 6881, ApplicationPort: uint16(unavailablePort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 			_ = json.NewEncoder(response).Encode(document)
 		case "/v1/port-forward/leases/lease-uid/ack":
 			acknowledged = true
@@ -177,7 +177,7 @@ func TestAdapterClassifiesQbittorrentControlAPITimeoutAsTransientForExactRevisio
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/port-forward/leases":
-			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 64327, TargetPort: 6881, ApplicationPort: 64327, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 17, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: 64327, TargetPort: 6881, ApplicationPort: 64327, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 17, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 			_ = json.NewEncoder(response).Encode(document)
 		case "/api/v2/app/preferences":
 			time.Sleep(50 * time.Millisecond)
@@ -212,7 +212,7 @@ func TestAdapterClassifiesQbittorrentControlAPIRejectionAsCritical(t *testing.T)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/port-forward/leases":
-			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: 64327, TargetPort: 6881, ApplicationPort: 64327, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 17, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
+			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: 64327, TargetPort: 6881, ApplicationPort: 64327, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 17, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 			_ = json.NewEncoder(response).Encode(document)
 		case "/api/v2/app/preferences":
 			response.WriteHeader(http.StatusUnauthorized)

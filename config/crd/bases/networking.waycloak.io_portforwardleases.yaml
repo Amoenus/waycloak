@@ -226,6 +226,8 @@ spec:
                 maximum: 65535
                 minimum: 1
                 type: integer
+              publicAddress:
+                type: string
               publicPort:
                 format: int32
                 type: integer

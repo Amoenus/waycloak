@@ -139,7 +139,7 @@ func podReadyCondition(pod *corev1.Pod) bool {
 
 func qbitDeliveryDocument(t *testing.T, podUID string, generation int64, port uint16, now time.Time) string {
 	t.Helper()
-	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: podUID, Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: port, TargetPort: 6881, ApplicationPort: port, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now, RenewAfter: now.Add(10 * time.Minute), ExpiresAt: now.Add(20 * time.Minute)}}}
+	document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: podUID, Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: port, TargetPort: 6881, ApplicationPort: port, ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: generation, IssuedAt: now, RenewAfter: now.Add(10 * time.Minute), ExpiresAt: now.Add(20 * time.Minute)}}}
 	serialized, err := delivery.Marshal(document)
 	if err != nil {
 		t.Fatal(err)

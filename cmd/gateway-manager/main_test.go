@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,7 +98,7 @@ func (*handlerPortForwardDriver) ObserveCapabilities(context.Context) (provider.
 
 func (*handlerPortForwardDriver) EnsureLease(context.Context, provider.PortForwardLeaseRequest) (provider.PortForwardLeaseObservation, error) {
 	now := time.Now().UTC()
-	return provider.PortForwardLeaseObservation{PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second)}, nil
+	return provider.PortForwardLeaseObservation{PublicAddress: netip.MustParseAddr("203.0.113.10"), PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second)}, nil
 }
 
 func (*handlerPortForwardDriver) ReleaseLease(context.Context, provider.PortForwardLeaseRequest) error {
