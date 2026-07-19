@@ -4,9 +4,9 @@ Last updated: 2026-07-19
 
 ## Current phase
 
-The reviewed base is the published, independently verified, and GitOps-deployed
-`v0.3.0-rc.10`; the source tree is preparing the next candidate after RC10's
-real-provider gate isolated a qBitTorrent tracker-reannounce boundary.
+The reviewed base is the published, independently verified, GitOps-deployed,
+and real-provider-certified `v0.3.0-rc.11`; the source tree is preparing final
+`v0.3.0` metadata from that exact proven code.
 RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
@@ -105,6 +105,18 @@ advertise the previous endpoint: the adapter updated qBitTorrent's listener and
 qBitTorrent's torrent reannounce API. The next candidate makes successful
 reannounce part of the application acknowledgement boundary for actual
 advertised-endpoint changes while leaving expiry-only renewal idempotent.
+
+RC11 made that application boundary generation-aware and passed the complete
+20-minute real-provider gate against the existing singleton Proton/OpenVPN
+session. The run proved sustained expiry-only renewal, forced actual mapping
+rotation, immediate tracker reannouncement, DHT and real TCP/UDP ingress,
+unchanged workload Pod UID, a separate destructive gateway-loss event,
+fail-closed protected egress and stale ingress, and full same-Pod recovery. It
+created no competing gateway, logged no endpoint or credential value, cleaned
+its isolated resources, and left the exact-digest RC11 production gateway,
+qBitTorrent, Bitmagnet, and both leases Healthy/Ready. Final `v0.3.0` publication,
+independent verification, and exact-digest homelab promotion are the remaining
+release steps.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected

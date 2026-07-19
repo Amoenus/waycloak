@@ -90,8 +90,8 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The reviewed base is the published, independently verified, and GitOps-deployed
-`v0.3.0-rc.8`. The alpha.6 deployment completed engine auto-healing and stable
+The reviewed base is the published, independently verified, GitOps-deployed,
+and real-provider-certified `v0.3.0-rc.11`. The alpha.6 deployment completed engine auto-healing and stable
 renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
 first full harness run. Its next run proved the startup deny gate but selected
 a worker with independently reproduced asymmetric Pod-CIDR reachability. RC2
@@ -131,8 +131,13 @@ run then proved that feeding controller-derived mapping generation back through
 a mounted ConfigMap could leave gateway rules perpetually behind a short-lived
 provider lease. RC10 implements ADR 0023: the gateway manager owns mapping
 generation and matching local rule convergence, expiry-only renewal preserves
-generation, and expiry still removes rules fail closed. Exact RC10 sustained
-real-provider certification is the release gate.
+generation, and expiry still removes rules fail closed. RC10 then exposed that
+qBitTorrent changed its listener and announce address without immediately
+reannouncing active torrents. RC11 makes successful generation-bound tracker
+reannounce part of application acknowledgement. Its complete sustained
+real-provider run passed renewal, actual rotation, ingress, advertisement, DHT,
+gateway loss, fail-closed behavior, and same-Pod recovery. Final artifact
+publication and homelab promotion are the remaining release steps.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
@@ -147,14 +152,15 @@ real-provider certification is the release gate.
 - [x] Publish and deploy engine-container auto-healing, then prove that a
   sustained Gluetun health failure remains fail closed and restores the same
   gateway/workload Pod identities automatically (#90).
-- [ ] Complete sustained real-provider qBitTorrent ingress, advertisement,
+- [x] Complete sustained real-provider qBitTorrent ingress, advertisement,
   DHT, renewal, and actual rotation certification using the existing gated
   harness.
-- [ ] Validate Bitmagnet and Loadstone consumption of the neutral lease
-  contract. The Bitmagnet adapter now stages provider-assigned DHT ports,
-  observes the UDP listener, and acknowledges exact generations; real
-  deployment/rotation evidence and Loadstone validation remain.
-- [ ] Record additional provider/application compatibility and troubleshooting
+- [x] Validate Bitmagnet consumption of the neutral lease contract. The
+  deployed adapter stages provider-assigned DHT ports, observes the UDP
+  listener, acknowledges exact generations, and recovered Ready across real
+  gateway replacement. Loadstone validation is outside the revised v0.3.0
+  cutoff and remains future compatibility work.
+- [x] Record additional provider/application compatibility and troubleshooting
   evidence from real deployments.
 - [x] Replace provider-shaped gateway convenience fields with engine-native
   Gluetun configuration and a documented migration (#66).
