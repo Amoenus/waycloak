@@ -106,3 +106,50 @@ func TestReconcilePersistsUIDBoundAllocationAcrossRestart(t *testing.T) {
 		t.Fatalf("gateway replacement changed allocation: %s -> %s", first.Status.Allocation.Address, cm.Data["address"])
 	}
 }
+
+func TestReconcileAllocatesAgainstAuthoritativeWorkloadList(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = wayv1.AddToScheme(scheme)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "second", Namespace: "apps", UID: types.UID("pod-uid-2"),
+		Annotations: map[string]string{
+			contract.GatewayAnnotation:          "egress/private",
+			contract.InjectionVersionAnnotation: contract.InjectionVersion,
+			contract.AllocationNameAnnotation:   contract.AllocationConfigMapName("apps", "admission-request-2"),
+		},
+	}}
+	gateway := &wayv1.VPNGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "egress"},
+		Spec:       wayv1.VPNGatewaySpec{Overlay: wayv1.OverlaySpec{CIDR: "172.30.99.0/29"}},
+	}
+	current := &wayv1.VPNWorkload{
+		ObjectMeta: metav1.ObjectMeta{Name: contract.WorkloadName(string(pod.UID)), Namespace: pod.Namespace},
+		Spec: wayv1.VPNWorkloadSpec{
+			PodRef:     wayv1.PodReference{Name: pod.Name, UID: pod.UID},
+			GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name},
+		},
+	}
+	first := &wayv1.VPNWorkload{
+		ObjectMeta: metav1.ObjectMeta{Name: "pod-uid-1", Namespace: "apps"},
+		Spec: wayv1.VPNWorkloadSpec{
+			PodRef:     wayv1.PodReference{Name: "first", UID: types.UID("pod-uid-1")},
+			GatewayRef: current.Spec.GatewayRef,
+		},
+		Status: wayv1.VPNWorkloadStatus{Allocation: wayv1.AllocationStatus{Address: "172.30.99.2"}},
+	}
+	cached := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNWorkload{}).WithObjects(pod, gateway, current).Build()
+	authoritative := fake.NewClientBuilder().WithScheme(scheme).WithObjects(current.DeepCopy(), first).Build()
+	r := &PodReconciler{Client: cached, APIReader: authoritative, Scheme: scheme, Recorder: record.NewFakeRecorder(10)}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}}); err != nil {
+		t.Fatal(err)
+	}
+	var allocated wayv1.VPNWorkload
+	if err := cached.Get(context.Background(), types.NamespacedName{Namespace: current.Namespace, Name: current.Name}, &allocated); err != nil {
+		t.Fatal(err)
+	}
+	if allocated.Status.Allocation.Address != "172.30.99.3" {
+		t.Fatalf("allocation=%q, want authoritative next address 172.30.99.3", allocated.Status.Allocation.Address)
+	}
+}

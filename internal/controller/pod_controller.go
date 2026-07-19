@@ -46,8 +46,12 @@ import (
 
 type PodReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	// APIReader bypasses the eventually consistent informer cache when choosing
+	// an address. Allocation remains single-threaded so consecutive reservations
+	// observe the status write that made the preceding address durable.
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	Recorder  record.EventRecorder
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -90,7 +94,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 	if workload.Status.Allocation.Address == "" {
 		var list wayv1.VPNWorkloadList
-		if err := r.List(ctx, &list); err != nil {
+		if err := r.allocationReader().List(ctx, &list); err != nil {
 			return ctrl.Result{}, err
 		}
 		used := map[netip.Addr]struct{}{}
@@ -180,6 +184,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *PodReconciler) allocationReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 func allocationConfigMap(pod *corev1.Pod, workload *wayv1.VPNWorkload, gateway *wayv1.VPNGateway, gatewayNamespace, gatewayName, name, deliveryDocument string) (*corev1.ConfigMap, error) {
@@ -286,6 +297,9 @@ func ownedByUID(obj metav1.Object, uid types.UID) bool {
 }
 
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
 		Owns(&wayv1.VPNWorkload{}).
