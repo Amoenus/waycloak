@@ -18,6 +18,8 @@ This is a fail-closed routing guarantee within the boundaries below. It is not a
 
 - Kubernetes API server, etcd, scheduler, kubelet, and node administrator;
 - Waycloak controller, webhook, agent, and gateway-manager images;
+- for explicitly selected eBPF preview workloads, the Waycloak CNI plugin,
+  prepared-node installer, and node agent;
 - configured VPN engine and VPN provider;
 - cluster CNI and kernel;
 - the operator who creates gateways and Secret references.
@@ -85,7 +87,41 @@ scanning in CI.
 
 **Threat:** injection grants networking capability to the application.
 
-**Control:** capabilities apply only to the Waycloak agent container. Application security contexts are not broadened. Agent filesystem and API surface are minimized.
+**Control:** capabilities apply only to Waycloak networking init and agent
+containers. Application security contexts are not broadened. Networking
+component filesystem and API surfaces are minimized.
+
+For the optional eBPF preview, privilege moves from a Pod-netns-scoped agent to
+prepared-node components. This increases blast radius even when protected Pods
+lose their privileged networking sidecar. CNI-directory writes, cgroupfs,
+bpffs, namespace entry, host PID, `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_SYS_ADMIN`,
+and `privileged: true` are assessed independently and granted only when live
+tests prove necessity. Application containers remain capability-free.
+
+### Preview attachment or capability loss
+
+**Threat:** a selected eBPF workload starts before attachment, loses its pinned
+link, schedules to a stale-labeled node, or silently changes to sidecar mode.
+
+**Control:** a chained CNI plugin installs UID-owned Pod-parent default-deny
+before successful sandbox network `ADD`; failure prevents sandbox startup. A
+separate administrator preparation label and executable node observation gate
+initial scheduling. The node agent continuously verifies the selected pinned
+generation and reports per-Pod health. Missing, severed, foreign, or
+unverifiable state remains closed and not ready. Labels are not treated as a
+runtime enforcement signal, and fallback is forbidden.
+
+### CNI installation and cleanup damage
+
+**Threat:** preview installation, upgrade, rollback, or garbage collection
+breaks Flannel or removes unrelated host/CNI state.
+
+**Control:** installation is opt-in per node, uses immutable architecture-matched
+artifacts, atomically extends an observed compatible conflist, retains its exact
+preimage, and removes scheduling eligibility before mutation. `ADD`, `CHECK`,
+`DEL`, and `GC` use exact Pod UID/generation ownership. Rollback restores the
+byte-identical prior chain only after preview workloads have been drained or
+explicitly replaced into their declared backend.
 
 ### Rule collision or cleanup damage
 
@@ -136,6 +172,10 @@ Status never contains credential values. Debug bundles redact Secret data, autho
 - annotated-but-uninjected Pods are rejected;
 - unannotated Pods are unaffected by webhook outage;
 - application containers gain no capabilities;
+- preview CNI failure, node-agent loss, link severing, and node reboot preserve
+  default-deny with no backend fallback;
+- preview install/rollback preserves the byte-identical unrelated CNI chain and
+  leaves no foreign or stale Waycloak pins;
 - Secrets exist only in the intended gateway scope;
 - network rule cleanup preserves unrelated rules;
 - image signatures, SBOMs, and provenance verify before release;

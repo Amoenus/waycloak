@@ -1,6 +1,6 @@
 # ADR 0019: Conformance-gated optional eBPF data plane
 
-Status: Proposed
+Status: Accepted
 Date: 2026-07-15
 
 ## Context
@@ -16,7 +16,7 @@ The available homelab currently includes amd64 and Raspberry Pi arm64 nodes on
 Linux 6.12 kernels. Those nodes are useful evaluation targets, not evidence of
 support or incompatibility.
 
-## Proposed decision
+## Decision
 
 Evaluate eBPF only as an explicit optional implementation of the existing
 data-plane contract. The Kubernetes workload and gateway selection APIs,

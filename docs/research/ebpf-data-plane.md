@@ -1,10 +1,10 @@
 # eBPF data-plane research for Waycloak v0.4.0
 
-Status: In progress
+Status: Decision complete; derived PRD under review
 Last updated: 2026-07-19
 Governing issue: [#65](https://github.com/Amoenus/waycloak/issues/65)
 Decision context: [ADR 0006](../decisions/0006-native-linux-data-plane.md),
-[proposed ADR 0019](../decisions/0019-optional-ebpf-data-plane.md)
+[ADR 0019](../decisions/0019-optional-ebpf-data-plane.md)
 
 ## Executive finding
 
@@ -321,8 +321,9 @@ Ratings are current inferences, not an ADR decision.
 | Candidate | Fail-closed lifecycle | Privilege/components | Completeness | Current judgment |
 |---|---|---|---|---|
 | Pod-local tc/TCX filter; retain netlink/nftables NAT | Potentially equivalent if first and persistent | Keeps agent/init gates and `NET_ADMIN`; adds BPF | Still needs VXLAN/routes/NAT | Low component value; benchmark/control candidate |
-| Pod-local cgroup attachment | Pod container cgroup topology unresolved | Likely needs host cgroup access; keeps other agent work | Routing/NAT remain | Poor until topology is proved |
-| Node agent + Pod-cgroup egress deny | Pinned deny survived loader exit on amd64 and arm64; pre-start handoff remains unresolved | Could remove Pod filter privilege and gates; adds privileged DaemonSet | Routing/NAT still need ownership | Leading enforcement candidate |
+| Pod-local cgroup attachment | Parent coverage is proved, but attachment still occurs from an injected component | Keeps gates, agent, netns work, and per-Pod privilege; adds BPF/bpffs | Routing/NAT remain | Reject as shipped mode; useful control only |
+| Node agent + Pod-cgroup egress deny | Pinned deny survived loader exit on amd64 and arm64; discovery alone has a pre-start race | Could remove Pod filter privilege; adds privileged DaemonSet | Routing/NAT still need ownership | Viable only with a pre-container handoff |
+| Chained CNI `ADD` + Pod-cgroup deny + node owner | Runtime ordering can install deny before containers; exact containerd handoff still needs executable proof | Highest sidecar-reduction potential; adds CNI installation and node privilege | Initial setup is completeable; dynamic routing/NAT ownership remains | Leading prototype candidate (E2) |
 | Node agent + host-veth tc/TCX | Can cover Pod packets after veth discovery; creation race unresolved | Could remove Pod filter component; adds node agent | Routing/NAT still separate | Promising, more CNI-coupled |
 | Node agent owns complete tunnel/routing/filter/NAT path | Could centralize the boundary | Can remove Waycloak networking containers; broad node privilege | Potentially complete | High value and high risk; effectively CNI-like |
 | XDP-only or socket-hook-only | Incomplete packet/lifecycle coverage | Varies | Misses required traffic classes | Reject standalone |
@@ -405,6 +406,28 @@ Current evidence rejects describing any sidecarless option as merely “switchin
 the backend.” E0 is the only direct backend swap. E1-E3 are new ownership
 architectures and must earn adoption through component/performance value and an
 accepted threat-model change.
+
+### Target-runtime CNI handoff finding
+
+The exact containerd 2.2.3 source used by the homelab materially strengthens E2.
+Before CNI setup, containerd has the sandbox network-namespace path. Its CRI
+adapter passes `K8S_POD_NAMESPACE`, `K8S_POD_NAME`, the infra-container ID, and
+`K8S_POD_UID` as CNI labels. When the CRI sandbox configuration contains a
+cgroup parent, it also supplies that value through go-cni's `cgroupPath`
+runtime capability. The chained plugin can therefore receive all three
+identities needed at the creation boundary: exact Pod UID, target netns, and
+Pod-parent cgroup.
+
+This is a containerd integration, not a portable CNI guarantee. The CNI
+conventions document dynamic capability negotiation but do not list
+`cgroupPath` among the well-known cross-runtime capabilities. Other runtimes
+need separate adapters or must be declared unsupported. The target k3s node's
+read-only configuration inspection found a single CNI 1.0.0 Flannel conflist
+with `flannel`, `portmap`, and `bandwidth`; no cgroup consumer is currently
+configured. Prepared-node installation must atomically add a Waycloak chained
+entry requesting `cgroupPath`, install a matching architecture-specific binary,
+validate the actual runtime payload, and restore the exact prior conflist on
+rollback.
 
 ## Performance and footprint study
 
@@ -516,8 +539,10 @@ kernel implementation.
 2. Extend the successful amd64/arm64 parent-cgroup deny/pin probes and compare a
    host-veth attachment; test connected and unconnected UDP, TCP, IPv4, and
    IPv6. Init/app/restartable-sidecar child coverage is proved on amd64.
-3. Prove a race-free Pod UID to cgroup/ifindex join across creation, restart,
-   rescheduling, rapid deletion, and identifier reuse.
+3. Instrument a disposable chained plugin on the target k3s/containerd version
+   to prove the source-observed `K8S_POD_UID`, `CNI_NETNS`, container ID, and
+   `runtimeConfig.cgroupPath` values refer to the same sandbox. Extend that join
+   across restart, rescheduling, rapid deletion, and identifier reuse.
 4. Extend the proved loader-exit persistence with controller loss and node-agent
    restart adoption of an existing pinned link.
 5. Extend the successful wrong-type rejection and deny-to-deny `BPF_LINK_UPDATE`
@@ -534,12 +559,64 @@ kernel implementation.
    can resume, with safe severed-link and stale-pin reconciliation.
 10. Run the performance/footprint matrix above before claiming value.
 
+11. Prove atomic CNI binary/conflist installation, kubelet/containerd restart
+    behavior, rollback to the byte-identical prior chain, and coexistence with
+    Flannel, portmap, bandwidth, and an unrelated chained plugin.
+
+## Research recommendation
+
+Select the PRD decision gate's **prototype release** outcome and prototype E2:
+an optional, prepared-node chained CNI handoff plus a node-owned Pod-cgroup eBPF
+deny boundary. Do not accept an eBPF backend as production-supported yet.
+
+This choice is evidence-based:
+
+- cgroup egress deny covers all sampled container child scopes, persists after
+  loader exit when pinned, updates without replacing the link, and works on the
+  representative amd64 and arm64 kernels;
+- containerd's creation path can hand the chained plugin the Pod UID, netns, and
+  cgroup parent before successful network `ADD` permits sandbox startup;
+- the current default's per-workload full-repair loop has measurable cost, so a
+  sidecarless node owner has a plausible footprint/performance hypothesis;
+- E0 cannot remove current privilege or components, E1 discovery alone leaves a
+  startup race, and E3 requires a new tunnel/NAT data plane before its value is
+  established.
+
+The prototype must start deny-only and use disposable workloads. The CNI plugin
+installs and pins the UID-owned cgroup deny before returning success, or returns
+an error and leaves the sandbox unusable. A node agent adopts the exact pinned
+generation, publishes executable node capability and per-Pod observed health,
+performs atomic program updates, and garbage-collects severed UID-owned links.
+The existing sidecar backend remains the default and comparison control.
+
+The principal unresolved architectural gate is not eBPF attachment. It is who
+owns VXLAN, routes, DNS DNAT, and lease DNAT after removing the sidecar. The node
+agent can enter a Pod netns, but doing so requires a broader `CAP_SYS_ADMIN`
+boundary. The PRD must require a threat-model decision and a prototype of that
+ownership before claiming sidecar reduction. Until equivalent full-path tests
+pass, eBPF mode is developer-preview only, rejects port-forward workloads if
+their dynamic translation path is absent, and carries no performance or
+production-support claim.
+
+### Rejected release directions
+
+- **Ship E0 as the eBPF mode:** rejected because it retains every injected
+  networking component and `NET_ADMIN`, adds BPF privilege, and has no measured
+  packet-path advantage.
+- **Node discovery without CNI handoff:** rejected because observation after
+  sandbox creation cannot prove deny-before-first-packet.
+- **Make eBPF the default or silently fall back:** rejected by the heterogeneous
+  compatibility model and explicit-backend invariant.
+- **Implement E3 first:** deferred because complete host-veth tunneling and
+  translation is a CNI-scale rewrite without evidence that simpler E2 ownership
+  is insufficient.
+
 No probe may carry production workload traffic until deny-only disposable tests
 pass. Real-provider regression follows only after selecting the architecture.
 
-## PRD decision gate
+## PRD decision gate outcome
 
-The later `v0.4.0` PRD must select one evidence-backed outcome:
+The research gate allowed one of three evidence-backed outcomes:
 
 1. **Adopt:** a specific architecture closes the contract and demonstrates
    sufficient privilege, footprint, performance, or operational value.
@@ -548,7 +625,10 @@ The later `v0.4.0` PRD must select one evidence-backed outcome:
 3. **Do not adopt:** no design justifies its trust and maintenance cost; select
    a different release outcome rather than shipping eBPF for its own sake.
 
-Until this gate, the public PRD must not promise an eBPF backend.
+The research selected outcome 2. The derived `v0.4.0` PRD therefore defines a
+narrow developer preview, not a production-supported backend. It can ship only
+after its implementation gates prove complete ownership, fail-closed behavior,
+safe prepared-node lifecycle, heterogeneous operation, and material value.
 
 ## Primary-source evidence ledger
 
@@ -580,6 +660,13 @@ Until this gate, the public PRD must not promise an eBPF backend.
 - The CNI project [specification](https://www.cni.dev/docs/spec/): network
   namespace creation and chained `ADD` ordering, error handling, `prevResult`,
   attachment identity, deletion, checking, and garbage collection.
+- The CNI project [extension conventions](https://www.cni.dev/docs/conventions/):
+  explicit runtime-capability negotiation and the boundary between well-known
+  capabilities and runtime/plugin-specific extensions.
+- containerd 2.2.3 [CRI sandbox CNI setup](https://github.com/containerd/containerd/blob/v2.2.3/internal/cri/server/sandbox_run.go)
+  and its go-cni 1.1.13 [`cgroupPath` option](https://github.com/containerd/go-cni/blob/v1.1.13/namespace_opts.go):
+  Pod UID labels, network-namespace setup, cgroup-parent capability handoff, and
+  error propagation on target-runtime network setup.
 - Kubernetes SIGs [Node Feature Discovery](https://kubernetes-sigs.github.io/node-feature-discovery/master/get-started/introduction.html)
   and its [customization guide](https://kubernetes-sigs.github.io/node-feature-discovery/master/usage/customization-guide.html):
   optional node feature advertisement and custom labeling integration.

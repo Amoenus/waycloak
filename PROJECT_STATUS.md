@@ -21,15 +21,28 @@ DHT and external TCP/UDP ingress, fail-closed gateway loss and stale ingress,
 and same-Pod recovery without creating a competing provider session. Cleanup
 left zero acceptance resources.
 
-The active target is comprehensive research for the `v0.4.0` PRD, focused on
-whether eBPF can materially improve the workload data plane without weakening
-the existing fail-closed contract. eBPF is not yet an approved release
-requirement. The work compares attachment and ownership models, lifecycle
-persistence, privilege, reduction of injected Waycloak components, performance
-and scale, CNI coexistence, and portability against the as-built
-nftables/netlink implementation and representative amd64/arm64 homelab nodes.
-ADR 0006 remains the supported production decision. See `V0.4.0_GOAL.md` and
-`docs/research/ebpf-data-plane.md`.
+The v0.4 research selected a developer-preview outcome and E2 architecture: an
+optional chained CNI creation-time handoff installs a Pod-parent cgroup eBPF
+deny boundary, and a prepared-node agent adopts and reconciles it. The current
+Pod-local nftables/netlink sidecar remains the supported default. The preview is
+explicit, restricted to operator-prepared and executable-probed nodes, and
+never silently falls back. The evidence, rejected alternatives, target-runtime
+boundary, benchmarks, and cutoff are recorded in `V0.4.0_GOAL.md`,
+`docs/research/ebpf-data-plane.md`, the v0.4 release PRD, and ADR 0024.
+
+Implementation begins with the containerd CNI identity handoff and node-agent
+ownership proof. `v0.4.0` is not releasable merely because eBPF attaches: the
+node path must own a complete declared feature subset, remove the privileged
+networking sidecar or demonstrate another accepted material benefit, pass the
+backend-neutral fail-closed suite on amd64 and arm64, and support safe CNI
+installation and rollback. ADR 0006 remains the production decision until
+those developer-preview gates pass.
+
+The implementation graph is tracked by epic #6 and ordered issues #107-#114:
+contract, executable CNI handoff, node eBPF lifecycle, complete node networking
+ownership, admission/status, prepared-node packaging, equivalent measurement,
+and signed mixed-mode homelab certification. Research issues #65 and #34 remain
+the source evidence rather than implementation catch-alls.
 
 RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live

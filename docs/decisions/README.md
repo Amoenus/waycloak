@@ -25,5 +25,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0021: Gateway membership uses desired and applied generations](0021-observed-membership-generation.md)
 - [0022: Native engine inputs use ConfigMap environment and engine-only file mounts](0022-native-engine-input-projection.md)
 - [0023: Gateway-manager-owned port-forward mapping generation](0023-manager-owned-port-forward-generation.md)
+- [0024: Prototype eBPF through a CNI creation-time handoff](0024-ebpf-preview-cni-handoff.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

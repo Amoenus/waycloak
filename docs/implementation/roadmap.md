@@ -184,22 +184,53 @@ operator-prepared, capability-verified nodes with no silent fallback.
   privilege, and injected-component responsibilities (#65).
 - [x] Collect initial amd64/arm64 homelab kernel, cgroup, BTF, bpffs, hook, map,
   and Flannel evidence (#65).
-- [ ] Complete primary-source research for attachment, persistence, replacement,
+- [x] Complete primary-source research for attachment, persistence, replacement,
   privilege, verifier, portability, CNI ownership, and sidecarless models (#65).
-- [ ] Resolve Pod cgroup and host-veth identity/lifecycle on k3s/containerd with
+- [x] Resolve the leading Pod-cgroup identity/lifecycle and containerd CNI
+  creation-time handoff with
   disposable, non-production probes (#65).
-- [ ] Test the minimum deny-only cgroup and tc/TCX prototypes needed to decide
-  feasibility; do not carry production traffic (#65).
-- [ ] Measure equivalent-backend performance, scaling, total node/Pod resource
-  use, startup/recovery, and injected-component footprint (#34).
-- [ ] Publish the architecture comparison, threat-model delta, support boundary,
+- [x] Test the minimum deny-only cgroup prototype needed to decide feasibility;
+  defer host-veth tc/TCX because E2 remains viable (#65).
+- [x] Establish cross-architecture default-backend and real-provider scaling
+  baselines, and make equivalent preview comparison a release gate (#34).
+- [x] Publish the architecture comparison, threat-model delta, support boundary,
   recommendation, and rejected alternatives (#65, #34).
-- [ ] Derive and review the `v0.4.0` PRD, release cutoff, follow-up ADR direction,
+- [x] Derive the `v0.4.0` PRD, release cutoff, follow-up ADR direction,
   conformance requirements, and ordered GitHub issue graph.
 
 Exit: the research record is sufficient to choose supported adoption,
 experimental prototype, or rejection; the resulting `v0.4.0` PRD makes no
 claim based only on kernel version, feature presence, or aspiration.
+
+## Phase 7 — v0.4.0 eBPF node-data-plane developer preview
+
+Implement [the v0.4.0 release PRD](../product/release-scope-v0.4.md) in strict
+dependency order. The sidecar backend remains the supported default throughout.
+
+- [ ] Freeze the preview API, node capability/status contract, threat-model
+  amendment, and backend-neutral conformance matrix (#107).
+- [ ] Build the disposable containerd CNI handoff probe and prove exact Pod UID,
+  netns, cgroup-parent, ordering, idempotence, and rollback on amd64 and arm64
+  (#108).
+- [ ] Implement UID/generation-owned cgroup programs, pins, atomic updates,
+  adoption, severed-link handling, reboot recovery, and bounded garbage
+  collection in the node agent (#109).
+- [ ] Prototype node ownership of VXLAN, routes, DNS NAT, verification, and
+  drift repair; accept the privilege boundary explicitly before removing the
+  Pod networking agent (#110).
+- [ ] Implement explicit admission selection, prepared-node scheduling, stable
+  unsupported reasons, runtime capability-loss behavior, and no fallback (#111).
+- [ ] Package immutable CNI/node-agent artifacts with atomic installation,
+  upgrade, rollback, and safe uninstall (#112).
+- [ ] Run equivalent default/tuned-default/preview performance and component
+  measurements at 1, 10, 50, and stress counts on amd64 and arm64 (#113).
+- [ ] Pass the complete declared-feature conformance suite, default-mode
+  regression, signed-artifact policy, and mixed-mode homelab acceptance (#114).
+
+Exit: the exact signed `v0.4.0` is deployed in the homelab with sidecar and
+preview workloads coexisting; the preview has a documented narrow support
+boundary, measured value, and zero observed direct-egress packets through every
+required lifecycle transition.
 
 ## Deferred backlog
 
