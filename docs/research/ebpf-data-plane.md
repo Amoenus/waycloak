@@ -70,6 +70,14 @@ This model does not require all users to prepare every node for eBPF. It does
 require a documented node-enablement procedure, per-node capability conditions,
 and scheduling semantics for users who choose the optional mode.
 
+Node preparation is an operator choice, not a cluster-wide prerequisite. The
+capability contract must therefore work in mixed clusters: an ordinary node is
+eligible for the portable sidecar mode, while an eBPF-selected workload is
+eligible only for a node whose preparation label and observed capability
+condition both match the requested mode. A label alone is not evidence. Loss of
+the observed capability after scheduling must make the selected path not ready
+and fail closed; it must not trigger a transparent switch to sidecar mode.
+
 ## Product invariants used as evaluation criteria
 
 - Opt-in is explicit on the workload Pod template.
@@ -181,6 +189,14 @@ node reboot, and stale-object cleanup on every supported kernel.
   not complete packet enforcement. They may help DNS only after exact TCP/UDP
   and connected/unconnected coverage is demonstrated.
 
+The live `bpftool feature probe kernel` helper inventory on both representative
+nodes narrows the cgroup option further. `cgroup_skb` can read packet and socket
+identity and use maps/ring buffers, but neither sample exposes packet-store,
+L3/L4 checksum-rewrite, redirect, clone-redirect, or tunnel-key helpers for that
+program type. The attachment is therefore a viable allow/drop and observation
+gate, not a DNS/port NAT, routing, or tunnel implementation on the target
+support boundary.
+
 ### Portability is executable evidence
 
 BTF and CO-RE relocate compiled programs against running-kernel types, and
@@ -255,6 +271,36 @@ and bpffs operations; `Unconfined` is diagnostic evidence, not the preferred
 production policy. Executable preflight must exercise pinning under that exact
 profile.
 
+### Parent coverage and link-update lifecycle evidence
+
+A two-phase disposable Pod proved parent-cgroup coverage across Kubernetes
+container roles. During initialization, one parent attachment denied egress
+from both a restartable init sidecar and a concurrently running ordinary init
+container. After explicit unpin and release of the init gate, a new parent
+attachment denied both the application container and the same restartable
+sidecar. Every container recovered after unpin. This establishes effective
+coverage of separate containerd child scopes under the sampled Pod parent.
+
+A separate amd64 update probe exercised a pinned link without detaching it:
+
+- a wrong-program-type update was rejected and the existing deny remained;
+- a valid deny-to-deny update completed while 12 consecutive target connection
+  attempts observed zero successes;
+- a deny-to-allow update restored connectivity through the same link;
+- a subsequent allow-to-deny update blocked it again;
+- explicit unpin and close restored connectivity.
+
+The bounded 12-attempt result is mechanism evidence, not a statistical claim of
+zero possible packet windows. The backend conformance suite still needs a
+higher-rate packet capture/count assertion around update and rollback.
+
+An earlier harness timeout produced useful teardown evidence: when the target
+Pod completed and its cgroup disappeared, the kernel reported the pinned link as
+severed and rejected a later update. The bpffs pin remained until explicit
+cleanup. A node owner must therefore treat a severed target as fail-closed for
+status purposes and garbage-collect the exact UID-owned stale pin; pinning alone
+does not solve lifecycle ownership.
+
 ## Candidate architecture matrix
 
 Ratings are current inferences, not an ADR decision.
@@ -272,7 +318,90 @@ Application-specific lease adapters are orthogonal. A node data plane can
 remove `waycloak-agent` without removing the qBitTorrent adapter's need to call
 qBitTorrent APIs when an externally advertised port/address changes.
 
+## Ownership of routing, NAT, and injected components
+
+The cgroup probe establishes a strong fail-closed primitive but does not satisfy
+the existing `dataplane.Backend` contract by itself. Four ownership models
+remain:
+
+### E0: Pod-local hybrid
+
+Keep the existing injected gates/agent, netlink VXLAN/routes, and nftables DNS
+and lease DNAT. Replace only the output allow/drop chain with cgroup eBPF.
+
+- Lowest architectural change and easiest backend-conformance comparison.
+- Does not reduce injected components or per-Pod `NET_ADMIN`; adds `BPF` and a
+  cgroup/bpffs attachment surface.
+- Adoption is justified only by measured packet/rule-management performance or
+  materially better observation/drift repair.
+
+### E1: Node cgroup gate plus Pod-netns manager
+
+A node DaemonSet owns cgroup programs and enters each protected Pod's network
+namespace to retain the existing VXLAN, route, nftables NAT, verification, and
+repair behavior.
+
+- Could reduce protected Pods to one unprivileged startup gate and no
+  long-running Waycloak networking sidecar.
+- Joining another network namespace requires `CAP_SYS_ADMIN` in the relevant
+  user namespaces; host PID/netns discovery and host-path access create a much
+  larger node-level blast radius than today's Pod-netns-scoped `NET_ADMIN`.
+- Moving the same operations is not automatically a security improvement and
+  requires an explicit threat-model decision.
+
+### E2: CNI-time setup plus node owner
+
+An optional chained CNI component establishes the deny and networking state
+during Pod sandbox creation; a node agent adopts and repairs it.
+
+- Provides the strongest route to zero injected Waycloak networking containers
+  because setup precedes application container creation.
+- Mutates node CNI binaries/configuration and becomes runtime/CNI-version
+  sensitive. Installation, upgrades, rollback, ordering, and coexistence are
+  materially broader than the default Helm-only Pod-local mode.
+- May be acceptable only as an explicitly prepared-node integration; it cannot
+  become a hard dependency for ordinary Waycloak installations.
+
+### E3: Host-veth tc/TCX tunnel and translation
+
+A node agent uses the cgroup gate for default deny, then a host-veth tc/TCX
+program plus node-owned tunnel/maps to route, translate, and return protected
+traffic without configuring the Pod netns.
+
+- Could remove Waycloak networking containers and avoid per-Pod namespace
+  entry.
+- Reimplements routing, encapsulation, DNS translation, lease translation,
+  reverse-path behavior, checksums, fragmentation, offload, MTU, and stateful
+  flow handling in a CNI-like data plane.
+- Has the highest implementation, verifier, CNI-ordering, and conformance risk;
+  it is not a small backend substitution.
+
+Current evidence rejects describing any sidecarless option as merely “switching
+the backend.” E0 is the only direct backend swap. E1-E3 are new ownership
+architectures and must earn adoption through component/performance value and an
+accepted threat-model change.
+
 ## Performance and footprint study
+
+### Initial homelab baseline
+
+A short metrics-server observation on 2026-07-19 sampled the two protected
+workloads currently running in the homelab ten times over approximately 20
+seconds. The Bitmagnet `waycloak-agent` reported 34-42 millicores and 12-13 MiB;
+the qBittorrent `waycloak-agent` reported 43-48 millicores and 12-13 MiB. The
+application-specific adapters were separate consumers and are not removable by
+a networking-backend change alone.
+
+This is an observed baseline snapshot, not a benchmark: metrics-server values
+use a collection window, the workloads were not load-controlled, and the
+samples are correlated. It is nevertheless large enough to justify a controlled
+study. The as-built agent has two independent two-second loops. One refreshes
+lease delivery, while the other reloads allocation state and calls `Repair`;
+`Repair` reruns full configuration, replaces nftables policy, verifies link,
+address and route state, and performs a new non-keepalive gateway health request.
+The benchmark must distinguish the cost of this reconciliation design from the
+cost of nftables packet processing. An event-driven or diff-based sidecar could
+capture some benefit without eBPF and is therefore a required comparison.
 
 Measurements must compare equivalent fail-closed behavior, not a reduced eBPF
 feature set. At minimum:
@@ -287,6 +416,12 @@ feature set. At minimum:
 - program/rule update cost during membership and endpoint change;
 - amd64 and arm64 results with kernel/CNI/security context recorded.
 
+The controlled comparison must include at least: the current two-second
+sidecar; a tuned event-driven/diff-based sidecar retaining the same nftables and
+netlink contract; and any eBPF prototype with equivalent behavior. This prevents
+ordinary users on non-eBPF-ready nodes from being left with avoidable overhead
+and prevents a reconciliation optimization from being misattributed to eBPF.
+
 A sidecarless design must also measure DaemonSet availability, node upgrade
 ordering, and blast radius. A filter-only design must show performance gains
 large enough to justify keeping both the existing Pod components and a second
@@ -295,16 +430,18 @@ kernel implementation.
 ## Critical unknowns and minimum probes
 
 1. Extend the observed k3s/containerd Pod-parent/container-child cgroup mapping
-   with creation timing, effective inheritance, UID reuse, and teardown order;
-   never assume one QoS path.
+   with creation timing, UID reuse, and teardown order; never assume one QoS
+   path. Effective child-scope coverage is proved for the sampled container
+   roles.
 2. Extend the successful amd64/arm64 parent-cgroup deny/pin probes and compare a
-   host-veth attachment; test init/app/sidecar, connected and unconnected UDP,
-   TCP, IPv4, and IPv6.
+   host-veth attachment; test connected and unconnected UDP, TCP, IPv4, and
+   IPv6. Init/app/restartable-sidecar child coverage is proved on amd64.
 3. Prove a race-free Pod UID to cgroup/ifindex join across creation, restart,
    rescheduling, rapid deletion, and identifier reuse.
-4. Kill the loader and controller; distinguish intended pinned persistence from
-   accidental detach and prove denial remains.
-5. Replace and roll back a generation-bound deny program without a packet gap.
+4. Extend the proved loader-exit persistence with controller loss and node-agent
+   restart adoption of an existing pinned link.
+5. Extend the successful wrong-type rejection and deny-to-deny `BPF_LINK_UPDATE`
+   probe with generation ownership, high-rate packet capture, and rollback.
 6. Decide whether DNS and lease NAT remain nftables-hybrid or move; test TCP/UDP,
    checksums, fragments, GSO/GRO, conntrack, reverse traffic, and rotation.
 7. Compose with a pre-existing program at the selected hook and prove ordering,
@@ -314,7 +451,7 @@ kernel implementation.
    define a least-privilege AppArmor policy for persistent links, and document
    any node-agent threat-model change.
 9. Reboot a node and prove enforcement is re-established before protected Pods
-   can resume, with safe stale-pin reconciliation.
+   can resume, with safe severed-link and stale-pin reconciliation.
 10. Run the performance/footprint matrix above before claiming value.
 
 No probe may carry production workload traffic until deny-only disposable tests
