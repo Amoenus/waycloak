@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,7 +121,9 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	}
 	assertRealQBittorrentIsolation(t, protected)
 	copyLocalFile(t, observerBinary, namespace, protected.Name, "/tmp/qbittorrent-observer", "acceptance-observer")
-	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "acceptance-observer", "--", "sh", "-ec", "chmod +x /tmp/qbittorrent-observer; nohup /tmp/qbittorrent-observer serve-tracker --output=/tmp/tracker-port >/tmp/tracker.log 2>&1 </dev/null &")
+	trackerAddress := protectedOverlayAddress(t, namespace, protected.Name)
+	trackerListen := netip.AddrPortFrom(trackerAddress, 18081).String()
+	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "acceptance-observer", "--", "sh", "-ec", "chmod +x /tmp/qbittorrent-observer; nohup /tmp/qbittorrent-observer serve-tracker --listen="+trackerListen+" --output=/tmp/tracker-port >/tmp/tracker.log 2>&1 </dev/null &")
 
 	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: leaseName, Namespace: namespace}, Spec: wayv1.PortForwardLeaseSpec{
 		GatewayRef: wayv1.NamespacedNameReference{Name: gateway.Name},
@@ -143,7 +146,7 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 		t.Fatal("protected and ordinary probes observed the same public egress address")
 	}
 	probeRealPort(t, namespace, plain.Name, vpnIP, uint16(initialPort), true)
-	addAcceptanceMagnet(t, namespace, protected.Name, suffix)
+	addAcceptanceMagnet(t, namespace, protected.Name, suffix, trackerAddress)
 	waitForTrackerPort(t, namespace, protected.Name, uint16(initialPort), 2*time.Minute)
 	waitForDHTNodes(t, namespace, protected.Name, 10*time.Minute)
 
@@ -174,9 +177,6 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	if !renewed {
 		t.Fatal("no real NAT-PMP renewal was observed")
 	}
-	if !rotated {
-		t.Fatal("no real provider public-port rotation was observed before the configured timeout")
-	}
 
 	oldPort := uint16(current.Status.PublicPort)
 	oldVPNIP := vpnIP
@@ -195,12 +195,18 @@ func TestRealProviderQBittorrentPortForward(t *testing.T) {
 	}
 	probeRealPort(t, namespace, plain.Name, oldVPNIP, oldPort, false)
 	current = waitForRealLeaseReady(t, ctx, direct, lease, 10*time.Minute)
+	if current.Status.PublicPort != int32(oldPort) {
+		rotated = true
+	}
 	waitForPodReady(t, direct, protected)
 	assertPodUID(t, ctx, direct, protected, initialUID)
 	vpnIP = publicIPFromContainer(t, namespace, protected.Name, "qbittorrent")
 	probeRealPort(t, namespace, plain.Name, vpnIP, uint16(current.Status.PublicPort), true)
 	waitForTrackerPort(t, namespace, protected.Name, uint16(current.Status.PublicPort), 2*time.Minute)
 	waitForDHTNodes(t, namespace, protected.Name, 5*time.Minute)
+	if !rotated {
+		t.Fatal("no real provider public-port rotation was observed during the soak or gateway replacement")
+	}
 }
 
 func realPortForwardExistingGateway(t *testing.T, ctx context.Context, c client.Client, namespace, name string) *wayv1.VPNGateway {
@@ -420,10 +426,35 @@ func servingGatewayPod(t *testing.T, ctx context.Context, c client.Client, gatew
 	return nil
 }
 
-func addAcceptanceMagnet(t *testing.T, namespace, pod, suffix string) {
+func addAcceptanceMagnet(t *testing.T, namespace, pod, suffix string, trackerAddress netip.Addr) {
 	t.Helper()
-	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=waycloak-real-" + suffix + "&tr=http%3A%2F%2F127.0.0.1%3A18081%2Fannounce"
+	tracker := url.QueryEscape(fmt.Sprintf("http://%s:18081/announce", trackerAddress))
+	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=waycloak-real-" + suffix + "&tr=" + tracker
 	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "-c", "qbittorrent", "--", "su", "-s", "/bin/sh", "abc", "-c", "/app/qbittorrent-nox '"+magnet+"'")
+}
+
+func protectedOverlayAddress(t *testing.T, namespace, pod string) netip.Addr {
+	t.Helper()
+	output := command(t, nil, "kubectl", "exec", "-n", namespace, pod, "-c", "acceptance-observer", "--", "ip", "-o", "-4", "addr", "show")
+	addresses := map[netip.Addr]struct{}{}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || !strings.HasPrefix(fields[1], "wc") || fields[2] != "inet" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(fields[3])
+		if err != nil {
+			t.Fatal("protected overlay interface reported an invalid IPv4 prefix")
+		}
+		addresses[prefix.Addr().Unmap()] = struct{}{}
+	}
+	if len(addresses) != 1 {
+		t.Fatalf("protected workload must have exactly one Waycloak overlay IPv4 address, got %d", len(addresses))
+	}
+	for address := range addresses {
+		return address
+	}
+	panic("unreachable")
 }
 
 func waitForTrackerPort(t *testing.T, namespace, pod string, port uint16, timeout time.Duration) {
@@ -486,12 +517,19 @@ func probeRealTransport(t *testing.T, namespace, pod string, address netip.Addr,
 
 func publicIPFromContainer(t *testing.T, namespace, pod, container string) netip.Addr {
 	t.Helper()
-	value := strings.TrimSpace(command(t, nil, "kubectl", "exec", "-n", namespace, pod, "-c", container, "--", "wget", "-qO-", "-T", "30", "https://api.ipify.org"))
-	address, err := netip.ParseAddr(value)
-	if err != nil {
-		t.Fatal("public egress endpoint did not return a valid IP address")
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		output, err := exec.Command("kubectl", "exec", "-n", namespace, pod, "-c", container, "--", "wget", "-qO-", "-T", "15", "https://api.ipify.org").CombinedOutput()
+		if err == nil {
+			address, parseErr := netip.ParseAddr(strings.TrimSpace(string(output)))
+			if parseErr == nil && address.IsGlobalUnicast() {
+				return address
+			}
+		}
+		time.Sleep(2 * time.Second)
 	}
-	return address
+	t.Fatal("public egress endpoint did not return a valid IP address before the retry deadline")
+	return netip.Addr{}
 }
 
 func assertPodUID(t *testing.T, ctx context.Context, c client.Client, pod *corev1.Pod, uid types.UID) {
