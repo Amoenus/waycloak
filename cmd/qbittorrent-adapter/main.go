@@ -69,7 +69,7 @@ func run(args []string) error {
 	if protocol != "" && protocol != contract.AdapterProtocolVersion {
 		return fmt.Errorf("unsupported adapter protocol %q", protocol)
 	}
-	adapter := &qbittorrent.Adapter{Client: &qbittorrent.Client{BaseURL: baseURL, APIKey: strings.TrimSpace(string(key))}, LeaseEndpoint: leaseEndpoint, LeaseName: strings.TrimSpace(os.Getenv("WAYCLOAK_LEASE_NAME"))}
+	adapter := &qbittorrent.Adapter{Client: &qbittorrent.Client{BaseURL: baseURL, APIKey: strings.TrimSpace(string(key))}, LeaseEndpoint: leaseEndpoint, LeaseName: strings.TrimSpace(os.Getenv("WAYCLOAK_LEASE_NAME")), NetworkBinding: qbittorrent.DiscoverWaycloakBinding}
 	ready := &atomic.Bool{}
 	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", contract.QBittorrentAdapterHealthPort), Handler: http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/readyz" {

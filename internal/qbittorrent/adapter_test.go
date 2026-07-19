@@ -74,6 +74,64 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 	}
 }
 
+func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
+	now := time.Date(2026, 7, 18, 23, 30, 0, 0, time.UTC)
+	applicationPort := 0
+	preferences := map[string]any{"listen_port": 6881, "dht": true, "current_network_interface": "", "current_interface_address": ""}
+	var updates []map[string]any
+	acknowledged := false
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v2/app/preferences":
+			preferences["listen_port"] = applicationPort
+			_ = json.NewEncoder(response).Encode(preferences)
+		case "/api/v2/app/setPreferences":
+			if err := request.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			var update map[string]any
+			if err := json.Unmarshal([]byte(request.Form.Get("json")), &update); err != nil {
+				t.Fatal(err)
+			}
+			updates = append(updates, update)
+			for key, value := range update {
+				preferences[key] = value
+			}
+			response.WriteHeader(http.StatusNoContent)
+		case "/v1/port-forward/leases":
+			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 5, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}})
+		case "/v1/port-forward/leases/lease-uid/ack":
+			acknowledged = true
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	applicationPort = server.Listener.Addr().(*net.TCPAddr).Port
+	adapter := &Adapter{
+		Client:        &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: server.Client()},
+		LeaseEndpoint: server.URL + "/v1/port-forward/leases",
+		HTTP:          server.Client(),
+		Now:           func() time.Time { return now },
+		NetworkBinding: func() (NetworkBinding, error) {
+			return NetworkBinding{InterfaceName: "wc123456789abc", Address: "127.0.0.1"}, nil
+		},
+	}
+	if _, err := adapter.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !acknowledged || len(updates) != 3 {
+		t.Fatalf("acknowledged=%t updates=%#v", acknowledged, updates)
+	}
+	if updates[0]["current_network_interface"] != "wc123456789abc" || updates[0]["current_interface_address"] != "127.0.0.1" || updates[1]["dht"] != false || updates[2]["dht"] != true {
+		t.Fatalf("qBitTorrent compatibility updates = %#v", updates)
+	}
+}
+
 func TestAdapterDoesNotAcknowledgeWhenQbittorrentListenerIsUnavailable(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

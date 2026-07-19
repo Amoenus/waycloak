@@ -171,7 +171,7 @@ workload credentials automatically.
 
 Ordinary listeners stay on the fixed `PortForwardLease.spec.target.port` while the gateway translates each provider public-port generation to that target. Applications may also advertise a peer port inside their own protocol; for those workloads Waycloak first tries a Pod-local standard such as NAT-PMP, PCP, or UPnP.
 
-qBitTorrent 5.2.3 is an evidence-backed exception. In the Phase 4 compatibility probe it accepted a PCP mapping from local port `6881` to external port `42000`, but its real HTTP tracker request still announced `port=6881`. The official integration therefore requires a narrow qBitTorrent sidecar that consumes only the neutral lease record and changes the application listener. It remains outside the controller, receives no Kubernetes or VPN credentials, and must acknowledge the exact lease generation before application delivery is considered observed.
+qBitTorrent 5.2.3 is an evidence-backed exception. In the Phase 4 compatibility probe it accepted a PCP mapping from local port `6881` to external port `42000`, but its real HTTP tracker request still announced `port=6881`. The official integration therefore requires a narrow qBitTorrent sidecar that consumes only the neutral lease record, changes the application listener, and binds qBitTorrent to the single observed Waycloak overlay interface and address. When an enabled DHT is rebound, the adapter restarts that application subsystem so bootstrap traffic uses the new binding. It remains outside the controller, receives no Kubernetes or VPN credentials, and must acknowledge the exact lease generation only after observing the binding and listener.
 
 ## Writing a workload adapter
 
