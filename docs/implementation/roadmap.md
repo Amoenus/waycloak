@@ -90,8 +90,8 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The reviewed base is the published, independently verified, GitOps-deployed,
-and real-provider-certified `v0.3.0-rc.11`. The alpha.6 deployment completed engine auto-healing and stable
+The final `v0.3.0` release is published, independently verified,
+GitOps-deployed, and real-provider certified. The alpha.6 deployment completed engine auto-healing and stable
 renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
 first full harness run. Its next run proved the startup deny gate but selected
 a worker with independently reproduced asymmetric Pod-CIDR reachability. RC2
@@ -136,8 +136,9 @@ qBitTorrent changed its listener and announce address without immediately
 reannouncing active torrents. RC11 makes successful generation-bound tracker
 reannounce part of application acknowledgement. Its complete sustained
 real-provider run passed renewal, actual rotation, ingress, advertisement, DHT,
-gateway loss, fail-closed behavior, and same-Pod recovery. Final artifact
-publication and homelab promotion are the remaining release steps.
+gateway loss, fail-closed behavior, and same-Pod recovery. The same gate passed
+again against exact final artifacts, which were published, independently
+verified, promoted, and observed Healthy/Ready in the homelab.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
@@ -167,25 +168,49 @@ publication and homelab promotion are the remaining release steps.
 - [x] Publish the workload-adapter protocol, trusted selection mechanism,
   conformance kit, and qBitTorrent reference implementation (#67).
 
-Exit: qBitTorrent survives provider renewal or rotation without Pod
-replacement, and the additional reference workloads have documented neutral
-or evidence-backed narrow integrations.
+Exit: final `v0.3.0` is deployed in the homelab; qBitTorrent survives provider
+renewal or rotation without Pod replacement, and Bitmagnet has a documented,
+real-deployment-proven narrow integration. Loadstone remains future work.
 
-## Phase 6 — operational maturity (`v0.4.0`)
+## Phase 6 — optional eBPF data plane (`v0.4.0`)
 
-- [ ] Retain automatic same-Pod gateway endpoint recovery as a release
-  regression after its `v0.2.2` delivery (#70).
-- [ ] Multiple named gateways.
-- [ ] Gateway sharding design and implementation.
-- [ ] Upgrade, rollback, backup, and disaster-recovery tests.
-- [ ] Optional metrics, alerts, and dashboards.
-- [ ] Performance/resource benchmarks.
-- [ ] Compatibility matrix across supported Kubernetes/CNI combinations.
-- [ ] Evaluate an optional eBPF backend through the shared fail-closed
-  conformance suite on capable amd64 and arm64 nodes (#65).
+The cutoff is an explicit, capability-gated eBPF implementation of the existing
+workload data-plane contract. nftables/netlink remains the default supported
+backend. The Kubernetes API, stable identities, overlay topology, gateway and
+lease ownership, and fail-closed semantics remain backend independent.
+
+- [ ] Define one black-box packet and lifecycle conformance suite for every
+  supported data-plane backend (#65).
+- [ ] Add read-only node capability discovery for kernel config, BTF, helpers,
+  maps, hooks, verifier, privilege, architecture, lockdown, and CNI context
+  (#65).
+- [ ] Define explicit backend selection plus admission/scheduling failure on
+  unsupported nodes, with no silent fallback (#65).
+- [ ] Implement eBPF behind the existing data-plane interface without replacing
+  or flushing CNI-owned programs, maps, routes, hooks, or unrelated state (#65).
+- [ ] Prove startup, tunnel/gateway/agent loss, drift, detach, upgrade, cleanup,
+  DNS, and direct-egress denial for nftables and eBPF (#65).
+- [ ] Publish amd64/arm64 compatibility evidence and comparative CPU, memory,
+  throughput, UDP-loss, startup, and recovery measurements (#34, eBPF scope).
+- [ ] Accept or reject eBPF production support in an evidence-backed follow-up
+  to proposed ADR 0019.
+- [ ] Retain the complete `v0.3.0` default-backend real-provider acceptance and
+  run the applicable protected-egress regression with eBPF selected.
+- [ ] Publish, independently verify, promote, and homelab-deploy final
+  `v0.4.0` immutable artifacts.
+
+Exit: an explicitly selected eBPF backend is supported on documented nodes and
+passes the same fail-closed packet contract as nftables/netlink, unsupported
+nodes fail clearly without fallback, measured value is published, and final
+artifacts are verified in the homelab.
 
 ## Deferred backlog
 
+- multiple concurrent gateways, explicit sharding, and cross-gateway failover
+  (#31);
+- general backup, restore, and disaster-recovery expansion (#32);
+- product-wide metrics, alerts, and dashboards beyond eBPF diagnostics (#33);
+- Loadstone lease-consumption certification;
 - additional VPN engines and providers;
 - cross-namespace reference grants and deeper multi-tenancy;
 - Service-targeted lease handoff;
