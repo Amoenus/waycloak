@@ -86,6 +86,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 		return revision, critical(revision, err)
 	}
 	bindingChanged := false
+	listenerAddress := "127.0.0.1"
 	if adapter.NetworkBinding != nil {
 		binding, err := adapter.NetworkBinding()
 		if err != nil {
@@ -97,6 +98,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 			}
 			bindingChanged = true
 		}
+		listenerAddress = binding.Address
 	}
 	if preferences.ListenPort != int(selected.ApplicationPort) {
 		if err := adapter.Client.SetListenPort(ctx, selected.ApplicationPort); err != nil {
@@ -108,7 +110,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 			return revision, critical(revision, err)
 		}
 	}
-	if err := adapter.Client.VerifyListener(ctx, selected.ApplicationPort); err != nil {
+	if err := adapter.Client.VerifyListener(ctx, listenerAddress, selected.ApplicationPort); err != nil {
 		return revision, critical(revision, err)
 	}
 	acknowledgement := delivery.ApplicationAcknowledgement{APIVersion: delivery.AcknowledgementAPIVersion, PodUID: document.PodUID, LeaseIdentity: selected.Identity, Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}

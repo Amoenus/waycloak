@@ -150,12 +150,15 @@ func (client *Client) setPreferences(ctx context.Context, values map[string]any)
 	return nil
 }
 
-func (client *Client) VerifyListener(ctx context.Context, port uint16) error {
+func (client *Client) VerifyListener(ctx context.Context, address string, port uint16) error {
 	if port == 0 {
 		return errors.New("qBitTorrent listen port is required")
 	}
+	if net.ParseIP(strings.TrimSpace(address)) == nil {
+		return errors.New("qBitTorrent listener address is invalid")
+	}
 	dialer := &net.Dialer{Timeout: time.Second}
-	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
+	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(address, strconv.Itoa(int(port))))
 	if err != nil {
 		return fmt.Errorf("qBitTorrent is not accepting connections on listen port %d: %w", port, err)
 	}

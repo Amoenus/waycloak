@@ -115,7 +115,7 @@ func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 		HTTP:          server.Client(),
 		Now:           func() time.Time { return now },
 		NetworkBinding: func() (NetworkBinding, error) {
-			return NetworkBinding{InterfaceName: "wc123456789abc", Address: "172.30.99.2"}, nil
+			return NetworkBinding{InterfaceName: "wc123456789abc", Address: "127.0.0.1"}, nil
 		},
 	}
 	if _, err := adapter.Reconcile(t.Context()); err != nil {
@@ -127,7 +127,7 @@ func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 	if !acknowledged || len(updates) != 3 {
 		t.Fatalf("acknowledged=%t updates=%#v", acknowledged, updates)
 	}
-	if updates[0]["current_network_interface"] != "wc123456789abc" || updates[0]["current_interface_address"] != "172.30.99.2" || updates[1]["dht"] != false || updates[2]["dht"] != true {
+	if updates[0]["current_network_interface"] != "wc123456789abc" || updates[0]["current_interface_address"] != "127.0.0.1" || updates[1]["dht"] != false || updates[2]["dht"] != true {
 		t.Fatalf("qBitTorrent compatibility updates = %#v", updates)
 	}
 }
