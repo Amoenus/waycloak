@@ -455,15 +455,96 @@ func realPortForwardProbePod(name, namespace, node string) *corev1.Pod {
 
 func waitForRealLeaseReady(t *testing.T, ctx context.Context, c client.Client, lease *wayv1.PortForwardLease, timeout time.Duration) wayv1.PortForwardLease {
 	t.Helper()
+	started := time.Now()
+	deadline := started.Add(timeout)
 	var current wayv1.PortForwardLease
-	waitFor(t, timeout, func() bool {
-		if c.Get(ctx, client.ObjectKeyFromObject(lease), &current) != nil {
-			return false
+	var lastGetError error
+	lastSnapshot := ""
+	timeline := make([]string, 0, 16)
+	for time.Now().Before(deadline) {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(lease), &current); err != nil {
+			lastGetError = err
+		} else {
+			lastGetError = nil
+			snapshot := realLeaseDiagnosticSnapshot(&current)
+			if snapshot != lastSnapshot {
+				if len(timeline) == 64 {
+					copy(timeline, timeline[1:])
+					timeline = timeline[:63]
+				}
+				timeline = append(timeline, fmt.Sprintf("+%s %s", time.Since(started).Truncate(time.Millisecond), snapshot))
+				lastSnapshot = snapshot
+			}
+			condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionReady)
+			if condition != nil && condition.Status == metav1.ConditionTrue && current.Status.PublicPort > 0 {
+				return current
+			}
 		}
-		condition := apiMeta.FindStatusCondition(current.Status.Conditions, waystatus.ConditionReady)
-		return condition != nil && condition.Status == metav1.ConditionTrue && current.Status.PublicPort > 0
-	})
-	return current
+		time.Sleep(250 * time.Millisecond)
+	}
+	if lastGetError != nil {
+		timeline = append(timeline, "last read failed: "+lastGetError.Error())
+	}
+	t.Fatalf("condition timed out waiting for real provider lease readiness after %s; transition timeline (provider endpoint values omitted):\n%s", timeout, strings.Join(timeline, "\n"))
+	return wayv1.PortForwardLease{}
+}
+
+func realLeaseDiagnosticSnapshot(lease *wayv1.PortForwardLease) string {
+	conditionParts := make([]string, 0, len(lease.Status.Conditions))
+	for i := range lease.Status.Conditions {
+		condition := &lease.Status.Conditions[i]
+		conditionParts = append(conditionParts, fmt.Sprintf("%s=%s/%s@%s", condition.Type, condition.Status, condition.Reason, condition.LastTransitionTime.UTC().Format(time.RFC3339)))
+	}
+	return fmt.Sprintf(
+		"generation=%d observedGeneration=%d leaseGeneration=%d endpointPresent=%t issuedAt=%s renewAfter=%s expiresAt=%s conditions=[%s]",
+		lease.Generation,
+		lease.Status.ObservedGeneration,
+		lease.Status.LeaseGeneration,
+		lease.Status.PublicAddress != "" && lease.Status.PublicPort > 0,
+		realLeaseDiagnosticTime(lease.Status.IssuedAt),
+		realLeaseDiagnosticTime(lease.Status.RenewAfter),
+		realLeaseDiagnosticTime(lease.Status.ExpiresAt),
+		strings.Join(conditionParts, ","),
+	)
+}
+
+func realLeaseDiagnosticTime(value *metav1.Time) string {
+	if value == nil {
+		return "<nil>"
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func TestRealLeaseDiagnosticSnapshotOmitsProviderEndpoint(t *testing.T) {
+	transition := metav1.NewTime(time.Date(2026, time.July, 19, 9, 30, 0, 0, time.UTC))
+	lease := &wayv1.PortForwardLease{
+		ObjectMeta: metav1.ObjectMeta{Generation: 3},
+		Status: wayv1.PortForwardLeaseStatus{
+			ObservedGeneration: 3,
+			LeaseGeneration:    7,
+			PublicAddress:      "198.51.100.42",
+			PublicPort:         54321,
+			ExpiresAt:          &transition,
+			Conditions: []metav1.Condition{{
+				Type:               waystatus.ConditionReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             waystatus.ReasonDeliveryObservationFailed,
+				LastTransitionTime: transition,
+			}},
+		},
+	}
+
+	snapshot := realLeaseDiagnosticSnapshot(lease)
+	for _, secret := range []string{lease.Status.PublicAddress, fmt.Sprintf("%d", lease.Status.PublicPort)} {
+		if strings.Contains(snapshot, secret) {
+			t.Fatalf("diagnostic snapshot exposed provider endpoint value %q", secret)
+		}
+	}
+	for _, expected := range []string{"leaseGeneration=7", "endpointPresent=true", waystatus.ReasonDeliveryObservationFailed} {
+		if !strings.Contains(snapshot, expected) {
+			t.Fatalf("diagnostic snapshot omitted %q: %s", expected, snapshot)
+		}
+	}
 }
 
 func servingGatewayPod(t *testing.T, ctx context.Context, c client.Client, gateway *wayv1.VPNGateway) *corev1.Pod {

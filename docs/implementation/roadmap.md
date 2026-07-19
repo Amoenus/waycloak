@@ -126,8 +126,13 @@ workload replacement: single-threaded reconciliation selected addresses from
 an eventually consistent cache and could miss the immediately preceding
 durable status write. The gateway rejected the duplicate membership and stayed
 fail closed. RC9 uses an authoritative API-server read for allocation while
-retaining single-threaded, stable-identity semantics; exact RC9 certification
-remains the release gate.
+retaining single-threaded, stable-identity semantics. Its instrumented renewal
+run then proved that feeding controller-derived mapping generation back through
+a mounted ConfigMap could leave gateway rules perpetually behind a short-lived
+provider lease. RC10 implements ADR 0023: the gateway manager owns mapping
+generation and matching local rule convergence, expiry-only renewal preserves
+generation, and expiry still removes rules fail closed. Exact RC10 sustained
+real-provider certification is the release gate.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).

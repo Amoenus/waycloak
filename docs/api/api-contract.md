@@ -209,7 +209,9 @@ its controller-owned `VPNWorkload` binds the exact Pod UID to a persisted
 overlay allocation.
 Status records that observed Pod UID, workload reference, overlay address, and
 local port. It also records the provider-observed public IPv4 address and port;
-`leaseGeneration` advances when either endpoint component changes. The
+`leaseGeneration` is owned by the serving gateway manager and advances on
+first acquisition, reacquisition after expiry, or when either endpoint
+component changes. Expiry-only renewal of the same endpoint preserves it. The
 `PortForwardLease` object UID is the stable provider-facing
 lease identity. The controller also persists a unique NAT-PMP internal port;
 neither value is derived from list order, and deletion quarantines the mapping
@@ -248,9 +250,13 @@ Proton requires the referenced OpenVPN username to include `+pmp`; Waycloak
 does not read or rewrite that Secret value. Gluetun selects
 port-forward-capable servers but its own
 port-forward loop is disabled so the gateway manager remains the only mapping
-owner. Provider acquisition is observed through the exact serving gateway Pod
-and increments `leaseGeneration` when the public address or port changes
-([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md)).
+owner. Provider acquisition is observed through the exact serving gateway Pod.
+The manager installs rules for its current mapping generation locally rather
+than waiting for a controller status round trip through mounted ConfigMap
+projection. The last persisted generation and endpoint are only a restart hint;
+the controller rejects an endpoint change that reuses an observed generation
+([ADR 0013](../decisions/0013-proton-nat-pmp-ownership-and-observation.md),
+[ADR 0023](../decisions/0023-manager-owned-port-forward-generation.md)).
 
 `spec.target.port` is the stable gateway-to-Pod target and, in the default
 `Fixed` mode, the application listener. The public provider address or port in
@@ -282,7 +288,10 @@ same document is served on loopback port `9809` under
 
 The controller reports `Delivered=True` only after the target agent readback
 matches the API version, lease object UID, target Pod UID, lease generation,
-and canonical unexpired expiry. A controller-owned content-digest Pod
+application port when required, and an unexpired deadline no later than the
+current provider expiry. This permits a same-generation earlier deadline to
+remain ready while an expiry-only renewal propagates, without allowing the
+workload to outlive the observed provider mapping. A controller-owned content-digest Pod
 annotation prompts kubelet to refresh the short-lived projected record without
 restarting the Pod. Agent acknowledgement proves neutral record delivery, not
 application-specific configuration; adapters that support stronger

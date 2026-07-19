@@ -189,8 +189,6 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		r.componentsPending(&lease, reason, message)
 		return ctrl.Result{RequeueAfter: providerObservationPoll}, r.updateStatus(ctx, &lease, previous)
 	}
-	previousPort := lease.Status.PublicPort
-	previousAddress := lease.Status.PublicAddress
 	lease.Status.PublicAddress = observation.PublicAddress
 	lease.Status.PublicPort = int32(observation.PublicPort)
 	issuedAt := metav1.NewTime(observation.IssuedAt.UTC().Truncate(time.Second))
@@ -199,9 +197,7 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	lease.Status.IssuedAt = &issuedAt
 	lease.Status.RenewAfter = &renewAfter
 	lease.Status.ExpiresAt = &expiresAt
-	if lease.Status.LeaseGeneration == 0 || previousPort != lease.Status.PublicPort || previousAddress != lease.Status.PublicAddress {
-		lease.Status.LeaseGeneration++
-	}
+	lease.Status.LeaseGeneration = observation.LeaseGeneration
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "A current provider mapping is observed through the serving gateway Pod")
 	if observation.GatewayRulesReady && observation.GatewayRulesGeneration == lease.Status.LeaseGeneration && lease.Status.Target != nil && observation.TargetAddress == lease.Status.Target.OverlayAddress && observation.TargetPort == uint16(lease.Status.Target.Port) {
 		r.rulesObserved(&lease)
@@ -237,10 +233,10 @@ func deliveryObservationMismatch(lease *wayv1.PortForwardLease, target *corev1.P
 		return "applied application port does not match the provider port"
 	case lease.Status.ExpiresAt == nil:
 		return "lease expiry is absent"
-	case !observation.ExpiresAt.Equal(lease.Status.ExpiresAt.Time):
-		return "lease expiry mismatch"
 	case !now.Before(observation.ExpiresAt):
 		return "agent record is expired"
+	case observation.ExpiresAt.After(lease.Status.ExpiresAt.Time):
+		return "agent expiry exceeds the current provider expiry"
 	default:
 		return ""
 	}
@@ -274,7 +270,12 @@ func (r *PortForwardLeaseReconciler) observeProviderLease(ctx context.Context, g
 
 func validProviderObservation(lease *wayv1.PortForwardLease, observation waygateway.PortForwardObservation, now time.Time) bool {
 	publicAddress, addressErr := netip.ParseAddr(observation.PublicAddress)
-	if !observation.Ready || observation.Identity != string(lease.UID) || observation.InternalPort != uint16(lease.Status.ProviderInternalPort) || addressErr != nil || !publicAddress.Is4() || !publicAddress.IsGlobalUnicast() || observation.PublicPort == 0 || observation.IssuedAt.IsZero() || observation.RenewAfter.IsZero() || observation.ExpiresAt.IsZero() || !observation.IssuedAt.Before(observation.ExpiresAt) || !observation.RenewAfter.Before(observation.ExpiresAt) || !now.Before(observation.ExpiresAt) {
+	if !observation.Ready || observation.Identity != string(lease.UID) || observation.InternalPort != uint16(lease.Status.ProviderInternalPort) || observation.LeaseGeneration <= 0 || observation.LeaseGeneration < lease.Status.LeaseGeneration || addressErr != nil || !publicAddress.Is4() || !publicAddress.IsGlobalUnicast() || observation.PublicPort == 0 || observation.IssuedAt.IsZero() || observation.RenewAfter.IsZero() || observation.ExpiresAt.IsZero() || !observation.IssuedAt.Before(observation.ExpiresAt) || !observation.RenewAfter.Before(observation.ExpiresAt) || !now.Before(observation.ExpiresAt) {
+		return false
+	}
+	if lease.Status.LeaseGeneration > 0 && observation.LeaseGeneration == lease.Status.LeaseGeneration &&
+		((lease.Status.PublicAddress != "" && observation.PublicAddress != lease.Status.PublicAddress) ||
+			(lease.Status.PublicPort > 0 && observation.PublicPort != uint16(lease.Status.PublicPort))) {
 		return false
 	}
 	wanted := make([]string, 0, len(lease.Spec.Protocols))

@@ -139,7 +139,7 @@ func TestProviderAssignedTargetWaitsForInjectedAgent(t *testing.T) {
 func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	lease, reconciler := leaseFixture(t, metav1.LabelSelector{MatchLabels: map[string]string{"access": "allowed"}}, 1)
 	now := time.Date(2026, 7, 13, 12, 0, 0, 987654321, time.UTC)
-	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicAddress: "203.0.113.10", PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
+	observer := &fakeLeaseObserver{observation: waygateway.PortForwardObservation{Identity: string(lease.UID), InternalPort: 49152, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP}, PublicAddress: "203.0.113.10", PublicPort: 42000, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(60 * time.Second), LeaseGeneration: 1, Ready: true, GatewayRulesReady: true, GatewayRulesGeneration: 1, TargetAddress: "172.30.99.12", TargetPort: 6881}}
 	reconciler.Observer = observer
 	deliveryObserver := &fakeDeliveryObserver{observation: delivery.Observation{APIVersion: delivery.APIVersion, Identity: string(lease.UID), PodUID: "pod-uid", Generation: 1, ExpiresAt: now.Add(60 * time.Second).Truncate(time.Second), Ready: true}}
 	reconciler.DeliveryObserver = deliveryObserver
@@ -176,7 +176,19 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.LeaseGeneration != 1 {
 		t.Fatalf("stable generation status=%#v error=%v", got.Status, err)
 	}
+	observer.observation.IssuedAt = now.Add(45 * time.Second)
+	observer.observation.RenewAfter = now.Add(90 * time.Second)
+	observer.observation.ExpiresAt = now.Add(105 * time.Second)
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.LeaseGeneration != 1 || got.Status.ExpiresAt == nil || !got.Status.ExpiresAt.Time.Equal(observer.observation.ExpiresAt.Truncate(time.Second)) {
+		t.Fatalf("expiry-only renewal status=%#v error=%v", got.Status, err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonLeaseReady)
 	observer.observation.PublicPort = 42001
+	observer.observation.LeaseGeneration = 2
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +208,7 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
 	observer.observation.PublicAddress = "203.0.113.11"
+	observer.observation.LeaseGeneration = 3
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +217,23 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionFalse, waystatus.ReasonGatewayRulesPending)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionFalse, waystatus.ReasonDeliveryPending)
+	observer.observation.LeaseGeneration = 2
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.LeaseGeneration != 3 || got.Status.PublicAddress != "203.0.113.11" {
+		t.Fatalf("regressed provider generation replaced current status=%#v error=%v", got.Status, err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionProviderLeaseReady, metav1.ConditionFalse, waystatus.ReasonProviderLeaseObservationFailed)
+	observer.observation.LeaseGeneration = 3
+	observer.observation.PublicPort = 42002
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.LeaseGeneration != 3 || got.Status.PublicPort != 42001 {
+		t.Fatalf("same generation changed endpoint status=%#v error=%v", got.Status, err)
+	}
+	assertCondition(t, got.Status.Conditions, waystatus.ConditionProviderLeaseReady, metav1.ConditionFalse, waystatus.ReasonProviderLeaseObservationFailed)
 }
 
 func TestObserveProviderLeaseUsesBoundedStatefulSetName(t *testing.T) {
@@ -243,6 +273,40 @@ func TestProviderAssignedDeliveryRequiresCurrentApplicationPort(t *testing.T) {
 	observation.AppliedPort = 42000
 	if mismatch := deliveryObservationMismatch(lease, target, observation, now); mismatch != "" {
 		t.Fatalf("current application port mismatch = %q", mismatch)
+	}
+}
+
+func TestDeliveryAllowsUnexpiredEarlierExpiryForSameGeneration(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	providerExpiry := metav1.NewTime(now.Add(2 * time.Minute))
+	lease := &wayv1.PortForwardLease{
+		ObjectMeta: metav1.ObjectMeta{UID: types.UID("lease-uid")},
+		Status: wayv1.PortForwardLeaseStatus{
+			LeaseGeneration: 4,
+			ExpiresAt:       &providerExpiry,
+		},
+	}
+	target := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")}}
+	observation := delivery.Observation{
+		APIVersion: delivery.APIVersion,
+		Identity:   "lease-uid",
+		PodUID:     "pod-uid",
+		Generation: 4,
+		ExpiresAt:  now.Add(time.Minute),
+		Ready:      true,
+	}
+	if mismatch := deliveryObservationMismatch(lease, target, observation, now); mismatch != "" {
+		t.Fatalf("expiry-only renewal mismatch = %q", mismatch)
+	}
+
+	observation.ExpiresAt = now.Add(3 * time.Minute)
+	if mismatch := deliveryObservationMismatch(lease, target, observation, now); mismatch != "agent expiry exceeds the current provider expiry" {
+		t.Fatalf("unsafe future expiry mismatch = %q", mismatch)
+	}
+
+	observation.ExpiresAt = now
+	if mismatch := deliveryObservationMismatch(lease, target, observation, now); mismatch != "agent record is expired" {
+		t.Fatalf("expired delivery mismatch = %q", mismatch)
 	}
 }
 

@@ -24,7 +24,9 @@ type PortForwardObservation struct {
 	IssuedAt               time.Time                      `json:"issuedAt,omitempty"`
 	RenewAfter             time.Time                      `json:"renewAfter,omitempty"`
 	ExpiresAt              time.Time                      `json:"expiresAt,omitempty"`
+	LeaseGeneration        int64                          `json:"leaseGeneration,omitempty"`
 	Ready                  bool                           `json:"ready"`
+	RenewalPending         bool                           `json:"renewalPending,omitempty"`
 	GatewayRulesReady      bool                           `json:"gatewayRulesReady"`
 	GatewayRulesGeneration int64                          `json:"gatewayRulesGeneration,omitempty"`
 	TargetAddress          string                         `json:"targetAddress,omitempty"`
@@ -130,6 +132,16 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 	now := manager.now()
 	for _, intent := range desired {
 		managed, exists := leases[intent.Identity]
+		if exists && intent.LeaseGeneration > managed.observation.LeaseGeneration {
+			managed.observation.LeaseGeneration = intent.LeaseGeneration
+			leases[intent.Identity] = managed
+		}
+		if exists && intent.LeaseGeneration > 0 && intent.LeaseGeneration >= managed.observation.LeaseGeneration &&
+			((intent.SuggestedExternalAddress != "" && intent.SuggestedExternalAddress != managed.observation.PublicAddress) ||
+				(intent.SuggestedExternalPort != 0 && intent.SuggestedExternalPort != managed.observation.PublicPort)) {
+			managed.observation.LeaseGeneration = intent.LeaseGeneration + 1
+			leases[intent.Identity] = managed
+		}
 		intentChanged := exists && !reflect.DeepEqual(providerRequest(managed.intent, 0), providerRequest(intent, 0))
 		if intentChanged {
 			managed.observation.Ready = false
@@ -163,17 +175,31 @@ func (manager *PortForwardManager) Reconcile(ctx context.Context, desired []Port
 			err = errors.New("provider returned an invalid port-forward lease observation")
 		}
 		if err != nil {
+			if exists && managed.observation.Ready && now.Before(managed.observation.ExpiresAt) {
+				managed.intent = intent
+				managed.observation.RenewalPending = true
+				managed.observation.Message = "Provider mapping renewal is pending; the last observation remains current: " + err.Error()
+				leases[intent.Identity] = managed
+				continue
+			}
 			if !exists || !now.Before(managed.observation.ExpiresAt) {
-				managed.observation = PortForwardObservation{Identity: intent.Identity, InternalPort: intent.InternalPort, Protocols: append([]provider.PortForwardProtocol(nil), intent.Protocols...)}
+				managed.observation = PortForwardObservation{Identity: intent.Identity, InternalPort: intent.InternalPort, Protocols: append([]provider.PortForwardProtocol(nil), intent.Protocols...), LeaseGeneration: max(managed.observation.LeaseGeneration, intent.LeaseGeneration)}
 			}
 			managed.intent = intent
+			managed.observation.RenewalPending = true
 			managed.observation.Message = "Provider mapping renewal failed: " + err.Error()
 			leases[intent.Identity] = managed
 			reconcileErr = errors.Join(reconcileErr, err)
 			continue
 		}
+		previousAddress := managed.observation.PublicAddress
+		previousPort := managed.observation.PublicPort
+		leaseGeneration := max(managed.observation.LeaseGeneration, intent.LeaseGeneration)
+		if leaseGeneration == 0 || previousAddress != observation.PublicAddress.String() || previousPort != observation.PublicPort {
+			leaseGeneration++
+		}
 		managed.intent = intent
-		managed.observation = PortForwardObservation{Identity: intent.Identity, InternalPort: intent.InternalPort, Protocols: append([]provider.PortForwardProtocol(nil), intent.Protocols...)}
+		managed.observation = PortForwardObservation{Identity: intent.Identity, InternalPort: intent.InternalPort, Protocols: append([]provider.PortForwardProtocol(nil), intent.Protocols...), LeaseGeneration: leaseGeneration}
 		managed.observation.PublicAddress = observation.PublicAddress.String()
 		managed.observation.PublicPort = observation.PublicPort
 		managed.observation.IssuedAt = observation.IssuedAt

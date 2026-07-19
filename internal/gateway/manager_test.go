@@ -55,6 +55,28 @@ func (forwarding fakeForwarding) ObservePortForwardRules(context.Context, Desire
 	return forwarding.rules, forwarding.err
 }
 
+type observedGenerationForwarding struct {
+	last DesiredState
+}
+
+func (forwarding *observedGenerationForwarding) InstallLockdown(context.Context, DesiredState) error {
+	return nil
+}
+
+func (forwarding *observedGenerationForwarding) Reconcile(_ context.Context, desired DesiredState) error {
+	forwarding.last = desired
+	return nil
+}
+
+func (forwarding *observedGenerationForwarding) ObservePortForwardRules(_ context.Context, desired DesiredState) ([]PortForwardRuleObservation, error) {
+	rules := make([]PortForwardRuleObservation, 0, len(desired.PortForwardLeases))
+	for i := range desired.PortForwardLeases {
+		lease := desired.PortForwardLeases[i]
+		rules = append(rules, PortForwardRuleObservation{Identity: lease.Identity, LeaseGeneration: lease.LeaseGeneration, TargetAddress: lease.TargetAddress, TargetPort: lease.TargetPort, Ready: lease.LeaseGeneration > 0})
+	}
+	return rules, nil
+}
+
 type fakeDNS struct{ err error }
 
 func (dns fakeDNS) Reconcile(context.Context, DesiredState) error { return dns.err }
@@ -228,7 +250,13 @@ func TestHealthManagerPublishesOnlyObservedExactGatewayRules(t *testing.T) {
 	}
 	manager.Reconcile(context.Background())
 	observations := manager.PortForwardingSnapshot()
-	if len(observations) != 1 || !observations[0].Ready || !observations[0].GatewayRulesReady || observations[0].GatewayRulesGeneration != 4 || observations[0].TargetAddress != intent.TargetAddress || observations[0].TargetPort != intent.TargetPort {
+	if len(observations) != 1 || observations[0].GatewayRulesReady {
+		t.Fatalf("stale rule generation reported ready = %#v", observations)
+	}
+	manager.Forwarding = fakeForwarding{rules: []PortForwardRuleObservation{{Identity: "lease", LeaseGeneration: 5, TargetAddress: "172.30.99.10", TargetPort: 8080, Ready: true}}}
+	manager.Reconcile(context.Background())
+	observations = manager.PortForwardingSnapshot()
+	if len(observations) != 1 || !observations[0].Ready || !observations[0].GatewayRulesReady || observations[0].LeaseGeneration != 5 || observations[0].GatewayRulesGeneration != 5 || observations[0].TargetAddress != intent.TargetAddress || observations[0].TargetPort != intent.TargetPort {
 		t.Fatalf("combined observation = %#v", observations)
 	}
 	engine.observation.TunnelReady = false
@@ -236,5 +264,62 @@ func TestHealthManagerPublishesOnlyObservedExactGatewayRules(t *testing.T) {
 	observations = manager.PortForwardingSnapshot()
 	if len(observations) != 1 || observations[0].Ready || observations[0].GatewayRulesReady {
 		t.Fatalf("tunnel-loss observation = %#v", observations)
+	}
+}
+
+func TestHealthManagerAppliesRotatedMappingRulesWithoutDesiredConfigRefresh(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}, TargetAddress: "172.30.99.10", TargetPort: 8080}
+	forwarding := &observedGenerationForwarding{}
+	portForwarding := &PortForwardManager{Driver: &fakePortForwardDriver{ports: []uint16{42000, 42001}}, Now: func() time.Time { return now }}
+	manager := &HealthManager{
+		Engine:         &fakeEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true, PublicIP: netip.MustParseAddr("203.0.113.10")}},
+		Source:         staticSource{desired: DesiredState{PortForwardLeases: []PortForwardLeaseIntent{intent}}},
+		Forwarding:     forwarding,
+		PortForwarding: portForwarding,
+	}
+
+	manager.Reconcile(context.Background())
+	initial := manager.PortForwardingSnapshot()[0]
+	if !initial.GatewayRulesReady || initial.LeaseGeneration != 1 || initial.GatewayRulesGeneration != initial.LeaseGeneration || forwarding.last.PortForwardLeases[0].LeaseGeneration != initial.LeaseGeneration {
+		t.Fatalf("initial local mapping/rule convergence = observation=%#v desired=%#v", initial, forwarding.last.PortForwardLeases)
+	}
+
+	now = now.Add(45 * time.Second)
+	manager.Reconcile(context.Background())
+	rotated := manager.PortForwardingSnapshot()[0]
+	if !rotated.GatewayRulesReady || rotated.LeaseGeneration != initial.LeaseGeneration+1 || rotated.GatewayRulesGeneration != rotated.LeaseGeneration || forwarding.last.PortForwardLeases[0].LeaseGeneration != rotated.LeaseGeneration {
+		t.Fatalf("rotated mapping did not converge locally without a source update: initial=%#v rotated=%#v desired=%#v", initial, rotated, forwarding.last.PortForwardLeases)
+	}
+}
+
+func TestHealthManagerKeepsRulesDuringRecoverableRenewalFailureAndRemovesThemAtExpiry(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	driver := &fakePortForwardDriver{ports: []uint16{42000}}
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 1, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}, TargetAddress: "172.30.99.10", TargetPort: 8080}
+	forwarding := &observedGenerationForwarding{}
+	portForwarding := &PortForwardManager{Driver: driver, Now: func() time.Time { return now }}
+	manager := &HealthManager{
+		Engine:         &fakeEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true, PublicIP: netip.MustParseAddr("203.0.113.10")}},
+		Source:         staticSource{desired: DesiredState{PortForwardLeases: []PortForwardLeaseIntent{intent}}},
+		Forwarding:     forwarding,
+		PortForwarding: portForwarding,
+	}
+
+	manager.Reconcile(context.Background())
+	initial := manager.PortForwardingSnapshot()[0]
+	driver.ensureErr = errors.New("temporary renewal timeout")
+	now = initial.RenewAfter
+	manager.Reconcile(context.Background())
+	duringRetry := manager.PortForwardingSnapshot()[0]
+	if !manager.Ready() || !duringRetry.Ready || !duringRetry.GatewayRulesReady || duringRetry.LeaseGeneration != initial.LeaseGeneration {
+		t.Fatalf("recoverable renewal failure disrupted current mapping: initial=%#v retry=%#v error=%v", initial, duringRetry, manager.PortForwardingError())
+	}
+
+	now = initial.ExpiresAt
+	manager.Reconcile(context.Background())
+	expired := manager.PortForwardingSnapshot()[0]
+	if manager.Ready() || expired.Ready || expired.GatewayRulesReady || forwarding.last.PortForwardLeases[0].LeaseGeneration != 0 {
+		t.Fatalf("expired mapping did not fail closed: observation=%#v desired=%#v error=%v", expired, forwarding.last.PortForwardLeases, manager.PortForwardingError())
 	}
 }

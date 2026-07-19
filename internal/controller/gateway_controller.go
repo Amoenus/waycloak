@@ -328,13 +328,14 @@ func (r *GatewayReconciler) portForwardLeases(ctx context.Context, gateway *wayv
 			continue
 		}
 		intents = append(intents, waygateway.PortForwardLeaseIntent{
-			Identity:              string(lease.UID),
-			InternalPort:          uint16(lease.Status.ProviderInternalPort),
-			SuggestedExternalPort: suggested,
-			Protocols:             protocols,
-			TargetAddress:         lease.Status.Target.OverlayAddress,
-			TargetPort:            uint16(lease.Status.Target.Port),
-			LeaseGeneration:       lease.Status.LeaseGeneration,
+			Identity:                 string(lease.UID),
+			InternalPort:             uint16(lease.Status.ProviderInternalPort),
+			SuggestedExternalAddress: lease.Status.PublicAddress,
+			SuggestedExternalPort:    suggested,
+			Protocols:                protocols,
+			TargetAddress:            lease.Status.Target.OverlayAddress,
+			TargetPort:               uint16(lease.Status.Target.Port),
+			LeaseGeneration:          lease.Status.LeaseGeneration,
 		})
 	}
 	sort.Slice(intents, func(i, j int) bool { return intents[i].Identity < intents[j].Identity })

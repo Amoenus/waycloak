@@ -87,14 +87,23 @@ the observed IPv4 tunnel prefix, with an explicit operator override retained
 for providers that require it, and sends from a socket bound to
 `tunwaycloak`. Kubernetes status persists the unique NAT-PMP
 internal port; the provider-assigned public port may rotate independently.
-Waycloak renews at 75 percent of the returned lifetime and increments the
-public lease generation only on rotation. Gluetun's own NAT-PMP loop remains
+Waycloak renews at 75 percent of the returned lifetime. The gateway manager
+owns the monotonic mapping generation: an expiry-only renewal of the same
+public endpoint preserves it, while first acquisition, reacquisition after
+expiry, or address/port rotation advances it. Gluetun's own NAT-PMP loop remains
 off to avoid competing owners. These mappings do not admit traffic until the
 separate UID-keyed DNAT generation is installed and observed.
 When a provider capability reports that requested external ports are
 unsupported, acquisition and renewal send a zero public-port suggestion; the
 stable internal port is the mapping identity. A previously observed public
 port is suggested only to drivers that explicitly support requested ports.
+
+Provider mapping and matching nftables generation converge inside the gateway
+manager's local control loop. The controller observes and persists that
+generation; mounted ConfigMap projection carries stable intent and the last
+generation/endpoint as a restart hint but is not the fast feedback path. A temporary renewal failure is exposed
+as `renewalPending` while the last observation is unexpired. Expiry or tunnel
+loss zeroes the effective generation and atomically removes the rules.
 
 The gateway manager installs active generations in the same Waycloak-owned
 IPv4 nftables table as gateway forwarding. One transaction replaces the table

@@ -515,6 +515,7 @@ func TestGatewayPublishesOnlyObservedPortForwardLeaseIdentities(t *testing.T) {
 		Spec:       wayv1.PortForwardLeaseSpec{GatewayRef: wayv1.NamespacedNameReference{Namespace: gateway.Namespace, Name: gateway.Name}, Protocols: []wayv1.PortForwardProtocol{wayv1.PortForwardProtocolUDP, wayv1.PortForwardProtocolTCP}},
 		Status: wayv1.PortForwardLeaseStatus{
 			ProviderInternalPort: 7,
+			PublicAddress:        "203.0.113.10",
 			PublicPort:           42000,
 			LeaseGeneration:      3,
 			Target:               &wayv1.PortForwardTargetStatus{OverlayAddress: "172.30.99.10", Port: 6881},
@@ -528,7 +529,7 @@ func TestGatewayPublishesOnlyObservedPortForwardLeaseIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(intents) != 1 || intents[0].Identity != "lease-uid" || intents[0].InternalPort != 7 || intents[0].SuggestedExternalPort != 42000 || len(intents[0].Protocols) != 2 || intents[0].Protocols[0] != "TCP" || intents[0].TargetAddress != "172.30.99.10" || intents[0].TargetPort != 6881 || intents[0].LeaseGeneration != 3 {
+	if len(intents) != 1 || intents[0].Identity != "lease-uid" || intents[0].InternalPort != 7 || intents[0].SuggestedExternalAddress != "203.0.113.10" || intents[0].SuggestedExternalPort != 42000 || len(intents[0].Protocols) != 2 || intents[0].Protocols[0] != "TCP" || intents[0].TargetAddress != "172.30.99.10" || intents[0].TargetPort != 6881 || intents[0].LeaseGeneration != 3 {
 		t.Fatalf("published intents = %#v", intents)
 	}
 	if err := client.Delete(context.Background(), lease); err != nil {

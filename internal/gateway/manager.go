@@ -44,20 +44,24 @@ func (manager *HealthManager) Reconcile(ctx context.Context) {
 		if configErr == nil && forwardingErr == nil && manager.Network != nil {
 			networkErr = manager.Network.Reconcile(ctx, desired)
 		}
-		if configErr == nil && forwardingErr == nil && networkErr == nil && manager.Forwarding != nil {
-			forwardingErr = manager.Forwarding.Reconcile(ctx, desired)
-			if forwardingErr == nil {
-				portForwardRules, portForwardRulesErr = manager.Forwarding.ObservePortForwardRules(ctx, desired)
-			}
-		}
-		if configErr == nil && networkErr == nil && forwardingErr == nil && manager.DNS != nil {
-			dnsErr = manager.DNS.Reconcile(ctx, desired)
-		}
 	}
 	observation, err := manager.Engine.Observe(ctx)
 	var portForwardingErr error
 	if manager.PortForwarding != nil && configErr == nil && err == nil && observation.TunnelReady {
 		portForwardingErr = manager.PortForwarding.Reconcile(ctx, desired.PortForwardLeases)
+	}
+	effectiveDesired := desired
+	if manager.PortForwarding != nil {
+		effectiveDesired.PortForwardLeases = effectivePortForwardLeases(desired.PortForwardLeases, manager.PortForwarding.Snapshot(), err == nil && observation.TunnelReady)
+	}
+	if configErr == nil && forwardingErr == nil && networkErr == nil && manager.Forwarding != nil {
+		forwardingErr = manager.Forwarding.Reconcile(ctx, effectiveDesired)
+		if forwardingErr == nil {
+			portForwardRules, portForwardRulesErr = manager.Forwarding.ObservePortForwardRules(ctx, effectiveDesired)
+		}
+	}
+	if configErr == nil && networkErr == nil && forwardingErr == nil && manager.DNS != nil {
+		dnsErr = manager.DNS.Reconcile(ctx, desired)
 	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -76,6 +80,26 @@ func (manager *HealthManager) Reconcile(ctx context.Context) {
 	if manager.Source != nil && desired.MembershipGeneration != "" && configErr == nil && networkErr == nil && forwardingErr == nil && dnsErr == nil && portForwardRulesErr == nil {
 		manager.appliedMembershipGeneration = desired.MembershipGeneration
 	}
+}
+
+func effectivePortForwardLeases(desired []PortForwardLeaseIntent, observations []PortForwardObservation, tunnelReady bool) []PortForwardLeaseIntent {
+	observed := make(map[string]PortForwardObservation, len(observations))
+	for i := range observations {
+		observed[observations[i].Identity] = observations[i]
+	}
+	effective := make([]PortForwardLeaseIntent, 0, len(desired))
+	for i := range desired {
+		intent := desired[i]
+		intent.LeaseGeneration = 0
+		intent.SuggestedExternalPort = 0
+		observation, exists := observed[intent.Identity]
+		if tunnelReady && exists && observation.Ready && observation.LeaseGeneration > 0 {
+			intent.LeaseGeneration = observation.LeaseGeneration
+			intent.SuggestedExternalPort = observation.PublicPort
+		}
+		effective = append(effective, intent)
+	}
+	return effective
 }
 
 func (manager *HealthManager) AppliedMembershipGeneration() string {
@@ -110,7 +134,7 @@ func (manager *HealthManager) PortForwardingSnapshot() []PortForwardObservation 
 	}
 	for i := range observations {
 		rule, exists := manager.portForwardRules[observations[i].Identity]
-		if !exists || !rule.Ready {
+		if !exists || !rule.Ready || rule.LeaseGeneration != observations[i].LeaseGeneration {
 			continue
 		}
 		observations[i].GatewayRulesReady = true

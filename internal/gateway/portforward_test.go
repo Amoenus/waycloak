@@ -67,6 +67,72 @@ func TestPortForwardManagerReusesPublicPortOnlyWhenDriverSupportsRequests(t *tes
 	}
 }
 
+func TestPortForwardManagerOwnsMappingGenerationAcrossRenewalAndRotation(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	driver := &fakePortForwardDriver{ports: []uint16{42000, 42000, 42001}}
+	manager := &PortForwardManager{Driver: driver, Now: func() time.Time { return now }}
+	intent := PortForwardLeaseIntent{Identity: "lease", InternalPort: 7, Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP}, LeaseGeneration: 4}
+
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	initial := manager.Snapshot()[0]
+	if initial.LeaseGeneration != 5 {
+		t.Fatalf("initial manager-owned generation = %d, want 5", initial.LeaseGeneration)
+	}
+
+	now = now.Add(45 * time.Second)
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	renewed := manager.Snapshot()[0]
+	if renewed.LeaseGeneration != initial.LeaseGeneration || !renewed.ExpiresAt.After(initial.ExpiresAt) {
+		t.Fatalf("expiry-only renewal changed mapping generation: initial=%#v renewed=%#v", initial, renewed)
+	}
+
+	now = now.Add(45 * time.Second)
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	rotated := manager.Snapshot()[0]
+	if rotated.LeaseGeneration != initial.LeaseGeneration+1 || rotated.PublicPort == renewed.PublicPort {
+		t.Fatalf("endpoint rotation did not advance mapping generation: renewed=%#v rotated=%#v", renewed, rotated)
+	}
+}
+
+func TestPortForwardManagerRecoversFromStaleRestartSeedWithoutReusingEndpointGeneration(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	driver := &fakePortForwardDriver{ports: []uint16{42001}}
+	manager := &PortForwardManager{Driver: driver, Now: func() time.Time { return now }}
+	intent := PortForwardLeaseIntent{
+		Identity:                 "lease",
+		InternalPort:             7,
+		Protocols:                []provider.PortForwardProtocol{provider.ProtocolTCP},
+		SuggestedExternalAddress: "203.0.113.10",
+		SuggestedExternalPort:    42000,
+		LeaseGeneration:          5,
+	}
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	first := manager.Snapshot()[0]
+	if first.LeaseGeneration != 6 || first.PublicPort != 42001 {
+		t.Fatalf("fresh acquisition from stale seed = %#v", first)
+	}
+
+	// The controller's previously current generation and endpoint eventually
+	// arrive through ConfigMap projection. The manager must advance the new
+	// endpoint beyond that generation without another provider request.
+	intent.LeaseGeneration = 6
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatal(err)
+	}
+	recovered := manager.Snapshot()[0]
+	if recovered.LeaseGeneration != 7 || len(driver.ensureRequests) != 1 {
+		t.Fatalf("stale restart seed did not converge safely: observation=%#v requests=%d", recovered, len(driver.ensureRequests))
+	}
+}
+
 func TestPortForwardLeaseObservationRequiresCurrentPublicEndpoint(t *testing.T) {
 	now := time.Date(2026, 7, 19, 8, 0, 0, 0, time.UTC)
 	valid := provider.PortForwardLeaseObservation{PublicAddress: netip.MustParseAddr("203.0.113.10"), PublicPort: 42000, IssuedAt: now.Add(-time.Second), RenewAfter: now.Add(44 * time.Second), ExpiresAt: now.Add(59 * time.Second)}
@@ -89,11 +155,11 @@ func TestPortForwardManagerKeepsUnexpiredObservationDuringRenewalFailure(t *test
 	}
 	now = now.Add(45 * time.Second)
 	driver.ensureErr = errors.New("temporary network failure")
-	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err == nil {
-		t.Fatal("renewal failure was not returned")
+	if err := manager.Reconcile(context.Background(), []PortForwardLeaseIntent{intent}); err != nil {
+		t.Fatalf("recoverable renewal failure disrupted reconciliation: %v", err)
 	}
 	observation := manager.Snapshot()[0]
-	if !observation.Ready || observation.PublicPort != 42000 || observation.ExpiresAt != now.Add(15*time.Second) {
+	if !observation.Ready || !observation.RenewalPending || observation.PublicPort != 42000 || observation.ExpiresAt != now.Add(15*time.Second) {
 		t.Fatalf("unexpired observation = %#v", observation)
 	}
 	now = now.Add(16 * time.Second)
@@ -162,8 +228,8 @@ func TestPortForwardManagerSnapshotRemainsResponsiveDuringProviderIO(t *testing.
 		t.Fatalf("expired in-flight snapshot = %#v", snapshot)
 	}
 	close(driver.release)
-	if err := <-reconciled; err == nil {
-		t.Fatal("blocked provider renewal failure was not returned")
+	if err := <-reconciled; err != nil {
+		t.Fatalf("recoverable blocked renewal failure disrupted reconciliation: %v", err)
 	}
 }
 

@@ -5,7 +5,8 @@ Last updated: 2026-07-19
 ## Current phase
 
 The reviewed base is the published, independently verified, and GitOps-deployed
-`v0.3.0-rc.8`.
+`v0.3.0-rc.9`; the source tree is preparing `v0.3.0-rc.10` for the
+manager-owned port-forward generation acceptance gate.
 RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
@@ -79,7 +80,18 @@ reuse its address. RC9 selects from the API server's authoritative workload
 list while retaining single-threaded allocation and stable identities. A
 regression test presents a deliberately stale cached list and proves the next
 address still accounts for the durable authoritative allocation. Exact RC9
-real-provider certification remains required before final `v0.3.0`.
+real-provider certification then exposed a separate convergence defect.
+After a short provider mapping expired and was reacquired, provider observation
+recovered but `GatewayRulesReady` remained false for the full bounded wait and
+another renewal. Rule generation depended on controller status returning to
+the manager through a kubelet-projected ConfigMap, whose delay can match the
+provider lifetime. ADR 0023 moves mapping-generation ownership and matching
+rule reconciliation into the gateway manager's local loop. Same-endpoint
+expiry renewal preserves generation; endpoint rotation or reacquisition
+advances it; transient renewal failure exposes `renewalPending` while the old
+observation remains valid; expiry or tunnel loss removes rules fail closed.
+Exact candidate real-provider certification remains required before final
+`v0.3.0`.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected
