@@ -172,37 +172,34 @@ Exit: final `v0.3.0` is deployed in the homelab; qBitTorrent survives provider
 renewal or rotation without Pod replacement, and Bitmagnet has a documented,
 real-deployment-proven narrow integration. Loadstone remains future work.
 
-## Phase 6 — optional eBPF data plane (`v0.4.0`)
+## Phase 6 — eBPF research and v0.4.0 definition
 
-The cutoff is an explicit, capability-gated eBPF implementation of the existing
-workload data-plane contract. nftables/netlink remains the default supported
-backend. The Kubernetes API, stable identities, overlay topology, gateway and
-lease ownership, and fail-closed semantics remain backend independent.
+Research precedes the release PRD. eBPF is a focused hypothesis, not a selected
+backend. ADR 0006 remains the only supported production data-plane decision.
+The intended compatibility model is additive: the existing Pod-local mode stays
+the default, while any future eBPF mode is explicit and restricted to
+operator-prepared, capability-verified nodes with no silent fallback.
 
-- [ ] Define one black-box packet and lifecycle conformance suite for every
-  supported data-plane backend (#65).
-- [ ] Add read-only node capability discovery for kernel config, BTF, helpers,
-  maps, hooks, verifier, privilege, architecture, lockdown, and CNI context
-  (#65).
-- [ ] Define explicit backend selection plus admission/scheduling failure on
-  unsupported nodes, with no silent fallback (#65).
-- [ ] Implement eBPF behind the existing data-plane interface without replacing
-  or flushing CNI-owned programs, maps, routes, hooks, or unrelated state (#65).
-- [ ] Prove startup, tunnel/gateway/agent loss, drift, detach, upgrade, cleanup,
-  DNS, and direct-egress denial for nftables and eBPF (#65).
-- [ ] Publish amd64/arm64 compatibility evidence and comparative CPU, memory,
-  throughput, UDP-loss, startup, and recovery measurements (#34, eBPF scope).
-- [ ] Accept or reject eBPF production support in an evidence-backed follow-up
-  to proposed ADR 0019.
-- [ ] Retain the complete `v0.3.0` default-backend real-provider acceptance and
-  run the applicable protected-egress regression with eBPF selected.
-- [ ] Publish, independently verify, promote, and homelab-deploy final
-  `v0.4.0` immutable artifacts.
+- [x] Map the as-built filter, VXLAN, routing, DNS NAT, port NAT, verification,
+  privilege, and injected-component responsibilities (#65).
+- [x] Collect initial amd64/arm64 homelab kernel, cgroup, BTF, bpffs, hook, map,
+  and Flannel evidence (#65).
+- [ ] Complete primary-source research for attachment, persistence, replacement,
+  privilege, verifier, portability, CNI ownership, and sidecarless models (#65).
+- [ ] Resolve Pod cgroup and host-veth identity/lifecycle on k3s/containerd with
+  disposable, non-production probes (#65).
+- [ ] Test the minimum deny-only cgroup and tc/TCX prototypes needed to decide
+  feasibility; do not carry production traffic (#65).
+- [ ] Measure equivalent-backend performance, scaling, total node/Pod resource
+  use, startup/recovery, and injected-component footprint (#34).
+- [ ] Publish the architecture comparison, threat-model delta, support boundary,
+  recommendation, and rejected alternatives (#65, #34).
+- [ ] Derive and review the `v0.4.0` PRD, release cutoff, follow-up ADR direction,
+  conformance requirements, and ordered GitHub issue graph.
 
-Exit: an explicitly selected eBPF backend is supported on documented nodes and
-passes the same fail-closed packet contract as nftables/netlink, unsupported
-nodes fail clearly without fallback, measured value is published, and final
-artifacts are verified in the homelab.
+Exit: the research record is sufficient to choose supported adoption,
+experimental prototype, or rejection; the resulting `v0.4.0` PRD makes no
+claim based only on kernel version, feature presence, or aspiration.
 
 ## Deferred backlog
 

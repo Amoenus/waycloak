@@ -21,15 +21,15 @@ DHT and external TCP/UDP ingress, fail-closed gateway loss and stale ingress,
 and same-Pod recovery without creating a competing provider session. Cleanup
 left zero acceptance resources.
 
-The active planning target is now `v0.4.0`, focused on an explicitly selected,
-capability-gated eBPF workload data plane behind the existing backend-neutral
-contract. nftables/netlink remains the supported default. The cutoff requires
-per-node capability discovery, no silent fallback, CNI coexistence, identical
-packet-level fail-closed conformance, amd64/arm64 evidence, measured operational
-value, an accepted follow-up to proposed ADR 0019, immutable publication, and
-homelab proof. Multi-gateway sharding, general lifecycle/DR expansion,
-product-wide observability artifacts, additional providers, and Loadstone
-certification are outside this cutoff. See `V0.4.0_GOAL.md`.
+The active target is comprehensive research for the `v0.4.0` PRD, focused on
+whether eBPF can materially improve the workload data plane without weakening
+the existing fail-closed contract. eBPF is not yet an approved release
+requirement. The work compares attachment and ownership models, lifecycle
+persistence, privilege, reduction of injected Waycloak components, performance
+and scale, CNI coexistence, and portability against the as-built
+nftables/netlink implementation and representative amd64/arm64 homelab nodes.
+ADR 0006 remains the supported production decision. See `V0.4.0_GOAL.md` and
+`docs/research/ebpf-data-plane.md`.
 
 RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live

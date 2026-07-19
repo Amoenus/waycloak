@@ -273,25 +273,18 @@ readiness returned.
 - A public workload-adapter protocol, conformance kit, trusted selection
   mechanism, and qBitTorrent reference adapter.
 
-### v0.4.0 — optional eBPF data plane
+### v0.4.0 — pending eBPF research
 
-- An explicitly selected eBPF workload data-plane backend behind the existing
-  backend-neutral API, with nftables/netlink retained as the default.
-- Read-only per-node capability discovery based on actual kernel, BTF, helper,
-  hook, map, verifier, privilege, architecture, and CNI evidence.
-- The same packet-level fail-closed conformance for startup, tunnel/gateway/agent
-  loss, drift, detach, upgrade, cleanup, and DNS across both backends.
-- No replacement of CNI-owned state and no silent fallback when eBPF is selected
-  but unsupported or unhealthy.
-- Published amd64/arm64 compatibility results and measured CPU, memory,
-  throughput, packet-loss, startup, and recovery comparison.
-- An accepted follow-up to proposed ADR 0019 based on the measured evidence.
-- Final-release regression of the `v0.3.0` real-provider, port-forward, adapter,
-  DHT, gateway-loss, and same-Pod recovery guarantees.
+The `v0.4.0` product requirements are intentionally not defined yet. Issue #65
+and `docs/research/ebpf-data-plane.md` must first determine whether an eBPF
+architecture can preserve Waycloak's complete fail-closed packet and lifecycle
+contract while providing material value through lower privilege, fewer injected
+Waycloak components, better performance/scaling, or simpler operation. The
+evidence selects adoption, an explicitly experimental prototype, or rejection.
+Only then is this section replaced by an approved release PRD and cutoff.
 
-Multiple gateways and sharding, general lifecycle/DR expansion, product-wide
-observability artifacts, additional providers, and further workload adapters
-are separate post-`v0.4.0` work.
+Until that decision, nftables/netlink remains the sole supported workload data
+plane under ADR 0006 and proposed ADR 0019 creates no product support claim.
 
 ## Success measures
 
