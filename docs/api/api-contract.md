@@ -297,6 +297,14 @@ restarting the Pod. Agent acknowledgement proves neutral record delivery, not
 application-specific configuration; adapters that support stronger
 acknowledgement add that observation at their own boundary.
 
+The qBitTorrent reference adapter's stronger boundary includes an immediate
+tracker reannounce when the delivered public address or application port
+changes. It does not acknowledge the new generation until the preferences,
+listener, and generation-bound reannounce request have all succeeded. A failed
+reannounce is retried, and a restarted adapter reannounces once before
+acknowledging. Expiry-only renewal of an unchanged generation does not repeat
+that application action.
+
 Kubernetes environment variables are not a renewable delivery surface. An
 environment-only application explicitly runs under a supervisor that stops its
 child when the current generation expires or changes and starts it again only

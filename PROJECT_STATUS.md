@@ -5,8 +5,8 @@ Last updated: 2026-07-19
 ## Current phase
 
 The reviewed base is the published, independently verified, and GitOps-deployed
-`v0.3.0-rc.9`; the source tree is preparing `v0.3.0-rc.10` for the
-manager-owned port-forward generation acceptance gate.
+`v0.3.0-rc.10`; the source tree is preparing the next candidate after RC10's
+real-provider gate isolated a qBitTorrent tracker-reannounce boundary.
 RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
@@ -92,6 +92,19 @@ advances it; transient renewal failure exposes `renewalPending` while the old
 observation remains valid; expiry or tunnel loss removes rules fail closed.
 Exact candidate real-provider certification remains required before final
 `v0.3.0`.
+
+RC10 passed source CI, signed publication, independent artifact verification,
+and exact-digest homelab deployment. Its sustained live run preserved one
+provider session, held generation stable across expiry-only renewals, and
+recovered generation 1 to 2 after replacement of the singleton gateway. The
+new mapping, matching gateway rules, delivery, application acknowledgement,
+and external ingress all became Ready without replacing the qBitTorrent Pod.
+The remaining assertion timed out because existing torrents continued to
+advertise the previous endpoint: the adapter updated qBitTorrent's listener and
+`announce_ip`, restarted DHT, and acknowledged the generation, but never called
+qBitTorrent's torrent reannounce API. The next candidate makes successful
+reannounce part of the application acknowledgement boundary for actual
+advertised-endpoint changes while leaving expiry-only renewal idempotent.
 
 The `v0.3.0-alpha.6` candidate addresses live issues #90, #92, and #94. A sustained Gluetun
 DNS/tunnel health failure correctly withdrew composite gateway and protected

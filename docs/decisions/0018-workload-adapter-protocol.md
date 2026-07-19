@@ -59,6 +59,15 @@ immutable references in the release manifest. qBitTorrent is the first
 reference adapter and remains application-specific; its semantics do not enter
 the core protocol.
 
+The qBitTorrent reference adapter acknowledges a changed advertised endpoint
+only after applying the provider address and port, observing the listener, and
+successfully requesting an immediate reannounce of all active torrents. That
+success is remembered for the exact lease identity, generation, and port;
+failures retry, binding-only repairs do not repeat it, and expiry-only renewal
+whose generation is unchanged remains idempotent. A restarted adapter safely
+reannounces once before acknowledging. This is a reference-adapter compatibility
+guarantee, not a requirement imposed on every adapter.
+
 ## Consequences
 
 - Adapter authors can use any language and depend only on a small local

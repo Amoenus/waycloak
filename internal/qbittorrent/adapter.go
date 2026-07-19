@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Amoenus/waycloak/internal/delivery"
@@ -26,6 +27,8 @@ type Adapter struct {
 	NetworkBinding func() (NetworkBinding, error)
 	HTTP           *http.Client
 	Now            func() time.Time
+	reannounceMu   sync.Mutex
+	lastReannounce LeaseRevision
 }
 
 type NetworkBinding struct {
@@ -86,6 +89,7 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 		return revision, critical(revision, err)
 	}
 	endpointChanged := false
+	advertisedEndpointChanged := false
 	listenerAddress := "127.0.0.1"
 	if adapter.NetworkBinding != nil {
 		binding, err := adapter.NetworkBinding()
@@ -105,12 +109,14 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 			return revision, critical(revision, err)
 		}
 		endpointChanged = true
+		advertisedEndpointChanged = true
 	}
 	if preferences.AnnounceAddress != selected.PublicAddress {
 		if err := adapter.Client.SetAnnounceAddress(ctx, selected.PublicAddress); err != nil {
 			return revision, critical(revision, err)
 		}
 		endpointChanged = true
+		advertisedEndpointChanged = true
 	}
 	if endpointChanged && preferences.DHTEnabled {
 		if err := adapter.Client.RestartDHT(ctx); err != nil {
@@ -119,6 +125,12 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 	}
 	if err := adapter.Client.VerifyListener(ctx, listenerAddress, selected.ApplicationPort); err != nil {
 		return revision, critical(revision, err)
+	}
+	if advertisedEndpointChanged || adapter.reannounceRequired(revision) {
+		if err := adapter.Client.ReannounceAll(ctx); err != nil {
+			return revision, critical(revision, err)
+		}
+		adapter.markReannounced(revision)
 	}
 	acknowledgement := delivery.ApplicationAcknowledgement{APIVersion: delivery.AcknowledgementAPIVersion, PodUID: document.PodUID, LeaseIdentity: selected.Identity, Generation: selected.Generation, ApplicationPort: selected.ApplicationPort}
 	payload, err := json.Marshal(acknowledgement)
@@ -141,6 +153,18 @@ func (adapter *Adapter) Reconcile(ctx context.Context) (LeaseRevision, error) {
 		return revision, critical(revision, fmt.Errorf("lease acknowledgement returned HTTP %d", response.StatusCode))
 	}
 	return revision, nil
+}
+
+func (adapter *Adapter) reannounceRequired(revision LeaseRevision) bool {
+	adapter.reannounceMu.Lock()
+	defer adapter.reannounceMu.Unlock()
+	return adapter.lastReannounce != revision
+}
+
+func (adapter *Adapter) markReannounced(revision LeaseRevision) {
+	adapter.reannounceMu.Lock()
+	defer adapter.reannounceMu.Unlock()
+	adapter.lastReannounce = revision
 }
 
 func critical(revision LeaseRevision, err error) error {

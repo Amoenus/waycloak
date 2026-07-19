@@ -22,6 +22,7 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	listenPort := 6881
 	applicationPort := 0
+	reannounced := 0
 	var acknowledgement delivery.ApplicationAcknowledgement
 	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -49,6 +50,16 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 			response.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if request.URL.Path == "/api/v2/torrents/reannounce" {
+			if err := request.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if request.Form.Get("hashes") != "all" {
+				t.Fatalf("reannounce hashes = %q", request.Form.Get("hashes"))
+			}
+			reannounced++
+			return
+		}
 		if request.URL.Path == "/v1/port-forward/leases" {
 			document := delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 4, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}}
 			_ = json.NewEncoder(response).Encode(document)
@@ -69,16 +80,18 @@ func TestAdapterAppliesAndAcknowledgesExactGeneration(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if listenPort != applicationPort || acknowledgement.APIVersion != delivery.AcknowledgementAPIVersion || acknowledgement.PodUID != "pod-uid" || acknowledgement.LeaseIdentity != "lease-uid" || acknowledgement.Generation != 4 || acknowledgement.ApplicationPort != uint16(applicationPort) {
-		t.Fatalf("listenPort=%d acknowledgement=%#v", listenPort, acknowledgement)
+	if listenPort != applicationPort || reannounced != 1 || acknowledgement.APIVersion != delivery.AcknowledgementAPIVersion || acknowledgement.PodUID != "pod-uid" || acknowledgement.LeaseIdentity != "lease-uid" || acknowledgement.Generation != 4 || acknowledgement.ApplicationPort != uint16(applicationPort) {
+		t.Fatalf("listenPort=%d reannounced=%d acknowledgement=%#v", listenPort, reannounced, acknowledgement)
 	}
 }
 
 func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 	now := time.Date(2026, 7, 18, 23, 30, 0, 0, time.UTC)
 	applicationPort := 0
+	expiresAt := now.Add(time.Minute)
 	preferences := map[string]any{"listen_port": 6881, "dht": true, "current_network_interface": "", "current_interface_address": "", "announce_ip": ""}
 	var updates []map[string]any
+	reannounced := 0
 	acknowledged := false
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -98,8 +111,10 @@ func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 				preferences[key] = value
 			}
 			response.WriteHeader(http.StatusNoContent)
+		case "/api/v2/torrents/reannounce":
+			reannounced++
 		case "/v1/port-forward/leases":
-			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 5, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}})
+			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 5, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: expiresAt}}})
 		case "/v1/port-forward/leases/lease-uid/ack":
 			acknowledged = true
 			response.WriteHeader(http.StatusNoContent)
@@ -121,14 +136,119 @@ func TestAdapterBindsQBittorrentToWaycloakAndRestartsEnabledDHT(t *testing.T) {
 	if _, err := adapter.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	expiresAt = now.Add(2 * time.Minute)
 	if _, err := adapter.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if !acknowledged || len(updates) != 4 {
-		t.Fatalf("acknowledged=%t updates=%#v", acknowledged, updates)
+	if !acknowledged || len(updates) != 4 || reannounced != 1 {
+		t.Fatalf("acknowledged=%t reannounced=%d updates=%#v", acknowledged, reannounced, updates)
 	}
 	if updates[0]["current_network_interface"] != "wc123456789abc" || updates[0]["current_interface_address"] != "127.0.0.1" || updates[1]["announce_ip"] != "203.0.113.10" || updates[2]["dht"] != false || updates[3]["dht"] != true {
 		t.Fatalf("qBitTorrent compatibility updates = %#v", updates)
+	}
+}
+
+func TestAdapterDoesNotReannounceAgainForBindingOnlyChange(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	applicationPort := 0
+	preferences := map[string]any{"listen_port": 0, "dht": false, "current_network_interface": "", "current_interface_address": "", "announce_ip": "203.0.113.10"}
+	reannounced := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v2/app/preferences":
+			preferences["listen_port"] = applicationPort
+			_ = json.NewEncoder(response).Encode(preferences)
+		case "/api/v2/app/setPreferences":
+			if err := request.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			var update map[string]any
+			if err := json.Unmarshal([]byte(request.Form.Get("json")), &update); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range update {
+				preferences[key] = value
+			}
+			response.WriteHeader(http.StatusNoContent)
+		case "/api/v2/torrents/reannounce":
+			reannounced++
+		case "/v1/port-forward/leases":
+			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 6, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}})
+		case "/v1/port-forward/leases/lease-uid/ack":
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	applicationPort = server.Listener.Addr().(*net.TCPAddr).Port
+	adapter := &Adapter{
+		Client:        &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: server.Client()},
+		LeaseEndpoint: server.URL + "/v1/port-forward/leases",
+		HTTP:          server.Client(),
+		Now:           func() time.Time { return now },
+		NetworkBinding: func() (NetworkBinding, error) {
+			return NetworkBinding{InterfaceName: "wc123456789abc", Address: "127.0.0.1"}, nil
+		},
+	}
+	preferences["current_network_interface"] = "wc123456789abc"
+	preferences["current_interface_address"] = "127.0.0.1"
+	if _, err := adapter.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	preferences["current_network_interface"] = ""
+	preferences["current_interface_address"] = ""
+	if _, err := adapter.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reannounced != 1 {
+		t.Fatalf("binding-only reconciliation reannounce count = %d, want 1", reannounced)
+	}
+}
+
+func TestAdapterDoesNotAcknowledgeWhenReannounceFails(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	applicationPort := 0
+	acknowledged := false
+	announceAddress := "203.0.113.9"
+	reannounceAttempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v2/app/preferences":
+			_ = json.NewEncoder(response).Encode(map[string]any{"listen_port": applicationPort, "announce_ip": announceAddress})
+		case "/api/v2/app/setPreferences":
+			announceAddress = "203.0.113.10"
+			response.WriteHeader(http.StatusNoContent)
+		case "/api/v2/torrents/reannounce":
+			reannounceAttempts++
+			if reannounceAttempts == 1 {
+				response.WriteHeader(http.StatusServiceUnavailable)
+			}
+		case "/v1/port-forward/leases":
+			_ = json.NewEncoder(response).Encode(delivery.Document{APIVersion: delivery.APIVersion, PodUID: "pod-uid", Leases: []delivery.Record{{Identity: "lease-uid", Namespace: "apps", Name: "torrent", State: "Active", Gateway: "egress/private", PublicAddress: "203.0.113.10", PublicPort: uint16(applicationPort), TargetPort: 6881, ApplicationPort: uint16(applicationPort), ApplicationPortMode: delivery.ApplicationPortModeProviderAssigned, Protocols: []string{"TCP", "UDP"}, Generation: 7, IssuedAt: now, RenewAfter: now.Add(45 * time.Second), ExpiresAt: now.Add(time.Minute)}}})
+		case "/v1/port-forward/leases/lease-uid/ack":
+			acknowledged = true
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	applicationPort = server.Listener.Addr().(*net.TCPAddr).Port
+	adapter := &Adapter{Client: &Client{BaseURL: server.URL, APIKey: "test-key", HTTP: server.Client()}, LeaseEndpoint: server.URL + "/v1/port-forward/leases", HTTP: server.Client(), Now: func() time.Time { return now }}
+	_, err := adapter.Reconcile(t.Context())
+	var reconcileError *ReconcileError
+	if !errors.As(err, &reconcileError) || reconcileError.Kind != FailureCritical {
+		t.Fatalf("reannounce failure classification = %#v", reconcileError)
+	}
+	if acknowledged {
+		t.Fatal("adapter acknowledged before successful tracker reannounce")
+	}
+	if _, err := adapter.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reannounceAttempts != 2 || !acknowledged {
+		t.Fatalf("reannounceAttempts=%d acknowledged=%t", reannounceAttempts, acknowledged)
 	}
 }
 

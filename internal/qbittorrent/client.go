@@ -147,6 +147,25 @@ func (client *Client) RestartDHT(ctx context.Context) error {
 	return nil
 }
 
+func (client *Client) ReannounceAll(ctx context.Context) error {
+	form := url.Values{"hashes": []string{"all"}}
+	request, err := client.request(ctx, http.MethodPost, "/api/v2/torrents/reannounce", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := client.http().Do(request)
+	if err != nil {
+		return fmt.Errorf("reannounce qBitTorrent torrents: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("qBitTorrent reannounce returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func (client *Client) setPreferences(ctx context.Context, values map[string]any) error {
 	payload, err := json.Marshal(values)
 	if err != nil {
