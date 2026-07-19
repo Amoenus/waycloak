@@ -222,6 +222,21 @@ This gives a concrete stable-identity join candidate for a node loader. It does
 not yet prove that one parent `cgroup_skb` attachment has the required effective
 coverage or that the slice appears early enough to close startup traffic.
 
+Isolated amd64 and arm64 deny-only probes then attached the same two-instruction
+`BPF_PROG_TYPE_CGROUP_SKB` egress program to disposable Pods' UID-bound parent
+cgroups. Each link was pinned in bpffs, its loader process and Pod exited, and
+the target could no longer connect to the Kubernetes API Service. Removing the
+exact pin detached the program and connectivity returned immediately. Every
+target, loader, source ConfigMap, cleanup Pod, and pin was deleted.
+
+This proves parent-cgroup attachment, link pinning across loader exit, and
+explicit detach/recovery for one BestEffort Pod on each target architecture. It
+does not yet prove init/sibling coverage, application-start ordering, complete
+IPv4/IPv6 protocol coverage, atomic replacement, or node reboot. The probes also
+showed that the systemd path includes Kubernetes QoS (`besteffort` or
+`burstable`), so a loader must discover and validate the UID-bound parent rather
+than construct one fixed QoS path.
+
 ## Candidate architecture matrix
 
 Ratings are current inferences, not an ADR decision.
@@ -230,7 +245,7 @@ Ratings are current inferences, not an ADR decision.
 |---|---|---|---|---|
 | Pod-local tc/TCX filter; retain netlink/nftables NAT | Potentially equivalent if first and persistent | Keeps agent/init gates and `NET_ADMIN`; adds BPF | Still needs VXLAN/routes/NAT | Low component value; benchmark/control candidate |
 | Pod-local cgroup attachment | Pod container cgroup topology unresolved | Likely needs host cgroup access; keeps other agent work | Routing/NAT remain | Poor until topology is proved |
-| Node agent + Pod-cgroup egress deny | Can outlive Pod agent; pre-start handoff unresolved | Could remove Pod filter privilege and gates; adds privileged DaemonSet | Routing/NAT still need ownership | Promising enforcement candidate |
+| Node agent + Pod-cgroup egress deny | Pinned deny survived loader exit on amd64 and arm64; pre-start handoff remains unresolved | Could remove Pod filter privilege and gates; adds privileged DaemonSet | Routing/NAT still need ownership | Leading enforcement candidate |
 | Node agent + host-veth tc/TCX | Can cover Pod packets after veth discovery; creation race unresolved | Could remove Pod filter component; adds node agent | Routing/NAT still separate | Promising, more CNI-coupled |
 | Node agent owns complete tunnel/routing/filter/NAT path | Could centralize the boundary | Can remove Waycloak networking containers; broad node privilege | Potentially complete | High value and high risk; effectively CNI-like |
 | XDP-only or socket-hook-only | Incomplete packet/lifecycle coverage | Varies | Misses required traffic classes | Reject standalone |
@@ -262,9 +277,11 @@ kernel implementation.
 ## Critical unknowns and minimum probes
 
 1. Extend the observed k3s/containerd Pod-parent/container-child cgroup mapping
-   with creation timing, effective inheritance, UID reuse, and teardown order.
-2. Attach deny-only programs to an isolated disposable Pod cgroup and host veth;
-   test init/app/sidecar, connected and unconnected UDP, TCP, IPv4, and IPv6.
+   with creation timing, effective inheritance, UID reuse, and teardown order;
+   never assume one QoS path.
+2. Extend the successful amd64/arm64 parent-cgroup deny/pin probes and compare a
+   host-veth attachment; test init/app/sidecar, connected and unconnected UDP,
+   TCP, IPv4, and IPv6.
 3. Prove a race-free Pod UID to cgroup/ifindex join across creation, restart,
    rescheduling, rapid deletion, and identifier reuse.
 4. Kill the loader and controller; distinguish intended pinned persistence from
