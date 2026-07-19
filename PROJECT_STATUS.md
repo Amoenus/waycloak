@@ -4,9 +4,23 @@ Last updated: 2026-07-19
 
 ## Current phase
 
-The reviewed base is the published, independently verified, GitOps-deployed,
-and real-provider-certified `v0.3.0-rc.11`; the source tree is preparing final
-`v0.3.0` metadata from that exact proven code.
+[`v0.3.0`](https://github.com/Amoenus/waycloak/releases/tag/v0.3.0) is the
+completed provider-and-workload compatibility release. Protected release run
+`29689814556` published it from main commit `b72ba721`; independent verification
+matched the signed release manifest and all seven digest-addressed OCI
+attestations. Homelab PR #1464 promoted those exact final identities in merge
+`b2987679`, and Argo CD reports the root, Waycloak, qBitTorrent, and Bitmagnet
+applications Healthy/Synced.
+
+The final homelab runtime has two Ready controllers, exactly one 2/2 Ready
+Proton/OpenVPN gateway, and 3/3 Ready qBitTorrent and Bitmagnet workloads on the
+verified final manager, agent, and adapter digests. Both production port-forward
+leases are Ready. The exact-final real-provider gate passed in 1229.32 seconds,
+proving sustained renewal, actual endpoint rotation, qBitTorrent reannounce,
+DHT and external TCP/UDP ingress, fail-closed gateway loss and stale ingress,
+and same-Pod recovery without creating a competing provider session. Cleanup
+left zero acceptance resources.
+
 RC1 fixed the long-name StatefulSet lookup
 defect exposed by the signed alpha.6 real-provider harness (#96), and its live
 GitOps rollout preserved fail-closed gateway replacement while aligning the
