@@ -209,6 +209,7 @@ kernel/networking metadata, carried no credentials, and were deleted.
 | Feature probe | sched-cls, XDP, cgroup-skb, LWT out/xmit | same |
 | Selected maps | hash, array, LPM trie, ring buffer | same |
 | Security lockdown | none selected | none selected |
+| Sample container LSM context | AppArmor unavailable; SELinux-style `kernel_t` process context observed | AppArmor `cri-containerd.apparmor.d` enforced |
 
 The sampled Flannel host had `cni0`, `flannel.1`, and per-Pod veth devices. It
 reported no existing XDP, tc, flow-dissector, or netfilter BPF attachments and
@@ -236,6 +237,23 @@ IPv4/IPv6 protocol coverage, atomic replacement, or node reboot. The probes also
 showed that the systemd path includes Kubernetes QoS (`besteffort` or
 `burstable`), so a loader must discover and validate the UID-bound parent rather
 than construct one fixed QoS path.
+
+Reduced-capability allow-only probes produced a second portability finding. On
+amd64 Flatcar, `CAP_BPF` plus `CAP_NET_ADMIN`, all other capabilities dropped,
+`allowPrivilegeEscalation: false`, and `RuntimeDefault` seccomp successfully
+loaded, attached, pinned, unpinned, and closed the cgroup link without
+`privileged: true`. The same shape on arm64 Ubuntu loaded and attached but could
+not pin because `cri-containerd.apparmor.d` was enforced. An A/B rerun changed
+only the container AppArmor profile to `Unconfined` and pin/unpin succeeded.
+
+This shows that the tested path does not inherently require a fully privileged
+container, but `BPF` plus `NET_ADMIN` has not yet been proved minimal. It also
+shows that the Raspberry Pi kernel is BPF-capable while the default runtime LSM
+policy is not sufficient for persistent links. A supported node-enablement path
+should install a narrow Waycloak AppArmor profile permitting the required BPF
+and bpffs operations; `Unconfined` is diagnostic evidence, not the preferred
+production policy. Executable preflight must exercise pinning under that exact
+profile.
 
 ## Candidate architecture matrix
 
@@ -292,7 +310,9 @@ kernel implementation.
 7. Compose with a pre-existing program at the selected hook and prove ordering,
    inspection, and cleanup without touching CNI ownership.
 8. Load/attach under the exact proposed capabilities, seccomp, LSM, mounts, and
-   filesystem shape; document any privileged node-agent threat-model change.
+   filesystem shape. Narrow the currently sufficient `BPF` + `NET_ADMIN` pair,
+   define a least-privilege AppArmor policy for persistent links, and document
+   any node-agent threat-model change.
 9. Reboot a node and prove enforcement is re-established before protected Pods
    can resume, with safe stale-pin reconciliation.
 10. Run the performance/footprint matrix above before claiming value.
