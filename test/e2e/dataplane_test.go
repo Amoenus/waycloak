@@ -124,10 +124,17 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	if !strings.HasPrefix(contextName, "kind-") && os.Getenv("WAYCLOAK_E2E_ALLOW_NON_KIND") != "1" {
 		t.Skip("set WAYCLOAK_E2E_ALLOW_NON_KIND=1 to authorize a non-Kind cluster")
 	}
+	architecture := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_ARCH"))
+	if architecture == "" {
+		architecture = "amd64"
+	}
+	if architecture != "amd64" && architecture != "arm64" {
+		t.Fatalf("unsupported WAYCLOAK_E2E_ARCH %q", architecture)
+	}
 	binary := filepath.Join(t.TempDir(), "dataplane.test")
-	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", binary, "../../internal/dataplane")
+	command(t, append(os.Environ(), "GOOS=linux", "GOARCH="+architecture, "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", binary, "../../internal/dataplane")
 	gatewayBinary := filepath.Join(t.TempDir(), "gateway.test")
-	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", gatewayBinary, "../../internal/gateway")
+	command(t, append(os.Environ(), "GOOS=linux", "GOARCH="+architecture, "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", gatewayBinary, "../../internal/gateway")
 
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
@@ -139,9 +146,9 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	must(t, direct.Create(ctx, ns))
 	t.Cleanup(func() { _ = direct.Delete(ctx, ns) })
 
-	gateway := netnsRunner("gateway", namespace)
-	protected := netnsRunner("protected", namespace)
-	external := externalHTTPRunner(namespace)
+	gateway := netnsRunner("gateway", namespace, architecture)
+	protected := netnsRunner("protected", namespace, architecture)
+	external := externalHTTPRunner(namespace, architecture)
 	must(t, direct.Create(ctx, gateway))
 	must(t, direct.Create(ctx, protected))
 	must(t, direct.Create(ctx, external))
@@ -191,6 +198,7 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	}
 	runInPod(t, namespace, protected.Name, clientEnv, "^TestRepairOwnedFirewallAndLinkDrift$")
 	runInPod(t, namespace, protected.Name, clientEnv, "^TestClusterTrafficModes$")
+	runBenchmarkInPod(t, namespace, protected.Name, clientEnv, "^BenchmarkRepairHealthy$")
 	runInPod(t, namespace, protected.Name, append(clientEnv, "WAYCLOAK_E2E_EXPECT_GATEWAY=1"), "^TestProtectedStateSurvivesAgentExit$")
 	must(t, direct.Delete(ctx, gateway, client.GracePeriodSeconds(0)))
 	waitFor(t, 30*time.Second, func() bool {
@@ -200,20 +208,20 @@ func TestVXLANPathAndGatewayLossFailClosed(t *testing.T) {
 	runInPod(t, namespace, protected.Name, append(clientEnv, "WAYCLOAK_E2E_EXPECT_GATEWAY=0"), "^TestProtectedStateSurvivesAgentExit$")
 }
 
-func externalHTTPRunner(namespace string) *corev1.Pod {
+func externalHTTPRunner(namespace, architecture string) *corev1.Pod {
 	no := false
 	yes := true
 	root := int64(0)
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "external", Namespace: namespace}, Spec: corev1.PodSpec{
 		AutomountServiceAccountToken: &no,
-		NodeSelector:                 map[string]string{"kubernetes.io/arch": "amd64"},
+		NodeSelector:                 map[string]string{"kubernetes.io/arch": architecture},
 		Containers: []corev1.Container{{Name: "server", Image: "alpine:3.22.1", Command: []string{"sh", "-c", "while true; do printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok' | nc -l -p 8080; done"}, Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt(8080)}}, PeriodSeconds: 1}, SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, RunAsNonRoot: &no, RunAsUser: &root, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 		}}},
 	}}
 }
 
-func netnsRunner(name, namespace string) *corev1.Pod {
+func netnsRunner(name, namespace string, architectures ...string) *corev1.Pod {
 	falseValue := false
 	trueValue := true
 	runAsRoot := int64(0)
@@ -221,9 +229,13 @@ func netnsRunner(name, namespace string) *corev1.Pod {
 	if name == "gateway" {
 		capabilities = append(capabilities, "NET_BIND_SERVICE")
 	}
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: corev1.PodSpec{
+	architecture := "amd64"
+	if len(architectures) > 0 {
+		architecture = architectures[0]
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: corev1.PodSpec{
 		AutomountServiceAccountToken: &falseValue,
-		NodeSelector:                 map[string]string{"kubernetes.io/arch": "amd64"},
+		NodeSelector:                 map[string]string{"kubernetes.io/arch": architecture},
 		Volumes:                      []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
 		Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, VolumeMounts: []corev1.VolumeMount{{Name: "tmp", MountPath: "/tmp"}}, SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: &falseValue, RunAsNonRoot: &falseValue, RunAsUser: &runAsRoot,
@@ -231,6 +243,7 @@ func netnsRunner(name, namespace string) *corev1.Pod {
 			ReadOnlyRootFilesystem: &trueValue,
 		}}},
 	}}
+	return pod
 }
 
 func waitForPodReady(t *testing.T, c client.Client, pod *corev1.Pod) {
@@ -265,4 +278,13 @@ func runInPod(t *testing.T, namespace, pod string, environment []string, testNam
 	args = append(args, environment...)
 	args = append(args, "/tmp/dataplane.test", "-test.run", testName, "-test.v")
 	command(t, nil, "kubectl", args...)
+}
+
+func runBenchmarkInPod(t *testing.T, namespace, pod string, environment []string, benchmarkName string) {
+	t.Helper()
+	args := []string{"exec", "-n", namespace, pod, "--", "env"}
+	args = append(args, environment...)
+	args = append(args, "/tmp/dataplane.test", "-test.run", "^$", "-test.bench", benchmarkName, "-test.benchtime", "20x", "-test.count", "3")
+	output := command(t, nil, "kubectl", args...)
+	t.Logf("healthy repair benchmark:\n%s", output)
 }

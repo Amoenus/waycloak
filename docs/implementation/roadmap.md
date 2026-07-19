@@ -90,8 +90,8 @@ gateway remains fail closed; and the verified final bundle is published.
 
 ## Phase 5 — provider and workload compatibility (`v0.3.0`)
 
-The reviewed base is the published, independently verified, GitOps-deployed,
-and real-provider-certified `v0.3.0-rc.11`. The alpha.6 deployment completed engine auto-healing and stable
+The final `v0.3.0` release is published, independently verified,
+GitOps-deployed, and real-provider certified. The alpha.6 deployment completed engine auto-healing and stable
 renewal validation. RC1 fixed the long-name StatefulSet lookup exposed by the
 first full harness run. Its next run proved the startup deny gate but selected
 a worker with independently reproduced asymmetric Pod-CIDR reachability. RC2
@@ -136,8 +136,9 @@ qBitTorrent changed its listener and announce address without immediately
 reannouncing active torrents. RC11 makes successful generation-bound tracker
 reannounce part of application acknowledgement. Its complete sustained
 real-provider run passed renewal, actual rotation, ingress, advertisement, DHT,
-gateway loss, fail-closed behavior, and same-Pod recovery. Final artifact
-publication and homelab promotion are the remaining release steps.
+gateway loss, fail-closed behavior, and same-Pod recovery. The same gate passed
+again against exact final artifacts, which were published, independently
+verified, promoted, and observed Healthy/Ready in the homelab.
 
 - [x] Eliminate the adapter readiness bootstrap cycle while keeping genuine
   lease and listener loss fail closed (#71).
@@ -167,25 +168,77 @@ publication and homelab promotion are the remaining release steps.
 - [x] Publish the workload-adapter protocol, trusted selection mechanism,
   conformance kit, and qBitTorrent reference implementation (#67).
 
-Exit: qBitTorrent survives provider renewal or rotation without Pod
-replacement, and the additional reference workloads have documented neutral
-or evidence-backed narrow integrations.
+Exit: final `v0.3.0` is deployed in the homelab; qBitTorrent survives provider
+renewal or rotation without Pod replacement, and Bitmagnet has a documented,
+real-deployment-proven narrow integration. Loadstone remains future work.
 
-## Phase 6 — operational maturity (`v0.4.0`)
+## Phase 6 — eBPF research and v0.4.0 definition
 
-- [ ] Retain automatic same-Pod gateway endpoint recovery as a release
-  regression after its `v0.2.2` delivery (#70).
-- [ ] Multiple named gateways.
-- [ ] Gateway sharding design and implementation.
-- [ ] Upgrade, rollback, backup, and disaster-recovery tests.
-- [ ] Optional metrics, alerts, and dashboards.
-- [ ] Performance/resource benchmarks.
-- [ ] Compatibility matrix across supported Kubernetes/CNI combinations.
-- [ ] Evaluate an optional eBPF backend through the shared fail-closed
-  conformance suite on capable amd64 and arm64 nodes (#65).
+Research precedes the release PRD. eBPF is a focused hypothesis, not a selected
+backend. ADR 0006 remains the only supported production data-plane decision.
+The intended compatibility model is additive: the existing Pod-local mode stays
+the default, while any future eBPF mode is explicit and restricted to
+operator-prepared, capability-verified nodes with no silent fallback.
+
+- [x] Map the as-built filter, VXLAN, routing, DNS NAT, port NAT, verification,
+  privilege, and injected-component responsibilities (#65).
+- [x] Collect initial amd64/arm64 homelab kernel, cgroup, BTF, bpffs, hook, map,
+  and Flannel evidence (#65).
+- [x] Complete primary-source research for attachment, persistence, replacement,
+  privilege, verifier, portability, CNI ownership, and sidecarless models (#65).
+- [x] Resolve the leading Pod-cgroup identity/lifecycle and containerd CNI
+  creation-time handoff with
+  disposable, non-production probes (#65).
+- [x] Test the minimum deny-only cgroup prototype needed to decide feasibility;
+  defer host-veth tc/TCX because E2 remains viable (#65).
+- [x] Establish cross-architecture default-backend and real-provider scaling
+  baselines, and make equivalent preview comparison a release gate (#34).
+- [x] Publish the architecture comparison, threat-model delta, support boundary,
+  recommendation, and rejected alternatives (#65, #34).
+- [x] Derive the `v0.4.0` PRD, release cutoff, follow-up ADR direction,
+  conformance requirements, and ordered GitHub issue graph.
+
+Exit: the research record is sufficient to choose supported adoption,
+experimental prototype, or rejection; the resulting `v0.4.0` PRD makes no
+claim based only on kernel version, feature presence, or aspiration.
+
+## Phase 7 — v0.4.0 eBPF node-data-plane developer preview
+
+Implement [the v0.4.0 release PRD](../product/release-scope-v0.4.md) in strict
+dependency order. The sidecar backend remains the supported default throughout.
+
+- [ ] Freeze the preview API, node capability/status contract, threat-model
+  amendment, and backend-neutral conformance matrix (#107).
+- [ ] Build the disposable containerd CNI handoff probe and prove exact Pod UID,
+  netns, cgroup-parent, ordering, idempotence, and rollback on amd64 and arm64
+  (#108).
+- [ ] Implement UID/generation-owned cgroup programs, pins, atomic updates,
+  adoption, severed-link handling, reboot recovery, and bounded garbage
+  collection in the node agent (#109).
+- [ ] Prototype node ownership of VXLAN, routes, DNS NAT, verification, and
+  drift repair; accept the privilege boundary explicitly before removing the
+  Pod networking agent (#110).
+- [ ] Implement explicit admission selection, prepared-node scheduling, stable
+  unsupported reasons, runtime capability-loss behavior, and no fallback (#111).
+- [ ] Package immutable CNI/node-agent artifacts with atomic installation,
+  upgrade, rollback, and safe uninstall (#112).
+- [ ] Run equivalent default/tuned-default/preview performance and component
+  measurements at 1, 10, 50, and stress counts on amd64 and arm64 (#113).
+- [ ] Pass the complete declared-feature conformance suite, default-mode
+  regression, signed-artifact policy, and mixed-mode homelab acceptance (#114).
+
+Exit: the exact signed `v0.4.0` is deployed in the homelab with sidecar and
+preview workloads coexisting; the preview has a documented narrow support
+boundary, measured value, and zero observed direct-egress packets through every
+required lifecycle transition.
 
 ## Deferred backlog
 
+- multiple concurrent gateways, explicit sharding, and cross-gateway failover
+  (#31);
+- general backup, restore, and disaster-recovery expansion (#32);
+- product-wide metrics, alerts, and dashboards beyond eBPF diagnostics (#33);
+- Loadstone lease-consumption certification;
 - additional VPN engines and providers;
 - cross-namespace reference grants and deeper multi-tenancy;
 - Service-targeted lease handoff;

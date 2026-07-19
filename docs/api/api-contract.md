@@ -121,6 +121,20 @@ networking.waycloak.io/gateway: private-egress/private
 
 The gateway namespace may be omitted only when the gateway and workload share a namespace. Cross-namespace selection is authorized by the gateway's `spec.workloadAccess.namespaceSelector`; admission rejects a reference whose selector does not match the workload namespace.
 
+Optional `v0.4.0` developer-preview data-plane selection:
+
+```yaml
+networking.waycloak.io/data-plane: ebpf-preview
+```
+
+Omission means the supported `sidecar` mode. `ebpf-preview` is accepted only
+when the feature combination is implemented and admission can add hard affinity
+for administrator-prepared and currently capability-observed nodes. Unsupported
+or unknown values are rejected; admission never rewrites the request to another
+backend. The selected and observed modes are recorded in the controller-owned
+`VPNWorkload` status. Node affinity constrains initial scheduling only and is not
+the runtime readiness authority.
+
 Optional request:
 
 ```yaml

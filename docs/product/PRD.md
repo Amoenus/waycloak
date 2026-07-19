@@ -265,23 +265,33 @@ readiness returned.
 - Sustained Proton renewal and actual port-rotation evidence.
 - qBitTorrent ingress, tracker, and DHT certification across renewal or
   rotation without Pod replacement.
-- Bitmagnet and Loadstone consumption of the neutral lease contract, with
-  narrow adapters only where application semantics require them.
+- Bitmagnet consumption of the neutral lease contract through an
+  evidence-backed narrow adapter. Loadstone remains future compatibility work.
 - Broader provider/application troubleshooting evidence from real deployments.
 - Engine-native Gluetun configuration with migration from the initial
   provider-shaped convenience fields.
 - A public workload-adapter protocol, conformance kit, trusted selection
   mechanism, and qBitTorrent reference adapter.
 
-### v0.4.0 — operational maturity
+### v0.4.0 — optional eBPF node-data-plane developer preview
 
-- Multiple named gateways.
-- Deliberate sharding/failover design.
-- Upgrade and rollback tests.
-- Prometheus metrics and dashboards as optional artifacts.
-- Additional provider validation.
-- Evidence-based optional eBPF backend evaluation across supported amd64 and
-  arm64 kernel/CNI combinations.
+The research selected the prototype-release outcome and E2 architecture: an
+optional chained CNI creation-time handoff installs a Pod-parent cgroup eBPF
+deny boundary, and a prepared-node agent adopts and reconciles it. The existing
+Pod-local nftables/netlink sidecar remains the supported default. Preview
+selection is explicit, capability-gated per node, and never falls back.
+
+The release must prove more than attachment. The node path must own the complete
+declared feature subset, remove the privileged networking sidecar or demonstrate
+another accepted material benefit, pass equivalent fail-closed and lifecycle
+tests on amd64 and arm64, and support safe CNI installation and rollback. Initial
+compatibility is restricted to the proved k3s/containerd and Flannel integration;
+unsupported runtimes, nodes, and feature combinations fail explicitly.
+
+The complete requirements and cutoff are in
+[the v0.4.0 release PRD](release-scope-v0.4.md). ADR 0006 remains normative for
+the supported production backend; [ADR 0024](../decisions/0024-ebpf-preview-cni-handoff.md)
+records the evidence-backed developer-preview direction.
 
 ## Success measures
 
@@ -311,7 +321,10 @@ readiness returned.
 - Workload-specific integrations use a versioned out-of-process adapter
   protocol and trusted immutable OCI artifacts
   ([ADR 0018](../decisions/0018-workload-adapter-protocol.md)).
-- eBPF remains a conformance-gated optional backend proposal; nftables/netlink
+- eBPF remains a conformance-gated optional backend; nftables/netlink
   remains the supported production backend until measured evidence justifies
   an accepted follow-up decision
   ([ADR 0019](../decisions/0019-optional-ebpf-data-plane.md)).
+- The first eBPF implementation is a developer-preview CNI creation-time
+  handoff plus node owner; it is not the default or a production support claim
+  ([ADR 0024](../decisions/0024-ebpf-preview-cni-handoff.md)).

@@ -216,6 +216,23 @@ func TestConfigureVXLANProtectedPath(t *testing.T) {
 	assertGatewayClusterPath(t, true)
 }
 
+func BenchmarkRepairHealthy(b *testing.B) {
+	if os.Getenv("WAYCLOAK_E2E_CLIENT") != "1" {
+		b.Skip("runs only in the isolated protected client network namespace")
+	}
+	cfg := e2eClientConfig()
+	agent := Agent{Backend: NewBackend()}
+	if err := agent.Verify(context.Background(), cfg); err != nil {
+		b.Fatalf("verify prepared protected path: %v", err)
+	}
+	b.ResetTimer()
+	for range b.N {
+		if err := agent.Repair(context.Background(), cfg); err != nil {
+			b.Fatalf("repair healthy protected path: %v", err)
+		}
+	}
+}
+
 func TestProtectedStateSurvivesAgentExit(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_CLIENT") != "1" {
 		t.Skip("runs only in the protected client network namespace")
