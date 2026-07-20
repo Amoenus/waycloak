@@ -32,6 +32,7 @@ const (
 	BitmagnetAdapterHealthPort     = 9811
 	PortForwardLeasesKey           = "port-forward-leases.json"
 	AdmissionGenerationKey         = "generation"
+	GatewayGenerationKey           = "gatewayGeneration"
 	ApplicationLeaseMountPath      = "/run/waycloak/port-forward"
 	AdapterProtocolVersion         = "networking.waycloak.io/adapter/v1alpha1"
 	AdapterProtocolEnv             = "WAYCLOAK_ADAPTER_PROTOCOL"

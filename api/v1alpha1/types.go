@@ -141,9 +141,14 @@ type AllocationStatus struct {
 	ReleasedAt *metav1.Time `json:"releasedAt,omitempty"`
 }
 type VPNWorkloadStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	Allocation         AllocationStatus   `json:"allocation,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration            int64              `json:"observedGeneration,omitempty"`
+	Allocation                    AllocationStatus   `json:"allocation,omitempty"`
+	RequestedAllocationGeneration int64              `json:"requestedAllocationGeneration,omitempty"`
+	RequestedGatewayGeneration    int64              `json:"requestedGatewayGeneration,omitempty"`
+	ObservedGatewayGeneration     int64              `json:"observedGatewayGeneration,omitempty"`
+	ObservedAllocationGeneration  int64              `json:"observedAllocationGeneration,omitempty"`
+	ObservedPodUID                types.UID          `json:"observedPodUID,omitempty"`
+	Conditions                    []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // VPNWorkload is controller-owned. Users must not author it.

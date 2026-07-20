@@ -22,6 +22,8 @@ const (
 
 type Config struct {
 	PodUID                   string
+	AllocationGeneration     int64
+	GatewayGeneration        int64
 	Address                  netip.Prefix
 	OverlayCIDR              netip.Prefix
 	GatewayAddress           netip.Addr

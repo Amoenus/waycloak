@@ -17,6 +17,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/admission"
 	"github.com/Amoenus/waycloak/internal/allocation"
 	"github.com/Amoenus/waycloak/internal/contract"
+	"github.com/Amoenus/waycloak/internal/dataplane"
 	"github.com/Amoenus/waycloak/internal/delivery"
 	waystatus "github.com/Amoenus/waycloak/internal/status"
 	corev1 "k8s.io/api/core/v1"
@@ -52,6 +53,7 @@ type PodReconciler struct {
 	APIReader client.Reader
 	Scheme    *runtime.Scheme
 	Recorder  record.EventRecorder
+	WorkloadObserver dataplane.WorkloadObserver
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -177,6 +179,35 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	previous := workload.Status
 	previous.Conditions = append([]metav1.Condition(nil), workload.Status.Conditions...)
 	waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionAllocationPublished, metav1.ConditionTrue, waystatus.ReasonAllocationConfigMapReady, "The required UID-bound allocation ConfigMap exists")
+	
+	workload.Status.RequestedAllocationGeneration = workload.Status.Allocation.Generation
+	workload.Status.RequestedGatewayGeneration = gateway.Generation
+	
+	if !waystatus.IsTrue(gateway.Status.Conditions, waystatus.ConditionReady) {
+		waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "The selected gateway is not ready")
+	} else if pod.Status.PodIP == "" {
+		waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonAgentObservationFailed, "The target Pod does not have an IP address yet")
+	} else if r.WorkloadObserver != nil {
+		ctxTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
+		obs, err := r.WorkloadObserver.Observe(ctxTimeout, fmt.Sprintf("%s:%d", pod.Status.PodIP, contract.AgentHealthPort))
+		cancel()
+		if err != nil {
+			waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonAgentObservationFailed, "Failed to observe data-plane readiness: "+err.Error())
+		} else {
+			workload.Status.ObservedPodUID = obs.PodUID
+			workload.Status.ObservedAllocationGeneration = obs.AllocationGeneration
+			workload.Status.ObservedGatewayGeneration = obs.GatewayGeneration
+			
+			if obs.PodUID != pod.UID || obs.AllocationGeneration != workload.Status.RequestedAllocationGeneration || obs.GatewayGeneration != workload.Status.RequestedGatewayGeneration {
+				waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonAgentGenerationStale, "Agent observation is stale")
+			} else {
+				waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonTargetObservedReady, "The exact current protected path is observed")
+			}
+		}
+	} else {
+		waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonDataPlaneNotImplemented, "The Phase 1 control plane does not implement or observe a data plane")
+	}
+
 	if apiequality.Semantic.DeepEqual(previous, workload.Status) {
 		return ctrl.Result{}, nil
 	}
@@ -220,6 +251,7 @@ func allocationConfigMap(pod *corev1.Pod, workload *wayv1.VPNWorkload, gateway *
 			"clusterTrafficMode":          clusterMode,
 			"clusterCIDRs":                strings.Join(clusterCIDRs, ","),
 			"allocationGeneration":        fmt.Sprint(workload.Status.Allocation.Generation),
+			contract.GatewayGenerationKey: fmt.Sprint(gateway.Generation),
 			contract.PortForwardLeasesKey: deliveryDocument,
 		},
 	}, nil

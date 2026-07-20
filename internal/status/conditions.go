@@ -43,6 +43,8 @@ const (
 	ReasonMembershipGenerationApplied     = "MembershipGenerationApplied"
 	ReasonMembershipGenerationPending     = "MembershipGenerationPending"
 	ReasonMembershipObservationFailed     = "MembershipObservationFailed"
+	ReasonAgentObservationFailed          = "AgentObservationFailed"
+	ReasonAgentGenerationStale            = "AgentGenerationStale"
 	ReasonOverlayNotImplemented           = "OverlayNotImplemented"
 	ReasonDNSObservedReady                = "DNSObservedReady"
 	ReasonDNSNotReady                     = "DNSNotReady"
@@ -79,4 +81,8 @@ const (
 
 func Set(conditions *[]metav1.Condition, generation int64, typ string, value metav1.ConditionStatus, reason, message string) {
 	apiMeta.SetStatusCondition(conditions, metav1.Condition{Type: typ, Status: value, ObservedGeneration: generation, Reason: reason, Message: message})
+}
+
+func IsTrue(conditions []metav1.Condition, typ string) bool {
+	return apiMeta.IsStatusConditionTrue(conditions, typ)
 }

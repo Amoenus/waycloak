@@ -91,7 +91,15 @@ func Load(directory string) (dataplane.Config, error) {
 	if err != nil {
 		return dataplane.Config{}, err
 	}
-	cfg := dataplane.Config{PodUID: podUID, Address: netip.PrefixFrom(address, overlay.Bits()), OverlayCIDR: overlay, GatewayAddress: gateway, GatewayEndpoint: endpoint, GatewayHealthPort: uint16(healthPort), VNI: vni, MTU: mtu, ClusterTrafficMode: dataplane.ClusterTrafficMode(mode)}
+	allocationGeneration, err := readInt64(read, "allocationGeneration")
+	if err != nil {
+		return dataplane.Config{}, err
+	}
+	gatewayGeneration, err := readInt64(read, "gatewayGeneration")
+	if err != nil {
+		return dataplane.Config{}, err
+	}
+	cfg := dataplane.Config{PodUID: podUID, AllocationGeneration: allocationGeneration, GatewayGeneration: gatewayGeneration, Address: netip.PrefixFrom(address, overlay.Bits()), OverlayCIDR: overlay, GatewayAddress: gateway, GatewayEndpoint: endpoint, GatewayHealthPort: uint16(healthPort), VNI: vni, MTU: mtu, ClusterTrafficMode: dataplane.ClusterTrafficMode(mode)}
 	if underlay, readErr := read("underlayInterface"); readErr == nil {
 		cfg.UnderlayInterface = underlay
 	} else if !errors.Is(readErr, os.ErrNotExist) {
@@ -121,6 +129,18 @@ func readUint32(read func(string) (string, error), name string) (uint32, error) 
 		return 0, fmt.Errorf("parse allocation field %q: %w", name, err)
 	}
 	return uint32(parsed), nil
+}
+
+func readInt64(read func(string) (string, error), name string) (int64, error) {
+	value, err := read(name)
+	if err != nil {
+		return 0, err
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse allocation field %q: %w", name, err)
+	}
+	return parsed, nil
 }
 
 func readInt(read func(string) (string, error), name string) (int, error) {

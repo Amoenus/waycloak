@@ -101,7 +101,7 @@ func TestReconcileLoopAppliesOnlyAcknowledgedProviderPortRedirect(t *testing.T) 
 	load := func() (dataplane.Config, error) {
 		return dataplane.Config{PodUID: "uid", Address: netip.MustParsePrefix("172.30.99.2/24"), OverlayCIDR: netip.MustParsePrefix("172.30.99.0/24"), GatewayAddress: netip.MustParseAddr("172.30.99.1"), GatewayEndpoint: netip.MustParseAddrPort("10.0.0.2:4789"), GatewayHealthPort: 18080, VNI: 7999, MTU: 1320, ClusterTrafficMode: dataplane.ClusterTrafficPreserve}, nil
 	}
-	if err := reconcileLoopWithDeliveries(ctx, dataplane.Agent{Backend: backend}, load, time.Millisecond, ready, store); err != nil {
+	if err := reconcileLoopWithDeliveries(ctx, dataplane.Agent{Backend: backend}, load, time.Millisecond, ready, &atomic.Pointer[dataplane.Config]{}, store); err != nil {
 		t.Fatal(err)
 	}
 	if len(backend.last.ApplicationPortRedirects) != 1 || backend.last.ApplicationPortRedirects[0].ApplicationPort != 42000 {
@@ -151,7 +151,7 @@ func TestLeaseHandlersExposeValidatedReadOnlyPodRecord(t *testing.T) {
 		handler http.Handler
 		path    string
 	}{
-		{handler: agentHandler(ready, store), path: "/v1/port-forward/deliveries/lease-uid"},
+		{handler: agentHandler(ready, &atomic.Pointer[dataplane.Config]{}, store), path: "/v1/port-forward/deliveries/lease-uid"},
 		{handler: leaseHandler(store), path: "/v1/port-forward/leases"},
 		{handler: leaseHandler(store), path: "/v1/port-forward/leases/lease-uid"},
 	} {

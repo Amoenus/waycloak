@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/Amoenus/waycloak/internal/agentconfig"
 	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/Amoenus/waycloak/internal/dataplane"
@@ -91,6 +93,7 @@ func probeReadiness(ctx context.Context, endpoint string) error {
 
 func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), deliveryDirectory string, interval time.Duration) error {
 	ready := &atomic.Bool{}
+	appliedConfig := &atomic.Pointer[dataplane.Config]{}
 	deliveries := &delivery.Store{}
 	_ = deliveries.Refresh(deliveryDirectory)
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", contract.AgentHealthPort))
@@ -102,7 +105,7 @@ func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane
 		_ = listener.Close()
 		return fmt.Errorf("listen for Pod-loopback lease delivery: %w", err)
 	}
-	server := &http.Server{Handler: agentHandler(ready, deliveries), ReadHeaderTimeout: 2 * time.Second}
+	server := &http.Server{Handler: agentHandler(ready, appliedConfig, deliveries), ReadHeaderTimeout: 2 * time.Second}
 	loopbackServer := &http.Server{Handler: leaseHandler(deliveries), ReadHeaderTimeout: 2 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -123,12 +126,36 @@ func runAgent(ctx context.Context, agent dataplane.Agent, load func() (dataplane
 		}
 	}()
 	go refreshDeliveries(ctx, deliveries, deliveryDirectory, interval)
-	return reconcileLoopWithDeliveries(ctx, agent, load, interval, ready, deliveries)
+	return reconcileLoopWithDeliveries(ctx, agent, load, interval, ready, appliedConfig, deliveries)
 }
 
-func agentHandler(ready *atomic.Bool, deliveries *delivery.Store) http.Handler {
+func agentHandler(ready *atomic.Bool, appliedConfig *atomic.Pointer[dataplane.Config], deliveries *delivery.Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/readyz", readinessHandler(ready))
+	mux.HandleFunc("/v1/workload/observation", func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !ready.Load() {
+			http.Error(response, "protected path is not ready", http.StatusServiceUnavailable)
+			return
+		}
+		cfg := appliedConfig.Load()
+		if cfg == nil {
+			http.Error(response, "protected path is not ready", http.StatusServiceUnavailable)
+			return
+		}
+		document := dataplane.WorkloadObservationDocument{
+			APIVersion: dataplane.WorkloadObservationAPIVersion,
+			Observation: dataplane.WorkloadObservation{
+				PodUID:               types.UID(cfg.PodUID),
+				AllocationGeneration: cfg.AllocationGeneration,
+				GatewayGeneration:    cfg.GatewayGeneration,
+			},
+		}
+		writeJSON(response, document)
+	})
 	mux.HandleFunc("/v1/port-forward/deliveries/", func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			response.WriteHeader(http.StatusMethodNotAllowed)
@@ -243,10 +270,10 @@ func readinessHandler(ready *atomic.Bool) http.Handler {
 }
 
 func reconcileLoop(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration, ready *atomic.Bool) error {
-	return reconcileLoopWithDeliveries(ctx, agent, load, interval, ready, nil)
+	return reconcileLoopWithDeliveries(ctx, agent, load, interval, ready, &atomic.Pointer[dataplane.Config]{}, nil)
 }
 
-func reconcileLoopWithDeliveries(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration, ready *atomic.Bool, deliveries *delivery.Store) error {
+func reconcileLoopWithDeliveries(ctx context.Context, agent dataplane.Agent, load func() (dataplane.Config, error), interval time.Duration, ready *atomic.Bool, appliedConfig *atomic.Pointer[dataplane.Config], deliveries *delivery.Store) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -274,6 +301,7 @@ func reconcileLoopWithDeliveries(ctx context.Context, agent dataplane.Agent, loa
 			if deliveries != nil {
 				deliveries.MarkApplied(redirects)
 			}
+			appliedConfig.Store(&cfg)
 			ready.Store(true)
 		}
 		select {

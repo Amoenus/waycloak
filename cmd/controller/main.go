@@ -8,6 +8,7 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
 	wayadmission "github.com/Amoenus/waycloak/internal/admission"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/dataplane"
 	"github.com/Amoenus/waycloak/internal/delivery"
 	waygateway "github.com/Amoenus/waycloak/internal/gateway"
 	corev1 "k8s.io/api/core/v1"
@@ -71,7 +72,7 @@ func main() {
 	}
 	if controllersEnabled {
 		//lint:ignore SA1019 controller-runtime has no legacy-recorder adapter yet.
-		if err = (&waycontroller.PodReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-pod")}).SetupWithManager(mgr); err != nil {
+		if err = (&waycontroller.PodReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("waycloak-pod"), WorkloadObserver: &dataplane.HTTPWorkloadObserver{}}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "setup Pod controller")
 			os.Exit(1)
 		}

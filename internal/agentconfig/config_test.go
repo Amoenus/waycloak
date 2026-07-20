@@ -16,6 +16,7 @@ func TestLoad(t *testing.T) {
 		"overlayCIDR": "172.30.99.0/24", "gatewayAddress": "172.30.99.1",
 		"gatewayEndpoint": "10.0.0.2:4789", "gatewayHealthPort": "18080", "vni": "7999", "mtu": "1320",
 		"clusterTrafficMode": "Preserve", "clusterCIDRs": "10.42.0.0/16, 10.43.0.0/16\n",
+		"allocationGeneration": "1", "gatewayGeneration": "1",
 	}
 	for name, value := range values {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
@@ -36,7 +37,7 @@ func TestLoad(t *testing.T) {
 
 func TestLoadRejectsMissingObservedEndpoint(t *testing.T) {
 	dir := t.TempDir()
-	for name, value := range map[string]string{"version": "v1alpha1", "podUID": "uid-1", "address": "172.30.99.2", "overlayCIDR": "172.30.99.0/24", "gatewayAddress": "172.30.99.1", "gatewayEndpoint": "", "gatewayHealthPort": "18080", "vni": "7999", "mtu": "1320", "clusterTrafficMode": "Preserve"} {
+	for name, value := range map[string]string{"version": "v1alpha1", "podUID": "uid-1", "address": "172.30.99.2", "overlayCIDR": "172.30.99.0/24", "gatewayAddress": "172.30.99.1", "gatewayEndpoint": "", "gatewayHealthPort": "18080", "vni": "7999", "mtu": "1320", "clusterTrafficMode": "Preserve", "allocationGeneration": "1", "gatewayGeneration": "1"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
 			t.Fatal(err)
 		}
