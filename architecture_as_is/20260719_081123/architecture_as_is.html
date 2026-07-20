@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waycloak as-built architecture — 2026-07-19</title>
+  <style>
+    :root { color-scheme: light dark; --accent:#5b7cfa; --muted:#667085; --panel:#f4f6fb; --border:#cdd5df; }
+    @media (prefers-color-scheme: dark) { :root { --panel:#171b26; --border:#394150; --muted:#aab4c3; } }
+    body { font: 15px/1.55 system-ui, sans-serif; max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+    h1,h2,h3 { line-height:1.2; } h1 { margin-bottom:.25rem; } h2 { margin-top:2rem; border-bottom:1px solid var(--border); padding-bottom:.35rem; }
+    .meta,.muted { color:var(--muted); } .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
+    table { width:100%; border-collapse:collapse; margin:12px 0; } th,td { border:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; }
+    th { background:var(--panel); } code,pre { font-family:ui-monospace,Consolas,monospace; } pre { background:var(--panel); border:1px solid var(--border); padding:14px; overflow:auto; }
+    .high { color:#16803c; font-weight:700; } .medium { color:#b26a00; font-weight:700; } nav a { margin-right:14px; }
+  </style>
+</head>
+<body>
+  <h1>Waycloak as-built architecture</h1>
+  <p class="meta">Generated 2026-07-19 08:11:23 Europe/Riga · Repository root: C:\Git\waycloak</p>
+  <nav><a href="#summary">Summary</a><a href="#map">System map</a><a href="#flows">Flows</a><a href="#tests">Tests</a><a href="#risks">Risks</a></nav>
+
+  <h2 id="scope">Scope and assumptions</h2>
+  <ul>
+    <li>Scope: the current Waycloak repository, with emphasis on the v0.3.0 provider/workload compatibility path.</li>
+    <li>Evidence: Go APIs and controllers, gateway/provider code, adapter protocol, Helm/KCL artifacts, ADRs, roadmap/status, existing tests, and the observed real-provider release investigation.</li>
+    <li>Execution performed: unit tests, focused e2e-tagged tests, vet, staticcheck, envtest, Helm lint/render, and KCL examples.</li>
+    <li>Not explored here: a fresh runtime packet capture, database systems (none are part of the product path), or a final RC8 cluster rollout.</li>
+  </ul>
+
+  <h2 id="summary">Executive summary</h2>
+  <div class="cards">
+    <div class="card"><strong>Kubernetes-native control plane</strong><br>CRDs, controller-runtime reconcilers, and an admission webhook express explicit workload opt-in and observed status.</div>
+    <div class="card"><strong>Deny-first data plane</strong><br>An injected agent establishes nftables/netlink state before application startup and retains the drop path through gateway loss.</div>
+    <div class="card"><strong>Singleton VPN gateway</strong><br>A controller-owned StatefulSet runs Gluetun plus a tokenless gateway manager; credentials mount only into the engine.</div>
+    <div class="card"><strong>Renewable ingress</strong><br>UID-bound leases drive Proton NAT-PMP, stable internal ports, atomic gateway translation, and expiry-aware Pod-local delivery.</div>
+    <div class="card"><strong>Application adapters</strong><br>Unprivileged qBittorrent and Bitmagnet sidecars consume a neutral record and acknowledge only exact applied generations.</div>
+    <div class="card"><strong>Current release edge</strong><br>RC8 must prove the NAT-PMP public address and port as one endpoint while reusing the existing provider session.</div>
+  </div>
+
+  <h2 id="map">As-built system map</h2>
+  <pre>Explicit Pod annotation
+        |
+        v
+Admission webhook -- validates gateway/adapter trust and injects deny-first agent
+        |
+        v
+VPNWorkload allocation/config  &lt;-- controller reconcilers --&gt;  VPNGateway / PortForwardLease status
+        |                                                       |
+        v                                                       v
+Protected Pod network namespace                         Singleton gateway Pod
+  application + adapter                                  Gluetun (credentials)
+  Waycloak agent                                          gateway-manager (tokenless)
+        |                                                       |
+        +=========== VXLAN overlay, DNS, egress ================+
+                                                                |
+                                                        Proton NAT-PMP + VPN
+  </pre>
+  <table>
+    <thead><tr><th>Component</th><th>Current responsibility</th><th>Key evidence</th><th>Confidence</th></tr></thead>
+    <tbody>
+      <tr><td>Controller/webhook</td><td>Own CR reconciliation, explicit admission, resource generation gates, and status.</td><td>cmd/controller; internal/controller; api/v1alpha1</td><td class="high">High</td></tr>
+      <tr><td>Pod agent</td><td>Install/repair deny-first routing, VXLAN, DNS redirect, delivery projection, and acknowledgement observation.</td><td>cmd/agent; internal/dataplane; internal/delivery</td><td class="high">High</td></tr>
+      <tr><td>Gateway manager</td><td>Observe engine health, reconcile overlay/forwarding/DNS, own NAT-PMP leases, publish read-only observations.</td><td>cmd/gateway-manager; internal/gateway</td><td class="high">High</td></tr>
+      <tr><td>Provider drivers</td><td>Keep Gluetun observation and Proton NAT-PMP behavior behind interfaces.</td><td>internal/provider/gluetun; internal/provider/proton</td><td class="high">High</td></tr>
+      <tr><td>Workload adapters</td><td>Apply application-specific port/address state without Kubernetes or VPN credentials.</td><td>internal/qbittorrent; internal/bitmagnet; protocol/adapter/v1alpha1</td><td class="high">High</td></tr>
+      <tr><td>Packaging</td><td>Install via Helm; publish optional KCL models; pin release artifacts by digest.</td><td>charts/waycloak; kcl/waycloak; .github/workflows</td><td class="high">High</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="entrypoints">Entrypoints and runtime</h2>
+  <ul>
+    <li>Processes: <code>cmd/controller</code>, <code>cmd/agent</code>, <code>cmd/gateway-manager</code>, <code>cmd/qbittorrent-adapter</code>, and <code>cmd/bitmagnet-adapter</code>.</li>
+    <li>Primary API: <code>networking.waycloak.io/v1alpha1</code> CRDs for VPNGateway, VPNWorkload, PortForwardLease, and WorkloadAdapter.</li>
+    <li>Local runtime contracts: allocation ConfigMap, gateway desired-state ConfigMap, loopback health/observation endpoints, and the versioned adapter lease endpoint.</li>
+    <li>External integrations: Kubernetes API (controller only), Gluetun/OpenVPN, Proton NAT-PMP, OCI registries, and optional cert-manager integration.</li>
+  </ul>
+
+  <h2 id="data">Data and integrations</h2>
+  <p>Durable state is Kubernetes-native. Stable overlay allocation, object-UID lease identity, provider internal port, public endpoint generation, and conditions live in CR status and controller-owned ConfigMaps. There is no application database. VPN credentials remain referenced by VPNGateway engine configuration and are not copied into protected workloads or the gateway manager.</p>
+  <p>The v0.3 endpoint contract is address plus port. Proton supplies both through NAT-PMP; the controller persists both; the agent delivers both; qBittorrent applies the port, overlay binding, and tracker announce address before acknowledgement.</p>
+
+  <h2 id="tests">Test suite interpretation</h2>
+  <table>
+    <thead><tr><th>Layer</th><th>What it proves</th><th>Current result</th></tr></thead>
+    <tbody>
+      <tr><td>Go unit/static</td><td>Provider protocol validation, manager state, controllers, adapters, delivery, and fixtures.</td><td class="high">Pass: go test, vet, staticcheck</td></tr>
+      <tr><td>envtest</td><td>Real API-server schema/status reconciliation without a full cluster data plane.</td><td class="high">Pass on Kubernetes 1.36 assets</td></tr>
+      <tr><td>e2e contracts</td><td>Tagged harness helpers and application compatibility contracts compile and pass.</td><td class="high">Pass (focused non-destructive selection)</td></tr>
+      <tr><td>real provider</td><td>Sustained ingress, tracker/DHT, renewal/rotation, and destructive gateway replacement.</td><td class="medium">RC8 execution pending</td></tr>
+      <tr><td>race</td><td>Concurrent Go access under race instrumentation.</td><td class="medium">Not runnable locally: Windows host lacks CGO compiler; Linux CI required</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="flows">Representative flows</h2>
+  <h3>1. Explicit protected egress</h3>
+  <p>Annotated Pod → webhook validates VPNGateway and injects init/agent → controller binds VPNWorkload allocation to Pod UID → agent installs drop state before overlay route → traffic uses gateway VXLAN → gateway forwards only authorized overlay sources through the VPN. Gateway/tunnel loss keeps direct egress blocked. <span class="high">High confidence.</span></p>
+  <h3>2. Renewable provider-assigned ingress</h3>
+  <p>PortForwardLease UID → stable internal port → gateway manager requests NAT-PMP mapping → public address/port observation → controller generation/status → atomic gateway DNAT → Pod-local neutral record → adapter applies application state → agent/controller observe exact acknowledgement. Expiry or mismatch regresses readiness. <span class="high">High confidence.</span></p>
+  <h3>3. qBittorrent compatibility</h3>
+  <p>Adapter discovers the Waycloak interface/address, applies qBittorrent listener port and binding, sets the provider public address as <code>announce_ip</code>, restarts enabled DHT when endpoint-visible state changes, verifies the listener, then acknowledges. The real tracker fixture hashes the announced address instead of logging it. <span class="high">High confidence statically; real RC8 proof pending.</span></p>
+
+  <h2 id="observations">Architecture observations</h2>
+  <ul>
+    <li><strong>Observed:</strong> readiness is composite and observation-based; registration alone is insufficient.</li>
+    <li><strong>Observed:</strong> provider and application compatibility are deliberately outside generic packet translation.</li>
+    <li><strong>Observed:</strong> credential ownership, token isolation, and Linux capabilities are narrow and explicit.</li>
+    <li><strong>Inferred:</strong> the strongest remaining v0.3 risk is operational sequencing, not missing core packet enforcement.</li>
+    <li><strong>Unknown:</strong> final RC8 behavior until exact digests are promoted and the existing-gateway acceptance completes.</li>
+  </ul>
+
+  <h2 id="risks">Risks and friction</h2>
+  <table>
+    <thead><tr><th>Finding</th><th>Why it matters</th><th>Evidence</th><th>Suggested verification</th></tr></thead>
+    <tbody>
+      <tr><td>Provider session ceiling</td><td>A second OpenVPN gateway can fail authentication on the current account.</td><td>RC2/RC7 runtime history and acceptance guard.</td><td>Run with WAYCLOAK_REAL_VPN_GATEWAY and confirm no temporary gateway Pod.</td></tr>
+      <tr><td>Split inbound/outbound addresses</td><td>Using the outbound address makes a valid mapping appear unreachable and advertises the wrong endpoint.</td><td>NAT-PMP diagnostic and new publicAddress contract.</td><td>Probe status publicAddress and verify hashed tracker announcement.</td></tr>
+      <tr><td>Alpha wire evolution</td><td>Older agents omit required publicAddress, so new adapters remain unready.</td><td>Protocol schema and rollout documentation.</td><td>Promote release-matched agent before adapter and observe generation gate.</td></tr>
+      <tr><td>Singleton gateway failure domain</td><td>Replacement creates a bounded outage by design.</td><td>OnDelete StatefulSet and fail-closed acceptance.</td><td>Repeat destructive replacement and measure readiness withdrawal/recovery.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="commands">Command log</h2>
+  <table>
+    <thead><tr><th>Command class</th><th>Purpose</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>git status / rg</td><td>Map workspace, changes, entrypoints, and contracts.</td><td>Observed implementation changes plus two pre-existing architecture report directories.</td></tr>
+      <tr><td>go test ./...</td><td>Unit and package verification.</td><td>Pass.</td></tr>
+      <tr><td>go test -tags=envtest</td><td>API-server-backed reconciliation.</td><td>Pass.</td></tr>
+      <tr><td>go vet / staticcheck</td><td>Static analysis.</td><td>Pass.</td></tr>
+      <tr><td>Helm lint/template</td><td>Schema and deterministic render.</td><td>Pass with CI values.</td></tr>
+      <tr><td>KCL examples</td><td>Optional API/package surface.</td><td>Pass.</td></tr>
+      <tr><td>go test -race</td><td>Race verification.</td><td>Not started: CGO/compiler unavailable locally.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="next">Next verification steps</h2>
+  <ol>
+    <li>Merge the RC8 public-endpoint and acceptance-isolation change after Linux CI, including race and generated checks.</li>
+    <li>Publish and independently verify signed RC8 artifacts, then promote exact digests.</li>
+    <li>Run real-provider acceptance against the existing gateway only; prove endpoint ingress, tracker address/port, DHT, renewal/rotation, fail-closed replacement, and recovery.</li>
+    <li>Only then update final v0.3.0 release status and publish the immutable final bundle.</li>
+  </ol>
+</body>
+</html>

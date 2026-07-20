@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waycloak post-v0.3 as-built architecture</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#0b1220; --panel:#121c2e; --text:#e7edf7; --muted:#a9b6c8; --line:#32415a; --accent:#7dd3fc; --good:#86efac; --warn:#fcd34d; }
+    body { margin:0; font:15px/1.55 system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    main { max-width:1050px; margin:auto; padding:32px 22px 64px; }
+    h1,h2,h3 { line-height:1.2; } h1 { margin-bottom:4px; } h2 { margin-top:34px; border-bottom:1px solid var(--line); padding-bottom:8px; }
+    a { color:var(--accent); } .muted { color:var(--muted); } .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+    table { width:100%; border-collapse:collapse; } th,td { text-align:left; vertical-align:top; border:1px solid var(--line); padding:8px; } th { background:var(--panel); }
+    code,pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; } pre { overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .high { color:var(--good); } .medium { color:var(--warn); }
+  </style>
+</head>
+<body><main>
+  <h1>Waycloak post-v0.3 as-built architecture</h1>
+  <p class="muted">Generated 2026-07-19 18:22:46 Europe/Riga from commit a80aa3a. Decision supported: bounded post-v0.3 backlog and v0.4 release cutoff.</p>
+
+  <h2>Scope And Assumptions</h2>
+  <ul>
+    <li>Scope: current Waycloak repository, shipped v0.3 contracts, runtime entrypoints, test strategy, roadmap, relevant ADRs, and ten live open GitHub issues.</li>
+    <li>Execution: read-only repository inspection and GitHub issue queries; no runtime mutation or test execution.</li>
+    <li>Not explored: production traffic, credentials, provider endpoints, uncommitted prior architecture reports, or detailed performance profiling.</li>
+  </ul>
+
+  <h2>Executive Summary</h2>
+  <div class="cards">
+    <div class="card"><strong>Control plane</strong><br>One controller-runtime manager hosts four reconcilers and admission webhooks with leader election and an observed admission-generation gate.</div>
+    <div class="card"><strong>Data plane</strong><br>Per-workload native nftables/netlink agents establish deny-first VXLAN paths to a tokenless singleton gateway manager.</div>
+    <div class="card"><strong>Provider boundary</strong><br>Gluetun owns VPN establishment and native provider configuration; Proton NAT-PMP is a capability driver behind a provider interface.</div>
+    <div class="card"><strong>Lease boundary</strong><br>Manager-owned mapping generations separate endpoint changes from expiry-only renewals; Kubernetes status remains controller-owned.</div>
+    <div class="card"><strong>Extension boundary</strong><br>Trusted, digest-pinned, unprivileged workload adapters consume a versioned Pod-local protocol outside the core controller.</div>
+    <div class="card"><strong>Planning implication</strong><br>The existing backend interface and conformance-first threat model support a focused eBPF release, provided selection is explicit and unsupported nodes never fall back silently.</div>
+  </div>
+
+  <h2>As-Built System Map</h2>
+  <table><thead><tr><th>Component</th><th>Current responsibility</th><th>Key evidence</th><th>Confidence</th></tr></thead><tbody>
+    <tr><td>Controller/webhook</td><td>Admission, stable allocation, gateway resources/status, lease status/delivery, garbage collection</td><td><code>cmd/controller/main.go:67-101</code>; <code>internal/controller/*</code></td><td class="high">High</td></tr>
+    <tr><td>Workload agent</td><td>Installs lockdown first, configures and repairs the protected VXLAN route, exposes local lease/readiness observations</td><td><code>internal/dataplane/dataplane.go:102</code>; ADR 0006</td><td class="high">High</td></tr>
+    <tr><td>Gateway manager</td><td>Overlay membership, forwarding/NAT, split DNS, engine observation, renewable provider mappings and rule generations</td><td><code>cmd/gateway-manager/main.go:26</code>; ADRs 0021/0023</td><td class="high">High</td></tr>
+    <tr><td>VPN engine</td><td>Native tunnel/provider configuration and credential ownership</td><td><code>internal/provider/engine.go</code>; ADR 0022</td><td class="high">High</td></tr>
+    <tr><td>Workload adapters</td><td>Apply proprietary application configuration and acknowledge exact lease generations</td><td>ADR 0018; qBittorrent and Bitmagnet commands/packages</td><td class="high">High</td></tr>
+    <tr><td>Packaging/release</td><td>Helm-primary signed OCI bundle with optional KCL and independently signed adapters</td><td>PRD, roadmap, final v0.3 release evidence</td><td class="high">High</td></tr>
+  </tbody></table>
+
+  <h2>Entrypoints And Runtime</h2>
+  <ul>
+    <li><code>cmd/controller/main.go</code>: controller manager, webhook, health/readiness, leader election.</li>
+    <li><code>cmd/agent/main.go</code>: injected prepare/verify/repair lifecycle inside each protected Pod network namespace.</li>
+    <li><code>cmd/gateway-manager/main.go</code>: tokenless manager beside the VPN engine.</li>
+    <li><code>cmd/qbittorrent-adapter</code> and <code>cmd/bitmagnet-adapter</code>: application-specific protocol endpoints outside core reconciliation.</li>
+    <li>Helm is the primary install surface; plain CRDs and Pod annotations are canonical; KCL is optional.</li>
+  </ul>
+  <pre>Pod template annotation
+        |
+        v
+ admission generation gate --rejects stale/unprotected opt-in--&gt; Pod
+        |                                                     |
+        v                                                     v
+ controller --stable UID allocation/status--&gt; workload agent --VXLAN--&gt; singleton gateway
+        |                                                                    |
+        +--lease intent/status&lt;--manager observation-- gateway manager -- Gluetun -- provider
+                                      |
+                                      +--atomic mapping generation + DNAT rules</pre>
+
+  <h2>Data And Integrations</h2>
+  <ul>
+    <li>Kubernetes API objects own durable intent and observation: <code>VPNGateway</code>, controller-owned <code>VPNWorkload</code>, <code>PortForwardLease</code>, and cluster-scoped <code>WorkloadAdapter</code>.</li>
+    <li>ConfigMap projection carries stable desired membership/lease intent and restart hints, not fast provider-event signaling.</li>
+    <li>The gateway manager and adapters have no Kubernetes token. VPN credentials mount only into the engine.</li>
+    <li>Gluetun and the VPN provider are external systems; provider-specific capability stays behind interfaces.</li>
+  </ul>
+
+  <h2>Test Suite Interpretation</h2>
+  <ul>
+    <li>Unit and envtest suites cover mutation, stable allocation, conditions, provider state machines, engine-native validation, and ownership.</li>
+    <li>Kind/k3s tests supply packet-level fail-closed, DNS, VXLAN, nftables, upgrade, and adapter evidence.</li>
+    <li>The gated real-provider suite uniquely proves Proton renewal/rotation, public TCP/UDP ingress, qBittorrent tracker/DHT behavior, gateway loss, and same-Pod recovery.</li>
+    <li>No performance baseline or multi-version Kubernetes/CNI matrix is yet published; those remain issue #34.</li>
+  </ul>
+
+  <h2>Representative Flows</h2>
+  <ol>
+    <li><strong>Protected startup.</strong> Annotation enters admission; generation and authorization are checked; init installs lockdown before route setup; allocation and gateway health must converge before application startup. <span class="high">High confidence.</span></li>
+    <li><strong>Provider endpoint rotation.</strong> Manager acquires a changed mapping, advances its local generation, installs matching rules, exposes observation; controller publishes status/delivery; adapter applies and acknowledges; readiness returns only after all observations match. <span class="high">High confidence.</span></li>
+    <li><strong>Gateway loss.</strong> Agent lockdown remains, gateway/lease readiness regresses, ordinary internet egress stays blocked, replacement endpoint is propagated and repaired without changing the workload identity. <span class="high">High confidence.</span></li>
+    <li><strong>Upgrade.</strong> Helm generation changes gate webhook readiness; control plane rolls before protected workloads; gateway template changes remain OnDelete and operator-activated. Backup/restore and full disaster-recovery semantics remain incomplete. <span class="medium">Medium confidence for the unimplemented recovery extensions.</span></li>
+  </ol>
+
+  <h2>Architecture Observations</h2>
+  <h3>Observed</h3>
+  <ul>
+    <li>Waycloak already follows the Kubernetes operator pattern through level-based controller-runtime reconcilers, observed conditions, and owner references.</li>
+    <li>The supported topology is one stateful tunnel Pod per declared gateway; current release evidence uses one gateway and one provider session.</li>
+    <li>The backend interface exists, but nftables/netlink is the only accepted production implementation.</li>
+  </ul>
+  <h3>Inferred</h3>
+  <ul>
+    <li>An eBPF implementation can preserve the public API by implementing the existing backend seam, but capability discovery, attachment ownership, and packet-level parity are release-critical.</li>
+    <li>Multi-gateway sharding, general lifecycle/DR, and product-wide observability are independent expansions and should not share the eBPF cutoff.</li>
+  </ul>
+  <h3>Unknown</h3>
+  <ul>
+    <li>Actual capacity limits at 10/50 protected workloads and across supported CNI/kernel combinations.</li>
+    <li>Restore semantics for persisted stable identities after partial or total control-plane loss.</li>
+    <li>Viable eBPF hooks and feature availability on target amd64/arm64 nodes.</li>
+  </ul>
+
+  <h2>Risks And Friction</h2>
+  <table><thead><tr><th>Finding</th><th>Why it matters</th><th>Evidence</th><th>Suggested verification</th></tr></thead><tbody>
+    <tr><td>v0.4 milestone is over-broad</td><td>Combines eBPF with unrelated topology, lifecycle, and observability programs</td><td>Issues #6, #31-34, #65; PRD/roadmap</td><td>Cut v0.4 to #65, eBPF-scoped #34 evidence, and retained regressions</td></tr>
+    <tr><td>Release bookkeeping is stale</td><td>Open #4 and mixed #5 obscure completed v0.3 evidence</td><td>Final v0.3 gate versus live issue bodies</td><td>Close #4; narrow #5 to Loadstone; close v0.3 milestone</td></tr>
+    <tr><td>eBPF capability is unknown per node</td><td>Kernel version alone cannot prove safe attachment or verifier support</td><td>Proposed ADR 0019; issue #65</td><td>Read-only feature probe with architecture/CNI context</td></tr>
+    <tr><td>CNI attachment ownership is unproven</td><td>Replacing CNI-owned programs or hooks can break networking or isolation</td><td>Proposed ADR 0019</td><td>Choose coexistence hooks and test preservation/cleanup</td></tr>
+    <tr><td>Support claims exceed measured matrix</td><td>CNI/kernel differences affect VXLAN and nftables behavior</td><td>Issue #34; ADR 0006</td><td>Reproducible benchmark and compatibility jobs</td></tr>
+  </tbody></table>
+
+  <h2>Command Log</h2>
+  <table><thead><tr><th>Command/activity</th><th>Purpose</th><th>Result</th></tr></thead><tbody>
+    <tr><td><code>git status --short</code>, <code>rg --files</code></td><td>Inventory and preserve user changes</td><td>Only prior untracked architecture reports existed</td></tr>
+    <tr><td>Sonar secret scans before every selected file read</td><td>Avoid credential exposure</td><td>No issues found</td></tr>
+    <tr><td>Read PRD, DX, architecture, networking, threat model, API, roadmap, tests, and relevant ADRs</td><td>Compare intended and as-built boundaries</td><td>Singleton/operator/data-plane contracts agree; roadmap cutoff was broad</td></tr>
+    <tr><td>GitHub connector search plus <code>gh issue list</code></td><td>Live backlog/milestone triage</td><td>Ten open issues; three stale v0.3 assignments; five open v0.4 items</td></tr>
+  </tbody></table>
+
+  <h2>Next Verification Steps</h2>
+  <ol>
+    <li>Reconcile issues #4, #5, #6, #16, #31-34, and #65 plus milestones with the eBPF cutoff.</li>
+    <li>Turn issue #65 into ordered discovery, preflight, attachment, implementation, and conformance slices.</li>
+    <li>Scope #34 to the compatibility and comparative measurements required for eBPF adoption.</li>
+    <li>Replace proposed ADR 0019 only after packet parity, CNI coexistence, amd64/arm64 results, and measured value are proven.</li>
+  </ol>
+</main></body></html>

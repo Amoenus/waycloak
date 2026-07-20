@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waycloak architecture and roadmap snapshot — 2026-07-18</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f7f8fa; --panel:#fff; --ink:#172033; --muted:#5c667a; --line:#d9deea; --accent:#3157b7; --good:#157347; --warn:#9a6700; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#10141d; --panel:#171d29; --ink:#edf1f8; --muted:#aeb8ca; --line:#343e50; --accent:#8dacff; --good:#62d49b; --warn:#f3c969; } }
+    * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { max-width:1100px; margin:auto; padding:36px 22px 70px; } h1 { font-size:2rem; line-height:1.2; margin:0 0 8px; } h2 { margin-top:34px; border-bottom:1px solid var(--line); padding-bottom:7px; } h3 { margin-top:25px; }
+    a { color:var(--accent); } .lede,.meta { color:var(--muted); } .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin:22px 0; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px; } .card b { display:block; font-size:1.05rem; margin-bottom:4px; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); } th,td { text-align:left; vertical-align:top; padding:10px; border:1px solid var(--line); } th { background:color-mix(in srgb,var(--panel),var(--accent) 8%); }
+    code,pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; } code { overflow-wrap:anywhere; } pre { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; overflow:auto; }
+    .high { color:var(--good); font-weight:700; } .medium { color:var(--warn); font-weight:700; } .callout { border-left:4px solid var(--warn); background:var(--panel); padding:12px 16px; }
+    li { margin:5px 0; } nav ul { columns:2; } @media(max-width:650px){ nav ul{columns:1;} }
+  </style>
+</head>
+<body><main>
+  <h1>Waycloak architecture and roadmap snapshot</h1>
+  <p class="lede">As-built orientation for deciding what to do next. Generated 2026-07-18 18:59:40 Europe/Riga.</p>
+
+  <div class="cards">
+    <div class="card"><b>Current release</b><code>v0.3.0-alpha.6</code>, published prerelease</div>
+    <div class="card"><b>Checkout</b><code>main</code> at <code>bfa5fd1</code>, matching <code>origin/main</code></div>
+    <div class="card"><b>Current phase</b>Phase 5: provider and workload compatibility</div>
+    <div class="card"><b>Verification</b><span class="high">go test ./... passed</span>; no open PRs</div>
+  </div>
+
+  <nav><h2>Contents</h2><ul>
+    <li><a href="#scope">Scope and assumptions</a></li><li><a href="#summary">Executive summary</a></li>
+    <li><a href="#map">As-built system map</a></li><li><a href="#runtime">Entrypoints and runtime</a></li>
+    <li><a href="#data">Data and integrations</a></li><li><a href="#tests">Test suite interpretation</a></li>
+    <li><a href="#flows">Representative flows</a></li><li><a href="#observations">Architecture observations</a></li>
+    <li><a href="#risks">Risks and friction</a></li><li><a href="#commands">Command log</a></li>
+    <li><a href="#next">Next verification steps</a></li>
+  </ul></nav>
+
+  <section id="scope"><h2>Scope and assumptions</h2>
+    <ul>
+      <li><b>Scope explored:</b> repository inventory, required product/architecture/security/API/test documents, all ADR decisions, recent Git history and tags, current GitHub issues/PRs, and the Go unit suite.</li>
+      <li><b>Execution:</b> read-only inspection plus this timestamped report. No deployment, credentialed provider test, Kind cluster, release mutation, or source edit was performed.</li>
+      <li><b>Assumption:</b> GitHub issue comments and the published release are newer operational evidence than unchecked boxes in the checked-in roadmap.</li>
+      <li><b>Not explored:</b> live homelab state, private homelab repository, release artifacts/signatures, full race/envtest/Kind gates, and packet captures.</li>
+    </ul>
+  </section>
+
+  <section id="summary"><h2>Executive summary</h2>
+    <ul>
+      <li>Waycloak is already a working Kubernetes-native private-egress system, not an early scaffold: Phases 1–4 and releases through <code>v0.2.2</code> are complete.</li>
+      <li>The product invariant remains selected, fail-closed VPN egress: explicit Pod-template opt-in, no ordinary-egress fallback, no VPN credentials or added application capabilities.</li>
+      <li>The current source and published prerelease are <code>v0.3.0-alpha.6</code> at the same commit. The latest slice fixed engine auto-healing, unsupported Proton renewal suggestions, and an overly strict public-IP telemetry readiness gate.</li>
+      <li>GitHub comments record live deployment and validation for issues #90, #92, and #94, despite the local roadmap still showing #90 unchecked and the top of <code>PROJECT_STATUS.md</code> still calling live validation a remaining gate.</li>
+      <li>The real remaining <code>v0.3.0</code> exit work is compatibility proof: sustained qBitTorrent real-provider rotation/renewal with TCP, UDP, tracker, DHT, loss, stale-ingress, and recovery evidence; then completion of Bitmagnet and Loadstone adoption.</li>
+      <li>Operational maturity items (#6, #31–#34, #64, #65, #16) are valid backlog but are ordered after the Phase 5 exit. Multi-gateway sharding and eBPF must not jump the queue.</li>
+    </ul>
+  </section>
+
+  <section id="map"><h2>As-built system map</h2>
+    <table><thead><tr><th>Component</th><th>Current responsibility</th><th>Key evidence</th><th>Confidence</th></tr></thead><tbody>
+      <tr><td>Controller/webhook</td><td>Gateway/workload/lease reconciliation, stable allocation, explicit admission, observed generations and status</td><td><code>cmd/controller</code>, <code>internal/controller</code>, ADRs 0002/0005/0020/0021</td><td class="high">High</td></tr>
+      <tr><td>Pod routing agent</td><td>Deny-first nftables/netlink, VXLAN, DNS redirection, health and drift repair, neutral lease delivery</td><td><code>cmd/agent</code>, <code>internal/dataplane</code>, ADRs 0006/0007/0011</td><td class="high">High</td></tr>
+      <tr><td>Gateway manager</td><td>Overlay membership, forwarding/NAT, split DNS, Gluetun observation, Proton NAT-PMP leases</td><td><code>cmd/gateway-manager</code>, <code>internal/gateway</code>, <code>internal/provider</code></td><td class="high">High</td></tr>
+      <tr><td>VPN engine</td><td>Gluetun-hosted VPN tunnel with engine-native operator inputs and engine-only secrets</td><td>ADRs 0003/0008/0009/0017/0022</td><td class="high">High</td></tr>
+      <tr><td>Workload adapters</td><td>Out-of-process application-specific application of neutral lease state; qBitTorrent and Bitmagnet implementations exist</td><td><code>cmd/qbittorrent-adapter</code>, <code>cmd/bitmagnet-adapter</code>, ADR 0018</td><td class="high">High</td></tr>
+      <tr><td>Release surface</td><td>Signed multi-arch images, Helm OCI chart, optional KCL OCI module, signed manifest</td><td>ADR 0004, local tags, published alpha.6 release</td><td class="high">High</td></tr>
+    </tbody></table>
+    <pre aria-label="As-built architecture diagram">Pod template annotation
+        |
+        v
+Webhook + controller -- stable UID allocation / desired generations -- Kubernetes API
+        |                                                       |
+        v                                                       v
+Protected Pod: deny-first agent == VXLAN == Gateway manager + Gluetun == VPN provider
+        ^                                      |
+        | neutral lease + exact ack            +-- NAT-PMP lease + atomic DNAT
+        +-- optional trusted workload adapter</pre>
+  </section>
+
+  <section id="runtime"><h2>Entrypoints and runtime</h2>
+    <ul>
+      <li><b>Processes:</b> controller/webhook, per-protected-Pod agent, singleton gateway manager beside Gluetun, qBitTorrent adapter, and Bitmagnet adapter.</li>
+      <li><b>Primary APIs:</b> <code>VPNGateway</code>, controller-owned <code>VPNWorkload</code>, <code>PortForwardLease</code>, cluster-scoped <code>WorkloadAdapter</code>, and the canonical gateway Pod-template annotation.</li>
+      <li><b>Packaging:</b> Helm is primary; KCL is optional. Runtime does not require Argo CD, Crossplane, ESO, cert-manager, KCL, or Prometheus Operator.</li>
+      <li><b>Current commands checked:</b> <code>go test ./...</code>. Cluster and release commands were intentionally not run.</li>
+    </ul>
+  </section>
+
+  <section id="data"><h2>Data and integrations</h2>
+    <ul>
+      <li>Stable overlay allocations live in controller-owned Kubernetes resources; alphabetical renumbering is forbidden.</li>
+      <li>Gateway desired membership and port intents are projected by ConfigMap; the tokenless manager publishes exact applied observations.</li>
+      <li>VPN credentials and native Secret files mount only into the engine. Adapters and protected workloads receive neither VPN credentials nor Kubernetes tokens.</li>
+      <li>External systems are Kubernetes, Gluetun, the configured VPN provider, OCI registries, and GitHub release/signing infrastructure.</li>
+    </ul>
+  </section>
+
+  <section id="tests"><h2>Test suite interpretation</h2>
+    <ul>
+      <li><code>go test ./...</code> passed in 18.3 seconds on this checkout, covering controller, admission, allocation, dataplane, gateway, provider, delivery, adapter, and release-tool packages.</li>
+      <li>The repository contains envtest integration and privileged/packaged cluster e2e suites, including real-provider and real-port-forward gates. They were discovered but not executed.</li>
+      <li>GitHub issue comments provide live alpha.6 evidence for automatic engine-container recovery, stable renewal, optional public-IP telemetry, and qBitTorrent/Bitmagnet readiness. This is operational evidence, but it does not by itself satisfy issue #4's full rotation/DHT checklist.</li>
+      <li>No test-generated workspace changes appeared. This report folder is the only new run artifact.</li>
+    </ul>
+  </section>
+
+  <section id="flows"><h2>Representative flows</h2>
+    <ol>
+      <li><b>Protected startup:</b> annotated Pod → admission generation check/injection → UID allocation ConfigMap → deny-first init → VXLAN/gateway verification → application start. <span class="high">High confidence.</span></li>
+      <li><b>Provider-assigned lease:</b> lease intent → manager NAT-PMP mapping → atomic gateway DNAT → neutral Pod record → adapter applies listener → exact-generation acknowledgement → Ready. <span class="high">High confidence.</span></li>
+      <li><b>Engine failure:</b> Gluetun health fails → readiness withdrawn immediately and traffic remains blocked → delayed liveness restarts only engine container → tunnel/DNS/leases/adapters recover with stable Pod and lease identities. <span class="high">High confidence</span> from implementation history and live #90 evidence.</li>
+    </ol>
+  </section>
+
+  <section id="observations"><h2>Architecture observations</h2>
+    <h3>Observed</h3><ul>
+      <li>All ADRs except proposed ADR 0019 are accepted; nftables/netlink remains the only production backend.</li>
+      <li>There are ten open issues and no open pull requests. Only #4 and #5 directly block the documented Phase 5 product exit; #16 and #64 are maintenance, while #6/#31–#34/#65 belong to later maturity work.</li>
+      <li><code>main</code>, <code>origin/main</code>, and the alpha.6 tag resolve to <code>bfa5fd1</code>.</li>
+    </ul>
+    <h3>Inferred</h3><ul><li>The next work should be evidence collection and documentation against the existing gated harness, with implementation changes only for defects revealed by that run.</li></ul>
+    <h3>Unknown</h3><ul><li>Whether qBitTorrent has completed an actual provider port rotation with sustained DHT and exact tracker/peer-ingress evidence; whether Loadstone has any integration proof; and whether the local docs have simply not yet been synchronized with the closed live issues.</li></ul>
+  </section>
+
+  <section id="risks"><h2>Risks and friction</h2>
+    <table><thead><tr><th>Finding</th><th>Why it matters</th><th>Evidence</th><th>Suggested verification</th></tr></thead><tbody>
+      <tr><td>Roadmap/status drift</td><td>It can send the next agent back to completed #90 work.</td><td>Roadmap #90 unchecked; GitHub #90 closed with live validation.</td><td>Update <code>PROJECT_STATUS.md</code> and Phase 5 checklist before new implementation.</td></tr>
+      <tr><td>qBitTorrent acceptance incomplete</td><td>This is the central v0.3 compatibility claim.</td><td>Open #4 checkboxes for real TCP/UDP, tracker, DHT, actual rotation, loss and recovery.</td><td>Run the release-manifest-pinned gated provider harness and attach redacted evidence.</td></tr>
+      <tr><td>Second workload incomplete</td><td>The v0.3 exit explicitly requires additional reference adoption.</td><td>Open #5; Bitmagnet implementation exists, Loadstone evidence absent.</td><td>Close Bitmagnet real rotation evidence, then implement/validate the smallest Loadstone integration.</td></tr>
+      <tr><td>Tempting later backlog</td><td>Sharding/eBPF could expand scope before v0.3 is certified.</td><td>AGENTS.md ordering and Phase 6 roadmap.</td><td>Defer #31 and #65 until Phase 5 exit is documented.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section id="commands"><h2>Command log</h2>
+    <table><thead><tr><th>Command/tool</th><th>Purpose</th><th>Result</th></tr></thead><tbody>
+      <tr><td><code>sonar analyze secrets</code></td><td>Required pre-read secret scan for selected files and repository</td><td>Passed; no issues found</td></tr>
+      <tr><td><code>git status/log/remote/tag/ls-remote</code></td><td>Resolve checkout, history, tag, and remote alignment</td><td>Clean implementation tree; existing prior report untracked; main/tag/remote aligned</td></tr>
+      <tr><td><code>rg --files</code> and document reads</td><td>Inventory and required reading</td><td>Go/controller-runtime repo with four CRDs, Helm/KCL, adapters, integration/e2e suites</td></tr>
+      <tr><td>GitHub issue/PR queries</td><td>Reconcile roadmap with current issue state</td><td>10 open issues, 0 open PRs; #90/#92/#94 closed with live evidence</td></tr>
+      <tr><td><code>go test ./...</code></td><td>Lightweight source verification</td><td>Passed</td></tr>
+    </tbody></table>
+  </section>
+
+  <section id="next"><h2>Next verification steps</h2>
+    <ol>
+      <li>Synchronize project status and roadmap with completed alpha.6 deployment evidence for #90, #92, and #94.</li>
+      <li>Run the signed alpha.6 real-provider qBitTorrent gate for actual rotation, sustained DHT, exact tracker/peer ingress, fail-closed loss, stale-ingress blocking, and recovery; update/close #4 only from that evidence.</li>
+      <li>Finish #5 in two bounded slices: record Bitmagnet real deployment/rotation proof, then determine and validate Loadstone's neutral-record path or the narrowest justified adapter.</li>
+      <li>Consolidate provider/application compatibility and troubleshooting evidence, run the full release gates, and publish final <code>v0.3.0</code>.</li>
+      <li>Only after that, choose Phase 6 work by risk/value: lifecycle/DR and compatibility benchmarks before sharding or optional eBPF research.</li>
+    </ol>
+  </section>
+</main></body></html>

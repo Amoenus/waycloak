@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waycloak As-Built Incident Architecture — 2026-07-17</title>
+  <style>
+    :root { color-scheme: light dark; --accent: #3478c6; --muted: #687386; }
+    body { max-width: 1100px; margin: 0 auto; padding: 2rem; font: 16px/1.55 system-ui, sans-serif; }
+    h1, h2 { line-height: 1.2; } h2 { border-bottom: 1px solid #8885; padding-bottom: .35rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { border: 1px solid #8886; padding: .55rem; text-align: left; vertical-align: top; }
+    th { background: #8882; } code, pre { font-family: ui-monospace, monospace; }
+    pre { padding: 1rem; overflow: auto; border: 1px solid #8886; border-radius: .4rem; }
+    .card { border-left: .3rem solid var(--accent); padding: .7rem 1rem; background: #8881; margin: 1rem 0; }
+    .high { color: #16834a; font-weight: 700; } .medium { color: #b06d00; font-weight: 700; }
+    nav a { margin-right: 1rem; } small, .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Waycloak As-Built Incident Architecture</h1>
+  <p class="muted">Generated 2026-07-17 15:07:31 Europe/Riga</p>
+  <nav>
+    <a href="#summary">Summary</a><a href="#map">System map</a>
+    <a href="#flows">Flows</a><a href="#risks">Risks</a><a href="#commands">Commands</a>
+  </nav>
+
+  <h2 id="scope">Scope And Assumptions</h2>
+  <ul>
+    <li>Scope: Waycloak control/data-plane behavior for the live Proton/OpenVPN gateway and qBittorrent consumer, plus its homelab GitOps source.</li>
+    <li>Execution: repository inspection, live read-only Kubernetes diagnostics, upstream issue/release research, GitOps engine-image remediation, and controlled singleton replacement.</li>
+    <li>Not explored: credential values, provider account state, unrelated homelab workloads, and additional VPN engines.</li>
+  </ul>
+
+  <h2 id="summary">Executive Summary</h2>
+  <div class="card"><strong>Outcome:</strong> Waycloak behaved fail closed. The original non-recovery was an upstream Gluetun v3.41.0 health-check hang. Gluetun v3.41.1 was deployed, after which the replacement reached the provider but was independently rejected with OpenVPN <code>AUTH_FAILED</code>.</div>
+  <ul>
+    <li>The gateway manager immediately withdrew tunnel, overlay, DNS, port-forward, and overall readiness when Gluetun stopped.</li>
+    <li>The workload agent and adapter withdrew readiness while the qBittorrent process remained running; no application container restart or direct-egress fallback was observed.</li>
+    <li>Desired and applied membership generations initially matched, excluding stale membership as the original trigger.</li>
+    <li>Gluetun v3.41.0 logged a health-check-driven VPN restart and <code>stopping</code>, but no later VPN start for many hours.</li>
+    <li>Upstream v3.41.1 explicitly fixes a health-check race that could hang Gluetun completely.</li>
+    <li>The homelab GitOps source now pins v3.41.1 by immutable OCI index digest.</li>
+    <li>The replacement gateway changed underlay endpoint as expected; the existing qBittorrent Pod retained its UID and zero restarts.</li>
+    <li>Final tunnel recovery is externally blocked by rejected provider credentials, owned by a separate rotation task.</li>
+  </ul>
+
+  <h2 id="map">As-Built System Map</h2>
+  <pre>ArgoCD/KCL intent
+      |
+      v
+VPNGateway controller --desired config--&gt; singleton StatefulSet (OnDelete)
+      |                                      | shared network namespace
+      | observed status                      +-- Gluetun VPN engine
+      |                                      +-- Waycloak gateway manager
+      v
+UID-bound allocation --projected config--&gt; qBittorrent Pod
+                                             +-- qBittorrent application
+                                             +-- Waycloak routing agent
+                                             +-- qBittorrent adapter
+
+Failure path: Gluetun unhealthy -&gt; manager unready -&gt; gateway conditions False
+              -&gt; lease expiry -&gt; agent/adapter unready -&gt; protected traffic blocked</pre>
+  <table>
+    <thead><tr><th>Component</th><th>Current responsibility</th><th>Key evidence</th><th>Confidence</th></tr></thead>
+    <tbody>
+      <tr><td>Controller/webhook</td><td>Desired gateway resources, admission, UID-bound allocation, observed status</td><td><code>internal/controller</code>, live CR conditions, deployed v0.3.0-alpha.1 image</td><td class="high">High</td></tr>
+      <tr><td>Gateway manager</td><td>Composite observation, VXLAN, forwarding, DNS, provider lease</td><td>Repeated typed engine-observation failure and 503 readiness</td><td class="high">High</td></tr>
+      <tr><td>Gluetun</td><td>VPN tunnel, kill switch, loopback health/control surfaces</td><td>v3.41.0 stop-without-start log; v3.41.1 upstream fix</td><td class="high">High</td></tr>
+      <tr><td>Workload agent</td><td>Fail-closed nftables/routing, gateway health, drift repair, lease delivery</td><td>Agent readiness false while application remained running</td><td class="high">High</td></tr>
+      <tr><td>qBittorrent adapter</td><td>Apply and acknowledge exact provider-assigned application port</td><td>Adapter readiness false after lease expiry</td><td class="high">High</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Entrypoints And Runtime</h2>
+  <ul>
+    <li>Control-plane entrypoints: <code>cmd/controller</code>, admission webhook, Kubernetes reconciliation watches.</li>
+    <li>Gateway runtime: controller-owned singleton StatefulSet using <code>OnDelete</code>.</li>
+    <li>Workload runtime: injected init gates plus a long-running routing agent; application containers receive no added capabilities.</li>
+    <li>GitOps entrypoint: <code>kcl/frontend/networking/routed_vpn_gateway.k</code> in the homelab repository.</li>
+  </ul>
+
+  <h2>Data And Integrations</h2>
+  <ul>
+    <li>Kubernetes CR state owns stable gateway, workload, membership, and lease identities.</li>
+    <li>Operator-owned ConfigMap supplies non-secret Gluetun-native settings.</li>
+    <li>Engine-only Secret file projection supplies OpenVPN credentials; values were not inspected.</li>
+    <li>External systems: Proton/OpenVPN, Docker Registry, GitHub release and issue metadata, ArgoCD.</li>
+  </ul>
+
+  <h2>Test Suite Interpretation</h2>
+  <ul>
+    <li>Waycloak unit, envtest, Kind, and real-provider harnesses establish fail-closed, endpoint-replacement, and lease-delivery contracts.</li>
+    <li>Focused homelab KCL rendering proved the new immutable Gluetun identity.</li>
+    <li>Server-side networking validation and Markdown lint passed.</li>
+    <li>The full serial KCL source gate was stopped after reaching the qBittorrent source because it linted every unrelated application; targeted affected-source checks had passed.</li>
+  </ul>
+
+  <h2 id="flows">Representative Flows</h2>
+  <ol>
+    <li><strong>Original failure:</strong> periodic engine health failure → Gluetun stops tunnel → manager observation fails → all gateway readiness components regress → provider lease expires → workload agent and adapter regress → traffic remains blocked. <span class="high">High confidence.</span></li>
+    <li><strong>GitOps remediation:</strong> v3.41.1 digest committed and merged → ArgoCD applies VPNGateway → controller reconciles OnDelete template → operator deletes exact singleton Pod → StatefulSet recreates it from the new image. <span class="high">High confidence.</span></li>
+    <li><strong>Replacement startup:</strong> v3.41.1 starts → reaches provider endpoint → provider returns <code>AUTH_FAILED</code> → no tunnel interface → manager remains unready → qBittorrent remains fail closed with stable UID. <span class="high">High confidence.</span></li>
+  </ol>
+
+  <h2>Architecture Observations</h2>
+  <ul>
+    <li><strong>Observed:</strong> the readiness cascade reflects real data-plane health rather than registration.</li>
+    <li><strong>Observed:</strong> the engine image is operator-owned native configuration, so upgrading Gluetun does not require a Waycloak release.</li>
+    <li><strong>Inferred:</strong> the v3.41.0 stop-without-restart is the upstream health-check race because the live sequence matches and v3.41.1 names that fix.</li>
+    <li><strong>Unknown:</strong> why the provider now rejects the existing credentials; account/credential inspection is outside this task.</li>
+  </ul>
+
+  <h2 id="risks">Risks And Friction</h2>
+  <table>
+    <thead><tr><th>Finding</th><th>Why it matters</th><th>Evidence</th><th>Suggested verification</th></tr></thead>
+    <tbody>
+      <tr><td>Singleton activation is manual</td><td>GitOps sync alone cannot replace a broken engine process</td><td>StatefulSet <code>OnDelete</code></td><td>Confirm template digest before deleting the exact owned Pod</td></tr>
+      <tr><td>Credential state is external</td><td>A correct engine binary cannot recover with provider-rejected credentials</td><td>Repeated OpenVPN <code>AUTH_FAILED</code></td><td>Rotate at source, wait for projection, then replace or restart only as documented</td></tr>
+      <tr><td>External engine regressions affect the shared failure domain</td><td>One engine hang interrupts all gateway members</td><td>qBittorrent readiness cascade</td><td>Retain version/digest pins and exercise health-restart regression on upgrades</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="commands">Command Log</h2>
+  <table>
+    <thead><tr><th>Command family</th><th>Purpose</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td><code>kubectl get/logs/events</code></td><td>Trace conditions and engine lifecycle</td><td>Observed stop-without-restart, fail-closed cascade, and later AUTH_FAILED</td></tr>
+      <tr><td>GitHub issue/release lookup</td><td>Correlate upstream behavior</td><td>v3.41.1 health-check hang fix identified</td></tr>
+      <tr><td>Docker Registry manifest HEAD</td><td>Resolve immutable release identity</td><td>OCI index digest pinned</td></tr>
+      <tr><td><code>kcl run</code>, networking validator, Markdown lint</td><td>Validate GitOps change</td><td>Passed</td></tr>
+      <tr><td>Git commit, PR #1442, ArgoCD sync</td><td>Publish and deploy desired state</td><td>Merged and reconciled</td></tr>
+      <tr><td><code>kubectl delete pod</code> after owner/template checks</td><td>Activate OnDelete singleton</td><td>Replacement uses v3.41.1</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Next Verification Steps</h2>
+  <ol>
+    <li>Complete the separate provider credential rotation without exposing values.</li>
+    <li>Observe tunnel, overlay, DNS, port-forward, membership, and overall gateway conditions return True.</li>
+    <li>Verify the same qBittorrent Pod UID returns 3/3 Ready with zero restarts.</li>
+    <li>Verify protected DNS/HTTPS and public qBittorrent reachability, plus an unannotated ordinary-egress control.</li>
+    <li>Observe at least one subsequent Gluetun health-check recovery window before closing the incident.</li>
+  </ol>
+</body>
+</html>
