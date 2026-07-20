@@ -81,6 +81,8 @@ schema NetworkingWaycloakIoV1alpha1PortForwardLeaseSpecGatewayRef:
     name: str
 
     namespace: str
+
+
 schema NetworkingWaycloakIoV1alpha1PortForwardLeaseSpecTarget:
     r"""
     networking waycloak io v1alpha1 port forward lease spec target

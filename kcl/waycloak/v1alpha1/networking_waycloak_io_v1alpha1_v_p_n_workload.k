@@ -103,8 +103,20 @@ schema NetworkingWaycloakIoV1alpha1VPNWorkloadStatus:
         allocation
     conditions : [NetworkingWaycloakIoV1alpha1VPNWorkloadStatusConditionsItems0], default is Undefined, optional
         conditions
+    observedAllocationGeneration : int, default is Undefined, optional
+        observed allocation generation
+    observedGatewayGeneration : int, default is Undefined, optional
+        observed gateway generation
     observedGeneration : int, default is Undefined, optional
         observed generation
+    observedPodUID : str, default is Undefined, optional
+        UID is a type that holds unique ID values, including UUIDs.  Because we
+        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+        intent and helps make sure that UIDs and names do not get conflated.
+    requestedAllocationGeneration : int, default is Undefined, optional
+        requested allocation generation
+    requestedGatewayGeneration : int, default is Undefined, optional
+        requested gateway generation
     """
 
 
@@ -112,7 +124,17 @@ schema NetworkingWaycloakIoV1alpha1VPNWorkloadStatus:
 
     conditions?: [NetworkingWaycloakIoV1alpha1VPNWorkloadStatusConditionsItems0]
 
+    observedAllocationGeneration?: int
+
+    observedGatewayGeneration?: int
+
     observedGeneration?: int
+
+    observedPodUID?: str
+
+    requestedAllocationGeneration?: int
+
+    requestedGatewayGeneration?: int
 
 
 schema NetworkingWaycloakIoV1alpha1VPNWorkloadStatusAllocation:
