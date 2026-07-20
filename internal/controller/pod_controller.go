@@ -50,9 +50,9 @@ type PodReconciler struct {
 	// APIReader bypasses the eventually consistent informer cache when choosing
 	// an address. Allocation remains single-threaded so consecutive reservations
 	// observe the status write that made the preceding address durable.
-	APIReader client.Reader
-	Scheme    *runtime.Scheme
-	Recorder  record.EventRecorder
+	APIReader        client.Reader
+	Scheme           *runtime.Scheme
+	Recorder         record.EventRecorder
 	WorkloadObserver dataplane.WorkloadObserver
 }
 
@@ -179,10 +179,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	previous := workload.Status
 	previous.Conditions = append([]metav1.Condition(nil), workload.Status.Conditions...)
 	waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionAllocationPublished, metav1.ConditionTrue, waystatus.ReasonAllocationConfigMapReady, "The required UID-bound allocation ConfigMap exists")
-	
+
 	workload.Status.RequestedAllocationGeneration = workload.Status.Allocation.Generation
 	workload.Status.RequestedGatewayGeneration = gateway.Generation
-	
+
 	if !waystatus.IsTrue(gateway.Status.Conditions, waystatus.ConditionReady) {
 		waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonGatewayComponentsNotReady, "The selected gateway is not ready")
 	} else if pod.Status.PodIP == "" {
@@ -197,7 +197,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			workload.Status.ObservedPodUID = obs.PodUID
 			workload.Status.ObservedAllocationGeneration = obs.AllocationGeneration
 			workload.Status.ObservedGatewayGeneration = obs.GatewayGeneration
-			
+
 			if obs.PodUID != pod.UID || obs.AllocationGeneration != workload.Status.RequestedAllocationGeneration || obs.GatewayGeneration != workload.Status.RequestedGatewayGeneration {
 				waystatus.Set(&workload.Status.Conditions, workload.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonAgentGenerationStale, "Agent observation is stale")
 			} else {

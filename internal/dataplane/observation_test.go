@@ -33,13 +33,13 @@ func TestHTTPWorkloadObserver(t *testing.T) {
 	defer ts.Close()
 
 	observer := HTTPWorkloadObserver{Client: ts.Client()}
-	
+
 	// Strip "http://" from URL since endpoint expects host:port
 	endpoint := ts.URL[7:]
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	obs, err := observer.Observe(ctx, endpoint)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
