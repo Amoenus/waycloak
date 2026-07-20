@@ -29,7 +29,16 @@ type Engine struct {
 }
 
 func New() *Engine {
-	return &Engine{HealthURL: "http://127.0.0.1:9999/", ControlURL: "http://127.0.0.1:8000", Client: &http.Client{Timeout: 3 * time.Second}}
+	return &Engine{
+		HealthURL:  "http://127.0.0.1:9999/",
+		ControlURL: "http://127.0.0.1:8000",
+		Client: &http.Client{
+			Timeout: 3 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+			},
+		},
+	}
 }
 
 func (engine *Engine) Observe(ctx context.Context) (provider.EngineObservation, error) {

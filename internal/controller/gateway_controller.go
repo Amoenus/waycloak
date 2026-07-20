@@ -80,7 +80,11 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionTrue, waystatus.ReasonAccepted, "Gateway control-plane specification is accepted")
 		waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, waystatus.ReasonDataPlaneNotImplemented, "Gateway workload reconciliation is not configured")
 		gateway.Status.ObservedGeneration = gateway.Generation
-		return ctrl.Result{}, r.updateStatus(ctx, &gateway, previous)
+		err := r.updateStatus(ctx, &gateway, previous)
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
 	desiredMembershipGeneration, err := r.reconcileResources(ctx, &gateway, engineConfig.Digest)
@@ -94,6 +98,9 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	gateway.Status.ObservedGeneration = gateway.Generation
 	if err := r.updateStatus(ctx, &gateway, previous); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	if pending {
@@ -113,7 +120,11 @@ func (r *GatewayReconciler) rejectGateway(ctx context.Context, gateway *wayv1.VP
 	if err := r.quarantineGateway(ctx, gateway); err != nil {
 		return ctrl.Result{}, err
 	}
-	return result, r.updateStatus(ctx, gateway, previous)
+	err := r.updateStatus(ctx, gateway, previous)
+	if apierrors.IsConflict(err) {
+		return ctrl.Result{Requeue: true}, nil
+	}
+	return result, err
 }
 
 func (r *GatewayReconciler) quarantineGateway(ctx context.Context, gateway *wayv1.VPNGateway) error {

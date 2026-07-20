@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -321,5 +322,57 @@ func TestHealthManagerKeepsRulesDuringRecoverableRenewalFailureAndRemovesThemAtE
 	expired := manager.PortForwardingSnapshot()[0]
 	if manager.Ready() || expired.Ready || expired.GatewayRulesReady || forwarding.last.PortForwardLeases[0].LeaseGeneration != 0 {
 		t.Fatalf("expired mapping did not fail closed: observation=%#v desired=%#v error=%v", expired, forwarding.last.PortForwardLeases, manager.PortForwardingError())
+	}
+}
+
+type sequenceSource struct {
+	states []DesiredState
+	errs   []error
+	index  int
+}
+
+func (s *sequenceSource) Load() (DesiredState, error) {
+	if s.index >= len(s.states) {
+		return DesiredState{}, errors.New("unexpected Load() call")
+	}
+	state, err := s.states[s.index], s.errs[s.index]
+	s.index++
+	return state, err
+}
+
+func TestHealthManagerRetainsLastConfigOnNotExist(t *testing.T) {
+	forwarding := &observedGenerationForwarding{}
+	source := &sequenceSource{
+		states: []DesiredState{
+			{MembershipGeneration: "gen-1"},
+			{}, // Next call hits ErrNotExist, state should be ignored.
+		},
+		errs: []error{
+			nil,
+			os.ErrNotExist,
+		},
+	}
+	manager := &HealthManager{
+		Engine:     &fakeEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true}},
+		Source:     source,
+		Forwarding: forwarding,
+	}
+
+	// First Reconcile: Loads normally, applies lockdown, reconcile.
+	manager.Reconcile(context.Background())
+	if !manager.Ready() {
+		t.Fatalf("expected manager to be ready, got %v", manager.Error())
+	}
+	if forwarding.last.MembershipGeneration != "gen-1" {
+		t.Fatalf("expected forwarding to have MembershipGeneration gen-1, got %q", forwarding.last.MembershipGeneration)
+	}
+
+	// Second Reconcile: Source returns os.ErrNotExist. Should reuse lastDesired.
+	manager.Reconcile(context.Background())
+	if !manager.Ready() {
+		t.Fatalf("expected manager to remain ready despite os.ErrNotExist, got %v", manager.Error())
+	}
+	if forwarding.last.MembershipGeneration != "gen-1" {
+		t.Fatalf("expected forwarding to retain MembershipGeneration gen-1, got %q", forwarding.last.MembershipGeneration)
 	}
 }

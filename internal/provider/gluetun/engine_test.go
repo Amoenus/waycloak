@@ -79,6 +79,17 @@ func TestObserveDoesNotReturnProviderResponseBodies(t *testing.T) {
 	}
 }
 
+func TestNewEngineDisablesKeepAlives(t *testing.T) {
+	engine := New()
+	transport, ok := engine.Client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected Engine.Client.Transport to be *http.Transport")
+	}
+	if !transport.DisableKeepAlives {
+		t.Fatalf("expected DisableKeepAlives to be true to prevent loopback health check flaps")
+	}
+}
+
 func contains(value, fragment string) bool {
 	for i := 0; i+len(fragment) <= len(value); i++ {
 		if value[i:i+len(fragment)] == fragment {
