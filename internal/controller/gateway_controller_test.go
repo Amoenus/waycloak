@@ -244,14 +244,14 @@ type concurrentMetadataStatusWriter struct {
 func (writer *concurrentMetadataStatusWriter) Patch(ctx context.Context, object client.Object, patch client.Patch, options ...client.SubResourcePatchOption) error {
 	writer.parent.once.Do(func() {
 		var current wayv1.VPNGateway
-		if err := writer.parent.Client.Get(ctx, client.ObjectKeyFromObject(object), &current); err != nil {
+		if err := writer.parent.Get(ctx, client.ObjectKeyFromObject(object), &current); err != nil {
 			return
 		}
 		if current.Annotations == nil {
 			current.Annotations = map[string]string{}
 		}
 		current.Annotations["external.example/concurrent"] = "preserve"
-		_ = writer.parent.Client.Update(ctx, &current)
+		_ = writer.parent.Update(ctx, &current)
 	})
 	return writer.SubResourceWriter.Patch(ctx, object, patch, options...)
 }
