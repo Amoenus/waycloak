@@ -57,8 +57,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, &gateway); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	previous := gateway.Status
-	previous.Conditions = append([]metav1.Condition(nil), gateway.Status.Conditions...)
+	previous := gateway.DeepCopy()
 
 	if reason, message := validateGateway(&gateway, r.ManagerImage); reason != "" {
 		return r.rejectGateway(ctx, &gateway, previous, ctrl.Result{}, reason, message)
@@ -109,7 +108,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *GatewayReconciler) rejectGateway(ctx context.Context, gateway *wayv1.VPNGateway, previous wayv1.VPNGatewayStatus, result ctrl.Result, reason, message string) (ctrl.Result, error) {
+func (r *GatewayReconciler) rejectGateway(ctx context.Context, gateway *wayv1.VPNGateway, previous *wayv1.VPNGateway, result ctrl.Result, reason, message string) (ctrl.Result, error) {
 	setGatewayPending(gateway, "Gateway workload is quarantined because its configuration is not accepted")
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionAccepted, metav1.ConditionFalse, reason, message)
 	waystatus.Set(&gateway.Status.Conditions, gateway.Generation, waystatus.ConditionReady, metav1.ConditionFalse, reason, message)
@@ -230,9 +229,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 	}
 	desiredConfigMap := waygateway.DesiredConfigMap(gateway, members, portForwardLeases)
 	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: desiredConfigMap.Name, Namespace: desiredConfigMap.Namespace}}
-	operation, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
-		configMap.Labels = desiredConfigMap.Labels
-		configMap.Annotations = desiredConfigMap.Annotations
+	operation, err := controllerutil.CreateOrPatch(ctx, r.Client, configMap, func() error {
 		configMap.Data = desiredConfigMap.Data
 		return ctrl.SetControllerReference(gateway, configMap, r.Scheme)
 	})
@@ -245,9 +242,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 
 	desiredService := waygateway.DesiredService(gateway)
 	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: desiredService.Name, Namespace: desiredService.Namespace}}
-	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
-		service.Labels = desiredService.Labels
-		service.Annotations = desiredService.Annotations
+	operation, err = controllerutil.CreateOrPatch(ctx, r.Client, service, func() error {
 		service.Spec = desiredService.Spec
 		return ctrl.SetControllerReference(gateway, service, r.Scheme)
 	})
@@ -260,9 +255,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 
 	desiredPDB := waygateway.DesiredPodDisruptionBudget(gateway)
 	pdb := &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: desiredPDB.Name, Namespace: desiredPDB.Namespace}}
-	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, pdb, func() error {
-		pdb.Labels = desiredPDB.Labels
-		pdb.Annotations = desiredPDB.Annotations
+	operation, err = controllerutil.CreateOrPatch(ctx, r.Client, pdb, func() error {
 		pdb.Spec = desiredPDB.Spec
 		return ctrl.SetControllerReference(gateway, pdb, r.Scheme)
 	})
@@ -275,9 +268,7 @@ func (r *GatewayReconciler) reconcileResources(ctx context.Context, gateway *way
 
 	desiredStatefulSet := waygateway.DesiredStatefulSet(gateway, waygateway.WorkloadOptions{ManagerImage: r.ManagerImage, EngineConfigDigest: engineConfigDigest})
 	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: desiredStatefulSet.Name, Namespace: desiredStatefulSet.Namespace}}
-	operation, err = controllerutil.CreateOrUpdate(ctx, r.Client, statefulSet, func() error {
-		statefulSet.Labels = desiredStatefulSet.Labels
-		statefulSet.Annotations = desiredStatefulSet.Annotations
+	operation, err = controllerutil.CreateOrPatch(ctx, r.Client, statefulSet, func() error {
 		// The API server adds defaults throughout StatefulSetSpec and PodSpec.
 		// Replacing the live spec with the non-defaulted desired object on every
 		// reconcile creates a permanent update loop and races the StatefulSet
@@ -517,11 +508,11 @@ func containerReady(pod *corev1.Pod, name string) bool {
 	return false
 }
 
-func (r *GatewayReconciler) updateStatus(ctx context.Context, gateway *wayv1.VPNGateway, previous wayv1.VPNGatewayStatus) error {
-	if apiequality.Semantic.DeepEqual(previous, gateway.Status) {
+func (r *GatewayReconciler) updateStatus(ctx context.Context, gateway *wayv1.VPNGateway, previous *wayv1.VPNGateway) error {
+	if apiequality.Semantic.DeepEqual(previous.Status, gateway.Status) {
 		return nil
 	}
-	return r.Status().Update(ctx, gateway)
+	return r.Status().Patch(ctx, gateway, client.MergeFrom(previous))
 }
 
 func (r *GatewayReconciler) SetupWithManager(manager ctrl.Manager) error {

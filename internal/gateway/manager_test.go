@@ -4,11 +4,14 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/netip"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +130,45 @@ func TestHealthManagerTracksObservedEngineState(t *testing.T) {
 	manager.Reconcile(context.Background())
 	if manager.Ready() || manager.Error() == nil {
 		t.Fatal("manager ignored gateway DNS failure")
+	}
+}
+
+func TestHealthManagerLogsOnlyStructuredHealthTransitions(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	engine := &fakeEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true}}
+	manager := &HealthManager{Engine: engine, Logger: logger}
+
+	manager.Reconcile(context.Background())
+	engine.err = errors.New("connection reset")
+	engine.observation = provider.EngineObservation{}
+	manager.Reconcile(context.Background())
+	manager.Reconcile(context.Background())
+	engine.err = nil
+	engine.observation = provider.EngineObservation{TunnelReady: true, DNSReady: true}
+	manager.Reconcile(context.Background())
+
+	logs := output.String()
+	if got := strings.Count(logs, `"event":"gateway_health_transition"`); got != 3 {
+		t.Fatalf("health transition count=%d logs=%s", got, logs)
+	}
+	for _, field := range []string{`"ready":false`, `"engine_error":"connection reset"`, `"tunnel_ready":false`, `"dns_ready":false`} {
+		if !strings.Contains(logs, field) {
+			t.Fatalf("missing field %s in logs=%s", field, logs)
+		}
+	}
+}
+
+func TestHealthManagerLogsFailureReasonChangesWhileUnready(t *testing.T) {
+	var output bytes.Buffer
+	manager := &HealthManager{Engine: &fakeEngine{err: errors.New("connection reset")}, Source: fakeSource{err: errors.New("projection unavailable")}, Logger: slog.New(slog.NewJSONHandler(&output, nil))}
+
+	manager.Reconcile(context.Background())
+	manager.Source = fakeSource{}
+	manager.Reconcile(context.Background())
+	logs := output.String()
+	if strings.Count(logs, `"event":"gateway_health_transition"`) != 2 || !strings.Contains(logs, `"reason":"config-error"`) || !strings.Contains(logs, `"reason":"engine-error"`) {
+		t.Fatalf("failure reason transitions were not logged: %s", logs)
 	}
 }
 
@@ -341,21 +383,25 @@ func (s *sequenceSource) Load() (DesiredState, error) {
 }
 
 func TestHealthManagerRetainsLastConfigOnNotExist(t *testing.T) {
+	var output bytes.Buffer
 	forwarding := &observedGenerationForwarding{}
 	source := &sequenceSource{
 		states: []DesiredState{
 			{MembershipGeneration: "gen-1"},
 			{}, // Next call hits ErrNotExist, state should be ignored.
+			{MembershipGeneration: "gen-1"},
 		},
 		errs: []error{
 			nil,
 			os.ErrNotExist,
+			nil,
 		},
 	}
 	manager := &HealthManager{
 		Engine:     &fakeEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true}},
 		Source:     source,
 		Forwarding: forwarding,
+		Logger:     slog.New(slog.NewJSONHandler(&output, nil)),
 	}
 
 	// First Reconcile: Loads normally, applies lockdown, reconcile.
@@ -374,5 +420,11 @@ func TestHealthManagerRetainsLastConfigOnNotExist(t *testing.T) {
 	}
 	if forwarding.last.MembershipGeneration != "gen-1" {
 		t.Fatalf("expected forwarding to retain MembershipGeneration gen-1, got %q", forwarding.last.MembershipGeneration)
+	}
+
+	manager.Reconcile(context.Background())
+	logs := output.String()
+	if strings.Count(logs, `"event":"gateway_config_source_transition"`) != 3 || !strings.Contains(logs, `"using_retained":true`) || !strings.Contains(logs, `"membership_generation":"gen-1"`) {
+		t.Fatalf("config source transitions were not structured and complete: %s", logs)
 	}
 }

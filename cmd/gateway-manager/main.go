@@ -151,12 +151,6 @@ func serve(ctx context.Context, manager *waygateway.HealthManager, address strin
 	defer ticker.Stop()
 	for {
 		manager.Reconcile(ctx)
-		if err := manager.Error(); err != nil {
-			log.Printf("engine observation failed: %v", err)
-		}
-		if err := manager.PortForwardingError(); err != nil {
-			log.Printf("port-forward reconciliation failed: %v", err)
-		}
 		select {
 		case <-ctx.Done():
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

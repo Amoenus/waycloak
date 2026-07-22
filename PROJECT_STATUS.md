@@ -1,8 +1,23 @@
 # Project status
 
-Last updated: 2026-07-19
+Last updated: 2026-07-23
 
 ## Current phase
+
+`v0.3.2` is the prepared reliability patch for issue #116. It replaces the
+`v0.3.1` disabled-keep-alive workaround with a bounded HTTP connection pool
+and one independent retry only for transient loopback transport failures.
+HTTP error statuses, timeouts, cancellation, and a repeated transport failure
+remain authoritative and withdraw readiness immediately. Structured
+transition events distinguish recovered transport churn, gateway health
+reasons, and temporary use of the last valid projected desired state.
+
+The same patch removes avoidable controller resource writes by using semantic
+patch reconciliation, preserves concurrent metadata updates during status
+writes, and adds sustained intermittent-engine plus concurrent-update tests.
+The release is not evidence that #116 is complete: the digest-pinned homelab
+deployment must still complete a multi-hour real-provider soak and quantify
+every readiness/lease transition while confirming fail-closed behavior.
 
 [`v0.3.0`](https://github.com/Amoenus/waycloak/releases/tag/v0.3.0) is the
 completed provider-and-workload compatibility release. Protected release run
@@ -596,7 +611,9 @@ patch, and `v0.2.2` adds automatic same-Pod recovery after gateway endpoint
 replacement. `v0.3.0` begins with admission, membership-observation, and
 adapter-readiness hardening, then delivers engine-native Gluetun configuration,
 the workload-adapter protocol, sustained real-provider tracker/peer-ingress/DHT
-and rotation proof, and additional-workload certification.
+and rotation proof, and additional-workload certification. `v0.3.2` is a
+focused gateway-observation and reconciliation reliability patch for #116;
+it does not expand the product API or weaken fail-closed readiness.
 
 ## Definition of “implemented”
 

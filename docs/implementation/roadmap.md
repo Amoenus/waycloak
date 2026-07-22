@@ -172,6 +172,23 @@ Exit: final `v0.3.0` is deployed in the homelab; qBitTorrent survives provider
 renewal or rotation without Pod replacement, and Bitmagnet has a documented,
 real-deployment-proven narrow integration. Loadstone remains future work.
 
+### v0.3.2 reliability patch
+
+- [x] Replace disabled HTTP keep-alives with a bounded Gluetun loopback
+  transport and independently verify only transient EOF/reset failures.
+- [x] Keep HTTP error statuses, timeouts, cancellation, and repeated transport
+  failures authoritative so readiness still fails closed.
+- [x] Emit structured, transition-only engine, gateway-health, and retained
+  desired-state diagnostics without logging credentials or public endpoints.
+- [x] Preserve the last valid desired-state generation across a transient
+  projected-file absence.
+- [x] Remove avoidable resource writes and preserve concurrent metadata during
+  gateway status patches.
+- [x] Cover sustained intermittent engine failures and concurrent controller
+  updates in automated tests.
+- [ ] Complete the digest-pinned multi-hour homelab soak for #116 and record
+  outage counts, durations, lease withdrawal/recovery, and fail-closed proof.
+
 ## Phase 6 — eBPF research and v0.4.0 definition
 
 Research precedes the release PRD. eBPF is a focused hypothesis, not a selected
