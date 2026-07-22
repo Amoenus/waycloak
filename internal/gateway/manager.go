@@ -6,7 +6,7 @@ package gateway
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -20,6 +20,7 @@ type HealthManager struct {
 	Forwarding     Forwarding
 	DNS            DNSService
 	PortForwarding *PortForwardManager
+	Logger         *slog.Logger
 
 	mu                          sync.RWMutex
 	observation                 provider.EngineObservation
@@ -33,19 +34,26 @@ type HealthManager struct {
 	portForwardRules            map[string]PortForwardRuleObservation
 	appliedMembershipGeneration string
 
-	lastDesired     *DesiredState
-	previouslyReady bool
+	lastDesired          *DesiredState
+	healthObserved       bool
+	previouslyReady      bool
+	previousHealthReason string
+	configSourceObserved bool
+	usingRetainedDesired bool
+	previousGeneration   string
 }
 
 func (manager *HealthManager) Reconcile(ctx context.Context) {
 	var configErr, networkErr, forwardingErr, dnsErr, portForwardRulesErr error
 	var portForwardRules []PortForwardRuleObservation
 	var desired DesiredState
+	usingRetainedDesired := false
 	if manager.Source != nil {
 		desired, configErr = manager.Source.Load()
 		if configErr != nil && errors.Is(configErr, os.ErrNotExist) && manager.lastDesired != nil {
 			desired = *manager.lastDesired
 			configErr = nil
+			usingRetainedDesired = true
 		}
 		if configErr == nil {
 			manager.lastDesired = &desired
@@ -92,19 +100,82 @@ func (manager *HealthManager) Reconcile(ctx context.Context) {
 	if manager.Source != nil && desired.MembershipGeneration != "" && configErr == nil && networkErr == nil && forwardingErr == nil && dnsErr == nil && portForwardRulesErr == nil {
 		manager.appliedMembershipGeneration = desired.MembershipGeneration
 	}
-	ready := configErr == nil && networkErr == nil && forwardingErr == nil && dnsErr == nil && portForwardRulesErr == nil && err == nil && observation.TunnelReady
-	if manager.previouslyReady && !ready {
-		manager.logTransitions(desired, observation, configErr, networkErr, forwardingErr, dnsErr, portForwardRulesErr, err)
-	} else if !manager.previouslyReady && ready {
-		manager.logTransitions(desired, observation, configErr, networkErr, forwardingErr, dnsErr, portForwardRulesErr, err)
+	ready, healthReason := healthState(observation, configErr, networkErr, forwardingErr, dnsErr, portForwardingErr, portForwardRulesErr, err)
+	if !manager.healthObserved || manager.previouslyReady != ready || manager.previousHealthReason != healthReason {
+		manager.logHealthTransition(ready, healthReason, desired, observation, configErr, networkErr, forwardingErr, dnsErr, portForwardingErr, portForwardRulesErr, err)
 	}
+	manager.healthObserved = true
 	manager.previouslyReady = ready
+	manager.previousHealthReason = healthReason
+	if manager.Source != nil && (!manager.configSourceObserved || manager.usingRetainedDesired != usingRetainedDesired || manager.previousGeneration != desired.MembershipGeneration) {
+		manager.logger().Info("gateway desired-state source transitioned", "event", "gateway_config_source_transition", "using_retained", usingRetainedDesired, "membership_generation", desired.MembershipGeneration)
+	}
+	manager.configSourceObserved = true
+	manager.usingRetainedDesired = usingRetainedDesired
+	manager.previousGeneration = desired.MembershipGeneration
 }
 
-func (manager *HealthManager) logTransitions(desired DesiredState, observation provider.EngineObservation, configErr, networkErr, forwardingErr, dnsErr, portForwardRulesErr, err error) {
-	ready := configErr == nil && networkErr == nil && forwardingErr == nil && dnsErr == nil && portForwardRulesErr == nil && err == nil && observation.TunnelReady
-	log.Printf("gateway health transitioned: ready=%t, membership_generation=%q, configErr=%v, networkErr=%v, forwardingErr=%v, dnsErr=%v, portForwardRulesErr=%v, engineErr=%v, tunnelReady=%t",
-		ready, desired.MembershipGeneration, configErr, networkErr, forwardingErr, dnsErr, portForwardRulesErr, err, observation.TunnelReady)
+func healthReady(observation provider.EngineObservation, configErr, networkErr, forwardingErr, dnsErr, portForwardingErr, portForwardRulesErr, engineErr error) bool {
+	ready, _ := healthState(observation, configErr, networkErr, forwardingErr, dnsErr, portForwardingErr, portForwardRulesErr, engineErr)
+	return ready
+}
+
+func healthState(observation provider.EngineObservation, configErr, networkErr, forwardingErr, dnsErr, portForwardingErr, portForwardRulesErr, engineErr error) (bool, string) {
+	for _, failure := range []struct {
+		reason string
+		err    error
+	}{
+		{reason: "config-error", err: configErr},
+		{reason: "network-error", err: networkErr},
+		{reason: "forwarding-error", err: forwardingErr},
+		{reason: "dns-error", err: dnsErr},
+		{reason: "port-forwarding-error", err: portForwardingErr},
+		{reason: "port-forward-rules-error", err: portForwardRulesErr},
+		{reason: "engine-error", err: engineErr},
+	} {
+		if failure.err != nil {
+			return false, failure.reason
+		}
+	}
+	if !observation.TunnelReady {
+		return false, "tunnel-not-ready"
+	}
+	if !observation.DNSReady {
+		return false, "engine-dns-not-ready"
+	}
+	return true, "ready"
+}
+
+func (manager *HealthManager) logHealthTransition(ready bool, reason string, desired DesiredState, observation provider.EngineObservation, configErr, networkErr, forwardingErr, dnsErr, portForwardingErr, portForwardRulesErr, engineErr error) {
+	manager.logger().Info("gateway health transitioned",
+		"event", "gateway_health_transition",
+		"ready", ready,
+		"reason", reason,
+		"membership_generation", desired.MembershipGeneration,
+		"tunnel_ready", observation.TunnelReady,
+		"dns_ready", observation.DNSReady,
+		"config_error", errorText(configErr),
+		"network_error", errorText(networkErr),
+		"forwarding_error", errorText(forwardingErr),
+		"dns_error", errorText(dnsErr),
+		"port_forwarding_error", errorText(portForwardingErr),
+		"port_forward_rules_error", errorText(portForwardRulesErr),
+		"engine_error", errorText(engineErr),
+	)
+}
+
+func (manager *HealthManager) logger() *slog.Logger {
+	if manager.Logger != nil {
+		return manager.Logger
+	}
+	return slog.Default()
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func effectivePortForwardLeases(desired []PortForwardLeaseIntent, observations []PortForwardObservation, tunnelReady bool) []PortForwardLeaseIntent {
@@ -173,7 +244,7 @@ func (manager *HealthManager) PortForwardingSnapshot() []PortForwardObservation 
 func (manager *HealthManager) Ready() bool {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
-	return manager.err == nil && manager.configErr == nil && manager.networkErr == nil && manager.forwardingErr == nil && manager.dnsErr == nil && manager.portForwardingErr == nil && manager.portForwardRulesErr == nil && manager.observation.TunnelReady && manager.observation.DNSReady
+	return healthReady(manager.observation, manager.configErr, manager.networkErr, manager.forwardingErr, manager.dnsErr, manager.portForwardingErr, manager.portForwardRulesErr, manager.err)
 }
 
 func (manager *HealthManager) Error() error {

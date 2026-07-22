@@ -34,6 +34,21 @@ their `admission.networking.waycloak.io/generation` Pod annotation matches the
 ConfigMap, and admission still rejects an annotated missing-gateway reference
 while leaving an unannotated Pod unchanged.
 
+### From v0.3.1 to v0.3.2
+
+`v0.3.2` changes the controller and gateway-manager only. The agent and
+workload-adapter contracts are unchanged. Upgrade the control plane first and
+confirm both replicas are Ready. The gateway StatefulSet then records the new
+manager digest but remains `OnDelete`; activate that manager during a separate
+maintenance window by deleting only the serving singleton Pod.
+
+During the post-upgrade soak, collect the structured
+`gluetun_transport_verification`, `gateway_health_transition`, and
+`gateway_config_source_transition` events. A recovered one-off loopback
+transport error stays visible without withdrawing readiness; an HTTP health
+failure, timeout, or repeated transport error still withdraws gateway and
+lease readiness fail closed.
+
 ### From v0.2.2 to the v0.3.0-alpha.1 certification candidate
 
 Install only the chart package and digest identities from the signed

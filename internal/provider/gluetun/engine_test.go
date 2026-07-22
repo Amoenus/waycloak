@@ -4,10 +4,14 @@
 package gluetun
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -79,14 +83,113 @@ func TestObserveDoesNotReturnProviderResponseBodies(t *testing.T) {
 	}
 }
 
-func TestNewEngineDisablesKeepAlives(t *testing.T) {
+func TestNewEngineUsesBoundedLoopbackPool(t *testing.T) {
 	engine := New()
 	transport, ok := engine.Client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("expected Engine.Client.Transport to be *http.Transport")
 	}
-	if !transport.DisableKeepAlives {
-		t.Fatalf("expected DisableKeepAlives to be true to prevent loopback health check flaps")
+	if transport.DisableKeepAlives || transport.Proxy != nil || transport.MaxIdleConnsPerHost != 4 || transport.IdleConnTimeout <= 0 {
+		t.Fatalf("unexpected loopback transport = %#v", transport)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return fn(request) }
+
+func TestObserveVerifiesTransientTransportFailureWithSecondRequest(t *testing.T) {
+	var output bytes.Buffer
+	healthCalls := 0
+	engine := &Engine{HealthURL: "http://127.0.0.1/health", ControlURL: "http://127.0.0.1", Logger: slog.New(slog.NewJSONHandler(&output, nil)), Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/health" {
+			healthCalls++
+			if healthCalls == 1 {
+				return nil, io.EOF
+			}
+		}
+		body := ""
+		switch request.URL.Path {
+		case "/v1/dns/status":
+			body = `{"status":"running"}`
+		case "/v1/publicip/ip":
+			body = `{"public_ip":"203.0.113.10"}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}}
+
+	observation, err := engine.Observe(context.Background())
+	if err != nil || healthCalls != 2 || !observation.TunnelReady || !observation.DNSReady {
+		t.Fatalf("observation=%#v healthCalls=%d error=%v", observation, healthCalls, err)
+	}
+	if logs := output.String(); !strings.Contains(logs, `"event":"gluetun_transport_verification"`) || !strings.Contains(logs, `"component":"tunnel-health"`) || !strings.Contains(logs, `"recovered":true`) {
+		t.Fatalf("missing structured verification log: %s", logs)
+	}
+}
+
+func TestObserveDoesNotRetryAuthoritativeHTTPFailure(t *testing.T) {
+	healthCalls := 0
+	engine := &Engine{HealthURL: "http://127.0.0.1/health", Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		healthCalls++
+		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("unhealthy")), Header: make(http.Header)}, nil
+	})}}
+
+	_, err := engine.Observe(context.Background())
+	if !errors.Is(err, ErrTunnelUnhealthy) || healthCalls != 1 {
+		t.Fatalf("healthCalls=%d error=%v", healthCalls, err)
+	}
+}
+
+func TestObserveWithdrawsReadinessAfterSecondTransportFailure(t *testing.T) {
+	healthCalls := 0
+	engine := &Engine{HealthURL: "http://127.0.0.1/health", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		healthCalls++
+		return nil, io.ErrUnexpectedEOF
+	})}}
+
+	observation, err := engine.Observe(context.Background())
+	if !errors.Is(err, ErrTunnelUnhealthy) || healthCalls != 2 || observation.TunnelReady {
+		t.Fatalf("observation=%#v healthCalls=%d error=%v", observation, healthCalls, err)
+	}
+}
+
+func TestObserveDoesNotRetryTimeout(t *testing.T) {
+	healthCalls := 0
+	engine := &Engine{HealthURL: "http://127.0.0.1/health", Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		healthCalls++
+		return nil, context.DeadlineExceeded
+	})}}
+
+	_, err := engine.Observe(context.Background())
+	if !errors.Is(err, ErrTunnelUnhealthy) || healthCalls != 1 {
+		t.Fatalf("healthCalls=%d error=%v", healthCalls, err)
+	}
+}
+
+func TestObserveSustainsIntermittentTransportFailures(t *testing.T) {
+	healthCalls := 0
+	engine := &Engine{HealthURL: "http://127.0.0.1/health", ControlURL: "http://127.0.0.1", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/health" {
+			healthCalls++
+			if healthCalls%2 == 1 {
+				return nil, io.ErrUnexpectedEOF
+			}
+		}
+		body := ""
+		if request.URL.Path == "/v1/dns/status" {
+			body = `{"status":"running"}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}}
+
+	for attempt := 0; attempt < 100; attempt++ {
+		observation, err := engine.Observe(context.Background())
+		if err != nil || !observation.TunnelReady || !observation.DNSReady {
+			t.Fatalf("attempt=%d observation=%#v error=%v", attempt, observation, err)
+		}
+	}
+	if healthCalls != 200 {
+		t.Fatalf("health calls=%d, want 200", healthCalls)
 	}
 }
 

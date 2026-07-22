@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -198,9 +200,11 @@ func TestGatewayStatefulSetServerDefaultsDoNotRequireRollout(t *testing.T) {
 	statefulSet.Spec.Template.Spec.DNSPolicy = corev1.DNSClusterFirst
 	statefulSet.Spec.Template.Spec.RestartPolicy = corev1.RestartPolicyAlways
 	statefulSet.Spec.Template.Spec.SchedulerName = corev1.DefaultSchedulerName
+	statefulSet.Annotations = map[string]string{"external.example/owner": "preserve"}
 	if err := client.Update(context.Background(), &statefulSet); err != nil {
 		t.Fatal(err)
 	}
+	stableResourceVersion := statefulSet.ResourceVersion
 
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -211,6 +215,64 @@ func TestGatewayStatefulSetServerDefaultsDoNotRequireRollout(t *testing.T) {
 			t.Fatalf("server defaults caused a rollout-required event: %s", event)
 		}
 	default:
+	}
+	if err := client.Get(context.Background(), key, &statefulSet); err != nil {
+		t.Fatal(err)
+	}
+	if statefulSet.Annotations["external.example/owner"] != "preserve" {
+		t.Fatalf("reconciliation removed external metadata: %#v", statefulSet.Annotations)
+	}
+	if statefulSet.ResourceVersion != stableResourceVersion {
+		t.Fatalf("no-op reconciliation wrote StatefulSet: before=%s after=%s", stableResourceVersion, statefulSet.ResourceVersion)
+	}
+}
+
+type concurrentMetadataClient struct {
+	client.Client
+	once sync.Once
+}
+
+func (c *concurrentMetadataClient) Status() client.SubResourceWriter {
+	return &concurrentMetadataStatusWriter{SubResourceWriter: c.Client.Status(), parent: c}
+}
+
+type concurrentMetadataStatusWriter struct {
+	client.SubResourceWriter
+	parent *concurrentMetadataClient
+}
+
+func (writer *concurrentMetadataStatusWriter) Patch(ctx context.Context, object client.Object, patch client.Patch, options ...client.SubResourcePatchOption) error {
+	writer.parent.once.Do(func() {
+		var current wayv1.VPNGateway
+		if err := writer.parent.Client.Get(ctx, client.ObjectKeyFromObject(object), &current); err != nil {
+			return
+		}
+		if current.Annotations == nil {
+			current.Annotations = map[string]string{}
+		}
+		current.Annotations["external.example/concurrent"] = "preserve"
+		_ = writer.parent.Client.Update(ctx, &current)
+	})
+	return writer.SubResourceWriter.Patch(ctx, object, patch, options...)
+}
+
+func TestGatewayStatusPatchPreservesConcurrentMetadataUpdate(t *testing.T) {
+	scheme := gatewayTestScheme(t)
+	gateway := controllerTestGateway()
+	base := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&wayv1.VPNGateway{}).WithObjects(gateway).Build()
+	wrapped := &concurrentMetadataClient{Client: base}
+	reconciler := &GatewayReconciler{Client: wrapped, Scheme: scheme, ManagerImage: "registry.invalid/manager" + testDigest}
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	var observed wayv1.VPNGateway
+	if err := base.Get(context.Background(), request.NamespacedName, &observed); err != nil {
+		t.Fatal(err)
+	}
+	if observed.Annotations["external.example/concurrent"] != "preserve" || observed.Status.ObservedGeneration != observed.Generation {
+		t.Fatalf("concurrent metadata/status result = annotations=%#v status=%#v", observed.Annotations, observed.Status)
 	}
 }
 
