@@ -4,6 +4,17 @@ Last updated: 2026-07-23
 
 ## Current phase
 
+`v0.3.3` is the prepared Kubernetes-controller correctness patch. A successful
+`PortForwardLease` reconciliation previously assigned pessimistic
+`Delivered=False` and `Ready=False` conditions in memory before the delivery
+observation restored both to `True`. Although the intermediate state was never
+persisted, standard condition handling treated it as a real transition and
+refreshed `lastTransitionTime` on every two-second observation loop. The
+controller now computes the final delivery state once, preserves transition
+timestamps while condition status remains unchanged, and lets semantic status
+equality suppress no-op API writes. Regression coverage holds both `Ready` and
+`Delivered` timestamps across unchanged polls and expiry-only renewals.
+
 `v0.3.2` is the prepared reliability patch for issue #116. It replaces the
 `v0.3.1` disabled-keep-alive workaround with a bounded HTTP connection pool
 and one independent retry only for transient loopback transport failures.

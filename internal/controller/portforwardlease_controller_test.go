@@ -164,6 +164,8 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonLeaseReady)
+	readyTransition := apiMeta.FindStatusCondition(got.Status.Conditions, waystatus.ConditionReady).LastTransitionTime
+	deliveredTransition := apiMeta.FindStatusCondition(got.Status.Conditions, waystatus.ConditionDelivered).LastTransitionTime
 	if got.Status.PublicPort != 42000 || got.Status.LeaseGeneration != 1 {
 		t.Fatalf("provider status = %#v", got.Status)
 	}
@@ -176,6 +178,8 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	if err := reconciler.Get(context.Background(), key, &got); err != nil || got.Status.LeaseGeneration != 1 {
 		t.Fatalf("stable generation status=%#v error=%v", got.Status, err)
 	}
+	assertTransitionTime(t, got.Status.Conditions, waystatus.ConditionReady, readyTransition)
+	assertTransitionTime(t, got.Status.Conditions, waystatus.ConditionDelivered, deliveredTransition)
 	observer.observation.IssuedAt = now.Add(45 * time.Second)
 	observer.observation.RenewAfter = now.Add(90 * time.Second)
 	observer.observation.ExpiresAt = now.Add(105 * time.Second)
@@ -187,6 +191,8 @@ func TestPortForwardLeasePersistsObservedProviderGeneration(t *testing.T) {
 	}
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionDelivered, metav1.ConditionTrue, waystatus.ReasonDeliveryObservedReady)
 	assertCondition(t, got.Status.Conditions, waystatus.ConditionReady, metav1.ConditionTrue, waystatus.ReasonLeaseReady)
+	assertTransitionTime(t, got.Status.Conditions, waystatus.ConditionReady, readyTransition)
+	assertTransitionTime(t, got.Status.Conditions, waystatus.ConditionDelivered, deliveredTransition)
 	observer.observation.PublicPort = 42001
 	observer.observation.LeaseGeneration = 2
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
@@ -415,6 +421,14 @@ func assertCondition(t *testing.T, conditions []metav1.Condition, conditionType 
 	condition := apiMeta.FindStatusCondition(conditions, conditionType)
 	if condition == nil || condition.Status != status || condition.Reason != reason {
 		t.Fatalf("condition %s = %#v, want status=%s reason=%s", conditionType, condition, status, reason)
+	}
+}
+
+func assertTransitionTime(t *testing.T, conditions []metav1.Condition, conditionType string, want metav1.Time) {
+	t.Helper()
+	condition := apiMeta.FindStatusCondition(conditions, conditionType)
+	if condition == nil || !condition.LastTransitionTime.Equal(&want) {
+		t.Fatalf("condition %s transition time = %#v, want %s", conditionType, condition, want.String())
 	}
 }
 
