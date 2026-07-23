@@ -203,11 +203,21 @@ func TestConfigureVXLANProtectedPath(t *testing.T) {
 	}
 	cfg := e2eClientConfig()
 	agent := Agent{Backend: NewBackend()}
-	if err := agent.Prepare(context.Background(), cfg); err != nil {
-		t.Fatalf("prepare protected path: %v", err)
+	stale := cfg
+	stale.GatewayEndpoint = netip.MustParseAddrPort("192.0.2.51:4789")
+	if err := agent.Prepare(context.Background(), stale); err != nil {
+		t.Fatalf("prepare protected path with initial gateway endpoint: %v", err)
 	}
 	if err := agent.Verify(context.Background(), cfg); err != nil {
-		t.Fatalf("verify protected path: %v", err)
+		t.Fatalf("verify and reconcile updated gateway endpoint: %v", err)
+	}
+	link, err := netlink.LinkByName(overlayName(cfg))
+	if err != nil {
+		t.Fatalf("find reconciled overlay link: %v", err)
+	}
+	vxlan, ok := link.(*netlink.Vxlan)
+	if !ok || !addrEqual(vxlan.Group, cfg.GatewayEndpoint.Addr()) {
+		t.Fatalf("overlay endpoint was not reconciled: %#v", link)
 	}
 	if err := connect("172.30.99.1:18080", 3*time.Second); err != nil {
 		t.Fatalf("reach fake gateway over VXLAN: %v", err)

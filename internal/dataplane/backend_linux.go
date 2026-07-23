@@ -63,6 +63,13 @@ func (*linuxBackend) Configure(_ context.Context, cfg Config) error {
 		return err
 	}
 	linkName := overlayName(cfg)
+	// Replace the endpoint-specific main-table rule before resolving the
+	// underlay. Otherwise a changed gateway endpoint can be resolved through
+	// the stale protected default route in Gateway or Deny mode. The nftables
+	// output policy remains deny-first throughout this rule transition.
+	if err := reconcilePolicyRules(cfg); err != nil {
+		return fmt.Errorf("reconcile protected policy-routing rules: %w", err)
+	}
 	underlay, route, err := resolveUnderlay(cfg)
 	if err != nil {
 		return err
@@ -79,9 +86,6 @@ func (*linuxBackend) Configure(_ context.Context, cfg Config) error {
 	}
 	if err := netlink.RouteReplace(&netlink.Route{LinkIndex: vxlan.Attrs().Index, Gw: net.IP(cfg.GatewayAddress.AsSlice()), Table: protectedRouteTable, Protocol: waycloakRouteProtocol}); err != nil {
 		return fmt.Errorf("install protected default route: %w", err)
-	}
-	if err := reconcilePolicyRules(cfg); err != nil {
-		return fmt.Errorf("reconcile protected policy-routing rules: %w", err)
 	}
 	if err := replacePolicy(cfg.PodUID, underlay.Attrs().Name, cfg.GatewayEndpoint, linkName, cfg.GatewayAddress, cfg.Address.Addr(), cfg.ClusterTrafficMode, cfg.ClusterCIDRs, cfg.ApplicationPortRedirects); err != nil {
 		return fmt.Errorf("activate protected nftables policy: %w", err)

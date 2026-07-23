@@ -199,6 +199,24 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Publish and deploy the digest-pinned release, then verify that stable
   `Ready` and `Delivered` conditions retain their transition timestamps.
 
+### Sidecar Pod-sandbox recovery patch (#121)
+
+- [x] Diagnose the fail-closed qBitTorrent bootstrap after CRI Pod-sandbox
+  recreation as a stale prepared VXLAN endpoint plus a newer projected
+  allocation, rather than weakening startup gates.
+- [x] Make startup verification reinstall lockdown and reconcile the latest
+  complete allocation before it probes observed gateway readiness.
+- [x] Resolve replacement gateway underlay routes only after installing the
+  current endpoint-specific main-table rule.
+- [x] Add unit and privileged packet coverage for deny-first failure and
+  stale-to-current endpoint reconciliation.
+- [x] Add packaged-image lifecycle coverage that stops the exact CRI Pod
+  sandbox, proves ordinary egress remains closed, and requires same-UID,
+  same-IP recovery.
+- [ ] Pass the Linux race/envtest and packaged-image release gates, publish the
+  immutable patch release, deploy it through the normal homelab pipeline, and
+  verify workload plus lease withdrawal/recovery on live provider traffic.
+
 ## Phase 6 — eBPF research and v0.4.0 definition
 
 Research precedes the release PRD. eBPF is a focused hypothesis, not a selected
