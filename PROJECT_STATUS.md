@@ -4,7 +4,8 @@ Last updated: 2026-07-23
 
 ## Current phase
 
-`v0.3.3` is the prepared Kubernetes-controller correctness patch. A successful
+[`v0.3.3`](https://github.com/Amoenus/waycloak/releases/tag/v0.3.3) is the
+published Kubernetes-controller correctness patch. A successful
 `PortForwardLease` reconciliation previously assigned pessimistic
 `Delivered=False` and `Ready=False` conditions in memory before the delivery
 observation restored both to `True`. Although the intermediate state was never
@@ -14,6 +15,12 @@ controller now computes the final delivery state once, preserves transition
 timestamps while condition status remains unchanged, and lets semantic status
 equality suppress no-op API writes. Regression coverage holds both `Ready` and
 `Delivered` timestamps across unchanged polls and expiry-only renewals.
+Protected release run `30005758278` published the signed artifacts from main
+commit `9e7e2f5738a3e1cffcdafc9a4ee896bb8251d46e`. Homelab PR #1469 promoted
+the exact manifest identities in merge `2615b21fcebe24a71b390d691bc714c2fa70eb65`.
+Live qBitTorrent verification held both transition timestamps unchanged across
+multiple 45-second provider renewals while renewable lease fields and resource
+versions advanced only on real renewal updates.
 
 `v0.3.2` is the prepared reliability patch for issue #116. It replaces the
 `v0.3.1` disabled-keep-alive workaround with a bounded HTTP connection pool
