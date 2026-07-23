@@ -31,11 +31,9 @@ import (
 
 func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
-	if !strings.HasPrefix(contextName, "kind-") && os.Getenv("WAYCLOAK_E2E_ALLOW_K3S_IMAGE_IMPORT") != "1" {
+	kindCluster := strings.HasPrefix(contextName, "kind-")
+	if !kindCluster && os.Getenv("WAYCLOAK_E2E_ALLOW_K3S_IMAGE_IMPORT") != "1" {
 		t.Skip("set WAYCLOAK_E2E_ALLOW_K3S_IMAGE_IMPORT=1 to authorize node-local image import")
-	}
-	if strings.HasPrefix(contextName, "kind-") {
-		t.Skip("Kind image loading is exercised by the release harness; this node-import path targets authorized k3s")
 	}
 
 	architecture := requestedLifecycleArchitecture(t)
@@ -107,20 +105,32 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitForPodReady(t, direct, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "controller", Namespace: namespace}})
 	copyLocalFile(t, controllerBinary, namespace, "controller", "/tmp/waycloak-controller")
 
-	loader := imageLoaderPodWithK3sPath(namespace, nodeName, k3sBinaryPath(node))
-	must(t, direct.Create(ctx, loader))
-	waitForPodReady(t, direct, loader)
-	copyLocalFile(t, imageTar, namespace, loader.Name, "/tmp/agent.tar")
-	command(t, nil, "kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "import", "/tmp/agent.tar")
-	waitFor(t, 60*time.Second, func() bool {
-		output, listErr := exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q").CombinedOutput()
-		return listErr == nil && strings.Contains(string(output), imageTag)
-	})
-	imageDigest := importedImageDigest(t, namespace, loader.Name, imageTag)
+	var imageDigest string
+	var stopSandbox func(string)
+	if kindCluster {
+		command(t, nil, "kind", "load", "image-archive", "--name", strings.TrimPrefix(contextName, "kind-"), imageTar)
+		imageDigest = kindImportedImageDigest(t, nodeName, imageTag)
+		stopSandbox = func(podName string) { stopKindPodSandbox(t, nodeName, namespace, podName) }
+		t.Cleanup(func() {
+			_ = exec.Command("docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "rm", imageTag, "waycloak.test/agent@"+imageDigest).Run()
+		})
+	} else {
+		loader := imageLoaderPodWithK3sPath(namespace, nodeName, k3sBinaryPath(node))
+		must(t, direct.Create(ctx, loader))
+		waitForPodReady(t, direct, loader)
+		copyLocalFile(t, imageTar, namespace, loader.Name, "/tmp/agent.tar")
+		command(t, nil, "kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "import", "/tmp/agent.tar")
+		waitFor(t, 60*time.Second, func() bool {
+			output, listErr := exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q").CombinedOutput()
+			return listErr == nil && strings.Contains(string(output), imageTag)
+		})
+		imageDigest = importedImageDigest(t, namespace, loader.Name, imageTag)
+		stopSandbox = func(podName string) { stopK3sPodSandbox(t, namespace, loader.Name, podName) }
+		t.Cleanup(func() {
+			_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "rm", imageTag, "waycloak.test/agent@"+imageDigest).Run()
+		})
+	}
 	imageRef := imageTag + "@" + imageDigest
-	t.Cleanup(func() {
-		_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "rm", imageTag, "waycloak.test/agent@"+imageDigest).Run()
-	})
 
 	startControllerWithImage(t, namespace, true, imageRef)
 	mutating, validating := webhookConfigurations(mutatingName, validatingName, namespace, ca)
@@ -179,7 +189,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	if exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "nc", "-z", "-w", "2", kubernetesService.Spec.ClusterIP, "443").Run() == nil {
 		t.Fatal("application reached the ordinary cluster path after a stale projected gateway endpoint")
 	}
-	stopPodSandbox(t, namespace, loader.Name, protected.Name)
+	stopSandbox(protected.Name)
 	waitFor(t, 60*time.Second, func() bool {
 		var current corev1.Pod
 		if direct.Get(ctx, client.ObjectKeyFromObject(protected), &current) != nil {
@@ -320,6 +330,18 @@ func buildAgentTarballForArchitecture(t *testing.T, suffix, architecture string)
 func importedImageDigest(t *testing.T, namespace, loader, imageTag string) string {
 	t.Helper()
 	output := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q")
+	if digest := imageReferenceDigest(imageTag, output); digest != "" {
+		return digest
+	}
+	detailed := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls")
+	if digest := imageListingDigest(imageTag, detailed); digest != "" {
+		return digest
+	}
+	t.Fatalf("containerd did not report a digest for %s:\n%s", imageTag, detailed)
+	return ""
+}
+
+func imageReferenceDigest(imageTag, output string) string {
 	digestPrefix := strings.SplitN(imageTag, ":", 2)[0] + "@sha256:"
 	for _, line := range strings.Split(output, "\n") {
 		ref := strings.TrimSpace(line)
@@ -327,8 +349,11 @@ func importedImageDigest(t *testing.T, namespace, loader, imageTag string) strin
 			return strings.TrimPrefix(ref, strings.SplitN(imageTag, ":", 2)[0]+"@")
 		}
 	}
-	detailed := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls")
-	for _, line := range strings.Split(detailed, "\n") {
+	return ""
+}
+
+func imageListingDigest(imageTag, output string) string {
+	for _, line := range strings.Split(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 || fields[0] != imageTag {
 			continue
@@ -339,11 +364,24 @@ func importedImageDigest(t *testing.T, namespace, loader, imageTag string) strin
 			}
 		}
 	}
-	t.Fatalf("containerd did not report a digest for %s:\n%s", imageTag, detailed)
 	return ""
 }
 
-func stopPodSandbox(t *testing.T, namespace, loader, podName string) {
+func kindImportedImageDigest(t *testing.T, nodeName, imageTag string) string {
+	t.Helper()
+	output := command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "ls", "-q")
+	if digest := imageReferenceDigest(imageTag, output); digest != "" {
+		return digest
+	}
+	detailed := command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "ls")
+	if digest := imageListingDigest(imageTag, detailed); digest != "" {
+		return digest
+	}
+	t.Fatalf("Kind containerd did not report a digest for %s:\n%s", imageTag, detailed)
+	return ""
+}
+
+func stopK3sPodSandbox(t *testing.T, namespace, loader, podName string) {
 	t.Helper()
 	runtimeEndpoint := "unix:///host/containerd/containerd.sock"
 	output := command(t, nil,
@@ -358,6 +396,25 @@ func stopPodSandbox(t *testing.T, namespace, loader, podName string) {
 	command(t, nil,
 		"kubectl", "exec", "-n", namespace, loader, "--",
 		"/host/k3s", "crictl", "--runtime-endpoint", runtimeEndpoint,
+		"stopp", identities[0],
+	)
+}
+
+func stopKindPodSandbox(t *testing.T, nodeName, namespace, podName string) {
+	t.Helper()
+	runtimeEndpoint := "unix:///run/containerd/containerd.sock"
+	output := command(t, nil,
+		"docker", "exec", nodeName,
+		"crictl", "--runtime-endpoint", runtimeEndpoint,
+		"pods", "--namespace", namespace, "--name", podName, "--state", "Ready", "-q",
+	)
+	identities := strings.Fields(output)
+	if len(identities) != 1 {
+		t.Fatalf("ready sandbox identities for %s/%s = %q, want exactly one", namespace, podName, output)
+	}
+	command(t, nil,
+		"docker", "exec", nodeName,
+		"crictl", "--runtime-endpoint", runtimeEndpoint,
 		"stopp", identities[0],
 	)
 }
