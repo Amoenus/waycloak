@@ -215,6 +215,17 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 		}
 		return prepareRestarted && verifyAttempted
 	})
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	if protected.UID != protectedUID {
+		t.Fatalf("Pod-sandbox restart changed protected Pod UID: %s -> %s", protectedUID, protected.UID)
+	}
+	if protected.Status.PodIP == "" {
+		t.Fatal("Pod-sandbox restart did not publish a replacement underlay address")
+	}
+	if protected.Status.PodIP != protectedIP {
+		reconfigureGatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY_RECONFIGURE=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s /tmp/dataplane.test -test.run '^TestReconfigureFakeGatewayEndpoint$' -test.v", gatewayPod.Status.PodIP, protected.Status.PodIP)
+		command(t, nil, "kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "sh", "-c", reconfigureGatewayCommand)
+	}
 	must(t, direct.Get(ctx, allocationKey, &sandboxAllocation))
 	sandboxAllocation.Data["gatewayEndpoint"] = gatewayPod.Status.PodIP + ":4789"
 	must(t, direct.Update(ctx, &sandboxAllocation))
@@ -222,9 +233,6 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
 	if protected.UID != protectedUID {
 		t.Fatalf("Pod-sandbox restart changed protected Pod UID: %s -> %s", protectedUID, protected.UID)
-	}
-	if protected.Status.PodIP != protectedIP {
-		t.Fatalf("Pod-sandbox restart changed protected Pod IP: %s -> %s", protectedIP, protected.Status.PodIP)
 	}
 	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "getent", "hosts", "kubernetes.default")
 	startControllerWithImage(t, namespace, true, imageRef)

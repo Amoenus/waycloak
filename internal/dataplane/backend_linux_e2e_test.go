@@ -155,20 +155,8 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_SKIP_GATEWAY_VXLAN") != "1" {
 		local := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_LOCAL_IP"))
 		remote := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_REMOTE_IP"))
-		routes, err := netlink.RouteGet(net.IP(remote.AsSlice()))
-		if err != nil || len(routes) == 0 {
-			t.Fatalf("resolve fake gateway underlay: %v", err)
-		}
-		route := routes[0]
-		link := &netlink.Vxlan{LinkAttrs: netlink.LinkAttrs{Name: "wc-fake-gw", MTU: 1320}, VxlanId: 7999, VtepDevIndex: route.LinkIndex, SrcAddr: net.IP(local.AsSlice()), Group: net.IP(remote.AsSlice()), Port: 4789, Learning: false, NoAge: true}
-		if err := netlink.LinkAdd(link); err != nil {
-			t.Fatalf("create fake gateway VXLAN: %v", err)
-		}
-		if err := netlink.AddrReplace(link, &netlink.Addr{IPNet: &net.IPNet{IP: net.ParseIP("172.30.99.1"), Mask: net.CIDRMask(24, 32)}}); err != nil {
-			t.Fatalf("address fake gateway VXLAN: %v", err)
-		}
-		if err := netlink.LinkSetUp(link); err != nil {
-			t.Fatalf("bring fake gateway VXLAN up: %v", err)
+		if err := configureFakeGatewayVXLAN(local, remote, false); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if os.Getenv("WAYCLOAK_E2E_SKIP_GATEWAY_DNS") != "1" {
@@ -203,6 +191,48 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 		}
 	case <-time.After(lifetime):
 	}
+}
+
+func TestReconfigureFakeGatewayEndpoint(t *testing.T) {
+	if os.Getenv("WAYCLOAK_E2E_GATEWAY_RECONFIGURE") != "1" {
+		t.Skip("runs only to update fake gateway membership after an underlay rollover")
+	}
+	local := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_LOCAL_IP"))
+	remote := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_REMOTE_IP"))
+	if err := configureFakeGatewayVXLAN(local, remote, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func configureFakeGatewayVXLAN(local, remote netip.Addr, replace bool) error {
+	if replace {
+		existing, err := netlink.LinkByName("wc-fake-gw")
+		if err != nil {
+			return fmt.Errorf("find fake gateway VXLAN for replacement: %w", err)
+		}
+		if err := netlink.LinkDel(existing); err != nil {
+			return fmt.Errorf("delete stale fake gateway VXLAN: %w", err)
+		}
+	}
+	routes, err := netlink.RouteGet(net.IP(remote.AsSlice()))
+	if err != nil {
+		return fmt.Errorf("resolve fake gateway underlay: %w", err)
+	}
+	if len(routes) == 0 {
+		return fmt.Errorf("resolve fake gateway underlay: no route to %s", remote)
+	}
+	route := routes[0]
+	link := &netlink.Vxlan{LinkAttrs: netlink.LinkAttrs{Name: "wc-fake-gw", MTU: 1320}, VxlanId: 7999, VtepDevIndex: route.LinkIndex, SrcAddr: net.IP(local.AsSlice()), Group: net.IP(remote.AsSlice()), Port: 4789, Learning: false, NoAge: true}
+	if err := netlink.LinkAdd(link); err != nil {
+		return fmt.Errorf("create fake gateway VXLAN: %w", err)
+	}
+	if err := netlink.AddrReplace(link, &netlink.Addr{IPNet: &net.IPNet{IP: net.ParseIP("172.30.99.1"), Mask: net.CIDRMask(24, 32)}}); err != nil {
+		return fmt.Errorf("address fake gateway VXLAN: %w", err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		return fmt.Errorf("bring fake gateway VXLAN up: %w", err)
+	}
+	return nil
 }
 
 func TestConfigureVXLANProtectedPath(t *testing.T) {
