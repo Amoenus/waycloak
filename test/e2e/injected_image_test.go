@@ -101,6 +101,12 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	serviceHost := "waycloak-e2e-webhook." + namespace + ".svc"
 	cert, key, ca := certificates(t, serviceHost)
 	must(t, direct.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "webhook-certs", Namespace: namespace}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: cert, corev1.TLSPrivateKeyKey: key}}))
+	generation := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: e2eAdmissionGenerationConfigMap, Namespace: namespace}, Data: map[string]string{contract.AdmissionGenerationKey: e2eAdmissionGeneration}}
+	must(t, direct.Create(ctx, generation))
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(generation), generation))
+	if generation.Data[contract.AdmissionGenerationKey] != e2eAdmissionGeneration {
+		t.Fatalf("admission generation = %q, want %q", generation.Data[contract.AdmissionGenerationKey], e2eAdmissionGeneration)
+	}
 	createRunnerForArchitecture(t, direct, namespace, architecture)
 	waitForPodReady(t, direct, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "controller", Namespace: namespace}})
 	copyLocalFile(t, controllerBinary, namespace, "controller", "/tmp/waycloak-controller")
