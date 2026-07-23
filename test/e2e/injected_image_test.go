@@ -116,9 +116,10 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	if kindCluster {
 		command(t, nil, "kind", "load", "image-archive", "--name", strings.TrimPrefix(contextName, "kind-"), imageTar)
 		imageDigest = kindImportedImageDigest(t, nodeName, imageTag)
+		command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "tag", imageTag, imageRepository(imageTag)+"@"+imageDigest)
 		stopSandbox = func(podName string) { stopKindPodSandbox(t, nodeName, namespace, podName) }
 		t.Cleanup(func() {
-			_ = exec.Command("docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "rm", imageTag, "waycloak.test/agent@"+imageDigest).Run()
+			_ = exec.Command("docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "rm", imageTag, imageRepository(imageTag)+"@"+imageDigest).Run()
 		})
 	} else {
 		loader := imageLoaderPodWithK3sPath(namespace, nodeName, k3sBinaryPath(node))
@@ -131,9 +132,10 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 			return listErr == nil && strings.Contains(string(output), imageTag)
 		})
 		imageDigest = importedImageDigest(t, namespace, loader.Name, imageTag)
+		command(t, nil, "kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "tag", imageTag, imageRepository(imageTag)+"@"+imageDigest)
 		stopSandbox = func(podName string) { stopK3sPodSandbox(t, namespace, loader.Name, podName) }
 		t.Cleanup(func() {
-			_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "rm", imageTag, "waycloak.test/agent@"+imageDigest).Run()
+			_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "rm", imageTag, imageRepository(imageTag)+"@"+imageDigest).Run()
 		})
 	}
 	imageRef := imageTag + "@" + imageDigest
@@ -348,14 +350,21 @@ func importedImageDigest(t *testing.T, namespace, loader, imageTag string) strin
 }
 
 func imageReferenceDigest(imageTag, output string) string {
-	digestPrefix := strings.SplitN(imageTag, ":", 2)[0] + "@sha256:"
+	digestPrefix := imageRepository(imageTag) + "@sha256:"
 	for _, line := range strings.Split(output, "\n") {
 		ref := strings.TrimSpace(line)
 		if strings.HasPrefix(ref, digestPrefix) {
-			return strings.TrimPrefix(ref, strings.SplitN(imageTag, ":", 2)[0]+"@")
+			return strings.TrimPrefix(ref, imageRepository(imageTag)+"@")
 		}
 	}
 	return ""
+}
+
+func imageRepository(imageTag string) string {
+	if colon := strings.LastIndexByte(imageTag, ':'); colon > strings.LastIndexByte(imageTag, '/') {
+		return imageTag[:colon]
+	}
+	return imageTag
 }
 
 func imageListingDigest(imageTag, output string) string {
