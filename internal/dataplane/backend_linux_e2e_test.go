@@ -188,12 +188,20 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 	if err := os.WriteFile("/tmp/gateway-ready", []byte("ready\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	lifetime := 2 * time.Minute
+	if configured := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_GATEWAY_LIFETIME")); configured != "" {
+		parsed, err := time.ParseDuration(configured)
+		if err != nil || parsed <= 0 {
+			t.Fatalf("invalid WAYCLOAK_E2E_GATEWAY_LIFETIME %q", configured)
+		}
+		lifetime = parsed
+	}
 	select {
 	case err := <-serverErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
 			t.Fatalf("serve protected health endpoint: %v", err)
 		}
-	case <-time.After(2 * time.Minute):
+	case <-time.After(lifetime):
 	}
 }
 

@@ -170,7 +170,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 		return direct.Get(ctx, client.ObjectKeyFromObject(protected), protected) == nil && protected.Status.PodIP != ""
 	})
 	allocationKey := client.ObjectKey{Namespace: namespace, Name: protected.Annotations[contract.AllocationNameAnnotation]}
-	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gatewayPod.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_GATEWAY_LIFETIME=10m WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gatewayPod.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "sh", "-c", gatewayCommand)
 	waitFor(t, 20*time.Second, func() bool {
 		return exec.Command("kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
@@ -238,7 +238,7 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitForPodReady(t, direct, replacementGateway)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(replacementGateway), replacementGateway))
 	copyTestBinary(t, dataplaneBinary, namespace, replacementGateway.Name)
-	replacementCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", replacementGateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	replacementCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_GATEWAY_LIFETIME=10m WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", replacementGateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "sh", "-c", replacementCommand)
 	waitFor(t, 20*time.Second, func() bool {
 		return exec.Command("kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
