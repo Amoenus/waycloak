@@ -201,7 +201,9 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionProviderLeaseReady, metav1.ConditionTrue, waystatus.ReasonProviderLeaseObservedReady, "A current provider mapping is observed through the serving gateway Pod")
 	if observation.GatewayRulesReady && observation.GatewayRulesGeneration == lease.Status.LeaseGeneration && lease.Status.Target != nil && observation.TargetAddress == lease.Status.Target.OverlayAddress && observation.TargetPort == uint16(lease.Status.Target.Port) {
 		r.rulesObserved(&lease)
-		if r.DeliveryObserver != nil && target.Status.PodIP != "" {
+		if r.DeliveryObserver == nil || target.Status.PodIP == "" {
+			r.deliveryPending(&lease, waystatus.ReasonDeliveryPending, "The current lease generation has not been acknowledged by the target Pod")
+		} else {
 			deliveryObservation, deliveryErr := r.DeliveryObserver.ObserveDelivery(ctx, target.Status.PodIP, string(lease.UID))
 			if deliveryErr != nil {
 				r.deliveryPending(&lease, waystatus.ReasonDeliveryObservationFailed, "The target Pod has not acknowledged the current lease delivery record")
@@ -395,7 +397,6 @@ func (r *PortForwardLeaseReconciler) downstreamPending(lease *wayv1.PortForwardL
 
 func (r *PortForwardLeaseReconciler) rulesObserved(lease *wayv1.PortForwardLease) {
 	waystatus.Set(&lease.Status.Conditions, lease.Generation, waystatus.ConditionGatewayRulesReady, metav1.ConditionTrue, waystatus.ReasonGatewayRulesObservedReady, "Gateway TCP/UDP DNAT is observed for the current lease generation and UID-bound target")
-	r.deliveryPending(lease, waystatus.ReasonDeliveryPending, "The current lease generation has not been acknowledged by the target Pod")
 }
 
 func (r *PortForwardLeaseReconciler) deliveryPending(lease *wayv1.PortForwardLease, reason, message string) {

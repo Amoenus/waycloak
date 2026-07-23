@@ -189,6 +189,16 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [ ] Complete the digest-pinned multi-hour homelab soak for #116 and record
   outage counts, durations, lease withdrawal/recovery, and fail-closed proof.
 
+### v0.3.3 controller correctness patch
+
+- [x] Compute the final `PortForwardLease` delivery conditions once per
+  reconciliation instead of introducing an unpersisted pessimistic transition.
+- [x] Preserve `lastTransitionTime` while condition status remains unchanged,
+  including unchanged polls and expiry-only provider renewals.
+- [x] Suppress no-op status writes through semantic status equality.
+- [ ] Publish and deploy the digest-pinned release, then verify that stable
+  `Ready` and `Delivered` conditions retain their transition timestamps.
+
 ## Phase 6 — eBPF research and v0.4.0 definition
 
 Research precedes the release PRD. eBPF is a focused hypothesis, not a selected
