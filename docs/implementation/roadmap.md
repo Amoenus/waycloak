@@ -196,7 +196,7 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Preserve `lastTransitionTime` while condition status remains unchanged,
   including unchanged polls and expiry-only provider renewals.
 - [x] Suppress no-op status writes through semantic status equality.
-- [ ] Publish and deploy the digest-pinned release, then verify that stable
+- [x] Publish and deploy the digest-pinned release, then verify that stable
   `Ready` and `Delivered` conditions retain their transition timestamps.
 
 ## Phase 6 — eBPF research and v0.4.0 definition
