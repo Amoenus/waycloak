@@ -254,6 +254,11 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitFor(t, 20*time.Second, func() bool {
 		return exec.Command("kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
 	})
+	t.Cleanup(func() {
+		if t.Failed() {
+			logGatewayDiagnostics(t, namespace, replacementGateway.Name, protected.Status.PodIP)
+		}
+	})
 	updateGatewayEndpoint(t, direct, gw, replacementGateway.Status.PodIP+":4789", 18080)
 	waitFor(t, 90*time.Second, func() bool {
 		var current corev1.ConfigMap
@@ -300,6 +305,18 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	must(t, direct.Create(ctx, plain))
 	waitForPodReady(t, direct, plain)
 	command(t, nil, "kubectl", "exec", "-n", namespace, plain.Name, "--", "getent", "hosts", "kubernetes.default")
+}
+
+func logGatewayDiagnostics(t *testing.T, namespace, pod, protectedIP string) {
+	t.Helper()
+	commands := [][]string{
+		{"kubectl", "exec", "-n", namespace, pod, "--", "sh", "-c", "cat /tmp/gateway.log; printf 'gateway-pid='; cat /tmp/gateway.pid; kill -0 \"$(cat /tmp/gateway.pid)\""},
+		{"kubectl", "exec", "-n", namespace, pod, "--", "sh", "-c", fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY_INSPECT=1 WAYCLOAK_E2E_REMOTE_IP=%s /tmp/dataplane.test -test.run '^TestInspectFakeGatewayEndpoint$' -test.v", protectedIP)},
+	}
+	for _, arguments := range commands {
+		output, err := exec.Command(arguments[0], arguments[1:]...).CombinedOutput()
+		t.Logf("%s (error=%v):\n%s", strings.Join(arguments, " "), err, output)
+	}
 }
 
 func missingWaycloakCRDs() []string {

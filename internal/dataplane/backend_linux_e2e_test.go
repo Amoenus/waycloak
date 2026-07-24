@@ -225,6 +225,24 @@ func configureFakeGatewayVXLAN(local, remote netip.Addr, replace bool) error {
 	return nil
 }
 
+func TestInspectFakeGatewayEndpoint(t *testing.T) {
+	if os.Getenv("WAYCLOAK_E2E_GATEWAY_INSPECT") != "1" {
+		t.Skip("runs only to diagnose the fake gateway network namespace")
+	}
+	link, err := netlink.LinkByName("wc-fake-gw")
+	if err != nil {
+		t.Fatalf("find fake gateway VXLAN: %v", err)
+	}
+	vxlan, ok := link.(*netlink.Vxlan)
+	if !ok {
+		t.Fatalf("fake gateway link type = %T, want *netlink.Vxlan", link)
+	}
+	t.Logf("fake gateway VXLAN: local=%s remote=%s vni=%d port=%d underlay=%d state=%d", vxlan.SrcAddr, vxlan.Group, vxlan.VxlanId, vxlan.Port, vxlan.VtepDevIndex, vxlan.Attrs().OperState)
+	if err := connect("172.30.99.1:18080", time.Second); err != nil {
+		t.Fatalf("connect to local fake gateway readiness server: %v", err)
+	}
+}
+
 func TestConfigureVXLANProtectedPath(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_CLIENT") != "1" {
 		t.Skip("runs only in the protected client network namespace")
