@@ -199,7 +199,7 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Publish and deploy the digest-pinned release, then verify that stable
   `Ready` and `Delivered` conditions retain their transition timestamps.
 
-### Sidecar Pod-sandbox recovery patch (#121)
+### v0.3.4 sidecar Pod-sandbox recovery patch (#121)
 
 - [x] Diagnose the fail-closed qBitTorrent bootstrap after CRI Pod-sandbox
   recreation as a stale prepared VXLAN endpoint plus a newer projected
@@ -211,8 +211,8 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Add unit and privileged packet coverage for deny-first failure and
   stale-to-current endpoint reconciliation.
 - [x] Add packaged-image lifecycle coverage that stops the exact CRI Pod
-  sandbox, proves ordinary egress remains closed, and requires same-UID,
-  same-IP recovery.
+  sandbox, proves ordinary egress remains closed, and requires same-UID
+  recovery across a CNI underlay-address rollover.
 - [ ] Pass the Linux race/envtest and packaged-image release gates, publish the
   immutable patch release, deploy it through the normal homelab pipeline, and
   verify workload plus lease withdrawal/recovery on live provider traffic.
