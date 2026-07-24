@@ -134,10 +134,24 @@ func (a Agent) Verify(ctx context.Context, cfg Config) error {
 	if a.Backend == nil {
 		return errors.New("data-plane backend is required")
 	}
-	if err := cfg.Validate(); err != nil {
-		return err
+	if cfg.PodUID == "" {
+		return errors.New("pod UID is required before startup verification")
 	}
-	return a.Backend.Verify(ctx, cfg)
+	// The projected allocation can change after the prepare init container
+	// exits and before this verifier starts. Re-establish lockdown first, then
+	// reconcile the latest projection so an immutable VXLAN endpoint change
+	// cannot deadlock startup while the conventional repair agent is waiting
+	// behind this init container.
+	if err := a.Backend.InstallLockdown(ctx, cfg.PodUID); err != nil {
+		return fmt.Errorf("install fail-closed policy before startup verification: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate current protected-path configuration after lockdown: %w", err)
+	}
+	if err := a.Backend.Repair(ctx, cfg); err != nil {
+		return fmt.Errorf("reconcile and verify current protected path with lockdown retained: %w", err)
+	}
+	return nil
 }
 
 func (a Agent) Repair(ctx context.Context, cfg Config) error {

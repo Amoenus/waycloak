@@ -31,18 +31,17 @@ import (
 
 func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
-	if !strings.HasPrefix(contextName, "kind-") && os.Getenv("WAYCLOAK_E2E_ALLOW_K3S_IMAGE_IMPORT") != "1" {
+	kindCluster := strings.HasPrefix(contextName, "kind-")
+	if !kindCluster && os.Getenv("WAYCLOAK_E2E_ALLOW_K3S_IMAGE_IMPORT") != "1" {
 		t.Skip("set WAYCLOAK_E2E_ALLOW_K3S_IMAGE_IMPORT=1 to authorize node-local image import")
 	}
-	if strings.HasPrefix(contextName, "kind-") {
-		t.Skip("Kind image loading is exercised by the release harness; this node-import path targets authorized k3s")
-	}
 
-	controllerBinary := buildController(t)
+	architecture := requestedLifecycleArchitecture(t)
+	controllerBinary := buildControllerForArchitecture(t, architecture)
 	dataplaneBinary := filepath.Join(t.TempDir(), "dataplane.test")
-	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", dataplaneBinary, "../../internal/dataplane")
+	command(t, append(os.Environ(), "GOOS=linux", "GOARCH="+architecture, "CGO_ENABLED=0"), "go", "test", "-c", "-tags=e2e", "-o", dataplaneBinary, "../../internal/dataplane")
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	imageTar, imageTag := buildAgentTarball(t, suffix)
+	imageTar, imageTag := buildAgentTarballForArchitecture(t, suffix, architecture)
 
 	crdPath := filepath.Join("..", "..", "config", "crd", "bases")
 	createdCRDs := missingWaycloakCRDs()
@@ -55,7 +54,8 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	direct, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
 	must(t, err)
 	ctx := context.Background()
-	nodeName := amd64Node(t, direct)
+	node := readyNodeForArchitecture(t, direct, architecture)
+	nodeName := node.Name
 	namespace := "waycloak-image-e2e-" + suffix
 	deniedNamespace := namespace + "-denied"
 	roleName := namespace
@@ -101,26 +101,44 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	serviceHost := "waycloak-e2e-webhook." + namespace + ".svc"
 	cert, key, ca := certificates(t, serviceHost)
 	must(t, direct.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "webhook-certs", Namespace: namespace}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: cert, corev1.TLSPrivateKeyKey: key}}))
-	createRunner(t, direct, namespace)
+	generation := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: e2eAdmissionGenerationConfigMap, Namespace: namespace}, Data: map[string]string{contract.AdmissionGenerationKey: e2eAdmissionGeneration}}
+	must(t, direct.Create(ctx, generation))
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(generation), generation))
+	if generation.Data[contract.AdmissionGenerationKey] != e2eAdmissionGeneration {
+		t.Fatalf("admission generation = %q, want %q", generation.Data[contract.AdmissionGenerationKey], e2eAdmissionGeneration)
+	}
+	createRunnerForArchitecture(t, direct, namespace, architecture)
 	waitForPodReady(t, direct, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "controller", Namespace: namespace}})
 	copyLocalFile(t, controllerBinary, namespace, "controller", "/tmp/waycloak-controller")
 
-	loader := imageLoaderPod(namespace, nodeName)
-	must(t, direct.Create(ctx, loader))
-	waitForPodReady(t, direct, loader)
-	copyLocalFile(t, imageTar, namespace, loader.Name, "/tmp/agent.tar")
-	imageArchive := "waycloak-" + suffix + ".tar"
-	command(t, nil, "kubectl", "exec", "-n", namespace, loader.Name, "--", "cp", "/tmp/agent.tar", "/host/images/"+imageArchive)
-	waitFor(t, 60*time.Second, func() bool {
-		output, listErr := exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q").CombinedOutput()
-		return listErr == nil && strings.Contains(string(output), imageTag)
-	})
-	imageDigest := importedImageDigest(t, namespace, loader.Name, imageTag)
+	var imageDigest string
+	var stopSandbox func(string)
+	if kindCluster {
+		command(t, nil, "kind", "load", "image-archive", "--name", strings.TrimPrefix(contextName, "kind-"), imageTar)
+		imageDigest = kindImportedImageDigest(t, nodeName, imageTag)
+		command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "tag", imageTag, imageRepository(imageTag)+"@"+imageDigest)
+		stopSandbox = func(podName string) { stopKindPodSandbox(t, nodeName, namespace, podName) }
+		t.Cleanup(func() {
+			_ = exec.Command("docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "rm", imageTag, imageRepository(imageTag)+"@"+imageDigest).Run()
+		})
+	} else {
+		loader := imageLoaderPodWithK3sPath(namespace, nodeName, k3sBinaryPath(node))
+		must(t, direct.Create(ctx, loader))
+		waitForPodReady(t, direct, loader)
+		copyLocalFile(t, imageTar, namespace, loader.Name, "/tmp/agent.tar")
+		command(t, nil, "kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "import", "/tmp/agent.tar")
+		waitFor(t, 60*time.Second, func() bool {
+			output, listErr := exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q").CombinedOutput()
+			return listErr == nil && strings.Contains(string(output), imageTag)
+		})
+		imageDigest = importedImageDigest(t, namespace, loader.Name, imageTag)
+		command(t, nil, "kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "tag", imageTag, imageRepository(imageTag)+"@"+imageDigest)
+		stopSandbox = func(podName string) { stopK3sPodSandbox(t, namespace, loader.Name, podName) }
+		t.Cleanup(func() {
+			_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "rm", imageTag, imageRepository(imageTag)+"@"+imageDigest).Run()
+		})
+	}
 	imageRef := imageTag + "@" + imageDigest
-	t.Cleanup(func() {
-		_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "rm", "-f", "/host/images/"+imageArchive).Run()
-		_ = exec.Command("kubectl", "exec", "-n", namespace, loader.Name, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "rm", imageTag, "waycloak.test/agent@"+imageDigest).Run()
-	})
 
 	startControllerWithImage(t, namespace, true, imageRef)
 	mutating, validating := webhookConfigurations(mutatingName, validatingName, namespace, ca)
@@ -152,17 +170,81 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 		return direct.Get(ctx, client.ObjectKeyFromObject(protected), protected) == nil && protected.Status.PodIP != ""
 	})
 	allocationKey := client.ObjectKey{Namespace: namespace, Name: protected.Annotations[contract.AllocationNameAnnotation]}
-	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", gatewayPod.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	gatewayCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_GATEWAY_LIFETIME=10m WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 & echo $! >/tmp/gateway.pid", gatewayPod.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "sh", "-c", gatewayCommand)
 	waitFor(t, 20*time.Second, func() bool {
 		return exec.Command("kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
 	})
+	initialGatewayName := gatewayPod.Name
+	t.Cleanup(func() {
+		if t.Failed() {
+			logGatewayDiagnostics(t, namespace, initialGatewayName, protected.Status.PodIP)
+		}
+	})
 	waitForPodReady(t, direct, protected)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
 	protectedUID := protected.UID
+	protectedIP := protected.Status.PodIP
 	assertInjectedRuntime(t, protected, imageRef)
 	assertFilteredDeliveryMount(t, protected)
 	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "sh", "-c", "test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token && set -- /run/waycloak/port-forward/* && test $# -eq 1 && test $(basename \"$1\") = port-forward-leases.json")
+
+	// Reproduce a container-runtime Pod-sandbox restart while the projected
+	// gateway endpoint changes between the prepare and verify init stages. The
+	// Pod object and UID remain stable, but all network-namespace state is new.
+	// Startup must remain closed while stale, then the verifier must reconcile
+	// the latest projection without waiting for the conventional repair agent.
+	stopController(t, namespace)
+	var sandboxAllocation corev1.ConfigMap
+	must(t, direct.Get(ctx, allocationKey, &sandboxAllocation))
+	sandboxAllocation.Data["gatewayEndpoint"] = "192.0.2.51:4789"
+	must(t, direct.Update(ctx, &sandboxAllocation))
+	waitFor(t, 90*time.Second, func() bool { return !podReady(t, direct, protected) })
+	if exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "nc", "-z", "-w", "2", kubernetesService.Spec.ClusterIP, "443").Run() == nil {
+		t.Fatal("application reached the ordinary cluster path after a stale projected gateway endpoint")
+	}
+	stopSandbox(protected.Name)
+	waitFor(t, 60*time.Second, func() bool {
+		var current corev1.Pod
+		if direct.Get(ctx, client.ObjectKeyFromObject(protected), &current) != nil {
+			return false
+		}
+		prepareRestarted := false
+		verifyAttempted := false
+		for _, status := range current.Status.InitContainerStatuses {
+			switch status.Name {
+			case contract.PrepareContainer:
+				prepareRestarted = status.RestartCount > 0 && status.State.Terminated != nil && status.State.Terminated.ExitCode == 0
+			case contract.VerifyContainer:
+				verifyAttempted = status.RestartCount > 0 || status.State.Terminated != nil || status.State.Waiting != nil
+			}
+		}
+		return prepareRestarted && verifyAttempted
+	})
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	if protected.UID != protectedUID {
+		t.Fatalf("Pod-sandbox restart changed protected Pod UID: %s -> %s", protectedUID, protected.UID)
+	}
+	if protected.Status.PodIP == "" {
+		t.Fatal("Pod-sandbox restart did not publish a replacement underlay address")
+	}
+	if protected.Status.PodIP != protectedIP {
+		restartGatewayCommand := fmt.Sprintf("kill \"$(cat /tmp/gateway.pid)\"; sleep 1; rm -f /tmp/gateway-ready; env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_REPLACE_GATEWAY_VXLAN=1 WAYCLOAK_E2E_GATEWAY_LIFETIME=10m WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 & echo $! >/tmp/gateway.pid", gatewayPod.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+		command(t, nil, "kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "sh", "-c", restartGatewayCommand)
+		waitFor(t, 20*time.Second, func() bool {
+			return exec.Command("kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
+		})
+	}
+	must(t, direct.Get(ctx, allocationKey, &sandboxAllocation))
+	sandboxAllocation.Data["gatewayEndpoint"] = gatewayPod.Status.PodIP + ":4789"
+	must(t, direct.Update(ctx, &sandboxAllocation))
+	waitFor(t, 3*time.Minute, func() bool { return podReady(t, direct, protected) })
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
+	if protected.UID != protectedUID {
+		t.Fatalf("Pod-sandbox restart changed protected Pod UID: %s -> %s", protectedUID, protected.UID)
+	}
+	command(t, nil, "kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "getent", "hosts", "kubernetes.default")
+	startControllerWithImage(t, namespace, true, imageRef)
 
 	must(t, direct.Delete(ctx, gatewayPod, client.GracePeriodSeconds(0)))
 	waitFor(t, 30*time.Second, func() bool { return !podReady(t, direct, protected) })
@@ -173,17 +255,24 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitForPodReady(t, direct, replacementGateway)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(replacementGateway), replacementGateway))
 	copyTestBinary(t, dataplaneBinary, namespace, replacementGateway.Name)
-	replacementCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 &", replacementGateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
+	replacementCommand := fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY=1 WAYCLOAK_E2E_GATEWAY_LIFETIME=10m WAYCLOAK_E2E_LOCAL_IP=%s WAYCLOAK_E2E_REMOTE_IP=%s WAYCLOAK_E2E_CLUSTER_DNS=%s /tmp/dataplane.test -test.run '^TestFakeGatewayEndpoint$' -test.v >/tmp/gateway.log 2>&1 & echo $! >/tmp/gateway.pid", replacementGateway.Status.PodIP, protected.Status.PodIP, clusterDNS.Spec.ClusterIP)
 	command(t, nil, "kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "sh", "-c", replacementCommand)
 	waitFor(t, 20*time.Second, func() bool {
 		return exec.Command("kubectl", "exec", "-n", namespace, replacementGateway.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
+	})
+	t.Cleanup(func() {
+		if t.Failed() {
+			logGatewayDiagnostics(t, namespace, replacementGateway.Name, protected.Status.PodIP)
+		}
 	})
 	updateGatewayEndpoint(t, direct, gw, replacementGateway.Status.PodIP+":4789", 18080)
 	waitFor(t, 90*time.Second, func() bool {
 		var current corev1.ConfigMap
 		return direct.Get(ctx, allocationKey, &current) == nil && current.Data["gatewayEndpoint"] == replacementGateway.Status.PodIP+":4789"
 	})
-	waitForPodReady(t, direct, protected)
+	waitFor(t, 3*time.Minute, func() bool {
+		return podReady(t, direct, protected)
+	})
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
 	if protected.UID != protectedUID {
 		t.Fatalf("gateway replacement changed protected Pod UID: %s -> %s", protectedUID, protected.UID)
@@ -226,6 +315,18 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, plain.Name, "--", "getent", "hosts", "kubernetes.default")
 }
 
+func logGatewayDiagnostics(t *testing.T, namespace, pod, protectedIP string) {
+	t.Helper()
+	commands := [][]string{
+		{"kubectl", "exec", "-n", namespace, pod, "--", "sh", "-c", "cat /tmp/gateway.log; printf 'gateway-pid='; cat /tmp/gateway.pid; kill -0 \"$(cat /tmp/gateway.pid)\""},
+		{"kubectl", "exec", "-n", namespace, pod, "--", "sh", "-c", fmt.Sprintf("env WAYCLOAK_E2E_GATEWAY_INSPECT=1 WAYCLOAK_E2E_REMOTE_IP=%s /tmp/dataplane.test -test.run '^TestInspectFakeGatewayEndpoint$' -test.v", protectedIP)},
+	}
+	for _, arguments := range commands {
+		output, err := exec.Command(arguments[0], arguments[1:]...).CombinedOutput()
+		t.Logf("%s (error=%v):\n%s", strings.Join(arguments, " "), err, output)
+	}
+}
+
 func missingWaycloakCRDs() []string {
 	names := []string{
 		"portforwardleases.networking.waycloak.io",
@@ -243,10 +344,14 @@ func missingWaycloakCRDs() []string {
 }
 
 func buildAgentTarball(t *testing.T, suffix string) (string, string) {
+	return buildAgentTarballForArchitecture(t, suffix, "amd64")
+}
+
+func buildAgentTarballForArchitecture(t *testing.T, suffix, architecture string) (string, string) {
 	t.Helper()
 	tarball := filepath.Join(t.TempDir(), "agent.tar")
 	tag := "e2e-" + suffix
-	cmd := exec.Command("go", "run", "github.com/google/ko@v0.19.1", "build", "--push=false", "--tarball="+tarball, "--sbom=spdx", "--platform=linux/amd64", "--bare", "--tags="+tag, "./cmd/agent")
+	cmd := exec.Command("go", "run", "github.com/google/ko@v0.19.1", "build", "--push=false", "--tarball="+tarball, "--sbom=spdx", "--platform=linux/"+architecture, "--bare", "--tags="+tag, "./cmd/agent")
 	cmd.Dir = filepath.Join("..", "..")
 	cmd.Env = append(os.Environ(), "KO_DOCKER_REPO=waycloak.test/agent", "KO_CONFIG_PATH=.ko.yaml")
 	outputBytes, err := cmd.CombinedOutput()
@@ -268,16 +373,82 @@ func buildAgentTarball(t *testing.T, suffix string) (string, string) {
 
 func importedImageDigest(t *testing.T, namespace, loader, imageTag string) string {
 	t.Helper()
-	output := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q")
-	digestPrefix := strings.SplitN(imageTag, ":", 2)[0] + "@sha256:"
+	detailed := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls")
+	if digest := imageListingDigest(imageTag, detailed); digest != "" {
+		return digest
+	}
+	t.Fatalf("containerd did not report a digest for %s:\n%s", imageTag, detailed)
+	return ""
+}
+
+func imageRepository(imageTag string) string {
+	if colon := strings.LastIndexByte(imageTag, ':'); colon > strings.LastIndexByte(imageTag, '/') {
+		return imageTag[:colon]
+	}
+	return imageTag
+}
+
+func imageListingDigest(imageTag, output string) string {
 	for _, line := range strings.Split(output, "\n") {
-		ref := strings.TrimSpace(line)
-		if strings.HasPrefix(ref, digestPrefix) {
-			return strings.TrimPrefix(ref, strings.SplitN(imageTag, ":", 2)[0]+"@")
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[0] != imageTag {
+			continue
+		}
+		for _, field := range fields[1:] {
+			if strings.HasPrefix(field, "sha256:") {
+				return field
+			}
 		}
 	}
-	t.Fatalf("containerd did not report a digest for %s:\n%s", imageTag, output)
 	return ""
+}
+
+func kindImportedImageDigest(t *testing.T, nodeName, imageTag string) string {
+	t.Helper()
+	detailed := command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "ls")
+	if digest := imageListingDigest(imageTag, detailed); digest != "" {
+		return digest
+	}
+	t.Fatalf("Kind containerd did not report a digest for %s:\n%s", imageTag, detailed)
+	return ""
+}
+
+func stopK3sPodSandbox(t *testing.T, namespace, loader, podName string) {
+	t.Helper()
+	runtimeEndpoint := "unix:///host/containerd/containerd.sock"
+	output := command(t, nil,
+		"kubectl", "exec", "-n", namespace, loader, "--",
+		"/host/k3s", "crictl", "--runtime-endpoint", runtimeEndpoint,
+		"pods", "--namespace", namespace, "--name", podName, "--state", "Ready", "-q",
+	)
+	identities := strings.Fields(output)
+	if len(identities) != 1 {
+		t.Fatalf("ready sandbox identities for %s/%s = %q, want exactly one", namespace, podName, output)
+	}
+	command(t, nil,
+		"kubectl", "exec", "-n", namespace, loader, "--",
+		"/host/k3s", "crictl", "--runtime-endpoint", runtimeEndpoint,
+		"stopp", identities[0],
+	)
+}
+
+func stopKindPodSandbox(t *testing.T, nodeName, namespace, podName string) {
+	t.Helper()
+	runtimeEndpoint := "unix:///run/containerd/containerd.sock"
+	output := command(t, nil,
+		"docker", "exec", nodeName,
+		"crictl", "--runtime-endpoint", runtimeEndpoint,
+		"pods", "--namespace", namespace, "--name", podName, "--state", "Ready", "-q",
+	)
+	identities := strings.Fields(output)
+	if len(identities) != 1 {
+		t.Fatalf("ready sandbox identities for %s/%s = %q, want exactly one", namespace, podName, output)
+	}
+	command(t, nil,
+		"docker", "exec", nodeName,
+		"crictl", "--runtime-endpoint", runtimeEndpoint,
+		"stopp", identities[0],
+	)
 }
 
 func clearWorkloadFinalizers(t *testing.T, ctx context.Context, c client.Client, namespace string) {
@@ -323,24 +494,51 @@ func logPodDiagnostics(t *testing.T, namespace, pod string) {
 }
 
 func amd64Node(t *testing.T, c client.Client) string {
+	return readyNodeForArchitecture(t, c, "amd64").Name
+}
+
+func readyNodeForArchitecture(t *testing.T, c client.Client, architecture string) corev1.Node {
 	t.Helper()
 	var nodes corev1.NodeList
-	must(t, c.List(context.Background(), &nodes, client.MatchingLabels{"kubernetes.io/arch": "amd64"}))
+	must(t, c.List(context.Background(), &nodes, client.MatchingLabels{"kubernetes.io/arch": architecture}))
 	for _, node := range nodes.Items {
 		for _, condition := range node.Status.Conditions {
 			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
-				return node.Name
+				return node
 			}
 		}
 	}
-	t.Fatal("no Ready amd64 node")
-	return ""
+	t.Fatalf("no Ready %s node", architecture)
+	return corev1.Node{}
+}
+
+func requestedLifecycleArchitecture(t *testing.T) string {
+	t.Helper()
+	architecture := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_ARCH"))
+	if architecture == "" {
+		return "amd64"
+	}
+	if architecture != "amd64" && architecture != "arm64" {
+		t.Fatalf("unsupported WAYCLOAK_E2E_ARCH %q", architecture)
+	}
+	return architecture
+}
+
+func k3sBinaryPath(node corev1.Node) string {
+	if strings.Contains(strings.ToLower(node.Status.NodeInfo.OSImage), "flatcar") {
+		return "/opt/bin/k3s"
+	}
+	return "/usr/local/bin/k3s"
 }
 
 func imageLoaderPod(namespace, node string) *corev1.Pod {
+	return imageLoaderPodWithK3sPath(namespace, node, "/opt/bin/k3s")
+}
+
+func imageLoaderPodWithK3sPath(namespace, node, k3sPath string) *corev1.Pod {
 	falseValue := false
 	trueValue := true
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "image-loader", Namespace: namespace}, Spec: corev1.PodSpec{NodeName: node, AutomountServiceAccountToken: &falseValue, Containers: []corev1.Container{{Name: "loader", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Privileged: &trueValue}, VolumeMounts: []corev1.VolumeMount{{Name: "k3s", MountPath: "/host/k3s", ReadOnly: true}, {Name: "containerd", MountPath: "/host/containerd", ReadOnly: true}, {Name: "images", MountPath: "/host/images"}, {Name: "tmp", MountPath: "/tmp"}}}}, Volumes: []corev1.Volume{{Name: "k3s", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/opt/bin/k3s", Type: hostPathType(corev1.HostPathFile)}}}, {Name: "containerd", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/run/k3s/containerd", Type: hostPathType(corev1.HostPathDirectory)}}}, {Name: "images", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/rancher/k3s/agent/images", Type: hostPathType(corev1.HostPathDirectoryOrCreate)}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}}}
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "image-loader", Namespace: namespace}, Spec: corev1.PodSpec{NodeName: node, AutomountServiceAccountToken: &falseValue, Containers: []corev1.Container{{Name: "loader", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{Privileged: &trueValue}, VolumeMounts: []corev1.VolumeMount{{Name: "k3s", MountPath: "/host/k3s", ReadOnly: true}, {Name: "containerd", MountPath: "/host/containerd", ReadOnly: true}, {Name: "images", MountPath: "/host/images"}, {Name: "tmp", MountPath: "/tmp"}}}}, Volumes: []corev1.Volume{{Name: "k3s", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: k3sPath, Type: hostPathType(corev1.HostPathFile)}}}, {Name: "containerd", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/run/k3s/containerd", Type: hostPathType(corev1.HostPathDirectory)}}}, {Name: "images", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/rancher/k3s/agent/images", Type: hostPathType(corev1.HostPathDirectoryOrCreate)}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}}}
 }
 
 func hostPathType(value corev1.HostPathType) *corev1.HostPathType { return &value }

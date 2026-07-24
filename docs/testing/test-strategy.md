@@ -117,6 +117,9 @@ Capture packets at the protected Pod, node/CNI interface, gateway overlay, and t
 - DNS failure;
 - sustained engine-health failure, proving fast readiness withdrawal followed
   by an engine-container-only restart and automatic protected-path recovery;
+- CRI Pod-sandbox recreation with a gateway endpoint projection change between
+  prepare and verify, proving ordinary egress remains closed and the same Pod
+  UID/IP recovers without waiting for the conventional repair container;
 - stale desired generation;
 - provider API timeout;
 - controller/webhook restart;

@@ -341,9 +341,13 @@ func TestAdmissionAndAllocationLifecycle(t *testing.T) {
 }
 
 func buildController(t *testing.T) string {
+	return buildControllerForArchitecture(t, "amd64")
+}
+
+func buildControllerForArchitecture(t *testing.T, architecture string) string {
 	t.Helper()
 	output := filepath.Join(t.TempDir(), "waycloak-controller")
-	command(t, append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"), "go", "build", "-trimpath", "-o", output, "../../cmd/controller")
+	command(t, append(os.Environ(), "GOOS=linux", "GOARCH="+architecture, "CGO_ENABLED=0"), "go", "build", "-trimpath", "-o", output, "../../cmd/controller")
 	return output
 }
 
@@ -374,15 +378,25 @@ func createInfrastructure(t *testing.T, c client.Client, namespace, deniedNamesp
 }
 
 func createRunner(t *testing.T, c client.Client, namespace string) {
+	createRunnerForArchitecture(t, c, namespace, "amd64")
+}
+
+func createRunnerForArchitecture(t *testing.T, c client.Client, namespace, architecture string) {
 	t.Helper()
 	ctx := context.Background()
 	must(t, c.Create(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-e2e-webhook", Namespace: namespace}, Spec: corev1.ServiceSpec{Selector: map[string]string{"app": "waycloak-e2e-controller"}, Ports: []corev1.ServicePort{{Name: "https", Port: 443, TargetPort: intstr.FromInt(9443)}}}}))
-	createControllerRunner(t, c, namespace, "controller")
+	createControllerRunnerForArchitecture(t, c, namespace, "controller", architecture)
 }
 
 func createControllerRunner(t *testing.T, c client.Client, namespace, name string) {
+	createControllerRunnerForArchitecture(t, c, namespace, name, "amd64")
+}
+
+func createControllerRunnerForArchitecture(t *testing.T, c client.Client, namespace, name, architecture string) {
 	t.Helper()
-	must(t, c.Create(context.Background(), &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: map[string]string{"app": "waycloak-e2e-controller"}}, Spec: corev1.PodSpec{ServiceAccountName: "controller", AutomountServiceAccountToken: boolPtr(true), NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, VolumeMounts: []corev1.VolumeMount{{Name: "certs", MountPath: "/certs", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "certs", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "webhook-certs"}}}}}}))
+	runAsNonRoot := true
+	runAsUser := int64(65532)
+	must(t, c.Create(context.Background(), &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: map[string]string{"app": "waycloak-e2e-controller"}}, Spec: corev1.PodSpec{ServiceAccountName: "controller", AutomountServiceAccountToken: boolPtr(true), NodeSelector: map[string]string{"kubernetes.io/arch": architecture}, Containers: []corev1.Container{{Name: "runner", Image: "alpine:3.22.1", Command: []string{"sleep", "3600"}, SecurityContext: &corev1.SecurityContext{RunAsNonRoot: &runAsNonRoot, RunAsUser: &runAsUser}, VolumeMounts: []corev1.VolumeMount{{Name: "certs", MountPath: "/certs", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "certs", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "webhook-certs"}}}}}}))
 }
 
 func startController(t *testing.T, namespace string, controllers bool) {

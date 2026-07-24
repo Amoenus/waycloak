@@ -296,7 +296,13 @@ func reconcileLoopWithDeliveries(ctx context.Context, agent dataplane.Agent, loa
 				deliveries.ClearApplied()
 			}
 			ready.Store(false)
-			log.Printf("protected-path reconciliation failed; existing deny state remains: %v", err)
+			log.Printf(
+				"protected-path reconciliation failed; existing deny state remains (allocation_generation=%d gateway_generation=%d gateway_endpoint=%s): %v",
+				cfg.AllocationGeneration,
+				cfg.GatewayGeneration,
+				cfg.GatewayEndpoint,
+				err,
+			)
 		} else {
 			if deliveries != nil {
 				deliveries.MarkApplied(redirects)

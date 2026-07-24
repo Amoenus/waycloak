@@ -1,8 +1,24 @@
 # Project status
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## Current phase
+
+The `v0.3.4` sidecar recovery candidate for #121 fixes a fail-closed startup
+deadlock found after the qBitTorrent Pod sandbox was recreated while its
+allocation projection advanced to a replacement gateway endpoint. The prepare
+init container had configured the old VXLAN remote; the verifier loaded the
+current allocation but only inspected the stale link, while the conventional
+repair agent could not start until verification succeeded. Startup now
+reinstalls lockdown and reconciles the latest complete projection before
+probing readiness. Endpoint policy routing is also updated before resolving the
+replacement underlay so a stale protected default route cannot capture that
+lookup. Unit tests preserve deny-first ordering on invalid or failed repair,
+the privileged packet test proves stale-to-current endpoint repair, and the
+packaged-image lifecycle test recreates the CRI Pod sandbox without changing
+the Pod UID, permits a CNI underlay-address rollover, and requires ordinary
+egress to remain unavailable until gateway membership and the protected path
+recover.
 
 [`v0.3.3`](https://github.com/Amoenus/waycloak/releases/tag/v0.3.3) is the
 published Kubernetes-controller correctness patch. A successful

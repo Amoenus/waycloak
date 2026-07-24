@@ -34,6 +34,22 @@ their `admission.networking.waycloak.io/generation` Pod annotation matches the
 ConfigMap, and admission still rejects an annotated missing-gateway reference
 while leaving an unannotated Pod unchanged.
 
+### From v0.3.3 to v0.3.4
+
+`v0.3.4` changes the agent's startup verification and runtime diagnostics. It
+does not change the CRD or workload-adapter contracts. Upgrade the control
+plane first and confirm both replicas are Ready. Existing protected Pods retain
+their current injected agent until they are recreated; roll them deliberately
+after the new admission generation is serving.
+
+The new verifier reinstalls lockdown and reconciles the latest complete
+allocation before allowing application startup. During validation, recreate a
+protected Pod sandbox or Pod while changing the serving gateway endpoint and
+confirm ordinary egress stays unavailable until current gateway membership and
+VXLAN reachability are observed. Repair failures now include the allocation
+generation, gateway generation, and observed endpoint needed to measure the
+recovery sequence.
+
 ### From v0.3.1 to v0.3.2
 
 `v0.3.2` changes the controller and gateway-manager only. The agent and

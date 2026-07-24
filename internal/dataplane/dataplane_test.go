@@ -14,6 +14,7 @@ import (
 type recordingBackend struct {
 	calls        []string
 	configureErr error
+	repairErr    error
 }
 
 func (b *recordingBackend) Preflight(context.Context) error { return nil }
@@ -25,8 +26,14 @@ func (b *recordingBackend) Configure(context.Context, Config) error {
 	b.calls = append(b.calls, "configure")
 	return b.configureErr
 }
-func (b *recordingBackend) Verify(context.Context, Config) error { return nil }
-func (b *recordingBackend) Repair(context.Context, Config) error { return nil }
+func (b *recordingBackend) Verify(context.Context, Config) error {
+	b.calls = append(b.calls, "verify")
+	return nil
+}
+func (b *recordingBackend) Repair(context.Context, Config) error {
+	b.calls = append(b.calls, "repair")
+	return b.repairErr
+}
 
 func validConfig() Config {
 	return Config{
@@ -63,6 +70,40 @@ func TestPrepareRetainsLockdownWhenConfigurationFails(t *testing.T) {
 	}
 	if !reflect.DeepEqual(b.calls, []string{"lockdown", "configure"}) {
 		t.Fatalf("calls = %v", b.calls)
+	}
+}
+
+func TestVerifyReinstallsLockdownBeforeRepairingCurrentConfiguration(t *testing.T) {
+	b := &recordingBackend{}
+	if err := (Agent{Backend: b}).Verify(context.Background(), validConfig()); err != nil {
+		t.Fatalf("Verify() failed: %v", err)
+	}
+	if !reflect.DeepEqual(b.calls, []string{"lockdown", "repair"}) {
+		t.Fatalf("calls = %v, want lockdown before repair", b.calls)
+	}
+}
+
+func TestVerifyRetainsLockdownWhenCurrentConfigurationIsInvalid(t *testing.T) {
+	b := &recordingBackend{}
+	cfg := validConfig()
+	cfg.GatewayEndpoint = netip.AddrPort{}
+	err := (Agent{Backend: b}).Verify(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("Verify() succeeded with an invalid current endpoint")
+	}
+	if !reflect.DeepEqual(b.calls, []string{"lockdown"}) {
+		t.Fatalf("calls = %v, want lockdown before validation", b.calls)
+	}
+}
+
+func TestVerifyRetainsLockdownWhenCurrentConfigurationRepairFails(t *testing.T) {
+	b := &recordingBackend{repairErr: errors.New("replace stale VXLAN endpoint")}
+	err := (Agent{Backend: b}).Verify(context.Background(), validConfig())
+	if err == nil {
+		t.Fatal("Verify() succeeded when current configuration repair failed")
+	}
+	if !reflect.DeepEqual(b.calls, []string{"lockdown", "repair"}) {
+		t.Fatalf("calls = %v, want lockdown before failed repair", b.calls)
 	}
 }
 
