@@ -175,6 +175,12 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitFor(t, 20*time.Second, func() bool {
 		return exec.Command("kubectl", "exec", "-n", namespace, gatewayPod.Name, "--", "test", "-f", "/tmp/gateway-ready").Run() == nil
 	})
+	initialGatewayName := gatewayPod.Name
+	t.Cleanup(func() {
+		if t.Failed() {
+			logGatewayDiagnostics(t, namespace, initialGatewayName, protected.Status.PodIP)
+		}
+	})
 	waitForPodReady(t, direct, protected)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
 	protectedUID := protected.UID
@@ -367,26 +373,11 @@ func buildAgentTarballForArchitecture(t *testing.T, suffix, architecture string)
 
 func importedImageDigest(t *testing.T, namespace, loader, imageTag string) string {
 	t.Helper()
-	output := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls", "-q")
-	if digest := imageReferenceDigest(imageTag, output); digest != "" {
-		return digest
-	}
 	detailed := command(t, nil, "kubectl", "exec", "-n", namespace, loader, "--", "/host/k3s", "ctr", "--address", "/host/containerd/containerd.sock", "--namespace", "k8s.io", "images", "ls")
 	if digest := imageListingDigest(imageTag, detailed); digest != "" {
 		return digest
 	}
 	t.Fatalf("containerd did not report a digest for %s:\n%s", imageTag, detailed)
-	return ""
-}
-
-func imageReferenceDigest(imageTag, output string) string {
-	digestPrefix := imageRepository(imageTag) + "@sha256:"
-	for _, line := range strings.Split(output, "\n") {
-		ref := strings.TrimSpace(line)
-		if strings.HasPrefix(ref, digestPrefix) {
-			return strings.TrimPrefix(ref, imageRepository(imageTag)+"@")
-		}
-	}
 	return ""
 }
 
@@ -414,10 +405,6 @@ func imageListingDigest(imageTag, output string) string {
 
 func kindImportedImageDigest(t *testing.T, nodeName, imageTag string) string {
 	t.Helper()
-	output := command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "ls", "-q")
-	if digest := imageReferenceDigest(imageTag, output); digest != "" {
-		return digest
-	}
 	detailed := command(t, nil, "docker", "exec", nodeName, "ctr", "--namespace", "k8s.io", "images", "ls")
 	if digest := imageListingDigest(imageTag, detailed); digest != "" {
 		return digest
