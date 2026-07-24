@@ -155,7 +155,8 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_SKIP_GATEWAY_VXLAN") != "1" {
 		local := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_LOCAL_IP"))
 		remote := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_REMOTE_IP"))
-		if err := configureFakeGatewayVXLAN(local, remote, false); err != nil {
+		replace := os.Getenv("WAYCLOAK_E2E_REPLACE_GATEWAY_VXLAN") == "1"
+		if err := configureFakeGatewayVXLAN(local, remote, replace); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -190,17 +191,6 @@ func TestFakeGatewayEndpoint(t *testing.T) {
 			t.Fatalf("serve protected health endpoint: %v", err)
 		}
 	case <-time.After(lifetime):
-	}
-}
-
-func TestReconfigureFakeGatewayEndpoint(t *testing.T) {
-	if os.Getenv("WAYCLOAK_E2E_GATEWAY_RECONFIGURE") != "1" {
-		t.Skip("runs only to update fake gateway membership after an underlay rollover")
-	}
-	local := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_LOCAL_IP"))
-	remote := netip.MustParseAddr(os.Getenv("WAYCLOAK_E2E_REMOTE_IP"))
-	if err := configureFakeGatewayVXLAN(local, remote, true); err != nil {
-		t.Fatal(err)
 	}
 }
 
