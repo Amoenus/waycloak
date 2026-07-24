@@ -16,6 +16,7 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1alpha1"
+	"github.com/Amoenus/waycloak/internal/agentconfig"
 	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/Amoenus/waycloak/internal/delivery"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
@@ -263,6 +264,10 @@ func TestInjectedPackagedImageLifecycle(t *testing.T) {
 	waitFor(t, 90*time.Second, func() bool {
 		var current corev1.ConfigMap
 		return direct.Get(ctx, allocationKey, &current) == nil && current.Data["gatewayEndpoint"] == replacementGateway.Status.PodIP+":4789"
+	})
+	waitFor(t, 3*time.Minute, func() bool {
+		output, readErr := exec.Command("kubectl", "exec", "-n", namespace, protected.Name, "-c", "app", "--", "cat", agentconfig.DefaultDirectory+"/gatewayEndpoint").CombinedOutput()
+		return readErr == nil && strings.TrimSpace(string(output)) == replacementGateway.Status.PodIP+":4789"
 	})
 	waitForPodReady(t, direct, protected)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(protected), protected))
