@@ -1,6 +1,25 @@
 # Project status
 
-Last updated: 2026-07-24
+Last updated: 2026-07-26
+
+## Replacement architecture decision set
+
+The project now has a proposed clean-break stable/turnkey architecture in
+[stable-turnkey-product.md](docs/product/stable-turnkey-product.md),
+[kubernetes-api-maturity.md](docs/architecture/kubernetes-api-maturity.md), and
+[stable-product-plan.md](docs/implementation/stable-product-plan.md). It replaces
+the alpha gateway annotation with typed `VPNEgressRoute` intent plus one
+Pod-template enrollment label, and replaces injected networking containers with
+creation-time chained-CNI enforcement and a node-owned data plane.
+
+No backward compatibility, object translation, conversion webhook, or imported
+alpha runtime state is planned. The installed v0.3.x implementation described
+below remains the as-built system until ADRs 0025–0034 are accepted and the CNI
+feasibility gate passes; it is evidence and teardown input, not the stable API
+baseline.
+
+Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
+and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
 ## Current phase
 

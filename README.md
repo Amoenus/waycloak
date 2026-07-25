@@ -2,6 +2,14 @@
 
 **Declarative, fail-closed private egress for Kubernetes.**
 
+> **Architecture redesign:** the released alpha currently uses the annotation
+> and injected agent shown below. The proposed stable/turnkey replacement uses a
+> typed `VPNEgressRoute`, one Pod-template route label, and chained-CNI
+> creation-time enforcement. It intentionally provides no backward
+> compatibility. Start with the
+> [replacement product requirements](docs/product/stable-turnkey-product.md) and
+> [architecture](docs/architecture/kubernetes-api-maturity.md) for future work.
+
 Waycloak routes explicitly opted-in Pods through a shared VPN gateway. A
 workload selects a gateway with one annotation; Waycloak injects and operates
 the networking needed to keep ordinary internet egress blocked whenever the

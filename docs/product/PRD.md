@@ -4,6 +4,13 @@ Status: Draft for implementation
 Owner: Waycloak maintainers
 Last updated: 2026-07-15
 
+> **Supersession notice (2026-07-26):** this PRD describes the implemented alpha
+> product and remains useful as an as-built requirements record. The proposed
+> clean-break product contract is
+> [stable-turnkey-product.md](stable-turnkey-product.md). It removes the gateway
+> annotation and injected sidecar architecture. No backward compatibility or
+> object translation is required.
+
 ## Summary
 
 Waycloak gives Kubernetes workloads declarative, fail-closed egress through shared VPN gateways. A developer marks a Pod template with one named-gateway annotation. Waycloak injects the required networking agent, routes the Pod through that gateway, prevents ordinary-egress fallback, and exposes observed health through Kubernetes status.
