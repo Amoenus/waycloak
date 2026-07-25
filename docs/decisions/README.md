@@ -26,5 +26,15 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0022: Native engine inputs use ConfigMap environment and engine-only file mounts](0022-native-engine-input-projection.md)
 - [0023: Gateway-manager-owned port-forward mapping generation](0023-manager-owned-port-forward-generation.md)
 - [0024: Prototype eBPF through a CNI creation-time handoff](0024-ebpf-preview-cni-handoff.md)
+- [0025: Clean-break API redesign and feature channels](0025-api-stability-and-feature-channels.md)
+- [0026: Role-oriented API and gateway implementation classes](0026-role-oriented-api-and-gateway-classes.md)
+- [0027: Typed egress routes with explicit Pod-template enrollment](0027-explicit-workload-opt-in-and-attachment.md)
+- [0028: Cross-namespace references require target-side consent](0028-reference-authorization-and-cross-namespace-consent.md)
+- [0029: Common status and condition contract](0029-common-status-and-condition-contract.md)
+- [0030: Capability advertisement and conformance profiles](0030-capability-advertisement-and-conformance-profiles.md)
+- [0031: CRD installation, clean cutover, and storage lifecycle](0031-crd-installation-conversion-and-storage-lifecycle.md)
+- [0032: Turnkey bootstrap uses Helm plus an optional stateless assistant](0032-turnkey-bootstrap-and-preflight.md)
+- [0033: Upstream Kubernetes API integration without semantic mimicry](0033-upstream-api-integration-boundary.md)
+- [0034: CNI creation-time enforcement and node-owned data plane](0034-cni-creation-time-enforcement.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

@@ -2,6 +2,13 @@
 
 Each phase ends with observable acceptance criteria. A fresh implementation agent should take the first unchecked vertical slice, not build all packages speculatively.
 
+> **Replacement plan (2026-07-26):** the completed phases below document the
+> alpha implementation. New work follows the clean-break dependency graph in
+> [stable-product-plan.md](stable-product-plan.md), beginning with the CNI
+> creation-time feasibility proof. No backward-compatibility or translation
+> work is planned. Do not extend the annotation/sidecar architecture except to
+> keep the currently installed release fail closed during replacement.
+
 ## Phase 0 — repository and design baseline
 
 - [x] Product PRD and developer experience.

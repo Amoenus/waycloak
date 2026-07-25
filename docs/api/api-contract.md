@@ -1,5 +1,10 @@
 # API contract
 
+> **Alpha as-built contract:** this file documents the currently implemented
+> `v1alpha1` API. It is not a compatibility input to the replacement. See
+> [replacement-api-proposal.md](replacement-api-proposal.md). The replacement
+> will not serve, convert, translate, or alias these objects and annotations.
+
 This document proposes the `v1alpha1` API. Field names may change before the first release, but implementations must preserve the product invariants.
 
 API group: `networking.waycloak.io`

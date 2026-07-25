@@ -1,5 +1,20 @@
 # Waycloak documentation
 
+## Stable/turnkey replacement design
+
+These documents define the proposed clean-break future architecture. They take
+precedence for new design work; alpha documents below describe the current
+installed implementation only.
+
+1. [Stable and turnkey product requirements](product/stable-turnkey-product.md)
+2. [Kubernetes API maturity and target architecture](architecture/kubernetes-api-maturity.md)
+3. [Replacement API proposal](api/replacement-api-proposal.md)
+4. [Dependency-ordered implementation plan](implementation/stable-product-plan.md)
+5. [ADRs 0025–0034](decisions/README.md)
+
+There is no backward-compatibility, conversion, translation, or dual-serving
+requirement from the alpha API to this replacement.
+
 ## New users
 
 Start here if you found Waycloak and want to evaluate it in your own cluster:
@@ -56,6 +71,6 @@ adds the more advanced provider-assigned port workflow.
 - [Homelab prototype provenance](provenance/homelab-prototype.md)
 - [Architecture decision records](decisions/README.md)
 
-When documents conflict, the product PRD and threat model define behavior;
-accepted ADRs define implementation choices. Update affected documents
-together when a decision changes them.
+For the replacement program, the stable/turnkey PRD and threat model define
+behavior and accepted ADRs define implementation choices. The alpha PRD/API
+remain authoritative only for the currently installed release until teardown.
