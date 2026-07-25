@@ -14,7 +14,6 @@ import (
 	"path"
 	"path/filepath"
 	stdruntime "runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +106,9 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	must(t, direct.Create(ctx, installerPod))
 	waitForPodReady(t, direct, agentPod)
 	waitForPodReady(t, direct, installerPod)
+	t.Cleanup(func() {
+		_ = exec.Command("kubectl", "exec", "-n", namespace, installerPod.Name, "--", "sh", "-c", "find /host-run -mindepth 1 -maxdepth 1 -delete").Run()
+	})
 	copyLocalFile(t, agentBinary, namespace, agentPod.Name, "/tmp/waycloak-cni-agent")
 	command(t, nil, "kubectl", "exec", "-n", namespace, agentPod.Name, "--", "chmod", "+x", "/tmp/waycloak-cni-agent")
 	startFixtureAgent(t, namespace, agentPod.Name)
@@ -132,13 +134,13 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0644", "/tmp/waycloak.conflist", "/host-config/"+cniConfigName)
 	installed = true
 
-	before := readCaptureCount(t, namespace, agentPod.Name)
+	before := readCaptureCounts(t, namespace, agentPod.Name)
 	control := cniTrafficPod("ordinary-control", namespace, nodeName, nil)
 	must(t, direct.Create(ctx, control))
 	waitForPodPhase(t, direct, control, corev1.PodSucceeded, 90*time.Second)
-	afterControl := readCaptureCount(t, namespace, agentPod.Name)
-	if afterControl <= before {
-		t.Fatalf("packet capture positive control saw no direct probe packets: before=%d after=%d", before, afterControl)
+	afterControl := readCaptureCounts(t, namespace, agentPod.Name)
+	if !afterControl.allIncreasedFrom(before) {
+		t.Fatalf("packet capture positive control did not observe every direct probe class: before=%#v after=%#v", before, afterControl)
 	}
 
 	failing := cniTrafficPod("protected-missing-binding", namespace, nodeName, map[string]string{cniRouteLabel: "missing"})
@@ -163,9 +165,9 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	}
 	waitForSandboxFailure(t, direct, failing, 60*time.Second)
 	time.Sleep(500 * time.Millisecond)
-	afterFailure := readCaptureCount(t, namespace, agentPod.Name)
+	afterFailure := readCaptureCounts(t, namespace, agentPod.Name)
 	if afterFailure != afterControl {
-		t.Fatalf("captured %d direct packets during denied ADD; baseline=%d", afterFailure-afterControl, afterControl)
+		t.Fatalf("captured direct packets during denied ADD: baseline=%#v after=%#v", afterControl, afterFailure)
 	}
 	var observed corev1.Pod
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(failing), &observed))
@@ -204,8 +206,8 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	secondControl := cniTrafficPod("ordinary-after-failure", namespace, nodeName, nil)
 	must(t, direct.Create(ctx, secondControl))
 	waitForPodPhase(t, direct, secondControl, corev1.PodSucceeded, 90*time.Second)
-	if final := readCaptureCount(t, namespace, agentPod.Name); final <= afterFailure {
-		t.Fatalf("primary CNI did not survive Waycloak failure and DEL: before=%d after=%d", afterFailure, final)
+	if final := readCaptureCounts(t, namespace, agentPod.Name); !final.allIncreasedFrom(afterFailure) {
+		t.Fatalf("primary CNI did not restore every direct probe class after Waycloak failure and DEL: before=%#v after=%#v", afterFailure, final)
 	}
 }
 
@@ -305,7 +307,7 @@ func cniTrafficPod(name, namespace, node string, labels map[string]string) *core
 	no := false
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels}, Spec: corev1.PodSpec{
 		NodeName: node, AutomountServiceAccountToken: &no, RestartPolicy: corev1.RestartPolicyNever,
-		Containers: []corev1.Container{{Name: "application", Image: "alpine:3.22.1", Command: []string{"sh", "-ec", "for i in 1 2 3; do printf probe | nc -u -w 1 " + cniProbeDestination + " 18081 || true; nc -z -w 1 " + cniProbeDestination + " 18080 || true; done"}}},
+		Containers: []corev1.Container{{Name: "application", Image: "alpine:3.22.1", Command: []string{"sh", "-ec", "for i in 1 2 3; do timeout 2 sh -c 'printf probe | nc -u " + cniProbeDestination + " 18081' || true; timeout 2 nc -z " + cniProbeDestination + " 18080 || true; timeout 2 sh -c 'printf dns | nc -u " + cniProbeDestination + " 53' || true; timeout 2 nc -z " + cniProbeDestination + " 53 || true; timeout 2 sh -c 'head -c 4096 /dev/zero | nc -u " + cniProbeDestination + " 18082' || true; done"}}},
 	}}
 }
 
@@ -366,20 +368,40 @@ func bestEffortCopyToPod(source, namespace, pod, target string) {
 	_ = copyCommand.Run()
 }
 
-func readCaptureCount(t *testing.T, namespace, pod string) uint64 {
+type captureCounts struct {
+	TCP      uint64 `json:"tcp"`
+	UDP      uint64 `json:"udp"`
+	DNSUDP   uint64 `json:"dnsUDP"`
+	DNSTCP   uint64 `json:"dnsTCP"`
+	Fragment uint64 `json:"fragment"`
+}
+
+func (c captureCounts) allIncreasedFrom(previous captureCounts) bool {
+	return c.TCP > previous.TCP && c.UDP > previous.UDP && c.DNSUDP > previous.DNSUDP && c.DNSTCP > previous.DNSTCP && c.Fragment > previous.Fragment
+}
+
+func readCaptureCounts(t *testing.T, namespace, pod string) captureCounts {
 	t.Helper()
 	value := strings.TrimSpace(command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "cat", "/host-run/capture-count"))
-	parsed, err := strconv.ParseUint(value, 10, 64)
-	must(t, err)
+	var parsed captureCounts
+	must(t, json.Unmarshal([]byte(value), &parsed))
 	return parsed
 }
 
 func waitForPodPhase(t *testing.T, direct client.Client, pod *corev1.Pod, phase corev1.PodPhase, timeout time.Duration) {
 	t.Helper()
-	waitFor(t, timeout, func() bool {
-		var current corev1.Pod
-		return direct.Get(context.Background(), client.ObjectKeyFromObject(pod), &current) == nil && current.Status.Phase == phase
-	})
+	deadline := time.Now().Add(timeout)
+	var current corev1.Pod
+	for time.Now().Before(deadline) {
+		if direct.Get(context.Background(), client.ObjectKeyFromObject(pod), &current) == nil && current.Status.Phase == phase {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if err := direct.Get(context.Background(), client.ObjectKeyFromObject(pod), &current); err != nil {
+		t.Fatalf("Pod did not reach phase %s and final observation failed: %v", phase, err)
+	}
+	t.Fatalf("Pod did not reach phase %s: phase=%s reason=%q message=%q containers=%#v", phase, current.Status.Phase, current.Status.Reason, current.Status.Message, current.Status.ContainerStatuses)
 }
 
 func waitForSandboxFailure(t *testing.T, direct client.Client, pod *corev1.Pod, timeout time.Duration) {

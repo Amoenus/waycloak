@@ -25,12 +25,14 @@ The stable Core data plane is CNI-first and node owned.
 For every Pod carrying the route label, the chained Waycloak CNI plugin:
 
 1. resolves the exact Pod namespace, name and UID through the local node agent;
-2. waits a bounded time for an accepted route and a UID-scoped
-   `VPNWorkloadBinding` allocation;
-3. installs the deny-first boundary in the new network namespace;
-4. asks the node agent to program the selected overlay/routing backend;
+2. installs and durably records the deny-first boundary in the new network
+   namespace before requesting any allocation;
+3. waits a bounded time for an accepted route and a UID-scoped
+   `VPNWorkloadBinding` allocation while the deny remains active;
+4. asks the node agent to program the selected overlay/routing backend without
+   removing the deny-first boundary;
 5. verifies DNS, ordinary-egress denial and required gateway reachability; and
-6. returns success only after the protected baseline is installed.
+6. returns success only after the protected baseline is installed and observed.
 
 Any unresolved intent, unavailable agent, incomplete allocation, unsupported
 node, programming error, or verification failure makes CNI `ADD` fail. The Pod

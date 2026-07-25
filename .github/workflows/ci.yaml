@@ -170,10 +170,36 @@ jobs:
           node_image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
           wait: 120s
       - name: Run Kind acceptance
+        run: go test -tags=e2e ./test/e2e/... -v -count=1 -timeout=20m
+
+  kind-cni-e2e:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create pinned Kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          cluster_name: waycloak-cni-ci
+          version: v0.31.0
+          node_image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+          wait: 120s
+      - name: Run Kind and kindnet CNI feasibility proof with runtime restart
         env:
           WAYCLOAK_E2E_CNI: "1"
-          WAYCLOAK_E2E_CNI_RESTART_RUNTIME_COMMAND: docker exec waycloak-ci-control-plane systemctl restart containerd
-        run: go test -tags=e2e ./test/e2e/... -v -count=1 -timeout=20m
+          WAYCLOAK_E2E_CNI_RESTART_RUNTIME_COMMAND: docker exec waycloak-cni-ci-control-plane systemctl restart containerd
+        run: |
+          go test -tags=e2e ./test/e2e/... \
+            -run '^TestChainedCNICreationTimeFailClosed$' \
+            -v -count=1 -timeout=10m
 
   k3d-cni-e2e:
     needs: classify
