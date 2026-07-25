@@ -160,6 +160,65 @@ func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {
 	return b.Verify(ctx, cfg)
 }
 
+func (*linuxBackend) Cleanup(_ context.Context, podUID string) error {
+	if podUID == "" {
+		return errors.New("pod UID is required")
+	}
+	var errs []error
+	conn := &nftables.Conn{}
+	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("list owned nftables state: %w", err))
+	} else {
+		for _, table := range tables {
+			if table.Name == policyTableName(podUID) {
+				conn.DelTable(table)
+			}
+		}
+		if err := conn.Flush(); err != nil {
+			errs = append(errs, fmt.Errorf("remove owned nftables state: %w", err))
+		}
+	}
+	for _, family := range []int{netlink.FAMILY_V4, netlink.FAMILY_V6} {
+		rules, err := netlink.RuleList(family)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list owned policy rules: %w", err))
+			continue
+		}
+		for i := range rules {
+			if rules[i].Protocol == waycloakRuleProtocol {
+				if err := netlink.RuleDel(&rules[i]); err != nil && !errors.Is(err, unix.ENOENT) {
+					errs = append(errs, fmt.Errorf("remove owned policy rule: %w", err))
+				}
+			}
+		}
+		routes, err := netlink.RouteListFiltered(family, &netlink.Route{Table: protectedRouteTable}, netlink.RT_FILTER_TABLE)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list owned protected routes: %w", err))
+			continue
+		}
+		for i := range routes {
+			if routes[i].Protocol == waycloakRouteProtocol {
+				if err := netlink.RouteDel(&routes[i]); err != nil && !errors.Is(err, unix.ENOENT) {
+					errs = append(errs, fmt.Errorf("remove owned protected route: %w", err))
+				}
+			}
+		}
+	}
+	link, err := netlink.LinkByName(overlayName(Config{PodUID: podUID}))
+	if err == nil {
+		if err := netlink.LinkDel(link); err != nil && !errors.Is(err, unix.ENOENT) {
+			errs = append(errs, fmt.Errorf("remove owned overlay link: %w", err))
+		}
+	} else {
+		var notFound netlink.LinkNotFoundError
+		if !errors.As(err, &notFound) {
+			errs = append(errs, fmt.Errorf("find owned overlay link: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func replacePolicy(podUID, underlayName string, endpoint netip.AddrPort, overlayName string, dnsGateway, applicationAddress netip.Addr, mode ClusterTrafficMode, clusterCIDRs []netip.Prefix, redirects []ApplicationPortRedirect) error {
 	conn := &nftables.Conn{}
 	tableName := policyTableName(podUID)

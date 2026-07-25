@@ -170,4 +170,53 @@ jobs:
           node_image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
           wait: 120s
       - name: Run Kind acceptance
+        env:
+          WAYCLOAK_E2E_CNI: "1"
+          WAYCLOAK_E2E_CNI_RESTART_RUNTIME_COMMAND: docker exec waycloak-ci-control-plane systemctl restart containerd
         run: go test -tags=e2e ./test/e2e/... -v -count=1 -timeout=20m
+
+  k3d-cni-e2e:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install checksummed k3d
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/k3d" \
+            https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64
+          echo '06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0  '"$RUNNER_TEMP/k3d" | sha256sum --check
+          sudo install -m 0755 "$RUNNER_TEMP/k3d" /usr/local/bin/k3d
+      - name: Create pinned k3d cluster
+        run: |
+          k3d cluster create waycloak-ci \
+            --image rancher/k3s:v1.36.1-k3s1@sha256:08fdebd14db9ab7d5ea821d5bfa95d02341a6ef886842fcc8d9dfd0e9fa9e0cd \
+            --servers 1 \
+            --agents 0 \
+            --k3s-arg '--disable=traefik@server:0' \
+            --wait \
+            --timeout 120s
+      - name: Run k3d k3s and Flannel CNI feasibility proof
+        shell: bash
+        run: |
+          node_name="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
+          WAYCLOAK_E2E_CNI=1 \
+          WAYCLOAK_E2E_CNI_NODE="$node_name" \
+          WAYCLOAK_E2E_CNI_CONFIG_DIR=/var/lib/rancher/k3s/agent/etc/cni/net.d \
+          WAYCLOAK_E2E_CNI_CONFIG_NAME=10-flannel.conflist \
+          WAYCLOAK_E2E_CNI_BIN_DIR=/var/lib/rancher/k3s/data/cni \
+            go test -tags=e2e ./test/e2e/... \
+              -run '^TestChainedCNICreationTimeFailClosed$' \
+              -v -count=1 -timeout=20m
+      - name: Remove k3d cluster
+        if: always()
+        run: k3d cluster delete waycloak-ci
