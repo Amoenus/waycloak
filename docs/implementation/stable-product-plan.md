@@ -22,6 +22,11 @@ eBPF without changing workload intent.
 2. Freeze the replacement kind/ownership graph and API group/version.
 3. Prototype chained CNI `ADD/DEL/CHECK/GC`, exact Pod UID resolution, bounded
    binding wait, deny-first installation, rollback and runtime restart.
+
+Gate status (2026-07-26): #124 has a vertically testable candidate in draft PR
+#142. k3s/containerd/Flannel homelab and pinned k3d proof rows pass; the final
+focused Kind/kindnet runtime-restart row is pending. No downstream replacement
+API or runtime work is authorized yet.
 4. Prove no application process can emit ordinary egress before successful
    Waycloak `ADD` on every proposed support-matrix row.
 5. Update the threat model for node agent/CNI privilege and local protocol.

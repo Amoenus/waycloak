@@ -21,6 +21,17 @@ baseline.
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
+## Clean-break implementation progress
+
+Only the #124 creation-time CNI feasibility gate is in implementation. Draft
+PR [#142](https://github.com/Amoenus/waycloak/pull/142) adds the chained CNI
+lifecycle, exact attachment state, deny-first failure path and privileged
+packet proof. The authorized k3s/containerd/Flannel homelab row and the pinned
+k3d row pass with zero direct TCP, UDP, DNS/UDP, DNS/TCP or fragmented-UDP
+packets during failed `ADD`. The final focused Kind/kindnet runtime-restart row
+is pending; #124 is not complete and every downstream replacement issue
+remains blocked.
+
 ## Current phase
 
 The `v0.3.4` sidecar recovery candidate for #121 fixes a fail-closed startup

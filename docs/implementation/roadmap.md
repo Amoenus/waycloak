@@ -9,6 +9,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
+- [ ] #124 chained-CNI creation-time feasibility: draft PR #142; homelab and
+  k3d rows pass, final focused Kind runtime-restart proof pending.
+- [ ] #125–#141: blocked by their declared clean-break prerequisites.
+
 ## Phase 0 — repository and design baseline
 
 - [x] Product PRD and developer experience.
