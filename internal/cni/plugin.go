@@ -29,31 +29,34 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 	if err != nil {
 		return fmt.Errorf("resolve exact network namespace identity: %w", err)
 	}
-	resolution, err := retryValue(ctx, p.resolveTimeout(), p.retryInterval(), func(attempt context.Context) (Resolution, error) {
-		return p.Agent.Resolve(attempt, request.Pod)
-	})
-	if err != nil {
-		return fmt.Errorf("resolve exact Pod enrollment through local agent: %w", err)
-	}
-	if resolution.PodUID != request.Pod.UID {
-		return fmt.Errorf("local agent resolved Pod UID %q, expected %q", resolution.PodUID, request.Pod.UID)
-	}
-	if !resolution.Enrolled {
-		return nil
-	}
-
 	existing, loadErr := p.Store.Load(request.Key())
 	if loadErr == nil {
 		if err := sameAttachment(existing, request, namespaceIdentity); err != nil {
 			return err
 		}
 		if existing.Phase == PhaseReady && existing.Config != nil {
-			if err := p.Enforcer.Verify(ctx, request.Pod.NetNS, *existing.Config); err == nil {
-				return nil
+			if err := p.Agent.Check(ctx, request.Pod); err == nil {
+				if err := p.Enforcer.Verify(ctx, request.Pod.NetNS, *existing.Config); err == nil {
+					return nil
+				}
 			}
 		}
-	} else if !errors.Is(loadErr, fs.ErrNotExist) {
-		return fmt.Errorf("load prior attachment state: %w", loadErr)
+	} else {
+		if !errors.Is(loadErr, fs.ErrNotExist) {
+			return fmt.Errorf("load prior attachment state: %w", loadErr)
+		}
+		resolution, err := retryValue(ctx, p.resolveTimeout(), p.retryInterval(), func(attempt context.Context) (Resolution, error) {
+			return p.Agent.Resolve(attempt, request.Pod)
+		})
+		if err != nil {
+			return fmt.Errorf("resolve exact Pod enrollment through local agent: %w", err)
+		}
+		if resolution.PodUID != request.Pod.UID {
+			return fmt.Errorf("local agent resolved Pod UID %q, expected %q", resolution.PodUID, request.Pod.UID)
+		}
+		if !resolution.Enrolled {
+			return nil
+		}
 	}
 
 	if err := p.Enforcer.InstallLockdown(ctx, request.Pod.NetNS, request.Pod.UID); err != nil {

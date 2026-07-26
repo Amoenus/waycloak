@@ -4,8 +4,8 @@ Date: 2026-07-26
 
 Issue: [#124](https://github.com/Amoenus/waycloak/issues/124)
 
-Implementation: [PR #143](https://github.com/Amoenus/waycloak/pull/143), code
-candidate `810e703a94898ad3e72181c980001c9eb4914015`
+Feasibility baseline: [PR #143](https://github.com/Amoenus/waycloak/pull/143),
+code candidate `810e703a94898ad3e72181c980001c9eb4914015`
 
 CI evidence: [run 30180813372](https://github.com/Amoenus/waycloak/actions/runs/30180813372)
 
@@ -52,6 +52,9 @@ private endpoint or credential is recorded.
 - Deny before allocation: every fixture binding request attempts direct probes
   from the exact Pod netns. Independent host capture counters remain unchanged,
   proving deny is installed before the first binding request.
+- Additional PR hardening makes enrollment sticky once deny state exists for an
+  exact attachment. Later `ADD` retries cannot become unenrolled by removing
+  the live Pod label; unit and privileged homelab tests cover that path.
 - Primary-CNI-then-Waycloak failure: an ordinary Pod emits positive-control
   packets before the enrolled Pod is created. The enrolled `ADD` fails after
   primary setup because its UID-bound binding is deliberately unavailable.

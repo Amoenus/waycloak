@@ -217,7 +217,7 @@ func TestDuplicateAddAndDeleteAreIdempotent(t *testing.T) {
 	if err := plugin.Add(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
-	if got := (*events)[before:]; !reflect.DeepEqual(got, []string{"identity", "resolve", "verify"}) {
+	if got := (*events)[before:]; !reflect.DeepEqual(got, []string{"identity", "agent-check", "verify"}) {
 		t.Fatalf("duplicate ADD operations = %v", got)
 	}
 	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
@@ -225,6 +225,24 @@ func TestDuplicateAddAndDeleteAreIdempotent(t *testing.T) {
 	}
 	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
 		t.Fatalf("duplicate DEL failed: %v", err)
+	}
+}
+
+func TestDurableEnrollmentCannotBeRemovedBetweenAddRetries(t *testing.T) {
+	plugin, request, events := fixture(t)
+	enforcer := plugin.Enforcer.(*fakeEnforcer)
+	enforcer.configureError = errors.New("injected programming failure")
+	if err := plugin.Add(context.Background(), request); err == nil {
+		t.Fatal("initial ADD failure unexpectedly succeeded")
+	}
+	enforcer.configureError = nil
+	plugin.Agent.(*fakeAgent).resolution.Enrolled = false
+	*events = nil
+	if err := plugin.Add(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if index(*events, "resolve") >= 0 || index(*events, "binding") < 0 || index(*events, "configure") < 0 || index(*events, "verify") < 0 {
+		t.Fatalf("durable enrollment was not retained across ADD retry: %v", *events)
 	}
 }
 

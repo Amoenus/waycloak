@@ -152,6 +152,11 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	if output, err := execCNI(namespace, installerPod.Name, "CHECK", attachment, attachment.Pod.NetNS, nil); err == nil {
 		t.Fatalf("CHECK did not fail closed for a locked-down attachment: err=%v output=%s", err, output)
 	}
+	var relabeled corev1.Pod
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(failing), &relabeled))
+	beforeRelabel := relabeled.DeepCopy()
+	delete(relabeled.Labels, cniRouteLabel)
+	must(t, direct.Patch(ctx, &relabeled, client.MergeFrom(beforeRelabel)))
 	restartFixtureAgent(t, namespace, agentPod.Name)
 	if restartCommand := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_CNI_RESTART_RUNTIME_COMMAND")); restartCommand != "" {
 		runHostShell(t, restartCommand)
