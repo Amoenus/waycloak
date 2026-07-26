@@ -23,9 +23,6 @@ func LoadProtocolKey(path string) ([]byte, error) {
 	if directoryInfo.Mode().Perm() != 0o700 {
 		return nil, fmt.Errorf("local protocol directory permissions must be 0700, got %04o", directoryInfo.Mode().Perm())
 	}
-	if err := validateProtocolKeyOwner(directoryInfo); err != nil {
-		return nil, err
-	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
@@ -35,6 +32,9 @@ func LoadProtocolKey(path string) ([]byte, error) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		return nil, fmt.Errorf("local protocol key permissions must be 0600, got %04o", info.Mode().Perm())
+	}
+	if err := validateProtocolKeyOwner(directoryInfo); err != nil {
+		return nil, err
 	}
 	if err := validateProtocolKeyOwner(info); err != nil {
 		return nil, err

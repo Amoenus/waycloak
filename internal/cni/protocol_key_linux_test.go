@@ -45,6 +45,9 @@ func TestLoadProtocolKeyRejectsUnsafeFilesystemBoundary(t *testing.T) {
 
 	t.Run("key symlink", func(t *testing.T) {
 		directory := t.TempDir()
+		if err := os.Chmod(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
 		target := filepath.Join(directory, "target.key")
 		writeProtocolTestKey(t, target, 0o600)
 		link := filepath.Join(directory, "agent.key")
@@ -58,6 +61,9 @@ func TestLoadProtocolKeyRejectsUnsafeFilesystemBoundary(t *testing.T) {
 
 	t.Run("key mode", func(t *testing.T) {
 		directory := t.TempDir()
+		if err := os.Chmod(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
 		path := filepath.Join(directory, "agent.key")
 		writeProtocolTestKey(t, path, 0o644)
 		if _, err := LoadProtocolKey(path); err == nil || !strings.Contains(err.Error(), "key permissions") {
