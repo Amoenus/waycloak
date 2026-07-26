@@ -21,40 +21,68 @@ resources. Destructive purge is a separate, explicitly confirmed operation.
 
 ## Fail-closed destructive sequence
 
-1. Stop every enumerated protected workload while the old deny path is still
+1. Establish a durable quiescence fence while the old admission and deny paths
+   are healthy. Suspend every enumerated workload owner at its source, prevent
+   new alpha-enrolled Pod creation with an independently managed fail-closed
+   admission rule, and prove a representative recreation is rejected. Keep the
+   fence through replacement verification; operator intent alone is not a
+   sufficient fence.
+2. Stop every enumerated protected workload while the old deny path is still
    installed. Keep unprotected workloads outside the target set.
-2. Verify from the runtime, not only Kubernetes status, that no protected
-   application process or runnable sandbox remains. Abort if any remains.
-3. Uninstall the alpha runtime while retaining the explicit target inventory.
-4. Present the exact alpha CR instances and four alpha CRDs again, require an
+3. Verify from the container runtime, not only Kubernetes status, that no
+   protected application process or runnable sandbox remains. Recheck workload
+   owners and prove the admission fence still rejects recreation. Abort if any
+   protected process remains or the fence is not authoritative.
+4. While the alpha cleanup controller is still present, withdraw provider
+   mappings and gateway rules, release external leases safely, remove allocation
+   and provider-lease quarantine finalizers, and verify every enumerated alpha
+   object has no controller-owned finalizer. Never force-remove a provider
+   finalizer before its bounded cleanup or explicit quarantine outcome.
+5. Uninstall the remaining alpha runtime while retaining the quiescence fence,
+   explicit target inventory, and a node/runtime quarantine capable of denying
+   or terminating a recreated protected sandbox. Immediately repeat the runtime
+   process, sandbox, owner, and fence checks. If anything protected reappears,
+   keep or reinstall denial, terminate or isolate it, and abort before purge.
+6. Present the exact alpha CR instances and four alpha CRDs again, require an
    explicit destructive confirmation, then delete those instances and CRDs.
    Refuse globs, an unresolved context, a changed cluster identity, or a target
    set that differs from the preflight inventory.
-5. Verify alpha webhook configurations, controller workloads, injected
+7. Verify alpha webhook configurations, controller workloads, injected
    components, ConfigMaps, finalizers, RBAC, and runtime processes are absent.
    Unknown residual alpha markers are a hard failure, never a reason to allow
    ordinary egress.
-6. Install fresh replacement CRDs, chained CNI, node agent, controller, and the
+8. Install fresh replacement CRDs, chained CNI, node agent, controller, and the
    immutable default gateway class. Require every node selected for protected
    workloads to advertise and pass the supported CNI capability checks.
-7. Apply newly authored gateway, route, workload, lease, and adapter manifests.
+9. Apply newly authored gateway, route, workload, lease, and adapter manifests.
    Do not read alpha objects to populate them.
-8. Restart protected workloads only after enrollment lookup, exact Pod UID
+10. Restart protected workloads only after enrollment lookup, exact Pod UID
    binding, deny-first CNI programming, gateway programming, tunnel health, and
    protected DNS are observable.
-9. Reacquire allocations and provider mappings as new state. Verify protected
+11. Reacquire allocations and provider mappings as new state. Verify protected
    TCP, UDP, DNS/UDP, DNS/TCP, and fragmentation; tunnel-loss denial; and
    ordinary egress only for explicitly unprotected controls.
 
-Any failure before step 8 leaves protected applications stopped. Any failure
-during or after step 8 must leave creation-time denial installed or make CNI
-`ADD` fail so the application cannot start. Rollback does not restore alpha
-objects or use a sidecar path; it restores an exact supported replacement
-artifact or keeps protected workloads stopped.
+Any failure before step 10 leaves protected applications stopped behind the
+quiescence fence. For workloads that have not started, any failure during or
+after step 10 must leave creation-time denial installed or make CNI `ADD` fail.
+For an already-running protected workload, tunnel, DNS, gateway, controller,
+agent, startup, reconfiguration, or replacement failure must withdraw the
+active allow path while the node-owned base deny remains. If withdrawal cannot
+be observed, cordon and quarantine the node, then terminate or runtime-isolate
+the exact protected sandboxes; never expose ordinary egress as recovery.
+Verification must capture zero direct TCP, UDP, DNS/UDP, DNS/TCP, and fragmented
+UDP packets both before and after withdrawal and must show `Ready` is no longer
+True. Rollback does not restore alpha objects or use a sidecar path; it restores
+an exact supported replacement artifact or keeps protected workloads stopped.
 
 ## Required drill evidence
 
 Issue #139 owns the executable, confirmation-gated runbook and drill. It must
-record target counts, runtime process absence, purge confirmation, exact release
-identities, elapsed clean-install time, protected/unprotected packet results,
-and failure-path outcomes without recording credentials or private endpoints.
+record a one-way fingerprint over the intended context, API server identity,
+cluster UID and trust root without recording their raw values; a digest of the
+canonical sorted preflight target set; target counts; runtime process absence;
+purge confirmation; exact release identities; elapsed clean-install time;
+protected/unprotected packet results; and failure-path outcomes. Evidence must
+contain neither credentials nor private endpoints, and the same fingerprints
+must be re-derived immediately before destructive confirmation.
