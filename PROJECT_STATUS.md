@@ -20,6 +20,17 @@ baseline.
 
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
+## Clean-break implementation progress
+
+The #124 creation-time CNI feasibility gate has passed in draft PR
+[#143](https://github.com/Amoenus/waycloak/pull/143). It adds the chained CNI
+lifecycle, exact attachment state, deny-first failure path and privileged
+packet proof. The authorized k3s/containerd/Flannel homelab row and the pinned
+k3d row pass with zero direct TCP, UDP, DNS/UDP, DNS/TCP or fragmented-UDP
+packets during failed `ADD`; pinned Kind/kindnet also passes while containerd
+is restarted during `ADD`. ADR 0034 therefore records a support decision for
+the tested matrix. No replacement CRD has been generated. Downstream work must
+continue in the declared dependency order after #143 merges.
 
 ## Current phase
 

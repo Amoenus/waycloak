@@ -1,6 +1,6 @@
 # ADR 0034: CNI creation-time enforcement and node-owned data plane
 
-Status: Proposed
+Status: Accepted
 Date: 2026-07-26
 Supersedes on acceptance: ADR 0002 mutation path, ADR 0005 startup handshake,
 ADR 0006 Pod-local backend, and ADR 0024 preview-only CNI handoff
@@ -25,18 +25,23 @@ The stable Core data plane is CNI-first and node owned.
 For every Pod carrying the route label, the chained Waycloak CNI plugin:
 
 1. resolves the exact Pod namespace, name and UID through the local node agent;
-2. waits a bounded time for an accepted route and a UID-scoped
-   `VPNWorkloadBinding` allocation;
-3. installs the deny-first boundary in the new network namespace;
-4. asks the node agent to program the selected overlay/routing backend;
+2. installs and durably records the deny-first boundary in the new network
+   namespace before requesting any allocation;
+3. waits a bounded time for an accepted route and a UID-scoped
+   `VPNWorkloadBinding` allocation while the deny remains active;
+4. asks the node agent to program the selected overlay/routing backend without
+   removing the deny-first boundary;
 5. verifies DNS, ordinary-egress denial and required gateway reachability; and
-6. returns success only after the protected baseline is installed.
+6. returns success only after the protected baseline is installed and observed.
 
 Any unresolved intent, unavailable agent, incomplete allocation, unsupported
 node, programming error, or verification failure makes CNI `ADD` fail. The Pod
 sandbox does not become runnable. CNI `DEL` is idempotent and succeeds safely
-with partial state; `CHECK`, `GC`, chained `prevResult`, rollback, runtime restart,
-and stale namespace cleanup follow the CNI specification.
+with partial state. Enrollment remains durable for the exact Pod UID across a
+failed-`ADD` runtime `DEL` and replacement sandbox, so relabeling cannot convert
+a retry into ordinary egress. Terminating-Pod `DEL`, `CHECK`, `GC`, chained
+`prevResult`, rollback, runtime restart, and stale namespace cleanup follow the
+CNI specification.
 
 A privileged per-node agent owns ongoing nftables/netlink/eBPF state, node
 capability reporting, drift repair and tunnel-loss enforcement. Application
@@ -70,6 +75,15 @@ credentials. Gateway credentials stay in the gateway namespace.
   obligations.
 - The existing sidecar backend is removed after cutover, not maintained as a
   second stable path.
+
+## Feasibility evidence
+
+Issue #124 passed the pinned Kind/kindnet and k3d/k3s/Flannel matrix plus an
+authorized k3s homelab row. The proof includes deny-before-binding packet
+capture, failed sandbox creation, no application start, agent and containerd
+restart, exact stale-state GC, idempotent DEL, and no direct TCP, UDP, DNS or
+fragmented-UDP packets. The support decision and exact run are recorded in
+[the feasibility evidence](../implementation/cni-creation-time-feasibility.md).
 
 ## Alternatives rejected
 

@@ -111,6 +111,10 @@ type Backend interface {
 
 type Agent struct{ Backend Backend }
 
+type cleanupBackend interface {
+	Cleanup(context.Context, string, *Config) error
+}
+
 func (a Agent) Prepare(ctx context.Context, cfg Config) error {
 	if a.Backend == nil {
 		return errors.New("data-plane backend is required")
@@ -162,4 +166,18 @@ func (a Agent) Repair(ctx context.Context, cfg Config) error {
 		return err
 	}
 	return a.Backend.Repair(ctx, cfg)
+}
+
+func (a Agent) Cleanup(ctx context.Context, podUID string, cfg *Config) error {
+	if a.Backend == nil {
+		return errors.New("data-plane backend is required")
+	}
+	if podUID == "" {
+		return errors.New("pod UID is required for cleanup")
+	}
+	cleaner, ok := a.Backend.(cleanupBackend)
+	if !ok {
+		return ErrUnsupported
+	}
+	return cleaner.Cleanup(ctx, podUID, cfg)
 }
