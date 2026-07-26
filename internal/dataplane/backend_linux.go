@@ -160,7 +160,7 @@ func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {
 	return b.Verify(ctx, cfg)
 }
 
-func (*linuxBackend) Cleanup(_ context.Context, podUID string) error {
+func (*linuxBackend) Cleanup(_ context.Context, podUID string, cfg *Config) error {
 	if podUID == "" {
 		return errors.New("pod UID is required")
 	}
@@ -205,7 +205,12 @@ func (*linuxBackend) Cleanup(_ context.Context, podUID string) error {
 			}
 		}
 	}
-	link, err := netlink.LinkByName(overlayName(Config{PodUID: podUID}))
+	overlayConfig := Config{PodUID: podUID}
+	if cfg != nil {
+		overlayConfig = *cfg
+		overlayConfig.PodUID = podUID
+	}
+	link, err := netlink.LinkByName(overlayName(overlayConfig))
 	if err == nil {
 		if err := netlink.LinkDel(link); err != nil && !errors.Is(err, unix.ENOENT) {
 			errs = append(errs, fmt.Errorf("remove owned overlay link: %w", err))

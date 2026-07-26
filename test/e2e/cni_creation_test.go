@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	stdruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -159,7 +158,7 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	must(t, direct.Patch(ctx, &relabeled, client.MergeFrom(beforeRelabel)))
 	restartFixtureAgent(t, namespace, agentPod.Name)
 	if restartCommand := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_CNI_RESTART_RUNTIME_COMMAND")); restartCommand != "" {
-		runHostShell(t, restartCommand)
+		runHostCommand(t, restartCommand)
 		waitForNodeReady(t, direct, nodeName, 2*time.Minute)
 		waitForPodReady(t, direct, agentPod)
 		waitForPodReady(t, direct, installerPod)
@@ -267,14 +266,13 @@ func execCNI(namespace, pod, cniCommand string, attachment waycni.Attachment, ne
 	return invocation.CombinedOutput()
 }
 
-func runHostShell(t *testing.T, commandLine string) {
+func runHostCommand(t *testing.T, commandLine string) {
 	t.Helper()
-	var invocation *exec.Cmd
-	if stdruntime.GOOS == "windows" {
-		invocation = exec.Command("powershell", "-NoProfile", "-Command", commandLine)
-	} else {
-		invocation = exec.Command("sh", "-c", commandLine)
+	arguments := strings.Fields(commandLine)
+	if len(arguments) == 0 {
+		t.Fatal("runtime restart command is empty")
 	}
+	invocation := exec.Command(arguments[0], arguments[1:]...)
 	if output, err := invocation.CombinedOutput(); err != nil {
 		t.Fatalf("runtime restart command failed: %v: %s", err, output)
 	}

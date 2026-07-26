@@ -46,9 +46,9 @@ func (e LinuxEnforcer) Verify(ctx context.Context, path string, cfg dataplane.Co
 	})
 }
 
-func (e LinuxEnforcer) Cleanup(ctx context.Context, path, podUID string) error {
+func (e LinuxEnforcer) Cleanup(ctx context.Context, path, podUID string, cfg *dataplane.Config) error {
 	return e.inNamespace(path, func(agent dataplane.Agent) error {
-		return agent.Cleanup(ctx, podUID)
+		return agent.Cleanup(ctx, podUID, cfg)
 	})
 }
 

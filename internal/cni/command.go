@@ -100,8 +100,9 @@ func Parse(stdin []byte, containerID, netns, ifName, args string, requireIdentit
 }
 
 func NewPlugin(parsed Parsed, enforcer Enforcer) Plugin {
+	requestTimeout := min(parsed.ResolveTimeout, time.Second)
 	return Plugin{
-		Agent:    UnixAgentClient{SocketPath: parsed.Conf.AgentSocket, Timeout: parsed.RetryInterval},
+		Agent:    UnixAgentClient{SocketPath: parsed.Conf.AgentSocket, RequestTimeout: requestTimeout},
 		Enforcer: enforcer, Store: FileStore{Directory: parsed.Conf.StateDir},
 		ResolveTimeout: parsed.ResolveTimeout, BindingTimeout: parsed.BindingTimeout, RetryInterval: parsed.RetryInterval,
 	}

@@ -60,6 +60,14 @@ func startPacketCapture(ctx context.Context, output string) error {
 			counts.store(value)
 		}
 	}
+	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {
+		_ = unix.Close(fd)
+		return err
+	}
+	if err := writeCaptureCounts(output, counts.load()); err != nil {
+		_ = unix.Close(fd)
+		return err
+	}
 	go func() {
 		defer unix.Close(fd)
 		packet := make([]byte, 65535)
@@ -73,14 +81,6 @@ func startPacketCapture(ctx context.Context, output string) error {
 			}
 		}
 	}()
-	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {
-		_ = unix.Close(fd)
-		return err
-	}
-	if err := writeCaptureCounts(output, counts.load()); err != nil {
-		_ = unix.Close(fd)
-		return err
-	}
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()

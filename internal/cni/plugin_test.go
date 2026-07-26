@@ -71,6 +71,7 @@ type fakeEnforcer struct {
 	configureError error
 	verifyError    error
 	cleanupError   error
+	cleanupConfig  *dataplane.Config
 }
 
 type failingSaveStore struct {
@@ -105,8 +106,9 @@ func (e *fakeEnforcer) Verify(context.Context, string, dataplane.Config) error {
 	return e.verifyError
 }
 
-func (e *fakeEnforcer) Cleanup(context.Context, string, string) error {
+func (e *fakeEnforcer) Cleanup(_ context.Context, _ string, _ string, cfg *dataplane.Config) error {
 	e.record("cleanup")
+	e.cleanupConfig = cfg
 	return e.cleanupError
 }
 
@@ -132,6 +134,7 @@ func TestAddInstallsDenyBeforeBindingAndProtectedPath(t *testing.T) {
 
 func TestAddFailureAfterPrimaryCNIRetainsDenyForDEL(t *testing.T) {
 	plugin, request, events := fixture(t)
+	plugin.Agent.(*fakeAgent).binding.Config.OverlayInterfaceName = "wc-custom"
 	plugin.Enforcer.(*fakeEnforcer).configureError = errors.New("injected programming failure")
 	if err := plugin.Add(context.Background(), request); err == nil {
 		t.Fatal("programming failure unexpectedly succeeded")
@@ -156,6 +159,9 @@ func TestAddFailureAfterPrimaryCNIRetainsDenyForDEL(t *testing.T) {
 	}
 	if !reflect.DeepEqual((*events)[len(*events)-4:], []string{"resolve", "identity", "cleanup", "withdraw"}) {
 		t.Fatalf("DEL order = %v", (*events)[len(*events)-4:])
+	}
+	if got := plugin.Enforcer.(*fakeEnforcer).cleanupConfig; got == nil || got.OverlayInterfaceName != "wc-custom" {
+		t.Fatalf("DEL cleanup config = %#v", got)
 	}
 }
 
@@ -312,6 +318,7 @@ func TestCheckRequiresAgentAndObservedProtectedPath(t *testing.T) {
 
 func TestGCKeepsValidAndRemovesOnlyExactStaleAttachments(t *testing.T) {
 	plugin, valid, events := fixture(t)
+	plugin.Agent.(*fakeAgent).binding.Config.OverlayInterfaceName = "wc-gc"
 	if err := plugin.Add(context.Background(), valid); err != nil {
 		t.Fatal(err)
 	}
@@ -334,6 +341,9 @@ func TestGCKeepsValidAndRemovesOnlyExactStaleAttachments(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*events, []string{"identity", "cleanup"}) {
 		t.Fatalf("GC operations = %v", *events)
+	}
+	if got := plugin.Enforcer.(*fakeEnforcer).cleanupConfig; got == nil || got.OverlayInterfaceName != "wc-gc" {
+		t.Fatalf("GC cleanup config = %#v", got)
 	}
 }
 

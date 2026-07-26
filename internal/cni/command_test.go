@@ -66,3 +66,20 @@ func TestParseRejectsUnboundedWaits(t *testing.T) {
 		t.Fatal("unbounded binding timeout was accepted")
 	}
 }
+
+func TestNewPluginSeparatesAgentRequestTimeoutFromRetryCadence(t *testing.T) {
+	parsed := Parsed{
+		Conf:           NetConf{AgentSocket: "/run/waycloak/test.sock", StateDir: t.TempDir()},
+		ResolveTimeout: 2 * time.Second,
+		BindingTimeout: 10 * time.Second,
+		RetryInterval:  10 * time.Millisecond,
+	}
+	plugin := NewPlugin(parsed, &fakeEnforcer{})
+	client, ok := plugin.Agent.(UnixAgentClient)
+	if !ok {
+		t.Fatalf("agent = %T", plugin.Agent)
+	}
+	if client.RequestTimeout != time.Second || client.RequestTimeout == parsed.RetryInterval {
+		t.Fatalf("agent request timeout = %s, retry interval = %s", client.RequestTimeout, parsed.RetryInterval)
+	}
+}

@@ -59,7 +59,7 @@ type Enforcer interface {
 	InstallLockdown(context.Context, string, string) error
 	Configure(context.Context, string, dataplane.Config) error
 	Verify(context.Context, string, dataplane.Config) error
-	Cleanup(context.Context, string, string) error
+	Cleanup(context.Context, string, string, *dataplane.Config) error
 }
 
 type Phase string

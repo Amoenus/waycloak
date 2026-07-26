@@ -67,7 +67,13 @@ func run(socketPath, captureFile string) error {
 	if err := os.Chmod(socketPath, 0o600); err != nil {
 		return err
 	}
-	server := &http.Server{Handler: handler(client), ReadHeaderTimeout: time.Second}
+	server := &http.Server{
+		Handler:           handler(client),
+		ReadHeaderTimeout: time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      5 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)

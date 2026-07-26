@@ -73,7 +73,7 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 		Phase: PhaseLockedDown, UpdatedAt: p.now(),
 	}
 	if err := p.Store.Save(attachment); err != nil {
-		rollbackErr := p.Enforcer.Cleanup(ctx, request.Pod.NetNS, request.Pod.UID)
+		rollbackErr := p.Enforcer.Cleanup(ctx, request.Pod.NetNS, request.Pod.UID, nil)
 		return errors.Join(fmt.Errorf("record deny-first attachment state: %w", err), errorWithContext("roll back unrecorded deny-first state", rollbackErr))
 	}
 
@@ -168,7 +168,7 @@ func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
 	}
 	identity, identityErr := p.Enforcer.Identity(path)
 	if identityErr == nil && identity == attachment.NamespaceIdentity {
-		if err := p.Enforcer.Cleanup(ctx, path, attachment.Pod.UID); err != nil {
+		if err := p.Enforcer.Cleanup(ctx, path, attachment.Pod.UID, attachment.Config); err != nil {
 			return fmt.Errorf("remove exact Waycloak network state: %w", err)
 		}
 	}
@@ -207,7 +207,7 @@ func (p Plugin) GC(ctx context.Context, network string, valid map[Key]struct{}) 
 		}
 		identity, identityErr := p.Enforcer.Identity(attachment.Pod.NetNS)
 		if identityErr == nil && identity == attachment.NamespaceIdentity {
-			if err := p.Enforcer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
+			if err := p.Enforcer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID, attachment.Config); err != nil {
 				errs = append(errs, err)
 				continue
 			}

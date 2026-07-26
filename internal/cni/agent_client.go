@@ -35,8 +35,8 @@ type AgentResponse struct {
 }
 
 type UnixAgentClient struct {
-	SocketPath string
-	Timeout    time.Duration
+	SocketPath     string
+	RequestTimeout time.Duration
 }
 
 func (c UnixAgentClient) Resolve(ctx context.Context, pod PodIdentity) (Resolution, error) {
@@ -85,7 +85,7 @@ func (c UnixAgentClient) call(ctx context.Context, method, path string, body any
 	if c.SocketPath == "" {
 		return errors.New("local agent socket path is required")
 	}
-	timeout := c.Timeout
+	timeout := c.RequestTimeout
 	if timeout <= 0 {
 		timeout = time.Second
 	}
