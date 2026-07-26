@@ -113,7 +113,7 @@ race, Kubernetes 1.36 envtest, generated-artifact and OCI checks, Kind/kindnet,
 k3d/Flannel, and privileged packet/DNS/drift/gateway-loss gates passed in exact
 CI run 30198139119.
 
-Issue #134 is active. The replacement manager now has independent v1beta1
+Issue #134 is complete in PR #153. The replacement manager now has independent v1beta1
 class and gateway reconcilers; the alpha gateway controller and inline engine
 images are not reused. The class controller claims only the exact immutable
 Gluetun controller name and requires its runtime release digest, Core feature
@@ -122,8 +122,10 @@ class before features and same-namespace native/credential refs, publishes no
 addresses, and keeps programming false for missing, foreign, rejected,
 unsupported, unauthorized, or deleted inputs. Credential values are never
 copied into status. The chart renders the default class only when a verified
-release version and exact manifest digest are supplied. Unit and Kubernetes
-1.36 envtest coverage pass; exact generated and Kind/k3d evidence remain.
+release version and exact manifest digest are supplied. Unit, race, Kubernetes
+1.36 envtest, generated-artifact, Kind/kindnet, k3d/Flannel, and live missing,
+foreign-controller and unsupported-feature gates passed in exact CI run
+30199319231.
 
 ## Current phase
 
