@@ -43,6 +43,7 @@ type ProtocolAuthenticator struct {
 	seen       map[string]time.Time
 }
 
+// NewProtocolAuthenticator copies and validates one per-agent-start key.
 func NewProtocolAuthenticator(key []byte) (*ProtocolAuthenticator, error) {
 	if len(key) != ProtocolKeySize {
 		return nil, fmt.Errorf("local protocol key must be exactly %d bytes", ProtocolKeySize)
@@ -54,6 +55,7 @@ func NewProtocolAuthenticator(key []byte) (*ProtocolAuthenticator, error) {
 	}, nil
 }
 
+// SignRequest creates the authenticated headers for one fresh request.
 func (a *ProtocolAuthenticator) SignRequest(method, requestPath string, body []byte) (http.Header, error) {
 	identifierBytes := make([]byte, 16)
 	if _, err := io.ReadFull(a.random, identifierBytes); err != nil {
@@ -69,6 +71,7 @@ func (a *ProtocolAuthenticator) SignRequest(method, requestPath string, body []b
 	return header, nil
 }
 
+// VerifyRequest validates authenticity, freshness, and replay uniqueness.
 func (a *ProtocolAuthenticator) VerifyRequest(method, requestPath string, header http.Header, body []byte) (string, error) {
 	version, err := oneHeader(header, protocolHeaderVersion)
 	if err != nil || version != AgentAPIVersion {
@@ -104,6 +107,7 @@ func (a *ProtocolAuthenticator) VerifyRequest(method, requestPath string, header
 	return identifier, nil
 }
 
+// SignResponse binds one response status and body to its request identity.
 func (a *ProtocolAuthenticator) SignResponse(requestID string, status int, body []byte) http.Header {
 	header := make(http.Header)
 	header.Set(protocolHeaderVersion, AgentAPIVersion)
@@ -112,6 +116,7 @@ func (a *ProtocolAuthenticator) SignResponse(requestID string, status int, body 
 	return header
 }
 
+// VerifyResponse validates response authenticity and request binding.
 func (a *ProtocolAuthenticator) VerifyResponse(requestID string, status int, header http.Header, body []byte) error {
 	version, err := oneHeader(header, protocolHeaderVersion)
 	if err != nil || version != AgentAPIVersion {

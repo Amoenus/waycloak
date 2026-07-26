@@ -23,11 +23,13 @@ const (
 	statusPath   = "/cni-node/v1/status"
 )
 
+// AgentRequest carries one strictly versioned local node-agent operation.
 type AgentRequest struct {
 	APIVersion string      `json:"apiVersion"`
 	Pod        PodIdentity `json:"pod"`
 }
 
+// AgentResponse carries either one successful result or one stable error.
 type AgentResponse struct {
 	APIVersion string      `json:"apiVersion"`
 	Resolution *Resolution `json:"resolution,omitempty"`
@@ -35,6 +37,7 @@ type AgentResponse struct {
 	Error      *AgentError `json:"error,omitempty"`
 }
 
+// AgentError is the authenticated, non-sensitive operation failure contract.
 type AgentError struct {
 	Code      string `json:"code"`
 	Retryable bool   `json:"retryable"`
@@ -48,6 +51,7 @@ const (
 	AgentErrorBindingNotReady     = "BindingNotReady"
 )
 
+// UnixAgentClient calls the root node agent over the authenticated Unix socket.
 type UnixAgentClient struct {
 	SocketPath     string
 	KeyFile        string
@@ -55,6 +59,7 @@ type UnixAgentClient struct {
 	RequestTimeout time.Duration
 }
 
+// Resolve obtains independently observed enrollment for the exact Pod identity.
 func (c UnixAgentClient) Resolve(ctx context.Context, pod PodIdentity) (Resolution, error) {
 	var response AgentResponse
 	if err := c.call(ctx, http.MethodPost, resolvePath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, &response); err != nil {
@@ -66,6 +71,7 @@ func (c UnixAgentClient) Resolve(ctx context.Context, pod PodIdentity) (Resoluti
 	return *response.Resolution, nil
 }
 
+// Binding obtains ready desired state for the exact Pod identity.
 func (c UnixAgentClient) Binding(ctx context.Context, pod PodIdentity) (Binding, error) {
 	var response AgentResponse
 	if err := c.call(ctx, http.MethodPost, bindingPath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, &response); err != nil {
@@ -81,14 +87,17 @@ func (c UnixAgentClient) Binding(ctx context.Context, pod PodIdentity) (Binding,
 	return *response.Binding, nil
 }
 
+// Check verifies that the agent still recognizes the exact attachment.
 func (c UnixAgentClient) Check(ctx context.Context, pod PodIdentity) error {
 	return c.call(ctx, http.MethodPost, checkPath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, nil)
 }
 
+// Withdraw requests idempotent cleanup of one exact attachment.
 func (c UnixAgentClient) Withdraw(ctx context.Context, pod PodIdentity) error {
 	return c.call(ctx, http.MethodPost, withdrawPath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, nil)
 }
 
+// Status verifies authenticated local protocol liveness only.
 func (c UnixAgentClient) Status(ctx context.Context) error {
 	return c.call(ctx, http.MethodGet, statusPath, nil, nil)
 }
@@ -96,10 +105,11 @@ func (c UnixAgentClient) Status(ctx context.Context) error {
 type agentStatusError struct {
 	HTTPStatus int
 	Reason     string
+	Message    string
 }
 
 func (e *agentStatusError) Error() string {
-	return fmt.Sprintf("local agent returned %s (HTTP %d)", e.Reason, e.HTTPStatus)
+	return fmt.Sprintf("local agent returned %s (HTTP %d): %s", e.Reason, e.HTTPStatus, e.Message)
 }
 
 func (c UnixAgentClient) call(ctx context.Context, method, path string, body any, output any) error {
@@ -156,9 +166,9 @@ func (c UnixAgentClient) call(ctx context.Context, method, path string, body any
 		return fmt.Errorf("call local agent: %w", err)
 	}
 	defer response.Body.Close()
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, ProtocolMaxMessage+1))
-	if err != nil || len(responseBody) > ProtocolMaxMessage {
-		return errors.New("local protocol response exceeds the size limit")
+	responseBody, err := readAgentResponseBody(response.Body)
+	if err != nil {
+		return err
 	}
 	requestID := request.Header.Get(protocolHeaderID)
 	if err := authenticator.VerifyResponse(requestID, response.StatusCode, response.Header, responseBody); err != nil {
@@ -172,7 +182,7 @@ func (c UnixAgentClient) call(ctx context.Context, method, path string, body any
 		if failure.Error == nil || failure.Error.Code == "" || failure.Error.Message == "" {
 			return errors.New("authenticated local protocol error omitted its stable code")
 		}
-		return &agentStatusError{HTTPStatus: response.StatusCode, Reason: failure.Error.Code}
+		return &agentStatusError{HTTPStatus: response.StatusCode, Reason: failure.Error.Code, Message: failure.Error.Message}
 	}
 	if output == nil || response.StatusCode == http.StatusNoContent {
 		return nil
@@ -181,6 +191,17 @@ func (c UnixAgentClient) call(ctx context.Context, method, path string, body any
 		return fmt.Errorf("decode local agent response: %w", err)
 	}
 	return nil
+}
+
+func readAgentResponseBody(reader io.Reader) ([]byte, error) {
+	responseBody, err := io.ReadAll(io.LimitReader(reader, ProtocolMaxMessage+1))
+	if err != nil {
+		return nil, fmt.Errorf("read local agent response: %w", err)
+	}
+	if len(responseBody) > ProtocolMaxMessage {
+		return nil, errors.New("local protocol response exceeds the size limit")
+	}
+	return responseBody, nil
 }
 
 func decodeAgentResponse(body []byte, output *AgentResponse) error {

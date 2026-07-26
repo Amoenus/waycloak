@@ -21,7 +21,8 @@ status writer, VPN credential path, sidecar, or fallback.
 - Renames the local identity to `networking.waycloak.io/cni-node/v1`.
 - Generates and atomically rotates a 256-bit key at each agent start.
 - Requires a root-owned mode-0700 directory, mode-0600 regular non-symlink key,
-  root CNI execution, and Linux root peer credentials in both directions.
+  pre-rotation rejection of planted directory/key symlinks, root CNI execution,
+  and Linux root peer credentials in both directions.
 - Authenticates request version, random 128-bit ID, timestamp, method, path and
   body digest, and authenticates response identity, status and body digest.
 - Rejects requests outside 30 seconds, replayed IDs, more than 4,096 live IDs,
@@ -37,7 +38,7 @@ status writer, VPN credential path, sidecar, or fallback.
 | Abuse | Evidence |
 | --- | --- |
 | Wrong key | HMAC unit rejection and privileged STATUS rejection |
-| Unsafe directory/key type, owner, mode or non-root process | load-time validation; privileged wrong-mode rejection; Linux unit peer tests |
+| Unsafe directory/key type, owner, mode or non-root process | load-time validation; planted-symlink pre-mutation rejection; privileged wrong-mode rejection; Linux unit peer tests |
 | Non-root or missing Unix peer identity | Linux handler and `SO_PEERCRED` unit tests |
 | Replay | second authenticated request rejected before dispatch |
 | Stale request | signed request outside freshness window rejected |
@@ -65,7 +66,8 @@ added.
 ## Verification record
 
 The authenticated focused proof passes on the authorized k3s/containerd/
-Flannel homelab row in 119.30 seconds. The implementation candidate is commit
+Flannel homelab row; the review-hardened rerun passed in 122.66 seconds. The
+initial green implementation candidate is commit
 [`38788b3`](https://github.com/Amoenus/waycloak/commit/38788b3dbe07732cc0c162e9a6980050b570d2d6)
 in focused PR [#144](https://github.com/Amoenus/waycloak/pull/144). CI run
 [`30184925167`](https://github.com/Amoenus/waycloak/actions/runs/30184925167)

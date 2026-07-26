@@ -23,10 +23,10 @@ eBPF without changing workload intent.
 3. Prototype chained CNI `ADD/DEL/CHECK/GC`, exact Pod UID resolution, bounded
    binding wait, deny-first installation, rollback and runtime restart.
 Gate status (2026-07-26): #124 passed on pinned Kind/kindnet and
-k3d/k3s/Flannel CI rows plus an authorized k3s homelab row and merged in PR
-#143. ADR 0034 accepts the matrix-limited support decision and links the exact
-evidence. Issue #125 is the active Phase 0 dependency; no replacement CRD work
-starts until the declared prerequisites are complete.
+k3d/k3s/Flannel CI rows plus an authorized k3s homelab row and merged in
+PR #143. ADR 0034 accepts the matrix-limited support decision and links the
+exact evidence. Issue #125 is the active Phase 0 dependency; no replacement
+CRD work starts until the declared prerequisites are complete.
 4. Prove no application process can emit ordinary egress before successful
    Waycloak `ADD` on every proposed support-matrix row.
 5. Update the threat model for node agent/CNI privilege and local protocol.

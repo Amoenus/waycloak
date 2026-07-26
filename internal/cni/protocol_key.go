@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 )
 
+// LoadProtocolKey reads a key only through the required root-only boundary.
 func LoadProtocolKey(path string) ([]byte, error) {
 	directoryInfo, err := os.Lstat(filepath.Dir(path))
 	if err != nil {
@@ -49,8 +50,12 @@ func LoadProtocolKey(path string) ([]byte, error) {
 	return key, nil
 }
 
+// RotateProtocolKey atomically replaces the per-agent-start authentication key.
 func RotateProtocolKey(path string) ([]byte, error) {
 	directory := filepath.Dir(path)
+	if err := rejectProtocolKeySymlinks(directory, path); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, fmt.Errorf("create local protocol directory: %w", err)
 	}
@@ -89,4 +94,27 @@ func RotateProtocolKey(path string) ([]byte, error) {
 		return nil, errors.Join(errors.New("validate rotated local protocol key"), err)
 	}
 	return key, nil
+}
+
+func rejectProtocolKeySymlinks(directory, path string) error {
+	directoryInfo, err := os.Lstat(directory)
+	if err == nil {
+		if directoryInfo.Mode()&os.ModeSymlink != 0 {
+			return errors.New("local protocol directory must not be a symlink during rotation")
+		}
+		if !directoryInfo.IsDir() {
+			return errors.New("local protocol directory path is not a directory")
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect local protocol directory before rotation: %w", err)
+	}
+
+	keyInfo, err := os.Lstat(path)
+	if err == nil && keyInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("local protocol key must not be a symlink during rotation")
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect local protocol key before rotation: %w", err)
+	}
+	return nil
 }

@@ -17,6 +17,7 @@ import (
 
 type localPeerContextKey struct{}
 
+// LocalPeerContext records the kernel-reported Unix peer UID for HTTP handling.
 func LocalPeerContext(ctx context.Context, connection net.Conn) context.Context {
 	uid, err := unixPeerUID(connection)
 	if err != nil {
@@ -25,6 +26,7 @@ func LocalPeerContext(ctx context.Context, connection net.Conn) context.Context 
 	return context.WithValue(ctx, localPeerContextKey{}, uid)
 }
 
+// RootPeerOnlyHandler rejects requests not received from a root Unix peer.
 func RootPeerOnlyHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		uid, ok := request.Context().Value(localPeerContextKey{}).(uint32)
@@ -36,6 +38,7 @@ func RootPeerOnlyHandler(next http.Handler) http.Handler {
 	})
 }
 
+// VerifyRootAgentPeer rejects a local agent connection not owned by root.
 func VerifyRootAgentPeer(connection net.Conn) error {
 	uid, err := unixPeerUID(connection)
 	if err != nil {

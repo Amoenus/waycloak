@@ -5,6 +5,8 @@ package cni
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -190,6 +192,27 @@ func TestDecodeAgentResponseRequiresVersionAndStrictSingleDocument(t *testing.T)
 		t.Fatalf("trailing whitespace should remain valid JSON: %v", err)
 	}
 }
+
+func TestReadAgentResponseBodyDistinguishesIOFailureAndSizeLimit(t *testing.T) {
+	sentinel := errors.New("connection reset")
+	if _, err := readAgentResponseBody(io.MultiReader(bytes.NewReader([]byte("partial")), failingProtocolReader{err: sentinel})); !errors.Is(err, sentinel) {
+		t.Fatalf("read error = %v", err)
+	}
+	if _, err := readAgentResponseBody(bytes.NewReader(make([]byte, ProtocolMaxMessage+1))); err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("oversized response error = %v", err)
+	}
+}
+
+func TestAgentStatusErrorRetainsAuthenticatedMessage(t *testing.T) {
+	err := (&agentStatusError{HTTPStatus: http.StatusNotFound, Reason: AgentErrorNotEnrolled, Message: "Pod is not enrolled"}).Error()
+	if !strings.Contains(err, AgentErrorNotEnrolled) || !strings.Contains(err, "Pod is not enrolled") {
+		t.Fatalf("status error = %q", err)
+	}
+}
+
+type failingProtocolReader struct{ err error }
+
+func (r failingProtocolReader) Read([]byte) (int, error) { return 0, r.err }
 
 func protocolTestAuthenticator(t *testing.T, key []byte, now time.Time, randomByte byte) *ProtocolAuthenticator {
 	t.Helper()
