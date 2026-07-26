@@ -33,11 +33,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] #132 UID-bound binding allocation: merged in PR #151 after atomic
   reservation, concurrent allocation, restart, stale identity, exact
   withdrawal, quarantine, envtest, Kind and k3d gates passed.
-- [ ] #133 privileged node agent: active; the credential-free binding
-  projection, agent-owned prepare/check/withdraw, drift/restart reconciliation,
-  node-scoped observation relay, controller-loss lockdown, chart DaemonSet
-  surface and digest-pinned OCI build are implemented. Exact CI and privileged
-  Kind/k3d evidence remain required.
+- [x] #133 privileged node agent: completed in PR #152 after credential-free
+  binding projection, agent-owned prepare/check/withdraw, drift/restart and
+  reconfiguration reconciliation, exact-ServiceAccount observation relay,
+  controller-loss lockdown, digest-pinned packaging, and privileged packet,
+  Kind/kindnet, and k3d/Flannel gates passed.
 - [ ] #134–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline

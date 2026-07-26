@@ -99,7 +99,7 @@ controller-owned UID allocation, atomic gateway-owned reservation, collision
 and exhaustion behavior, restart recovery, desired/applied/live separation,
 fresh exact withdrawal, and durable quarantine.
 
-Issue #133 is active. ADR 0038 closes the frozen binding authority gap with a
+Issue #133 is complete in PR #152. ADR 0038 closes the frozen binding authority gap with a
 controller-authored, credential-free `spec.network` projection. The CNI now
 passes only an exact binding UID/generation after installing lockdown; the
 privileged node agent re-reads Pod and binding authority, owns native
@@ -109,8 +109,9 @@ withdraws all allow paths and prevents new prepare operations. A Pod-bound
 TokenReview relay requires the exact installation namespace and node-agent
 ServiceAccount and limits status publication to bindings assigned to the
 reporting agent's exact node without granting node status-write RBAC. Unit,
-race, Kubernetes 1.36 envtest, generated artifacts, OCI reproducibility, and
-Kind/k3d privileged chaos gates remain required before #133 closes.
+race, Kubernetes 1.36 envtest, generated-artifact and OCI checks, Kind/kindnet,
+k3d/Flannel, and privileged packet/DNS/drift/gateway-loss gates passed in exact
+CI run 30198139119.
 
 ## Current phase
 
