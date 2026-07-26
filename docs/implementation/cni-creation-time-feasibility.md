@@ -53,8 +53,11 @@ private endpoint or credential is recorded.
   from the exact Pod netns. Independent host capture counters remain unchanged,
   proving deny is installed before the first binding request.
 - Additional PR hardening makes enrollment sticky once deny state exists for an
-  exact attachment. Later `ADD` retries cannot become unenrolled by removing
-  the live Pod label; unit and privileged homelab tests cover that path.
+  exact Pod UID. Runtime `DEL`, label removal and a replacement sandbox identity
+  cannot turn a later `ADD` retry into unenrolled success. The record is released
+  only after the exact Pod is observed terminating, or by exact stale-state GC
+  when observation is unavailable. Unit and privileged homelab tests cover the
+  combined race.
 - Primary-CNI-then-Waycloak failure: an ordinary Pod emits positive-control
   packets before the enrolled Pod is created. The enrolled `ADD` fails after
   primary setup because its UID-bound binding is deliberately unavailable.
@@ -72,10 +75,11 @@ private endpoint or credential is recorded.
 - Restart behavior: the fixture node agent is killed and restarted while
   binding wait is active. The Kind row then restarts containerd during the same
   `ADD`; deny remains effective and the application still never starts.
-- `DEL`, `CHECK` and `GC`: `CHECK` rejects a locked-down attachment. Prompt
-  runtime `DEL` is accepted when present. An `ADD` interrupted by runtime
-  restart may leave durable state, which `GC` removes using exact attachment
-  identity; two later `DEL` calls with no netns both succeed.
+- `DEL`, `CHECK` and `GC`: `CHECK` rejects a locked-down attachment. Runtime
+  `DEL` after failed `ADD` retains exact-UID enrollment for a replacement
+  sandbox. Terminating-Pod `DEL` performs exact cleanup. An `ADD` interrupted by
+  runtime restart may leave durable state, which `GC` removes using exact
+  attachment identity; two later `DEL` calls with no netns both succeed.
 - Stale namespace safety: `GC` removes a record whose netns disappeared, while
   unit tests prove that a valid attachment is retained and a reused foreign
   netns is not modified.

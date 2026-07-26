@@ -45,17 +45,23 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 		if !errors.Is(loadErr, fs.ErrNotExist) {
 			return fmt.Errorf("load prior attachment state: %w", loadErr)
 		}
-		resolution, err := retryValue(ctx, p.resolveTimeout(), p.retryInterval(), func(attempt context.Context) (Resolution, error) {
-			return p.Agent.Resolve(attempt, request.Pod)
-		})
+		sticky, err := p.hasPriorEnrollment(request)
 		if err != nil {
-			return fmt.Errorf("resolve exact Pod enrollment through local agent: %w", err)
+			return fmt.Errorf("find prior UID-bound enrollment: %w", err)
 		}
-		if resolution.PodUID != request.Pod.UID {
-			return fmt.Errorf("local agent resolved Pod UID %q, expected %q", resolution.PodUID, request.Pod.UID)
-		}
-		if !resolution.Enrolled {
-			return nil
+		if !sticky {
+			resolution, err := retryValue(ctx, p.resolveTimeout(), p.retryInterval(), func(attempt context.Context) (Resolution, error) {
+				return p.Agent.Resolve(attempt, request.Pod)
+			})
+			if err != nil {
+				return fmt.Errorf("resolve exact Pod enrollment through local agent: %w", err)
+			}
+			if resolution.PodUID != request.Pod.UID {
+				return fmt.Errorf("local agent resolved Pod UID %q, expected %q", resolution.PodUID, request.Pod.UID)
+			}
+			if !resolution.Enrolled {
+				return nil
+			}
 		}
 	}
 
@@ -137,8 +143,8 @@ func (p Plugin) Check(ctx context.Context, request Request) error {
 }
 
 func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
-	if p.Store == nil || p.Enforcer == nil {
-		return errors.New("CNI store and enforcer are required")
+	if p.Agent == nil || p.Store == nil || p.Enforcer == nil {
+		return errors.New("local agent, CNI store, and enforcer are required")
 	}
 	attachment, err := p.Store.Load(key)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -146,6 +152,15 @@ func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("load attachment state for DEL: %w", err)
+	}
+	// A runtime may issue DEL after a failed chained ADD and then retry the
+	// same Pod with a new sandbox identity. Retain the UID-bound enrollment
+	// record while that exact Pod still exists so removing its label cannot
+	// turn the next ADD into an ordinary-egress success. Unreachable agents
+	// are treated the same way; GC removes the stale record later.
+	resolution, resolveErr := p.Agent.Resolve(ctx, attachment.Pod)
+	if resolveErr != nil || resolution.PodUID != attachment.Pod.UID || !resolution.Terminating {
+		return nil
 	}
 	path := netns
 	if path == "" {
@@ -162,6 +177,19 @@ func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
 		return fmt.Errorf("delete attachment state: %w", err)
 	}
 	return nil
+}
+
+func (p Plugin) hasPriorEnrollment(request Request) (bool, error) {
+	attachments, err := p.Store.List(request.Network)
+	if err != nil {
+		return false, err
+	}
+	for _, attachment := range attachments {
+		if attachment.Pod.Namespace == request.Pod.Namespace && attachment.Pod.Name == request.Pod.Name && attachment.Pod.UID == request.Pod.UID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (p Plugin) GC(ctx context.Context, network string, valid map[Key]struct{}) error {

@@ -36,8 +36,9 @@ func (p PodIdentity) Validate() error {
 }
 
 type Resolution struct {
-	PodUID   string `json:"podUID"`
-	Enrolled bool   `json:"enrolled"`
+	PodUID      string `json:"podUID"`
+	Enrolled    bool   `json:"enrolled"`
+	Terminating bool   `json:"terminating,omitempty"`
 }
 
 type Binding struct {

@@ -107,9 +107,10 @@ func handler(client kubernetes.Interface) http.Handler {
 				return
 			}
 			enrolled := pod.Labels[routeLabel] != ""
+			terminating := pod.DeletionTimestamp != nil
 			switch path {
 			case "/cni-feasibility/v1/resolve":
-				writeJSON(response, waycni.AgentResponse{APIVersion: waycni.AgentAPIVersion, Resolution: &waycni.Resolution{PodUID: string(pod.UID), Enrolled: enrolled}})
+				writeJSON(response, waycni.AgentResponse{APIVersion: waycni.AgentAPIVersion, Resolution: &waycni.Resolution{PodUID: string(pod.UID), Enrolled: enrolled, Terminating: terminating}})
 			case "/cni-feasibility/v1/binding":
 				if !enrolled {
 					http.Error(response, "Pod is not enrolled", http.StatusNotFound)

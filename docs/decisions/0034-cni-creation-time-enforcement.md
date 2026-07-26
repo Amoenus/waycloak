@@ -37,8 +37,11 @@ For every Pod carrying the route label, the chained Waycloak CNI plugin:
 Any unresolved intent, unavailable agent, incomplete allocation, unsupported
 node, programming error, or verification failure makes CNI `ADD` fail. The Pod
 sandbox does not become runnable. CNI `DEL` is idempotent and succeeds safely
-with partial state; `CHECK`, `GC`, chained `prevResult`, rollback, runtime restart,
-and stale namespace cleanup follow the CNI specification.
+with partial state. Enrollment remains durable for the exact Pod UID across a
+failed-`ADD` runtime `DEL` and replacement sandbox, so relabeling cannot convert
+a retry into ordinary egress. Terminating-Pod `DEL`, `CHECK`, `GC`, chained
+`prevResult`, rollback, runtime restart, and stale namespace cleanup follow the
+CNI specification.
 
 A privileged per-node agent owns ongoing nftables/netlink/eBPF state, node
 capability reporting, drift repair and tunnel-loss enforcement. Application

@@ -147,14 +147,15 @@ func TestAddFailureAfterPrimaryCNIRetainsDenyForDEL(t *testing.T) {
 	if attachment.Phase != PhaseLockedDown || attachment.Config == nil {
 		t.Fatalf("partial attachment did not retain deny state: %#v", attachment)
 	}
+	plugin.Agent.(*fakeAgent).resolution.Terminating = true
 	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := plugin.Store.Load(request.Key()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("state remained after DEL: %v", err)
 	}
-	if !reflect.DeepEqual((*events)[len(*events)-3:], []string{"identity", "cleanup", "withdraw"}) {
-		t.Fatalf("DEL order = %v", (*events)[len(*events)-3:])
+	if !reflect.DeepEqual((*events)[len(*events)-4:], []string{"resolve", "identity", "cleanup", "withdraw"}) {
+		t.Fatalf("DEL order = %v", (*events)[len(*events)-4:])
 	}
 }
 
@@ -220,6 +221,7 @@ func TestDuplicateAddAndDeleteAreIdempotent(t *testing.T) {
 	if got := (*events)[before:]; !reflect.DeepEqual(got, []string{"identity", "agent-check", "verify"}) {
 		t.Fatalf("duplicate ADD operations = %v", got)
 	}
+	plugin.Agent.(*fakeAgent).resolution.Terminating = true
 	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
 		t.Fatal(err)
 	}
@@ -246,6 +248,34 @@ func TestDurableEnrollmentCannotBeRemovedBetweenAddRetries(t *testing.T) {
 	}
 }
 
+func TestDurableEnrollmentSurvivesRuntimeDeleteAndNewSandbox(t *testing.T) {
+	plugin, request, events := fixture(t)
+	plugin.Enforcer.(*fakeEnforcer).configureError = errors.New("programming unavailable")
+	if err := plugin.Add(context.Background(), request); err == nil {
+		t.Fatal("initial ADD failure unexpectedly succeeded")
+	}
+	plugin.Agent.(*fakeAgent).resolution.Enrolled = false
+	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plugin.Store.Load(request.Key()); err != nil {
+		t.Fatalf("live Pod enrollment record was removed by runtime DEL: %v", err)
+	}
+
+	retry := request
+	retry.Pod.ContainerID = "replacement-sandbox"
+	retry.Pod.NetNS = "/netns/replacement"
+	plugin.Enforcer.(*fakeEnforcer).identities[retry.Pod.NetNS] = "12:35"
+	plugin.Enforcer.(*fakeEnforcer).configureError = nil
+	*events = nil
+	if err := plugin.Add(context.Background(), retry); err != nil {
+		t.Fatal(err)
+	}
+	if index(*events, "resolve") >= 0 || index(*events, "lockdown") < 0 || index(*events, "binding") < 0 {
+		t.Fatalf("UID-bound enrollment was not retained across sandbox replacement: %v", *events)
+	}
+}
+
 func TestDeleteWithMissingOrReusedNamespacePreservesForeignState(t *testing.T) {
 	plugin, request, events := fixture(t)
 	if err := plugin.Add(context.Background(), request); err != nil {
@@ -253,6 +283,7 @@ func TestDeleteWithMissingOrReusedNamespacePreservesForeignState(t *testing.T) {
 	}
 	enforcer := plugin.Enforcer.(*fakeEnforcer)
 	enforcer.identities[request.Pod.NetNS] = "foreign"
+	plugin.Agent.(*fakeAgent).resolution.Terminating = true
 	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
 		t.Fatal(err)
 	}
