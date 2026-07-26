@@ -1,0 +1,15 @@
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNEgressRoute
+metadata:
+  name: private
+  namespace: media
+spec:
+  parentRefs:
+    - group: networking.waycloak.io
+      kind: VPNGateway
+      namespace: media
+      name: example
+  requiredFeatures:
+    - networking.waycloak.io/TCP
+    - networking.waycloak.io/UDP
+    - networking.waycloak.io/DNSContainment

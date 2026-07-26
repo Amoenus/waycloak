@@ -1,0 +1,334 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: vpnegressroutes.networking.waycloak.io
+spec:
+  group: networking.waycloak.io
+  names:
+    kind: VPNEgressRoute
+    listKind: VPNEgressRouteList
+    plural: vpnegressroutes
+    singular: vpnegressroute
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.parentRefs[0].name
+      name: Parent
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Accepted')].status
+      name: Accepted
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              parentRefs:
+                items:
+                  properties:
+                    group:
+                      enum:
+                      - networking.waycloak.io
+                      type: string
+                    kind:
+                      enum:
+                      - VPNGateway
+                      type: string
+                    name:
+                      description: ObjectName is a Kubernetes object name represented
+                        as a DNS subdomain.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    namespace:
+                      description: NamespaceName is a Kubernetes namespace name.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - group
+                  - kind
+                  - name
+                  - namespace
+                  type: object
+                maxItems: 1
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - group
+                - kind
+                - namespace
+                - name
+                x-kubernetes-list-type: map
+              requiredFeatures:
+                items:
+                  description: FeatureName is a stable qualified feature identifier.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: set
+            required:
+            - parentRefs
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Conditions implements the common positive-polarity status
+                  contract.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: condition type is not part of the Waycloak common contract
+                  rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
+                    'Ready'])
+                - message: Accepted condition reason is not stable
+                  rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
+                    'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
+                    'Deleting'])
+                - message: ResolvedRefs condition reason is not stable
+                  rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])
+                - message: Programmed condition reason is not stable
+                  rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
+                    'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
+                - message: Ready condition reason is not stable
+                  rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady',
+                    'ObservationUnavailable', 'Deleting'])
+                - message: Unknown conditions must use ObservationUnavailable
+                  rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
+              observedGeneration:
+                format: int64
+                type: integer
+              parents:
+                description: ParentRef is an object, so this list cannot use it as
+                  a Kubernetes map-list key.
+                items:
+                  properties:
+                    conditions:
+                      description: Conditions implements the common positive-polarity
+                        status contract.
+                      items:
+                        description: Condition contains details for one aspect of
+                          the current state of this API Resource.
+                        properties:
+                          lastTransitionTime:
+                            description: |-
+                              lastTransitionTime is the last time the condition transitioned from one status to another.
+                              This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                            format: date-time
+                            type: string
+                          message:
+                            description: |-
+                              message is a human readable message indicating details about the transition.
+                              This may be an empty string.
+                            maxLength: 32768
+                            type: string
+                          observedGeneration:
+                            description: |-
+                              observedGeneration represents the .metadata.generation that the condition was set based upon.
+                              For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                              with respect to the current state of the instance.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          reason:
+                            description: |-
+                              reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                              Producers of specific condition types may define expected values and meanings for this field,
+                              and whether the values are considered a guaranteed API.
+                              The value should be a CamelCase string.
+                              This field may not be empty.
+                            maxLength: 1024
+                            minLength: 1
+                            pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                            type: string
+                          status:
+                            description: status of the condition, one of True, False,
+                              Unknown.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          type:
+                            description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                            maxLength: 316
+                            pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                            type: string
+                        required:
+                        - lastTransitionTime
+                        - message
+                        - reason
+                        - status
+                        - type
+                        type: object
+                      maxItems: 32
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - type
+                      x-kubernetes-list-type: map
+                      x-kubernetes-validations:
+                      - message: condition type is not part of the Waycloak common
+                          contract
+                        rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
+                          'Ready'])
+                      - message: Accepted condition reason is not stable
+                        rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
+                          'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
+                          'Deleting'])
+                      - message: ResolvedRefs condition reason is not stable
+                        rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in
+                          ['ResolvedRefs', 'InvalidRef', 'RefNotFound', 'RefNotPermitted',
+                          'IncompatibleRef'])
+                      - message: Programmed condition reason is not stable
+                        rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
+                          'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
+                      - message: Ready condition reason is not stable
+                        rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready',
+                          'NotReady', 'ObservationUnavailable', 'Deleting'])
+                      - message: Unknown conditions must use ObservationUnavailable
+                        rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
+                    controllerName:
+                      description: ControllerName identifies one immutable controller
+                        implementation.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+/[A-Za-z0-9][A-Za-z0-9/._~-]*$
+                      type: string
+                    parentRef:
+                      properties:
+                        group:
+                          enum:
+                          - networking.waycloak.io
+                          type: string
+                        kind:
+                          enum:
+                          - VPNGateway
+                          type: string
+                        name:
+                          description: ObjectName is a Kubernetes object name represented
+                            as a DNS subdomain.
+                          maxLength: 253
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: NamespaceName is a Kubernetes namespace name.
+                          maxLength: 63
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - group
+                      - kind
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - controllerName
+                  - parentRef
+                  type: object
+                maxItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+            type: object
+            x-kubernetes-validations:
+            - message: parent status controllerName is immutable
+              rule: '!has(oldSelf.parents) || size(oldSelf.parents) == 0 || !has(self.parents)
+                || size(self.parents) == 0 || self.parents[0].controllerName == oldSelf.parents[0].controllerName'
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

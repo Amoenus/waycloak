@@ -1,0 +1,12 @@
+apiVersion: networking.waycloak.io/v1beta1
+kind: WorkloadAdapter
+metadata:
+  name: example
+  namespace: media
+spec:
+  image: registry.invalid/waycloak/example-adapter@sha256:2222222222222222222222222222222222222222222222222222222222222222
+  protocolVersion: networking.waycloak.io/adapter/v1
+  supportedApplications:
+    - example.waycloak.io/downloader
+  supportedFeatures:
+    - networking.waycloak.io/PortForwardServiceSingleActive

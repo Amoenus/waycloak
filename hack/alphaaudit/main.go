@@ -71,7 +71,7 @@ func run(root, inventoryPath string) error {
 }
 
 func trackedPaths(root string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files", "-z")
+	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
@@ -80,9 +80,17 @@ func trackedPaths(root string) ([]string, error) {
 	parts := strings.Split(string(output), "\x00")
 	paths := make([]string, 0, len(parts))
 	for _, path := range parts {
-		if path != "" {
-			paths = append(paths, filepath.ToSlash(path))
+		if path == "" {
+			continue
 		}
+		_, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(path)))
+		if errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+		if statErr != nil {
+			return nil, fmt.Errorf("inspect tracked file %s: %w", path, statErr)
+		}
+		paths = append(paths, filepath.ToSlash(path))
 	}
 	return paths, nil
 }

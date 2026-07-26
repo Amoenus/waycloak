@@ -1,0 +1,122 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: waycloak-controller
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - namespaces
+  - nodes
+  - pods
+  - secrets
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - portforwardleases
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - portforwardleases/finalizers
+  - vpnworkloadbindings/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - portforwardleases/status
+  - vpnegressroutes/status
+  - vpngatewayclasses/status
+  - vpngateways/status
+  - vpnworkloadbindings/status
+  - workloadadapters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpnegressroutes
+  - vpngatewayclasses
+  - vpngateways
+  - workloadadapters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.waycloak.io
+  resources:
+  - vpnworkloadbindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

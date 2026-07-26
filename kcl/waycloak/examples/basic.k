@@ -1,69 +1,41 @@
 # Copyright 2026 The Waycloak Authors.
 # SPDX-License-Identifier: MIT
+import v1beta1 as networking
 
-import helpers
-import v1alpha1 as networking
+_core_features = [
+    "networking.waycloak.io/CoreFailClosedEgress"
+    "networking.waycloak.io/TCP"
+    "networking.waycloak.io/UDP"
+    "networking.waycloak.io/DNSContainment"
+    "networking.waycloak.io/GatewayReplacementRecovery"
+    "networking.waycloak.io/NodeRestartRecovery"
+]
 
-_gateway_ref = helpers.GatewayReference {
-    namespace = "private-egress"
-    name = "proton-eu"
+_gateway_class = networking.VPNGatewayClass {
+    metadata.name = "example.waycloak.io"
+    spec = {
+        controllerName = "example.waycloak.io/controller"
+        releaseIdentity = {
+            version = "v1.0.0-beta.1"
+            manifestDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+        supportedFeatures = _core_features
+        conformanceProfile = "networking.waycloak.io/Core-v1"
+    }
 }
 
 _gateway = networking.VPNGateway {
     metadata = {
-        name = _gateway_ref.name
-        namespace = _gateway_ref.namespace
+        name = "private"
+        namespace = "media"
     }
     spec = {
-        engine = {
-            $type = "Gluetun"
-            image = "docker.io/qmcgaw/gluetun:v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045"
-        }
-        provider = {
-            name = "protonvpn"
-            $protocol = "openvpn"
-            region = "Netherlands"
-            credentialsSecretRef.name = "protonvpn-credentials"
-        }
-        overlay = {
-            cidr = "172.30.99.0/24"
-            vni = 7999
-            mtu = 1320
-        }
+        gatewayClassName = _gateway_class.metadata.name
+        requestedFeatures = _core_features
+        allowedRoutes.namespaces.from = "Same"
+        clusterTraffic.mode = "TunnelAll"
         dns.mode = "Gateway"
-        clusterTraffic = {
-            mode = "Preserve"
-            cidrs = ["10.42.0.0/16", "10.43.0.0/16"]
-        }
-        portForwarding = {
-            enabled = True
-            driver = "ProtonNatPmp"
-        }
-        workloadAccess.namespaceSelector.matchLabels = {
-            "networking.waycloak.io/access" = "allowed"
-        }
     }
 }
 
-_lease = networking.PortForwardLease {
-    metadata = {
-        name = "torrent"
-        namespace = "applications"
-    }
-    spec = {
-        gatewayRef = {
-            namespace = _gateway_ref.namespace
-            name = _gateway_ref.name
-        }
-        target = {
-            podSelector.matchLabels = {
-                "app.kubernetes.io/name" = "qbittorrent"
-            }
-            port = 6881
-            applicationPortMode = "ProviderAssigned"
-        }
-        protocols = ["TCP", "UDP"]
-    }
-}
-
-items = [_gateway, _lease]
+items = [_gateway_class, _gateway]

@@ -1,0 +1,21 @@
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNGateway
+metadata:
+  name: example
+  namespace: media
+spec:
+  gatewayClassName: example.waycloak.io
+  requestedFeatures:
+    - networking.waycloak.io/CoreFailClosedEgress
+    - networking.waycloak.io/TCP
+    - networking.waycloak.io/UDP
+    - networking.waycloak.io/DNSContainment
+    - networking.waycloak.io/GatewayReplacementRecovery
+    - networking.waycloak.io/NodeRestartRecovery
+  allowedRoutes:
+    namespaces:
+      from: Same
+  clusterTraffic:
+    mode: TunnelAll
+  dns:
+    mode: Gateway

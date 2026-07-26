@@ -15,9 +15,12 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   PR #144 with exact CI and authorized homelab evidence.
 - [x] #126 alpha removal inventory and unknown-artifact audit: merged in PR #145
   with exact CI and review evidence.
-- [ ] #127 replacement API ownership and lifecycle freeze: in progress; no CRD
-  generation begins before review.
-- [ ] #128–#141: proceed only in declared dependency order.
+- [x] #127 replacement API ownership and lifecycle freeze: merged in PR #146
+  with exact CI and review evidence.
+- [ ] #128 replacement CRDs, generated APIs, and RBAC: in progress; the API-only
+  slice must pass fresh-install discovery, schema, admission, RBAC, envtest, and
+  reproducibility gates before #129 begins.
+- [ ] #129–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

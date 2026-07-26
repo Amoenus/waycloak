@@ -11,24 +11,28 @@ spec:
     kind: PortForwardLease
     listKind: PortForwardLeaseList
     plural: portforwardleases
-    shortNames:
-    - pflease
     singular: portforwardlease
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.publicPort
+    - jsonPath: .spec.gatewayRef.name
+      name: Gateway
+      type: string
+    - jsonPath: .spec.backendRef.name
+      name: Backend
+      type: string
+    - jsonPath: .status.provider.publicPort
       name: Public Port
       type: integer
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    name: v1alpha1
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
-        description: |-
-          PortForwardLease is user-authored lease intent. Provider allocation,
-          observed target binding, gateway rules, and delivery readiness are status.
         properties:
           apiVersion:
             description: |-
@@ -49,11 +53,72 @@ spec:
             type: object
           spec:
             properties:
+              applicationAdapterRef:
+                properties:
+                  name:
+                    description: ObjectName is a Kubernetes object name represented
+                      as a DNS subdomain.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                required:
+                - name
+                type: object
+              backendRef:
+                properties:
+                  group:
+                    description: APIGroup is empty for core APIs or an RFC 1123 subdomain
+                      for named groups.
+                    maxLength: 253
+                    pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                  kind:
+                    description: Kind is a Kubernetes API kind.
+                    maxLength: 63
+                    minLength: 1
+                    pattern: ^[A-Za-z]([-A-Za-z0-9]*[A-Za-z0-9])?$
+                    type: string
+                  name:
+                    description: ObjectName is a Kubernetes object name represented
+                      as a DNS subdomain.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                  port:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    x-kubernetes-int-or-string: true
+                    x-kubernetes-validations:
+                    - message: port must be a valid service port name or number
+                      rule: 'type(self) == int ? self >= 1 && self <= 65535 : self.matches(''^[a-z]([-a-z0-9]*[a-z0-9])?$'')'
+                required:
+                - group
+                - kind
+                - name
+                - port
+                type: object
+              endpointPolicy:
+                default: SingleActive
+                enum:
+                - SingleActive
+                type: string
               gatewayRef:
                 properties:
                   name:
+                    description: ObjectName is a Kubernetes object name represented
+                      as a DNS subdomain.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   namespace:
+                    description: NamespaceName is a Kubernetes namespace name.
+                    maxLength: 63
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
                 required:
                 - name
@@ -61,9 +126,6 @@ spec:
                 type: object
               protocols:
                 items:
-                  description: |-
-                    PortForwardProtocol is an application-neutral transport protocol requested
-                    from a provider-backed forwarded-port lease.
                   enum:
                   - TCP
                   - UDP
@@ -72,88 +134,51 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set
-              target:
-                properties:
-                  applicationPortMode:
-                    default: Fixed
-                    description: |-
-                      ApplicationPortMode controls whether the application listens on the stable
-                      target port or must follow the provider-assigned public port.
-                    enum:
-                    - Fixed
-                    - ProviderAssigned
-                    type: string
-                  podSelector:
-                    description: |-
-                      A label selector is a label query over a set of resources. The result of matchLabels and
-                      matchExpressions are ANDed. An empty label selector matches all objects. A null
-                      label selector matches no objects.
-                    properties:
-                      matchExpressions:
-                        description: matchExpressions is a list of label selector
-                          requirements. The requirements are ANDed.
-                        items:
-                          description: |-
-                            A label selector requirement is a selector that contains values, a key, and an operator that
-                            relates the key and values.
-                          properties:
-                            key:
-                              description: key is the label key that the selector
-                                applies to.
-                              type: string
-                            operator:
-                              description: |-
-                                operator represents a key's relationship to a set of values.
-                                Valid operators are In, NotIn, Exists and DoesNotExist.
-                              type: string
-                            values:
-                              description: |-
-                                values is an array of string values. If the operator is In or NotIn,
-                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
-                                the values array must be empty. This array is replaced during a strategic
-                                merge patch.
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
-                          required:
-                          - key
-                          - operator
-                          type: object
-                        type: array
-                        x-kubernetes-list-type: atomic
-                      matchLabels:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
-                          map is equivalent to an element of matchExpressions, whose key field is "key", the
-                          operator is "In", and the values array contains only "value". The requirements are ANDed.
-                        type: object
-                    type: object
-                    x-kubernetes-map-type: atomic
-                  port:
-                    format: int32
-                    maximum: 65535
-                    minimum: 1
-                    type: integer
-                required:
-                - podSelector
-                - port
-                type: object
-                x-kubernetes-validations:
-                - message: podSelector must not be empty
-                  rule: (has(self.podSelector.matchLabels) && size(self.podSelector.matchLabels)
-                    > 0) || (has(self.podSelector.matchExpressions) && size(self.podSelector.matchExpressions)
-                    > 0)
             required:
+            - backendRef
             - gatewayRef
             - protocols
-            - target
             type: object
+            x-kubernetes-validations:
+            - message: backendRef must target a core Service
+              rule: self.backendRef.group.size() == 0 && self.backendRef.kind == 'Service'
           status:
             properties:
+              activeEndpoint:
+                properties:
+                  endpointSliceUID:
+                    description: ObjectUID is the exact UID of a Kubernetes object.
+                    maxLength: 128
+                    minLength: 1
+                    pattern: ^[^[:space:]]+$
+                    type: string
+                  phase:
+                    enum:
+                    - Selecting
+                    - Draining
+                    - Active
+                    type: string
+                  podUID:
+                    description: ObjectUID is the exact UID of a Kubernetes object.
+                    maxLength: 128
+                    minLength: 1
+                    pattern: ^[^[:space:]]+$
+                    type: string
+                  serviceUID:
+                    description: ObjectUID is the exact UID of a Kubernetes object.
+                    maxLength: 128
+                    minLength: 1
+                    pattern: ^[^[:space:]]+$
+                    type: string
+                required:
+                - endpointSliceUID
+                - phase
+                - podUID
+                - serviceUID
+                type: object
               conditions:
+                description: Conditions implements the common positive-polarity status
+                  contract.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -208,71 +233,54 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 32
                 type: array
-              expiresAt:
-                format: date-time
-                type: string
-              issuedAt:
-                format: date-time
-                type: string
-              leaseGeneration:
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: condition type is not part of the Waycloak common contract
+                  rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
+                    'Ready'])
+                - message: Accepted condition reason is not stable
+                  rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
+                    'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
+                    'Deleting'])
+                - message: ResolvedRefs condition reason is not stable
+                  rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])
+                - message: Programmed condition reason is not stable
+                  rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
+                    'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
+                - message: Ready condition reason is not stable
+                  rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady',
+                    'ObservationUnavailable', 'Deleting'])
+                - message: Unknown conditions must use ObservationUnavailable
+                  rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
+              handoffGeneration:
                 format: int64
                 type: integer
               observedGeneration:
                 format: int64
                 type: integer
-              providerInternalPort:
-                format: int32
-                maximum: 65535
-                minimum: 1
-                type: integer
-              publicAddress:
-                type: string
-              publicPort:
-                format: int32
-                type: integer
-              renewAfter:
-                format: date-time
-                type: string
-              target:
-                description: |-
-                  PortForwardTargetStatus binds gateway rules to an observed Pod UID and its
-                  persisted overlay allocation. A selector match alone is never sufficient.
+              provider:
                 properties:
-                  overlayAddress:
+                  expiresAt:
+                    format: date-time
                     type: string
-                  podRef:
-                    properties:
-                      name:
-                        type: string
-                      uid:
-                        description: |-
-                          UID is a type that holds unique ID values, including UUIDs.  Because we
-                          don't ONLY use UUIDs, this is an alias to string.  Being a type captures
-                          intent and helps make sure that UIDs and names do not get conflated.
-                        type: string
-                    required:
-                    - name
-                    - uid
-                    type: object
-                  port:
+                  publicAddress:
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                  publicPort:
                     format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    required:
-                    - name
-                    - namespace
-                    type: object
                 required:
-                - overlayAddress
-                - podRef
-                - port
-                - workloadRef
+                - expiresAt
+                - publicAddress
+                - publicPort
                 type: object
             type: object
         required:

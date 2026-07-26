@@ -1,4 +1,4 @@
-{{- $generatedRole := .Files.Get "files/manager-role.yaml" | fromYaml -}}
+{{- $generatedRole := .Files.Get "files/controller-role.yaml" | fromYaml -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -22,3 +22,15 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "waycloak.fullname" . }}
     namespace: {{ .Release.Namespace }}
+{{- range $path := list "files/distribution-role.yaml" "files/network-operator-role.yaml" "files/workload-owner-role.yaml" "files/adapter-operator-role.yaml" "files/node-agent-role.yaml" }}
+{{- $personaRole := $.Files.Get $path | fromYaml }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $personaRole.metadata.name }}
+  labels:
+    {{- include "waycloak.labels" $ | nindent 4 }}
+rules:
+  {{- toYaml $personaRole.rules | nindent 2 }}
+{{- end }}

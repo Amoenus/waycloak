@@ -1,106 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["images", "webhook"],
+  "additionalProperties": false,
   "properties": {
-    "replicaCount": {"type": "integer", "minimum": 2},
-    "images": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "serviceAccount": {
       "type": "object",
-      "required": ["controller", "agent", "gatewayManager"],
+      "additionalProperties": false,
       "properties": {
-        "controller": {"$ref": "#/$defs/image"},
-        "agent": {"$ref": "#/$defs/image"},
-        "gatewayManager": {"$ref": "#/$defs/image"}
-      }
-    },
-    "webhook": {
-      "type": "object",
-      "required": ["tls"],
-      "properties": {
-        "tls": {
+        "annotations": {
           "type": "object",
-          "required": ["existingSecret", "caBundle", "certManager"],
-          "properties": {
-            "existingSecret": {"type": "string"},
-            "caBundle": {"type": "string"},
-            "certManager": {
-              "type": "object",
-              "required": ["enabled", "createSelfSignedIssuer", "issuerRef"],
-              "properties": {
-                "enabled": {"type": "boolean"},
-                "createSelfSignedIssuer": {"type": "boolean"},
-                "issuerRef": {
-                  "type": "object",
-                  "required": ["name", "kind", "group"],
-                  "properties": {
-                    "name": {"type": "string"},
-                    "kind": {"type": "string", "minLength": 1},
-                    "group": {"type": "string", "minLength": 1}
-                  }
-                }
-              }
-            }
-          },
-          "allOf": [
-            {
-              "if": {
-                "properties": {
-                  "certManager": {
-                    "properties": {"enabled": {"const": false}},
-                    "required": ["enabled"]
-                  }
-                }
-              },
-              "then": {
-                "properties": {
-                  "existingSecret": {"minLength": 1},
-                  "caBundle": {"minLength": 1}
-                }
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "certManager": {
-                    "properties": {
-                      "enabled": {"const": true},
-                      "createSelfSignedIssuer": {"const": false}
-                    },
-                    "required": ["enabled", "createSelfSignedIssuer"]
-                  }
-                }
-              },
-              "then": {
-                "properties": {
-                  "certManager": {
-                    "properties": {
-                      "issuerRef": {
-                        "properties": {"name": {"minLength": 1}}
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ]
-        },
-        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 30}
-      }
-    },
-    "allocationQuarantine": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$"},
-    "podDisruptionBudget": {
-      "type": "object",
-      "required": ["minAvailable"],
-      "properties": {"minAvailable": {"type": "integer", "minimum": 1}}
-    }
-  },
-  "$defs": {
-    "image": {
-      "type": "object",
-      "required": ["repository", "digest"],
-      "properties": {
-        "repository": {"type": "string", "minLength": 1},
-        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          "additionalProperties": {"type": "string"}
+        }
       }
     }
   }
