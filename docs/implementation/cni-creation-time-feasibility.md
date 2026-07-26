@@ -4,10 +4,10 @@ Date: 2026-07-26
 
 Issue: [#124](https://github.com/Amoenus/waycloak/issues/124)
 
-Feasibility baseline: [PR #143](https://github.com/Amoenus/waycloak/pull/143),
-code candidate `810e703a94898ad3e72181c980001c9eb4914015`
+Feasibility candidate: [PR #143](https://github.com/Amoenus/waycloak/pull/143),
+code candidate `6ac4f267484494eff1fad3df8a607fa183dc3e0c`
 
-CI evidence: [run 30180813372](https://github.com/Amoenus/waycloak/actions/runs/30180813372)
+CI evidence: [run 30182972742](https://github.com/Amoenus/waycloak/actions/runs/30182972742)
 
 ## Decision
 
@@ -90,7 +90,7 @@ private endpoint or credential is recorded.
 
 ## Verification
 
-Run `30180813372` passed:
+Run `30182972742` passed:
 
 - gofmt, unit tests, Linux race tests, vet and staticcheck;
 - generated-artifact and workflow verification;
