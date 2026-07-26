@@ -4,6 +4,7 @@
 package cni
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +41,18 @@ func TestParseRequiresExactKubernetesIdentityAndPrevResult(t *testing.T) {
 	withoutPrevious := []byte(`{"cniVersion":"1.0.0","name":"kindnet","type":"waycloak"}`)
 	if _, err := Parse(withoutPrevious, "sandbox-1", "/netns/pod", "eth0", args, true, true); err == nil {
 		t.Fatal("missing prevResult was accepted")
+	}
+}
+
+func TestParseAcceptsLegacyKindnetPrevResult(t *testing.T) {
+	legacy := strings.ReplaceAll(primaryResult, "1.0.0", "0.3.1")
+	args := "IgnoreUnknown=1;K8S_POD_NAMESPACE=apps;K8S_POD_NAME=protected;K8S_POD_UID=uid-1;K8S_POD_INFRA_CONTAINER_ID=sandbox-1"
+	parsed, err := Parse([]byte(legacy), "sandbox-1", "/netns/pod", "eth0", args, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Conf.CNIVersion != "0.3.1" || parsed.Conf.PrevResult == nil {
+		t.Fatalf("legacy kindnet configuration was not retained: %#v", parsed.Conf)
 	}
 }
 

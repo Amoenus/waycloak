@@ -21,7 +21,7 @@ import (
 func main() {
 	skel.PluginMainFuncs(skel.CNIFuncs{
 		Add: cmdAdd, Del: cmdDel, Check: cmdCheck, GC: cmdGC, Status: cmdStatus,
-	}, version.PluginSupports("0.4.0", "1.0.0", "1.1.0"), "Waycloak chained CNI feasibility plugin")
+	}, version.PluginSupports("0.3.1", "0.4.0", "1.0.0", "1.1.0"), "Waycloak chained CNI feasibility plugin")
 }
 
 func cmdAdd(args *skel.CmdArgs) error {

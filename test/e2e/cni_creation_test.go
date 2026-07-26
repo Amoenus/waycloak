@@ -401,7 +401,15 @@ func waitForPodPhase(t *testing.T, direct client.Client, pod *corev1.Pod, phase 
 	if err := direct.Get(context.Background(), client.ObjectKeyFromObject(pod), &current); err != nil {
 		t.Fatalf("Pod did not reach phase %s and final observation failed: %v", phase, err)
 	}
-	t.Fatalf("Pod did not reach phase %s: phase=%s reason=%q message=%q containers=%#v", phase, current.Status.Phase, current.Status.Reason, current.Status.Message, current.Status.ContainerStatuses)
+	var events corev1.EventList
+	_ = direct.List(context.Background(), &events, client.InNamespace(pod.Namespace))
+	diagnostics := make([]string, 0, len(events.Items))
+	for _, event := range events.Items {
+		if event.InvolvedObject.UID == current.UID {
+			diagnostics = append(diagnostics, event.Reason+": "+event.Message)
+		}
+	}
+	t.Fatalf("Pod did not reach phase %s: phase=%s reason=%q message=%q containers=%#v events=%q", phase, current.Status.Phase, current.Status.Reason, current.Status.Message, current.Status.ContainerStatuses, diagnostics)
 }
 
 func waitForSandboxFailure(t *testing.T, direct client.Client, pod *corev1.Pod, timeout time.Duration) {
