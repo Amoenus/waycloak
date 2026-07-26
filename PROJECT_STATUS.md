@@ -55,7 +55,8 @@ bounded finalizers, exact SSA managers, and no Core webhook or Gateway API CRD
 dependency. The machine-readable freeze and negative audit block ambiguous list,
 reference, ownership, lifecycle, alpha, or conformance changes.
 
-Issue #128 is the active dependency. Its vertically testable slice generates the
+Issue #128 is complete and merged in
+[#147](https://github.com/Amoenus/waycloak/pull/147). Its vertically testable slice generates the
 six replacement Go APIs and structural CRDs, persona-separated RBAC, controller-
 only `VPNWorkloadBinding` admission defense, Helm CRD/RBAC output, KCL models,
 samples, and a deterministic API reference from one schema source. The chart is
@@ -65,7 +66,18 @@ must not be used to enroll workloads until the downstream Core path is proven.
 Kubernetes 1.36 envtest covers defaults, CEL and immutability, strict unknown-
 field rejection, list ownership, status ownership, persona RBAC, binding
 admission defense, and deletion behavior. Fresh-install Kind evidence remains
-required before #128 can close.
+green in the merged exact-artifact CI run.
+
+Issue #129 is the active dependency. The current vertical slice implements the
+single `networking.waycloak.io/egress-route` Pod-template lookup key, rejects
+alpha annotations and live-Pod enrollment mutation declaratively, resolves the
+exact Pod and route UIDs, and reconciles one effective gateway parent through
+the common positive-polarity status contract. A present label remains enrolled
+and fail closed when its route is missing, stale, rejected, changed, or deleted;
+unlabeled Pods remain outside Waycloak. Cross-namespace parents are denied by
+default behind the authorization seam implemented by #130. Binding allocation,
+node programming, and creation-time CNI admission remain downstream gates, so
+this slice does not yet make the intermediate chart safe for workload use.
 
 ## Current phase
 

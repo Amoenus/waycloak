@@ -1,14 +1,19 @@
 The clean-break Waycloak replacement API has been installed in namespace
 {{ .Release.Namespace }}.
 
-This #128 development slice installs only the v1beta1 CRDs, persona/controller
-RBAC, controller identity, and binding admission defense. It intentionally does
-not start the alpha controller or admission webhooks.
+This #128/#129 development slice installs the v1beta1 CRDs,
+persona/controller RBAC, controller identity, binding admission defense, and
+static Pod-enrollment validation. It intentionally does not start the alpha
+controller or admission webhooks.
 
-Do not enroll workloads yet. Replacement route reconciliation, UID-bound
+Do not enroll workloads yet. The replacement controller Deployment, UID-bound
 bindings, node programming, and CNI-capable scheduling land in dependency order
-in #129-#136. Until those gates pass, this chart is an API validation artifact,
+through #136. Until those gates pass, this chart is an API validation artifact,
 not a stable product installation.
+
+The reserved enrollment label is
+networking.waycloak.io/egress-route: <same-namespace-route-name>. Enrollment is
+immutable on an existing Pod; update its template and create a replacement Pod.
 
 Bind the waycloak-workload-owner ClusterRole only with a namespaced RoleBinding
 in each approved workload namespace. Do not grant it through a

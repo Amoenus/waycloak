@@ -105,8 +105,8 @@ jobs:
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-2.yaml"
           cmp "$RUNNER_TEMP/render-1.yaml" "$RUNNER_TEMP/render-2.yaml"
           test "$(grep -c '^kind: CustomResourceDefinition$' "$RUNNER_TEMP/render-1.yaml")" -eq 6
-          test "$(grep -c '^kind: ValidatingAdmissionPolicy$' "$RUNNER_TEMP/render-1.yaml")" -eq 1
-          test "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "$RUNNER_TEMP/render-1.yaml")" -eq 1
+          test "$(grep -c '^kind: ValidatingAdmissionPolicy$' "$RUNNER_TEMP/render-1.yaml")" -eq 2
+          test "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "$RUNNER_TEMP/render-1.yaml")" -eq 2
           test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
           test "$(grep -Ec '^kind: (Mutating|Validating)WebhookConfiguration$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
           if grep -q 'v1alpha' "$RUNNER_TEMP/render-1.yaml"; then
