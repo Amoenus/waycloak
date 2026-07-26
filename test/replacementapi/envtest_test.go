@@ -392,7 +392,14 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
 		gateway.Status.ObservedGeneration = gateway.Generation
 		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
-		gateway.Status.Addresses = []wayv1.GatewayAddress{{Type: wayv1.GatewayAddressOverlayCIDR, Value: "198.51.100.0/29"}}
+		gateway.Status.Addresses = []wayv1.GatewayAddress{
+			{Type: wayv1.GatewayAddressTypeOverlayCIDR, Value: "198.51.100.0/29"},
+			{Type: wayv1.GatewayAddressTypeOverlayAddress, Value: "198.51.100.1"},
+			{Type: wayv1.GatewayAddressTypeUnderlayEndpoint, Value: "192.0.2.10:4789"},
+			{Type: wayv1.GatewayAddressTypeOverlayHealthPort, Value: "18080"},
+			{Type: wayv1.GatewayAddressTypeVNI, Value: "7999"},
+			{Type: wayv1.GatewayAddressTypeMTU, Value: "1320"},
+		}
 		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
 		must(t, admin.Status().Update(ctx, gateway))
 
@@ -685,6 +692,11 @@ func validBindingForNamespace(name, namespace string) *wayv1.VPNWorkloadBinding 
 			GatewayRef: wayv1.NamespacedUIDReference{Namespace: wayv1.NamespaceName(namespace), Name: "gateway", UID: wayv1.ObjectUID("gateway-" + name)},
 			NodeName:   "node.example.io",
 			Allocation: wayv1.WorkloadAllocation{Identity: "allocation-" + name, Address: "192.0.2.10/32"},
+			Network: wayv1.WorkloadNetworkIntent{
+				GatewayGeneration: 1, OverlayCIDR: "192.0.2.0/24", GatewayAddress: "192.0.2.1",
+				GatewayEndpoint: "198.51.100.10:4789", GatewayHealthPort: 18080, VNI: 7999, MTU: 1320,
+				ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+			},
 		},
 	}
 }

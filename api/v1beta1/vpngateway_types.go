@@ -8,6 +8,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	GatewayAddressTypeOverlayCIDR       QualifiedName = "networking.waycloak.io/OverlayCIDR"
+	GatewayAddressTypeOverlayAddress    QualifiedName = "networking.waycloak.io/OverlayAddress"
+	GatewayAddressTypeUnderlayEndpoint  QualifiedName = "networking.waycloak.io/UnderlayEndpoint"
+	GatewayAddressTypeOverlayHealthPort QualifiedName = "networking.waycloak.io/OverlayHealthPort"
+	GatewayAddressTypeVNI               QualifiedName = "networking.waycloak.io/VNI"
+	GatewayAddressTypeMTU               QualifiedName = "networking.waycloak.io/MTU"
+)
+
 type RoleObjectReference struct {
 	// +required
 	Role QualifiedName `json:"role"`

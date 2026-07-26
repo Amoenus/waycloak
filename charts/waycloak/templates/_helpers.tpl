@@ -2,6 +2,11 @@
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "waycloak.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "waycloak.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
 {{- define "waycloak.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}

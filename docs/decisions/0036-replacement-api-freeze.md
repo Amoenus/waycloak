@@ -59,6 +59,11 @@ features, reasons, finalizers, and field managers are machine-readable in
 [`replacement-api-freeze.json`](../api/replacement-api-freeze.json). CI audits
 that contract before #128 generates CRDs or Go types.
 
+ADR 0038 amends the pre-release binding contract with a required,
+controller-authored `spec.network` projection. This closes the privileged
+node-agent authority gap without adding Gateway/ConfigMap/Secret reads or
+trusting caller configuration.
+
 ## Consequences
 
 - The first replacement implementation carries beta compatibility discipline
@@ -88,3 +93,4 @@ that contract before #128 generates CRDs or Go types.
 - [ADRs 0025–0033](README.md)
 - [ADR 0034](0034-cni-creation-time-enforcement.md)
 - [ADR 0035](0035-node-agent-trust-and-local-protocol.md)
+- [ADR 0038](0038-binding-network-projection-and-node-observations.md)

@@ -135,10 +135,13 @@
         "spec.podRef", "spec.podRef.name", "spec.podRef.uid", "spec.routeRef", "spec.routeRef.name", "spec.routeRef.uid",
         "spec.gatewayRef", "spec.gatewayRef.namespace", "spec.gatewayRef.name", "spec.gatewayRef.uid", "spec.nodeName",
         "spec.allocation", "spec.allocation.identity", "spec.allocation.address",
+        "spec.network", "spec.network.gatewayGeneration", "spec.network.overlayCIDR", "spec.network.gatewayAddress", "spec.network.gatewayEndpoint",
+        "spec.network.gatewayHealthPort", "spec.network.vni", "spec.network.mtu", "spec.network.clusterTraffic", "spec.network.clusterTraffic.mode", "spec.network.clusterTraffic.bypassCIDRs",
         "status.observedGeneration", "status.appliedGeneration", "status.observedPodUID", "status.observedGatewayUID",
         "status.agent", "status.agent.nodeName", "status.agent.nodeBootID", "status.agent.instanceID", "status.agent.observedAt", "status.conditions"
       ],
       "lists": [
+        {"path": "spec.network.clusterTraffic.bypassCIDRs", "type": "set", "keys": [], "minItems": 0, "maxItems": 64},
         {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
       ],
       "references": [

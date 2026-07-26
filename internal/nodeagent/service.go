@@ -1,0 +1,404 @@
+// Copyright 2026 The Waycloak Authors.
+// SPDX-License-Identifier: MIT
+
+package nodeagent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/netip"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	waybinding "github.com/Amoenus/waycloak/internal/binding"
+	waycni "github.com/Amoenus/waycloak/internal/cni"
+	"github.com/Amoenus/waycloak/internal/dataplane"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const routeLabel = "networking.waycloak.io/egress-route"
+
+// Programmer is the narrow privileged network-namespace boundary. Production
+// uses the native nftables/netlink backend; tests use an in-memory recorder.
+type Programmer interface {
+	Identity(string) (string, error)
+	InstallLockdown(context.Context, string, string) error
+	Configure(context.Context, string, dataplane.Config) error
+	Verify(context.Context, string, dataplane.Config) error
+	Cleanup(context.Context, string, string) error
+}
+
+type AttachmentStore interface {
+	ListAll() ([]waycni.Attachment, error)
+	Save(waycni.Attachment) error
+}
+
+type Observation struct {
+	BindingNamespace string    `json:"bindingNamespace"`
+	BindingName      string    `json:"bindingName"`
+	BindingUID       string    `json:"bindingUID"`
+	Generation       int64     `json:"generation"`
+	PodUID           string    `json:"podUID"`
+	GatewayUID       string    `json:"gatewayUID"`
+	NodeName         string    `json:"nodeName"`
+	NodeBootID       string    `json:"nodeBootID"`
+	InstanceID       string    `json:"instanceID"`
+	ObservedAt       time.Time `json:"observedAt"`
+	Ready            bool      `json:"ready"`
+}
+
+// Service independently resolves caller identities from Kubernetes state and
+// owns programming, verification, withdrawal, restart recovery, and drift
+// repair for one node.
+type Service struct {
+	Reader       client.Reader
+	Programmer   Programmer
+	Store        AttachmentStore
+	NodeName     string
+	NodeBootID   string
+	InstanceID   string
+	Now          func() time.Time
+	RequireRelay bool
+	Capabilities []string
+
+	mu           sync.RWMutex
+	observations map[string]Observation
+	relayHealthy atomic.Bool
+}
+
+func (s *Service) Resolve(ctx context.Context, identity waycni.PodIdentity) (waycni.Resolution, error) {
+	pod, err := s.pod(ctx, identity)
+	if err != nil {
+		return waycni.Resolution{}, err
+	}
+	return waycni.Resolution{PodUID: string(pod.UID), Enrolled: pod.Labels[routeLabel] != "", Terminating: !pod.DeletionTimestamp.IsZero()}, nil
+}
+
+func (s *Service) Binding(ctx context.Context, identity waycni.PodIdentity) (waycni.Binding, error) {
+	pod, err := s.pod(ctx, identity)
+	if err != nil {
+		return waycni.Binding{}, err
+	}
+	if pod.Labels[routeLabel] == "" {
+		return waycni.Binding{}, waycni.ErrBindingNotReady
+	}
+	binding, err := s.binding(ctx, pod)
+	if err != nil {
+		return waycni.Binding{}, err
+	}
+	return bindingReference(binding), nil
+}
+
+func (s *Service) Prepare(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
+	if s.RequireRelay && !s.relayHealthy.Load() {
+		return errors.New("controller observation relay is unavailable")
+	}
+	pod, binding, cfg, err := s.authority(ctx, identity, requested)
+	if err != nil {
+		return err
+	}
+	if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
+		return fmt.Errorf("re-establish deny-first state: %w", err)
+	}
+	if err := s.Programmer.Configure(ctx, identity.NetNS, cfg); err != nil {
+		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
+		s.observe(binding, false)
+		return fmt.Errorf("program protected path with deny retained: %w", err)
+	}
+	if err := s.Programmer.Verify(ctx, identity.NetNS, cfg); err != nil {
+		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
+		s.observe(binding, false)
+		return fmt.Errorf("verify protected path before startup: %w", err)
+	}
+	_ = pod
+	s.observe(binding, true)
+	return nil
+}
+
+func (s *Service) Check(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
+	if s.RequireRelay && !s.relayHealthy.Load() {
+		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
+		return errors.New("controller observation relay is unavailable")
+	}
+	_, binding, cfg, err := s.authority(ctx, identity, requested)
+	if err != nil {
+		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
+		return err
+	}
+	if err := s.Programmer.Verify(ctx, identity.NetNS, cfg); err == nil {
+		s.observe(binding, true)
+		return nil
+	}
+	if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
+		s.observe(binding, false)
+		return fmt.Errorf("restore deny-first state after drift: %w", err)
+	}
+	if err := s.Programmer.Configure(ctx, identity.NetNS, cfg); err != nil {
+		s.observe(binding, false)
+		return fmt.Errorf("repair protected path: %w", err)
+	}
+	if err := s.Programmer.Verify(ctx, identity.NetNS, cfg); err != nil {
+		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
+		s.observe(binding, false)
+		return fmt.Errorf("verify repaired protected path: %w", err)
+	}
+	s.observe(binding, true)
+	return nil
+}
+
+func (s *Service) SetRelayHealthy(healthy bool) { s.relayHealthy.Store(healthy) }
+
+func (s *Service) Ready() bool { return !s.RequireRelay || s.relayHealthy.Load() }
+
+func (s *Service) Status() waycni.AgentStatus {
+	return waycni.AgentStatus{NodeName: s.NodeName, NodeBootID: s.NodeBootID, InstanceID: s.InstanceID, Capabilities: append([]string(nil), s.Capabilities...), Ready: s.Ready()}
+}
+
+// LockdownAll withdraws every durable attachment without removing exact state.
+// It is used when the controller observation relay is unavailable, making
+// controller loss a packet-path withdrawal rather than stale permission.
+func (s *Service) LockdownAll(ctx context.Context) error {
+	attachments, err := s.Store.ListAll()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, attachment := range attachments {
+		if err := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
+			s.observe(binding, false)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Service) Withdraw(ctx context.Context, identity waycni.PodIdentity) error {
+	if err := identity.Validate(); err != nil {
+		return err
+	}
+	pod, podErr := s.pod(ctx, identity)
+	if podErr == nil && !pod.DeletionTimestamp.IsZero() {
+		if err := s.Programmer.Cleanup(ctx, identity.NetNS, identity.UID); err != nil {
+			return fmt.Errorf("clean terminating exact attachment: %w", err)
+		}
+	} else if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
+		return fmt.Errorf("withdraw allow path while retaining deny: %w", err)
+	}
+	reported := false
+	if binding, err := s.rawBinding(ctx, identity.Namespace, identity.UID); err == nil {
+		s.observe(binding, false)
+		reported = true
+	}
+	if !reported {
+		s.mu.Lock()
+		delete(s.observations, identity.UID)
+		s.mu.Unlock()
+	}
+	return nil
+}
+
+// ReconcileAll rebuilds from durable CNI attachment records. A revoked or
+// unverifiable live Pod is locked down; only an absent exact Pod is cleaned.
+func (s *Service) ReconcileAll(ctx context.Context) error {
+	attachments, err := s.Store.ListAll()
+	if err != nil {
+		return fmt.Errorf("list durable CNI attachments: %w", err)
+	}
+	var errs []error
+	for _, attachment := range attachments {
+		if attachment.Pod.UID == "" || attachment.Pod.NetNS == "" {
+			continue
+		}
+		pod, err := s.pod(ctx, attachment.Pod)
+		if apierrors.IsNotFound(err) {
+			errs = append(errs, s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+			continue
+		}
+		if err != nil || !pod.DeletionTimestamp.IsZero() {
+			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+			continue
+		}
+		binding, readErr := s.binding(ctx, pod)
+		if readErr != nil || string(binding.UID) != attachment.BindingUID || string(binding.Spec.GatewayRef.UID) != attachment.GatewayUID {
+			lockErr := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID)
+			errs = append(errs, errors.Join(errors.New("durable attachment binding was revoked or replaced"), lockErr))
+			if readErr == nil {
+				s.observe(binding, false)
+			}
+			continue
+		}
+		requested := bindingReference(binding)
+		var reconcileErr error
+		if attachment.BindingGeneration != requested.Generation {
+			reconcileErr = s.Prepare(ctx, attachment.Pod, requested)
+		} else {
+			reconcileErr = s.Check(ctx, attachment.Pod, requested)
+		}
+		if reconcileErr != nil {
+			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
+				s.observe(binding, false)
+			}
+			errs = append(errs, reconcileErr)
+			continue
+		}
+		if attachment.BindingGeneration != requested.Generation {
+			attachment.BindingGeneration = requested.Generation
+			attachment.UpdatedAt = s.now()
+			if err := s.Store.Save(attachment); err != nil {
+				_ = s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID)
+				errs = append(errs, fmt.Errorf("persist adopted binding generation: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Service) Observations() []Observation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]Observation, 0, len(s.observations))
+	for _, observation := range s.observations {
+		result = append(result, observation)
+	}
+	return result
+}
+
+func (s *Service) authority(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) (*corev1.Pod, *wayv1.VPNWorkloadBinding, dataplane.Config, error) {
+	if err := requested.Validate(identity.UID); err != nil {
+		return nil, nil, dataplane.Config{}, err
+	}
+	pod, err := s.pod(ctx, identity)
+	if err != nil {
+		return nil, nil, dataplane.Config{}, err
+	}
+	binding, err := s.binding(ctx, pod)
+	if err != nil {
+		return nil, nil, dataplane.Config{}, err
+	}
+	if actual := bindingReference(binding); actual != requested {
+		return nil, nil, dataplane.Config{}, errors.New("requested binding identity or generation is stale")
+	}
+	cfg, err := ConfigFromBinding(binding)
+	if err != nil {
+		return nil, nil, dataplane.Config{}, err
+	}
+	return pod, binding, cfg, nil
+}
+
+func (s *Service) pod(ctx context.Context, identity waycni.PodIdentity) (*corev1.Pod, error) {
+	if err := identity.Validate(); err != nil {
+		return nil, err
+	}
+	if s.Reader == nil || s.Programmer == nil || s.NodeName == "" {
+		return nil, errors.New("node agent reader, programmer, and node name are required")
+	}
+	pod := &corev1.Pod{}
+	if err := s.Reader.Get(ctx, client.ObjectKey{Namespace: identity.Namespace, Name: identity.Name}, pod); err != nil {
+		return nil, err
+	}
+	if string(pod.UID) != identity.UID || pod.Spec.NodeName != s.NodeName {
+		return nil, errors.New("pod UID or node assignment does not match local authority")
+	}
+	return pod, nil
+}
+
+func (s *Service) binding(ctx context.Context, pod *corev1.Pod) (*wayv1.VPNWorkloadBinding, error) {
+	binding, err := s.rawBinding(ctx, pod.Namespace, string(pod.UID))
+	if err != nil {
+		return nil, err
+	}
+	if !binding.DeletionTimestamp.IsZero() || binding.Spec.PodRef.Name != wayv1.ObjectName(pod.Name) || binding.Spec.NodeName != wayv1.ObjectName(s.NodeName) || binding.UID == "" {
+		return nil, waycni.ErrBindingNotReady
+	}
+	return binding, nil
+}
+
+func (s *Service) rawBinding(ctx context.Context, namespace, podUID string) (*wayv1.VPNWorkloadBinding, error) {
+	binding := &wayv1.VPNWorkloadBinding{}
+	key := client.ObjectKey{Namespace: namespace, Name: waybinding.BindingName(types.UID(podUID))}
+	if err := s.Reader.Get(ctx, key, binding); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, waycni.ErrBindingNotReady
+		}
+		return nil, err
+	}
+	if binding.Spec.PodRef.UID != wayv1.ObjectUID(podUID) {
+		return nil, waycni.ErrBindingNotReady
+	}
+	return binding, nil
+}
+
+func bindingReference(binding *wayv1.VPNWorkloadBinding) waycni.Binding {
+	return waycni.Binding{UID: string(binding.UID), Generation: binding.Generation, PodUID: string(binding.Spec.PodRef.UID), GatewayUID: string(binding.Spec.GatewayRef.UID)}
+}
+
+func ConfigFromBinding(binding *wayv1.VPNWorkloadBinding) (dataplane.Config, error) {
+	if binding == nil || binding.Generation < 1 {
+		return dataplane.Config{}, errors.New("current binding is required")
+	}
+	overlay, err := netip.ParsePrefix(binding.Spec.Network.OverlayCIDR)
+	if err != nil {
+		return dataplane.Config{}, fmt.Errorf("parse projected overlay CIDR: %w", err)
+	}
+	allocated, err := netip.ParsePrefix(binding.Spec.Allocation.Address)
+	if err != nil {
+		return dataplane.Config{}, fmt.Errorf("parse allocated address: %w", err)
+	}
+	gateway, err := netip.ParseAddr(binding.Spec.Network.GatewayAddress)
+	if err != nil {
+		return dataplane.Config{}, fmt.Errorf("parse projected gateway address: %w", err)
+	}
+	endpoint, err := netip.ParseAddrPort(binding.Spec.Network.GatewayEndpoint)
+	if err != nil {
+		return dataplane.Config{}, fmt.Errorf("parse projected gateway endpoint: %w", err)
+	}
+	mode := dataplane.ClusterTrafficGateway
+	if binding.Spec.Network.ClusterTraffic.Mode == wayv1.ClusterTrafficBypassCluster {
+		mode = dataplane.ClusterTrafficPreserve
+	}
+	config := dataplane.Config{
+		PodUID: string(binding.Spec.PodRef.UID), AllocationGeneration: binding.Generation,
+		GatewayGeneration: binding.Spec.Network.GatewayGeneration, Address: netip.PrefixFrom(allocated.Addr(), overlay.Bits()),
+		OverlayCIDR: overlay, GatewayAddress: gateway, GatewayEndpoint: endpoint,
+		GatewayHealthPort: uint16(binding.Spec.Network.GatewayHealthPort), VNI: uint32(binding.Spec.Network.VNI),
+		MTU: int(binding.Spec.Network.MTU), ClusterTrafficMode: mode,
+	}
+	for _, text := range binding.Spec.Network.ClusterTraffic.BypassCIDRs {
+		prefix, err := netip.ParsePrefix(text)
+		if err != nil {
+			return dataplane.Config{}, fmt.Errorf("parse projected bypass CIDR: %w", err)
+		}
+		config.ClusterCIDRs = append(config.ClusterCIDRs, prefix)
+	}
+	return config, config.Validate()
+}
+
+func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) {
+	observation := Observation{
+		BindingNamespace: binding.Namespace, BindingName: binding.Name, BindingUID: string(binding.UID),
+		Generation: binding.Generation, PodUID: string(binding.Spec.PodRef.UID), GatewayUID: string(binding.Spec.GatewayRef.UID),
+		NodeName: s.NodeName, NodeBootID: s.NodeBootID, InstanceID: s.InstanceID, ObservedAt: s.now(), Ready: ready,
+	}
+	s.mu.Lock()
+	if s.observations == nil {
+		s.observations = make(map[string]Observation)
+	}
+	s.observations[observation.PodUID] = observation
+	s.mu.Unlock()
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
+}

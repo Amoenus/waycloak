@@ -31,6 +31,7 @@ flowchart LR
     Runtime --> CNI
     CNI -->|"authenticated cni-node/v1"| Socket --> Agent
     Agent -->|"read-only Pod + binding watch"| API
+    Agent -->|"Pod-bound token + bounded health observations"| Controller
     Controller --> API
     API --> Agent
     Agent --> Kernel
@@ -106,7 +107,7 @@ capability resolution. It never receives a sidecar or ordinary-egress fallback.
 | Enter Pod netns | node agent | supported read-only netns mount and only proven `SYS_ADMIN`/privileged boundary | programming false; CNI failure or runtime withdrawal | exact dev/inode mismatch refuses action; GC quarantines stale record | netns path reuse, runtime restart, disappearing namespace |
 | Program/repair kernel state | node agent | Waycloak-owned table/rules/routes/link in exact netns; `NET_ADMIN`; no arbitrary command API | Programmed/Ready false or unknown; packets denied | level-based repair or exact withdrawal | drift, foreign rules, partial transaction, agent restart |
 | Watch Kubernetes | node agent | short-lived projected token; get/list/watch Pods and bindings only | local cache unknown; new setup denied; Ready unknown | token/watch renewal; deny remains | RBAC denial, watch closure, stale generation |
-| Publish user status | controller | controller field manager; node agent has no status write in #125 | stale/unknown conditions with current diagnostic | controller observation recovery | compromised-agent report cannot directly write status |
+| Publish user status | controller | Pod-bound TokenReview resolves exact agent Pod UID/node; current binding must match that node; agent has no status write | stale/unknown conditions; relay loss withdraws node allow paths | authenticated relay and path re-verification | unbound token, cross-node report, stale binding, controller loss |
 | Mount VPN credential | gateway engine | referenced Secret mounted read-only only into engine | gateway refs unresolved/not ready | Secret rotation restarts/reloads engine per class contract | agent/controller/workload mount and RBAC absence |
 | Authorize cross-namespace ref | target owner + controller | explicit target-side consent; no tenant-writable authorization label | `ResolvedRefs=False/RefNotPermitted` without existence leak | consent removal withdraws programming/readiness | unauthorized existing/non-existing targets indistinguishable |
 | Collect diagnostics | waycloakctl/controller | allowlisted fields and bounded recent events; no Secret/key/raw endpoint | bundle section reports redaction/unavailable | rotate disclosed material and regenerate | canary secrets/endpoints never appear |
@@ -175,8 +176,12 @@ for other nodes.
 **Controls:** #125 grants only read-only Pod/binding watch scope. No Secret,
 gateway, route, namespace, workload mutation, or status-write RBAC exists.
 Cluster-wide metadata read is residual risk because RBAC cannot node-scope
-list/watch; cache and reconciler enforce node assignment. Observation
-publication needs a separately reviewed node-scoped authority in #133.
+list/watch; cache and reconciler enforce node assignment. ADR 0038 authenticates
+each observation with a short-lived Pod-bound token, resolves that Pod's current
+node, requires the exact installation namespace and node-agent ServiceAccount,
+and lets only the controller patch matching binding status. Relay loss
+marks the local agent unready, rejects prepare, and reinstalls lockdown for all
+durable attachments.
 
 ### Admission bypass and hostile intent
 

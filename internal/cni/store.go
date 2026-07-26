@@ -121,6 +121,38 @@ func (s FileStore) List(network string) ([]Attachment, error) {
 	return attachments, nil
 }
 
+// ListAll returns every validated Waycloak-owned attachment. The node agent
+// uses it to rebuild exact state after restart without guessing CNI network
+// names or inspecting unrelated runtime files.
+func (s FileStore) ListAll() ([]Attachment, error) {
+	entries, err := os.ReadDir(s.Directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	attachments := make([]Attachment, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.Directory, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var attachment Attachment
+		if err := json.Unmarshal(data, &attachment); err != nil {
+			return nil, fmt.Errorf("decode attachment state %q: %w", entry.Name(), err)
+		}
+		if err := attachment.Validate(); err != nil {
+			return nil, fmt.Errorf("validate attachment state %q: %w", entry.Name(), err)
+		}
+		attachments = append(attachments, attachment)
+	}
+	return attachments, nil
+}
+
 func (s FileStore) path(key Key) string {
 	sum := sha256.Sum256([]byte(key.Network + "\x00" + key.ContainerID + "\x00" + key.IfName))
 	return filepath.Join(s.Directory, hex.EncodeToString(sum[:])+".json")

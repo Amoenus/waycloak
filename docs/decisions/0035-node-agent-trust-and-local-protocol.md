@@ -103,8 +103,9 @@ and key rotation rebuild from durable exact-identity state before readiness.
   the current key is already inside the trusted node boundary.
 - Clock correctness within 30 seconds is a support prerequisite. Clock failure
   denies startup rather than weakening authentication.
-- Production observation/status publication remains deliberately ungranted
-  until #133 demonstrates a node-scoped authority model.
+- Production observation/status publication remains absent from node-agent
+  RBAC. ADR 0038 supplies the #133 node-scoped authority model through a
+  Pod-bound TokenReview relay owned by the controller.
 
 ## Alternatives rejected
 
@@ -124,3 +125,4 @@ and key rotation rebuild from durable exact-identity state before readiness.
 - [ADR 0028](0028-reference-authorization-and-cross-namespace-consent.md)
 - [ADR 0030](0030-capability-advertisement-and-conformance-profiles.md)
 - [ADR 0034](0034-cni-creation-time-enforcement.md)
+- [ADR 0038](0038-binding-network-projection-and-node-observations.md)

@@ -14,6 +14,26 @@
           "additionalProperties": {"type": "string"}
         }
       }
+    },
+    "nodeAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "observationRelayURL", "observationCASecret", "reconcileInterval"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "digest"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "observationRelayURL": {"type": "string"},
+        "observationCASecret": {"type": "string"},
+        "reconcileInterval": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s|m)$"}
+      }
     }
   }
 }

@@ -123,6 +123,17 @@ installed. Positive-control capture followed by zero direct TCP, UDP, DNS
 UDP/TCP, and fragmented-UDP packets is mandatory. Authentication failure is an
 availability failure and never permits fallback.
 
+The production agent suite additionally proves that the CNI cannot supply a
+data-plane configuration, stale binding UID/generation is rejected before
+programming, partial configure or verify restores lockdown, drift repair occurs
+under lockdown, and restart rebuilds only from validated durable attachments.
+Pod-bound TokenReview tests reject unbound tokens and cross-node observations.
+Loss of the authenticated controller observation relay makes local status
+unready, rejects new prepare, and locks down every durable attachment before a
+recovered path can be re-verified. Only an absent exact Pod permits stale-netns
+cleanup; API/watch ambiguity, deletion, node mismatch, and binding revocation
+retain deny.
+
 ### Failure injection
 
 Capture packets at the protected Pod, node/CNI interface, gateway overlay, and tunnel where possible. Inject:

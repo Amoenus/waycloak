@@ -327,6 +327,16 @@ spec:
   allocation:
     identity: <stable-opaque-id>
     address: 192.0.2.10/32
+  network:
+    gatewayGeneration: 4
+    overlayCIDR: 192.0.2.0/24
+    gatewayAddress: 192.0.2.1
+    gatewayEndpoint: 198.51.100.10:4789
+    gatewayHealthPort: 18080
+    vni: 7999
+    mtu: 1320
+    clusterTraffic:
+      mode: TunnelAll
 status:
   appliedGeneration: 7
   observedPodUID: <exact-pod-uid>
@@ -353,12 +363,19 @@ contains only exact UIDs, opaque identity, address, and `Active` or
 node agent cannot read it. Initial Core supports IPv4 `/16` through `/29` pools
 and reserves the network address, first gateway host, and broadcast address.
 
-Every reference and `nodeName` is immutable and UID-bound. Allocation identity
-is immutable; an address may change only through controller-owned desired state,
-which increments metadata generation. `appliedGeneration` reports the exact
-generation authenticated by the local agent. The node agent has no Kubernetes
-credential and never writes status directly. The binding controller relays its
-authenticated observation. The exact same-namespace Pod owns the binding. A
+Every reference and `nodeName` is immutable and UID-bound. `spec.network` is a
+controller-authored, credential-free projection of the current Ready gateway
+generation. The CNI names only the exact binding UID/generation; the agent
+re-reads and validates this projection before privileged programming.
+Allocation identity is immutable; an address may change only through
+controller-owned desired state, which increments metadata generation.
+`appliedGeneration` reports the exact generation authenticated by the local
+agent. The node agent has a short-lived, read-only Kubernetes credential for
+Pods and bindings and never writes status directly. The binding controller
+relays observations accepted only from a Pod-bound agent token scheduled to the
+binding's exact node and issued to the configured installation namespace and
+node-agent ServiceAccount, as defined by ADR 0038. The exact same-namespace Pod owns
+the binding. A
 `networking.waycloak.io/dataplane-cleanup` finalizer is limited to external node
 and gateway withdrawal for at most ten minutes; timeout retains deny, never
 reuses identity, quarantines the address, records `Ready=False`, and releases the
