@@ -65,5 +65,14 @@ added.
 ## Verification record
 
 The authenticated focused proof passes on the authorized k3s/containerd/
-Flannel homelab row. Exact PR and CI run links are recorded when the focused
-implementation PR reaches its final reviewed commit.
+Flannel homelab row in 119.30 seconds. The implementation candidate is commit
+[`38788b3`](https://github.com/Amoenus/waycloak/commit/38788b3dbe07732cc0c162e9a6980050b570d2d6)
+in focused PR [#144](https://github.com/Amoenus/waycloak/pull/144). CI run
+[`30184925167`](https://github.com/Amoenus/waycloak/actions/runs/30184925167)
+passed Linux unit/race/vet/static analysis, generated artifacts, deterministic
+Helm/KCL, envtest, source/dependency scans, the full Kind acceptance suite,
+pinned Kind/kindnet with containerd restart, and pinned k3d/Flannel.
+
+The final reviewed documentation head and its exact CI run are recorded on
+issue #125 immediately before merge so this file does not create a self-
+referential evidence commit loop.
