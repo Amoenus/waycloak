@@ -184,7 +184,19 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 		t.Fatalf("CNI path mutated or privileged the application Pod: %#v", observed.Spec)
 	}
 	must(t, direct.Delete(ctx, failing, client.GracePeriodSeconds(0)))
-	waitFor(t, 30*time.Second, func() bool {
+	runtimeCleaned := conditionWithin(10*time.Second, func() bool {
+		return commandSucceeds(namespace, installerPod.Name, "test -z \"$(find /host-state/waycloak-e2e -type f -name '*.json' -print -quit 2>/dev/null)\"")
+	})
+	if runtimeCleaned {
+		staleLocal := filepath.Join(t.TempDir(), path.Base(statePath))
+		must(t, os.WriteFile(staleLocal, stateData, 0o600))
+		copyLocalFile(t, staleLocal, namespace, installerPod.Name, "/tmp/stale-attachment.json")
+		command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0600", "/tmp/stale-attachment.json", "/host-state/waycloak-e2e/"+path.Base(statePath))
+	}
+	if output, err := execCNI(namespace, installerPod.Name, "GC", attachment, "", map[string]any{"validAttachments": []any{}}); err != nil {
+		t.Fatalf("GC failed to remove stale missing-netns attachment: %v: %s", err, output)
+	}
+	waitFor(t, 10*time.Second, func() bool {
 		return commandSucceeds(namespace, installerPod.Name, "test -z \"$(find /host-state/waycloak-e2e -type f -name '*.json' -print -quit 2>/dev/null)\"")
 	})
 	for i := 0; i < 2; i++ {
@@ -192,16 +204,6 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 			t.Fatalf("idempotent DEL %d failed with missing netns: %v: %s", i+1, err, output)
 		}
 	}
-	staleLocal := filepath.Join(t.TempDir(), path.Base(statePath))
-	must(t, os.WriteFile(staleLocal, stateData, 0o600))
-	copyLocalFile(t, staleLocal, namespace, installerPod.Name, "/tmp/stale-attachment.json")
-	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0600", "/tmp/stale-attachment.json", "/host-state/waycloak-e2e/"+path.Base(statePath))
-	if output, err := execCNI(namespace, installerPod.Name, "GC", attachment, "", map[string]any{"validAttachments": []any{}}); err != nil {
-		t.Fatalf("GC failed to remove stale missing-netns attachment: %v: %s", err, output)
-	}
-	waitFor(t, 10*time.Second, func() bool {
-		return commandSucceeds(namespace, installerPod.Name, "test -z \"$(find /host-state/waycloak-e2e -type f -name '*.json' -print -quit 2>/dev/null)\"")
-	})
 
 	secondControl := cniTrafficPod("ordinary-after-failure", namespace, nodeName, nil)
 	must(t, direct.Create(ctx, secondControl))
@@ -209,6 +211,17 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	if final := readCaptureCounts(t, namespace, agentPod.Name); !final.allIncreasedFrom(afterFailure) {
 		t.Fatalf("primary CNI did not restore every direct probe class after Waycloak failure and DEL: before=%#v after=%#v", afterFailure, final)
 	}
+}
+
+func conditionWithin(timeout time.Duration, condition func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return condition()
 }
 
 func readRemoteAttachment(t *testing.T, namespace, pod string) (waycni.Attachment, string, []byte) {
