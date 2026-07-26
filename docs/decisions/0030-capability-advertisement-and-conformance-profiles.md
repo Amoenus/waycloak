@@ -1,6 +1,6 @@
 # ADR 0030: Capability advertisement and conformance profiles
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context
@@ -18,6 +18,15 @@ that contract.
 ## Decision
 
 Waycloak publishes versioned conformance profiles and feature identifiers.
+
+The first frozen identifiers are
+`networking.waycloak.io/CoreFailClosedEgress`,
+`networking.waycloak.io/TCP`, `networking.waycloak.io/UDP`,
+`networking.waycloak.io/DNSContainment`,
+`networking.waycloak.io/GatewayReplacementRecovery`, and
+`networking.waycloak.io/NodeRestartRecovery`. Extended uses
+`networking.waycloak.io/PortForwardServiceSingleActive` and
+`networking.waycloak.io/WorkloadAdapter`.
 
 The Core profile includes explicit workload opt-in, TCP/UDP VPN egress,
 fail-closed startup and runtime loss, contained UDP/TCP DNS, stable allocation,

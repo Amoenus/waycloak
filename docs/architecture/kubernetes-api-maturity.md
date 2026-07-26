@@ -3,6 +3,11 @@
 Status: replacement target architecture
 Last updated: 2026-07-26
 
+Issue #127 freezes this target as `networking.waycloak.io/v1beta1` on
+Kubernetes 1.36 or newer. The exact reviewed schema boundary is
+[replacement-api-freeze.json](../api/replacement-api-freeze.json); issue #128 is
+the first generated-API implementation step.
+
 ## Executive decision
 
 Waycloak will use the remaining pre-stable compatibility window to replace its
@@ -143,10 +148,11 @@ Every reference passes four separate tests:
 
 `ResolvedRefs` summarizes the first three. `Programmed` and `Ready` summarize
 applied and live state. A cross-namespace route-to-gateway reference requires
-gateway-side allowed-route consent. General references use upstream
-`ReferenceGrant` only where its semantics and supported-version cost fit; an
-optional dependency is not silently made Core. Unauthorized status does not
-reveal target existence before consent.
+gateway-side allowed-route consent. Every other initial Core reference is local
+or cluster-scoped, so Core has no Gateway API CRD dependency. A future different
+cross-namespace reference requires a new review before adopting upstream
+`ReferenceGrant`; Waycloak defines no temporary grant. Unauthorized status does
+not reveal target existence before consent.
 
 ## Status and field ownership
 

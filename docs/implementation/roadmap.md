@@ -13,9 +13,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   Kind, k3d and authorized homelab evidence.
 - [x] #125 node-agent threat model and authenticated local protocol: merged in
   PR #144 with exact CI and authorized homelab evidence.
-- [ ] #126 alpha removal inventory and unknown-artifact audit: in progress;
-  replacement schema freeze remains blocked pending review.
-- [ ] #127–#141: proceed only in declared dependency order.
+- [x] #126 alpha removal inventory and unknown-artifact audit: merged in PR #145
+  with exact CI and review evidence.
+- [ ] #127 replacement API ownership and lifecycle freeze: in progress; no CRD
+  generation begins before review.
+- [ ] #128–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

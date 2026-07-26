@@ -1,6 +1,6 @@
 # ADR 0033: Upstream Kubernetes API integration without semantic mimicry
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context
@@ -24,7 +24,10 @@ boundary and keeps Waycloak CRDs for the remaining domain intent.
 - Gateway API design principles guide role separation, references, status,
   capability discovery, conformance, and extension policy. Waycloak does not
   claim to implement Gateway API for private egress.
-- `ReferenceGrant` is preferred for compatible cross-namespace references.
+- Core gateway attachment uses gateway-owned `allowedRoutes` consent and has no
+  Gateway API CRD dependency. A future different cross-namespace reference uses
+  upstream `ReferenceGrant` only after an explicit dependency/API review;
+  Waycloak does not create a temporary grant kind.
 - CNI chaining is the Core creation-time enforcement boundary and preserves
   `prevResult`, `ADD`, `CHECK`, `DEL`, `GC`, ordering, and unrelated state.
 - Kubernetes `Service` becomes the preferred future stable abstraction for

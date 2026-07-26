@@ -26,9 +26,10 @@ Gate status (2026-07-26): #124 passed on pinned Kind/kindnet and
 k3d/k3s/Flannel CI rows plus an authorized k3s homelab row and merged in
 PR #143. ADR 0034 accepts the matrix-limited support decision and links the
 exact evidence. #125 merged in PR #144 with the authenticated local-protocol
-and node trust-boundary proof. #126 is now the active Phase 0 dependency; its
-reviewed removal inventory must pass before #127 can freeze replacement APIs.
-No replacement CRD work starts until that gate is complete.
+and node trust-boundary proof. #126 merged in PR #145 with the reviewed removal
+inventory, unknown-artifact audit and fail-closed teardown ordering. #127 is now
+the active Phase 0 dependency and freezes the `v1beta1` implementation contract
+before #128 may generate replacement CRDs.
 4. Prove no application process can emit ordinary egress before successful
    Waycloak `ADD` on every proposed support-matrix row.
 5. Update the threat model for node agent/CNI privilege and local protocol.

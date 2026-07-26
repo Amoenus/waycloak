@@ -1,6 +1,6 @@
 # Stable and turnkey Waycloak product requirements
 
-Status: Draft for design review
+Status: Requirements accepted; replacement API frozen by issue #127
 Last updated: 2026-07-26
 Target: clean-break replacement architecture, then `v1` after beta evidence
 
