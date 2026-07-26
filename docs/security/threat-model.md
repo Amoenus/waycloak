@@ -108,11 +108,26 @@ capability resolution. It never receives a sidecar or ordinary-egress fallback.
 | Program/repair kernel state | node agent | Waycloak-owned table/rules/routes/link in exact netns; `NET_ADMIN`; no arbitrary command API | Programmed/Ready false or unknown; packets denied | level-based repair or exact withdrawal | drift, foreign rules, partial transaction, agent restart |
 | Watch Kubernetes | node agent | short-lived projected token; get/list/watch Pods and bindings only | local cache unknown; new setup denied; Ready unknown | token/watch renewal; deny remains | RBAC denial, watch closure, stale generation |
 | Publish user status | controller | Pod-bound TokenReview resolves exact agent Pod UID/node; current binding must match that node; agent has no status write | stale/unknown conditions; relay loss withdraws node allow paths | authenticated relay and path re-verification | unbound token, cross-node report, stale binding, controller loss |
-| Mount VPN credential | gateway engine | referenced Secret mounted read-only only into engine | gateway refs unresolved/not ready | Secret rotation restarts/reloads engine per class contract | agent/controller/workload mount and RBAC absence |
+| Resolve gateway credential ref | controller | exact `get` only through an operator-granted namespaced binding; metadata-only client and no status value | `ResolvedRefs=False`; programming remains pending | reference or permission restoration requeues; removal withdraws | missing/forbidden Secret, value canary absent from status |
+| Mount VPN credential | gateway engine | referenced Secret mounted read-only only into engine | gateway refs unresolved/not ready | Secret rotation restarts/reloads engine per class contract | agent/application mount absence; class/status redaction |
 | Authorize cross-namespace ref | target owner + controller | explicit target-side consent; no tenant-writable authorization label | `ResolvedRefs=False/RefNotPermitted` without existence leak | consent removal withdraws programming/readiness | unauthorized existing/non-existing targets indistinguishable |
 | Collect diagnostics | waycloakctl/controller | allowlisted fields and bounded recent events; no Secret/key/raw endpoint | bundle section reports redaction/unavailable | rotate disclosed material and regenerate | canary secrets/endpoints never appear |
 
 ## Primary threats and controls
+
+### Class claim and release substitution
+
+**Threat:** a second controller claims an existing class, a mutable release
+identity selects different images, or a gateway requests behavior the concrete
+release cannot provide.
+
+**Controls:** the bundled controller watches only its exact immutable
+`controllerName`; class spec, release digest, feature set and conformance profile
+are immutable and must exactly match the running release. Foreign, missing,
+deleting, mismatched, or unsupported classes and features keep gateway
+programming false and clear addresses. The installer refuses a duplicate
+controller claim and supplies the default class only from a verified release
+manifest digest. No credential field exists on the class.
 
 ### Silent direct-egress fallback
 

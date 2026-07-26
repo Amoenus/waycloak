@@ -185,6 +185,14 @@ controller does not claim them. Class `Ready=True` means the declared controller
 release and profile are observed available for gateway instantiation, not that a
 tunnel exists.
 
+The bundled controller claims only the exact
+`gluetun.waycloak.io/controller` identity. Foreign controller names are never
+status-owned by it. A class whose immutable release digest, conformance profile,
+feature set, or parameters do not match the running release is rejected before
+registration. Two installations must not claim the same controller name;
+turnkey preflight treats that as an installation conflict rather than allowing
+competing status writers.
+
 ## VPNGateway
 
 ```yaml
@@ -230,6 +238,16 @@ Implementation images, container command lines, generated VNI and internal
 filenames are not portable spec fields. Security-sensitive network defaults are
 rendered or explicitly confirmed during bootstrap, not silently guessed by the
 controller.
+
+The gateway controller resolves the exact cluster class first, then validates
+requested features and same-namespace native ConfigMap and credential Secret
+references. It reads credential objects only through the separately granted,
+namespaced `waycloak-gateway-secret-reader` permission and never copies values
+into status. Missing, foreign-controller, rejected-class, unsupported-feature,
+unsupported-role, unauthorized, or deleted references keep `Programmed=False`,
+clear observed addresses, and use the frozen condition reasons. A valid gateway
+remains `Programmed=False` and `Ready=False` until the gateway runtime slice
+provides and observes the complete tunnel path.
 
 `gatewayClassName` is immutable. Native and credential reference lists are map
 lists keyed by immutable qualified `role`, limited to 16 entries each. Native

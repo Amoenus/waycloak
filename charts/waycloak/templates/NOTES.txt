@@ -1,15 +1,25 @@
 The clean-break Waycloak replacement API has been installed in namespace
 {{ .Release.Namespace }}.
 
-This #128/#129 development slice installs the v1beta1 CRDs,
+This #128-#134 development slice installs the v1beta1 CRDs,
 persona/controller RBAC, controller identity, binding admission defense, and
 static Pod-enrollment validation. It intentionally does not start the alpha
 controller or admission webhooks.
 
-Do not enroll workloads yet. The replacement controller Deployment, UID-bound
-bindings, node programming, and CNI-capable scheduling land in dependency order
-through #136. Until those gates pass, this chart is an API validation artifact,
-not a stable product installation.
+{{- if .Values.defaultGatewayClass.enabled }}
+The immutable Gluetun VPNGatewayClass {{ .Values.defaultGatewayClass.name }} was
+rendered from release manifest digest
+{{ .Values.defaultGatewayClass.releaseIdentity.manifestDigest }}.
+{{- else }}
+No default VPNGatewayClass was installed because a verified release-manifest
+identity was not supplied. The signed install plan must enable it before any
+gateway is created.
+{{- end }}
+
+Do not enroll workloads yet. The replacement controller Deployment, CNI
+installer, and CNI-capable scheduling land in dependency order through #136.
+Until those gates pass, this chart is an API validation artifact, not a stable
+product installation.
 
 The reserved enrollment label is
 networking.waycloak.io/egress-route: <same-namespace-route-name>. Enrollment is

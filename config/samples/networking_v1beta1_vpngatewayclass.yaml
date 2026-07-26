@@ -1,9 +1,9 @@
 apiVersion: networking.waycloak.io/v1beta1
 kind: VPNGatewayClass
 metadata:
-  name: example.waycloak.io
+  name: gluetun.waycloak.io
 spec:
-  controllerName: example.waycloak.io/controller
+  controllerName: gluetun.waycloak.io/controller
   releaseIdentity:
     version: v1.0.0-beta.1
     manifestDigest: sha256:1111111111111111111111111111111111111111111111111111111111111111

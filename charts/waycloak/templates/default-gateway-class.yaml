@@ -1,0 +1,27 @@
+{{- if .Values.defaultGatewayClass.enabled }}
+{{- $version := required "defaultGatewayClass.releaseIdentity.version is required when the default class is enabled" .Values.defaultGatewayClass.releaseIdentity.version }}
+{{- $digest := required "defaultGatewayClass.releaseIdentity.manifestDigest is required when the default class is enabled" .Values.defaultGatewayClass.releaseIdentity.manifestDigest }}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) }}
+{{- fail "defaultGatewayClass.releaseIdentity.manifestDigest must be an exact sha256 digest" }}
+{{- end }}
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNGatewayClass
+metadata:
+  name: {{ .Values.defaultGatewayClass.name }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-class
+spec:
+  controllerName: gluetun.waycloak.io/controller
+  releaseIdentity:
+    version: {{ $version | quote }}
+    manifestDigest: {{ $digest }}
+  supportedFeatures:
+    - networking.waycloak.io/CoreFailClosedEgress
+    - networking.waycloak.io/TCP
+    - networking.waycloak.io/UDP
+    - networking.waycloak.io/DNSContainment
+    - networking.waycloak.io/GatewayReplacementRecovery
+    - networking.waycloak.io/NodeRestartRecovery
+  conformanceProfile: networking.waycloak.io/Core-v1
+{{- end }}

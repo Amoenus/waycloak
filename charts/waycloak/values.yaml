@@ -4,6 +4,16 @@ fullnameOverride: ""
 serviceAccount:
   annotations: {}
 
+# The signed install plan in #138 enables this surface and supplies the exact
+# verified release-manifest identity. The API-only development chart does not
+# invent or silently substitute a release digest.
+defaultGatewayClass:
+  enabled: false
+  name: gluetun.waycloak.io
+  releaseIdentity:
+    version: ""
+    manifestDigest: ""
+
 # The #138 turnkey installer supplies exact signed image digests and relay TLS
 # material before enabling this production DaemonSet. Keeping it disabled in
 # the API-only chart stage avoids publishing a mutable or placeholder image.

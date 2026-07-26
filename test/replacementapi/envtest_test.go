@@ -639,6 +639,82 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Delete(ctx, class))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), &wayv1.VPNGateway{}))
 	})
+
+	t.Run("class and gateway controllers reject unsupported intent before programming", func(t *testing.T) {
+		class := validClass("controller-contract")
+		class.Spec.ControllerName = waycontroller.DefaultGatewayControllerName
+		must(t, admin.Create(ctx, class))
+		classReconciler := &waycontroller.VPNGatewayClassReconciler{
+			Client: admin, ControllerName: class.Spec.ControllerName, ReleaseIdentity: class.Spec.ReleaseIdentity,
+			ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+		}
+		_, err := classReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(class)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class))
+		for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionResolvedRefs, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
+			condition := apiMeta.FindStatusCondition(class.Status.Conditions, conditionType)
+			if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != class.Generation || class.Status.ObservedGeneration != class.Generation {
+				t.Fatalf("class condition %s = %#v", conditionType, class.Status)
+			}
+		}
+		assertManagedBy(t, class, wayv1.FieldManagerClassController)
+		classResourceVersion := class.ResourceVersion
+		_, err = classReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(class)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class))
+		if class.ResourceVersion != classResourceVersion {
+			t.Fatalf("no-op class reconciliation wrote status: %s -> %s", classResourceVersion, class.ResourceVersion)
+		}
+
+		configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "controller-native", Namespace: testNamespace}}
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "controller-credentials", Namespace: testNamespace}, Data: map[string][]byte{"password": []byte("must-not-enter-status")}}
+		must(t, admin.Create(ctx, configMap))
+		must(t, admin.Create(ctx, secret))
+		gateway := validGateway("controller-contract")
+		gateway.Spec.GatewayClassName = wayv1.ObjectName(class.Name)
+		gateway.Spec.NativeConfigRefs = []wayv1.RoleObjectReference{{Role: waycontroller.GluetunEnvironmentRole, Name: wayv1.ObjectName(configMap.Name)}}
+		gateway.Spec.CredentialRefs = []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: wayv1.ObjectName(secret.Name)}}
+		must(t, admin.Create(ctx, gateway))
+		gatewayReconciler := &waycontroller.ReplacementVPNGatewayReconciler{
+			Client: admin, APIReader: admin, ControllerName: class.Spec.ControllerName,
+			ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+			NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
+		}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(gateway)}
+		_, err = gatewayReconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, gateway))
+		if condition := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionAccepted); condition == nil || condition.Status != metav1.ConditionTrue {
+			t.Fatalf("accepted gateway status = %#v", gateway.Status)
+		}
+		if condition := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionResolvedRefs); condition == nil || condition.Status != metav1.ConditionTrue {
+			t.Fatalf("resolved gateway status = %#v", gateway.Status)
+		}
+		if condition := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionProgrammed); condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != wayv1.ReasonPending {
+			t.Fatalf("unimplemented programming status = %#v", gateway.Status)
+		}
+		if len(gateway.Status.Addresses) != 0 || strings.Contains(fmt.Sprint(gateway.Status), "must-not-enter-status") {
+			t.Fatalf("gateway status exposed credentials or partial programming: %#v", gateway.Status)
+		}
+		assertManagedBy(t, gateway, wayv1.FieldManagerGatewayController)
+		gatewayResourceVersion := gateway.ResourceVersion
+		_, err = gatewayReconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, gateway))
+		if gateway.ResourceVersion != gatewayResourceVersion {
+			t.Fatalf("no-op gateway reconciliation wrote status: %s -> %s", gatewayResourceVersion, gateway.ResourceVersion)
+		}
+
+		gateway.Spec.RequestedFeatures = []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive}
+		must(t, admin.Update(ctx, gateway))
+		_, err = gatewayReconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, gateway))
+		unsupported := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionAccepted)
+		if unsupported == nil || unsupported.Status != metav1.ConditionFalse || unsupported.Reason != wayv1.ReasonUnsupportedFeature || len(gateway.Status.Addresses) != 0 {
+			t.Fatalf("unsupported gateway status = %#v", gateway.Status)
+		}
+	})
 }
 
 func validClass(name string) *wayv1.VPNGatewayClass {

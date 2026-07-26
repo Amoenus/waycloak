@@ -56,6 +56,9 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 
 	command(t, nil, "helm", "upgrade", "--install", release, chartPath,
 		"--namespace", namespace,
+		"--set", "defaultGatewayClass.enabled=true",
+		"--set", "defaultGatewayClass.releaseIdentity.version=v1.0.0-beta.1",
+		"--set", "defaultGatewayClass.releaseIdentity.manifestDigest=sha256:4444444444444444444444444444444444444444444444444444444444444444",
 		"--wait", "--timeout", "3m")
 
 	wantResources := []string{
@@ -89,6 +92,7 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 		}
 	}
 	command(t, nil, "kubectl", "get", "clusterrole", release)
+	command(t, nil, "kubectl", "get", "vpngatewayclass", "gluetun.waycloak.io")
 	for _, role := range []string{
 		"waycloak-distribution",
 		"waycloak-network-operator",
@@ -147,6 +151,7 @@ spec:
       name: private
 `, namespace, className, namespace, namespace)
 	applyInput(t, nil, gatewayAndRoute)
+	verifyGatewayClassContract(t, namespace, className)
 	patch := `{"status":{"observedGeneration":1,"supportedFeatures":["networking.waycloak.io/CoreFailClosedEgress","networking.waycloak.io/TCP","networking.waycloak.io/UDP","networking.waycloak.io/DNSContainment","networking.waycloak.io/GatewayReplacementRecovery","networking.waycloak.io/NodeRestartRecovery"],"addresses":[{"type":"networking.waycloak.io/OverlayCIDR","value":"198.51.100.0/29"},{"type":"networking.waycloak.io/OverlayAddress","value":"198.51.100.1"},{"type":"networking.waycloak.io/UnderlayEndpoint","value":"203.0.113.10:4789"},{"type":"networking.waycloak.io/OverlayHealthPort","value":"18080"},{"type":"networking.waycloak.io/VNI","value":"7999"},{"type":"networking.waycloak.io/MTU","value":"1320"}],"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
 	command(t, nil, "kubectl", "patch", "vpngateway", "private", "-n", namespace, "--subresource=status", "--type=merge", "-p", patch)
 	componentPatch := `{"status":{"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"TunnelReady","status":"True","reason":"TunnelReady","message":"Tunnel is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"DNSReady","status":"True","reason":"DNSReady","message":"DNS is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"MembershipApplied","status":"True","reason":"MembershipApplied","message":"Membership is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
@@ -270,6 +275,119 @@ spec:
 	applyInput(t, []string{"--as=" + controllerUser}, binding)
 	command(t, nil, "kubectl", "get", "vpnworkloadbinding", "protected-11111111", "-n", namespace)
 	command(t, nil, "kubectl", "delete", "vpnworkloadbinding", "protected-11111111", "-n", namespace, "--as="+controllerUser, "--wait=true", "--timeout=30s")
+}
+
+func verifyGatewayClassContract(t *testing.T, namespace, className string) {
+	t.Helper()
+	ctx := context.Background()
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{wayv1.AddToScheme, corev1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client, err := ctrlclient.New(config, ctrlclient.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	class := &wayv1.VPNGatewayClass{}
+	if err := client.Get(ctx, ctrlclient.ObjectKey{Name: className}, class); err != nil {
+		t.Fatal(err)
+	}
+	classReconciler := &waycontroller.VPNGatewayClassReconciler{
+		Client: client, ControllerName: class.Spec.ControllerName, ReleaseIdentity: class.Spec.ReleaseIdentity,
+		ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+	}
+	if _, err := classReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(class)}); err != nil {
+		t.Fatal(err)
+	}
+	gatewayReconciler := &waycontroller.ReplacementVPNGatewayReconciler{
+		Client: client, APIReader: client, ControllerName: class.Spec.ControllerName,
+		ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
+	}
+	request := ctrl.Request{NamespacedName: ctrlclient.ObjectKey{Namespace: namespace, Name: "private"}}
+	if _, err := gatewayReconciler.Reconcile(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	gateway := &wayv1.VPNGateway{}
+	if err := client.Get(ctx, request.NamespacedName, gateway); err != nil {
+		t.Fatal(err)
+	}
+	for conditionType, want := range map[string]metav1.ConditionStatus{wayv1.ConditionAccepted: metav1.ConditionTrue, wayv1.ConditionResolvedRefs: metav1.ConditionTrue, wayv1.ConditionProgrammed: metav1.ConditionFalse} {
+		condition := apiMeta.FindStatusCondition(gateway.Status.Conditions, conditionType)
+		if condition == nil || condition.Status != want || condition.ObservedGeneration != gateway.Generation {
+			t.Fatalf("minimal gateway condition %s = %#v", conditionType, gateway.Status)
+		}
+	}
+	if gateway.Status.GatewayClass == nil || gateway.Status.GatewayClass.ReleaseIdentity != class.Spec.ReleaseIdentity || len(gateway.Status.Addresses) != 0 {
+		t.Fatalf("minimal gateway published invalid class or programming state: %#v", gateway.Status)
+	}
+
+	unsupported := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "unsupported", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
+		GatewayClassName: wayv1.ObjectName(className), RequestedFeatures: []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive},
+		ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+	}}
+	if err := client.Create(ctx, unsupported); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gatewayReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(unsupported)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Get(ctx, ctrlclient.ObjectKeyFromObject(unsupported), unsupported); err != nil {
+		t.Fatal(err)
+	}
+	condition := apiMeta.FindStatusCondition(unsupported.Status.Conditions, wayv1.ConditionAccepted)
+	programmed := apiMeta.FindStatusCondition(unsupported.Status.Conditions, wayv1.ConditionProgrammed)
+	if condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != wayv1.ReasonUnsupportedFeature || programmed == nil || programmed.Status != metav1.ConditionFalse || len(unsupported.Status.Addresses) != 0 {
+		t.Fatalf("unsupported gateway was partially accepted: %#v", unsupported.Status)
+	}
+
+	missing := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "missing-class", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
+		GatewayClassName: "missing.waycloak.io", ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+	}}
+	if err := client.Create(ctx, missing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gatewayReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(missing)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Get(ctx, ctrlclient.ObjectKeyFromObject(missing), missing); err != nil {
+		t.Fatal(err)
+	}
+	resolved := apiMeta.FindStatusCondition(missing.Status.Conditions, wayv1.ConditionResolvedRefs)
+	programmed = apiMeta.FindStatusCondition(missing.Status.Conditions, wayv1.ConditionProgrammed)
+	if resolved == nil || resolved.Status != metav1.ConditionFalse || resolved.Reason != wayv1.ReasonRefNotFound || programmed == nil || programmed.Status != metav1.ConditionFalse || len(missing.Status.Addresses) != 0 {
+		t.Fatalf("missing class was partially accepted: %#v", missing.Status)
+	}
+
+	foreignClass := &wayv1.VPNGatewayClass{ObjectMeta: metav1.ObjectMeta{Name: "foreign.waycloak.io"}, Spec: class.Spec}
+	foreignClass.Spec.ControllerName = "foreign.waycloak.io/controller"
+	if err := client.Create(ctx, foreignClass); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Delete(context.Background(), foreignClass) })
+	foreign := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "foreign-class", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{
+		GatewayClassName: wayv1.ObjectName(foreignClass.Name), ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+	}}
+	if err := client.Create(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gatewayReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(foreign)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Get(ctx, ctrlclient.ObjectKeyFromObject(foreign), foreign); err != nil {
+		t.Fatal(err)
+	}
+	accepted := apiMeta.FindStatusCondition(foreign.Status.Conditions, wayv1.ConditionAccepted)
+	programmed = apiMeta.FindStatusCondition(foreign.Status.Conditions, wayv1.ConditionProgrammed)
+	if accepted == nil || accepted.Status != metav1.ConditionFalse || accepted.Reason != wayv1.ReasonControllerNotFound || programmed == nil || programmed.Status != metav1.ConditionFalse || len(foreign.Status.Addresses) != 0 {
+		t.Fatalf("foreign class was partially accepted: %#v", foreign.Status)
+	}
 }
 
 func verifyUIDBoundBindings(t *testing.T, namespace, serviceAccount string) {

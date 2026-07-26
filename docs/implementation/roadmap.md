@@ -38,7 +38,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   reconfiguration reconciliation, exact-ServiceAccount observation relay,
   controller-loss lockdown, digest-pinned packaging, and privileged packet,
   Kind/kindnet, and k3d/Flannel gates passed.
-- [ ] #134–#141: proceed only in declared dependency order.
+- [x] #134 VPNGatewayClass and capabilities: completed in PR #153 after exact
+  controller/release claim, class/gateway status, unsupported-feature and
+  reference rejection, credential redaction, verified-manifest default-class
+  rendering, envtest, Kind, k3d, race, and generated-artifact gates passed.
+- [ ] #135–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 
