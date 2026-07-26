@@ -254,6 +254,16 @@ spec:
   allocation:
     identity: allocation-1
     address: 100.64.0.2/32
+  network:
+    gatewayGeneration: 1
+    overlayCIDR: 198.51.100.0/29
+    gatewayAddress: 198.51.100.1
+    gatewayEndpoint: 203.0.113.10:4789
+    gatewayHealthPort: 18080
+    vni: 7999
+    mtu: 1320
+    clusterTraffic:
+      mode: TunnelAll
 `, namespace, namespace)
 	assertApplyFails(t, "ordinary user created a controller-authored binding", nil, binding)
 	controllerUser := "system:serviceaccount:" + namespace + ":" + release
