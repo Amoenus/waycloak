@@ -18,6 +18,7 @@ import (
 const (
 	resolvePath  = "/cni-node/v1/resolve"
 	bindingPath  = "/cni-node/v1/binding"
+	preparePath  = "/cni-node/v1/prepare"
 	checkPath    = "/cni-node/v1/check"
 	withdrawPath = "/cni-node/v1/withdraw"
 	statusPath   = "/cni-node/v1/status"
@@ -27,14 +28,31 @@ const (
 type AgentRequest struct {
 	APIVersion string      `json:"apiVersion"`
 	Pod        PodIdentity `json:"pod"`
+	Binding    *Binding    `json:"binding,omitempty"`
+}
+
+// Prepare asks the privileged agent to independently resolve the exact
+// controller-authored binding, program it with deny retained, and verify the
+// live path before returning success.
+func (c UnixAgentClient) Prepare(ctx context.Context, pod PodIdentity, binding Binding) error {
+	return c.call(ctx, http.MethodPost, preparePath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod, Binding: &binding}, nil)
 }
 
 // AgentResponse carries either one successful result or one stable error.
 type AgentResponse struct {
-	APIVersion string      `json:"apiVersion"`
-	Resolution *Resolution `json:"resolution,omitempty"`
-	Binding    *Binding    `json:"binding,omitempty"`
-	Error      *AgentError `json:"error,omitempty"`
+	APIVersion string       `json:"apiVersion"`
+	Resolution *Resolution  `json:"resolution,omitempty"`
+	Binding    *Binding     `json:"binding,omitempty"`
+	Status     *AgentStatus `json:"status,omitempty"`
+	Error      *AgentError  `json:"error,omitempty"`
+}
+
+type AgentStatus struct {
+	NodeName     string   `json:"nodeName"`
+	NodeBootID   string   `json:"nodeBootID"`
+	InstanceID   string   `json:"instanceID"`
+	Capabilities []string `json:"capabilities"`
+	Ready        bool     `json:"ready"`
 }
 
 // AgentError is the authenticated, non-sensitive operation failure contract.
@@ -88,8 +106,8 @@ func (c UnixAgentClient) Binding(ctx context.Context, pod PodIdentity) (Binding,
 }
 
 // Check verifies that the agent still recognizes the exact attachment.
-func (c UnixAgentClient) Check(ctx context.Context, pod PodIdentity) error {
-	return c.call(ctx, http.MethodPost, checkPath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, nil)
+func (c UnixAgentClient) Check(ctx context.Context, pod PodIdentity, binding Binding) error {
+	return c.call(ctx, http.MethodPost, checkPath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod, Binding: &binding}, nil)
 }
 
 // Withdraw requests idempotent cleanup of one exact attachment.

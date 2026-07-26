@@ -81,6 +81,50 @@ func TestPodBindingUsesPodUIDNotNameForReuse(t *testing.T) {
 	}
 }
 
+func TestPodBindingUpdatesOnlyCredentialFreeNetworkIntent(t *testing.T) {
+	scheme := bindingTestScheme(t)
+	now := time.Unix(1000, 0).UTC()
+	pod, route, gateway := eligibleBindingObjects(now, "pod-uid")
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, route, gateway).Build()
+	reconciler := &PodBindingReconciler{Client: kube, APIReader: kube, Now: func() time.Time { return now }}
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pod)}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	binding := &wayv1.VPNWorkloadBinding{}
+	key := client.ObjectKey{Namespace: pod.Namespace, Name: waybinding.BindingName(pod.UID)}
+	if err := kube.Get(context.Background(), key, binding); err != nil {
+		t.Fatal(err)
+	}
+	allocation := binding.Spec.Allocation
+
+	if err := kube.Get(context.Background(), client.ObjectKeyFromObject(gateway), gateway); err != nil {
+		t.Fatal(err)
+	}
+	gateway.Generation = 2
+	gateway.Status.ObservedGeneration = 2
+	for i := range gateway.Status.Conditions {
+		gateway.Status.Conditions[i].ObservedGeneration = 2
+	}
+	for i := range gateway.Status.Addresses {
+		if gateway.Status.Addresses[i].Type == wayv1.GatewayAddressTypeUnderlayEndpoint {
+			gateway.Status.Addresses[i].Value = "198.51.100.3:4789"
+		}
+	}
+	if err := kube.Update(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Get(context.Background(), key, binding); err != nil {
+		t.Fatal(err)
+	}
+	if binding.Spec.Network.GatewayEndpoint != "198.51.100.3:4789" || binding.Spec.Network.GatewayGeneration != 2 || binding.Spec.Allocation != allocation {
+		t.Fatalf("reconfigured binding = %#v", binding.Spec)
+	}
+}
+
 func TestBindingStatusSeparatesDesiredAppliedAndLive(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	binding := &wayv1.VPNWorkloadBinding{ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "apps", Generation: 7}, Spec: wayv1.VPNWorkloadBindingSpec{
@@ -146,7 +190,15 @@ func eligibleBindingObjects(now time.Time, podUID string) (*corev1.Pod, *wayv1.V
 	route := &wayv1.VPNEgressRoute{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "apps", UID: "route-uid", Generation: 1}, Spec: wayv1.VPNEgressRouteSpec{ParentRefs: []wayv1.GatewayParentReference{parent}}}
 	route.Status = wayv1.VPNEgressRouteStatus{ObservedGeneration: 1, Conditions: wayv1.Conditions{trueCondition(wayv1.ConditionReady, 1, now)}, Parents: []wayv1.RouteParentStatus{{ParentRef: parent, ControllerName: RouteControllerName, Conditions: wayv1.Conditions{trueCondition(wayv1.ConditionReady, 1, now)}}}}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid", Generation: 1}}
-	gateway.Status = wayv1.VPNGatewayStatus{ObservedGeneration: 1, Addresses: []wayv1.GatewayAddress{{Type: wayv1.GatewayAddressOverlayCIDR, Value: "192.0.2.0/29"}}, Conditions: wayv1.GatewayConditions{trueCondition(wayv1.ConditionReady, 1, now)}}
+	gateway.Spec.ClusterTraffic = wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll}
+	gateway.Status = wayv1.VPNGatewayStatus{ObservedGeneration: 1, Addresses: []wayv1.GatewayAddress{
+		{Type: wayv1.GatewayAddressTypeOverlayCIDR, Value: "192.0.2.0/29"},
+		{Type: wayv1.GatewayAddressTypeOverlayAddress, Value: "192.0.2.1"},
+		{Type: wayv1.GatewayAddressTypeUnderlayEndpoint, Value: "198.51.100.2:4789"},
+		{Type: wayv1.GatewayAddressTypeOverlayHealthPort, Value: "18080"},
+		{Type: wayv1.GatewayAddressTypeVNI, Value: "7999"},
+		{Type: wayv1.GatewayAddressTypeMTU, Value: "1320"},
+	}, Conditions: wayv1.GatewayConditions{trueCondition(wayv1.ConditionReady, 1, now)}}
 	return pod, route, gateway
 }
 

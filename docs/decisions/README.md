@@ -39,5 +39,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0035: Node-agent trust boundary and authenticated local protocol](0035-node-agent-trust-and-local-protocol.md)
 - [0036: Replacement API freeze](0036-replacement-api-freeze.md)
 - [0037: UID-bound allocation and durable quarantine](0037-uid-bound-allocation-and-quarantine.md)
+- [0038: Credential-free binding projection and node-scoped observations](0038-binding-network-projection-and-node-observations.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

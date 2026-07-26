@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"reflect"
+	"strconv"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
@@ -75,6 +77,10 @@ func (r *PodBindingReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	if err != nil {
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
+	network, err := workloadNetworkIntent(gateway)
+	if err != nil {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
 
 	name := waybinding.BindingName(pod.UID)
 	existing := &wayv1.VPNWorkloadBinding{}
@@ -90,6 +96,14 @@ func (r *PodBindingReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 				}
 			}
 			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+		if !reflect.DeepEqual(existing.Spec.Network, network) {
+			updated := existing.DeepCopy()
+			updated.Spec.Network = network
+			if err := r.Patch(ctx, updated, client.MergeFrom(existing), client.FieldOwner(wayv1.FieldManagerBindingController)); err != nil {
+				return ctrl.Result{}, fmt.Errorf("update credential-free binding network intent: %w", err)
+			}
+			return ctrl.Result{}, nil
 		}
 		if _, err := (waybinding.Allocator{Client: r.Client, Reader: r.reader(), Now: r.Now}).Ensure(ctx, gateway, existing); err != nil {
 			if errors.Is(err, waybinding.ErrReservationConflict) && existing.DeletionTimestamp.IsZero() {
@@ -124,12 +138,60 @@ func (r *PodBindingReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 			GatewayRef: wayv1.NamespacedUIDReference{Namespace: wayv1.NamespaceName(gateway.Namespace), Name: wayv1.ObjectName(gateway.Name), UID: wayv1.ObjectUID(gateway.UID)},
 			NodeName:   wayv1.ObjectName(pod.Spec.NodeName),
 			Allocation: wayv1.WorkloadAllocation{Identity: reservation.Identity, Address: reservation.Address.String()},
+			Network:    network,
 		},
 	}
 	if err := r.Create(ctx, binding, client.FieldOwner(wayv1.FieldManagerBindingController)); err != nil && !apierrors.IsAlreadyExists(err) {
 		return ctrl.Result{}, fmt.Errorf("persist UID-bound workload binding: %w", err)
 	}
 	return ctrl.Result{}, nil
+}
+
+func workloadNetworkIntent(gateway *wayv1.VPNGateway) (wayv1.WorkloadNetworkIntent, error) {
+	values := make(map[wayv1.QualifiedName]string, len(gateway.Status.Addresses))
+	for _, address := range gateway.Status.Addresses {
+		values[address.Type] = address.Value
+	}
+	required := []wayv1.QualifiedName{
+		wayv1.GatewayAddressTypeOverlayCIDR, wayv1.GatewayAddressTypeOverlayAddress,
+		wayv1.GatewayAddressTypeUnderlayEndpoint, wayv1.GatewayAddressTypeOverlayHealthPort,
+		wayv1.GatewayAddressTypeVNI, wayv1.GatewayAddressTypeMTU,
+	}
+	for _, addressType := range required {
+		if values[addressType] == "" {
+			return wayv1.WorkloadNetworkIntent{}, fmt.Errorf("gateway status address %q is unavailable", addressType)
+		}
+	}
+	overlay, err := netip.ParsePrefix(values[wayv1.GatewayAddressTypeOverlayCIDR])
+	if err != nil {
+		return wayv1.WorkloadNetworkIntent{}, fmt.Errorf("parse gateway overlay CIDR: %w", err)
+	}
+	gatewayAddress, err := netip.ParseAddr(values[wayv1.GatewayAddressTypeOverlayAddress])
+	if err != nil || !overlay.Contains(gatewayAddress) {
+		return wayv1.WorkloadNetworkIntent{}, errors.New("gateway overlay address is invalid")
+	}
+	endpoint, err := netip.ParseAddrPort(values[wayv1.GatewayAddressTypeUnderlayEndpoint])
+	if err != nil || endpoint.Port() == 0 {
+		return wayv1.WorkloadNetworkIntent{}, errors.New("gateway underlay endpoint is invalid")
+	}
+	healthPort, err := strconv.ParseInt(values[wayv1.GatewayAddressTypeOverlayHealthPort], 10, 32)
+	if err != nil || healthPort < 1 || healthPort > 65535 {
+		return wayv1.WorkloadNetworkIntent{}, errors.New("gateway overlay health port is invalid")
+	}
+	vni, err := strconv.ParseInt(values[wayv1.GatewayAddressTypeVNI], 10, 32)
+	if err != nil || vni < 1 || vni > 16777215 {
+		return wayv1.WorkloadNetworkIntent{}, errors.New("gateway VNI is invalid")
+	}
+	mtu, err := strconv.ParseInt(values[wayv1.GatewayAddressTypeMTU], 10, 32)
+	if err != nil || mtu < 576 || mtu > 9000 {
+		return wayv1.WorkloadNetworkIntent{}, errors.New("gateway MTU is invalid")
+	}
+	return wayv1.WorkloadNetworkIntent{
+		GatewayGeneration: gateway.Generation,
+		OverlayCIDR:       overlay.Masked().String(), GatewayAddress: gatewayAddress.String(),
+		GatewayEndpoint: endpoint.String(), GatewayHealthPort: int32(healthPort),
+		VNI: int32(vni), MTU: int32(mtu), ClusterTraffic: gateway.Spec.ClusterTraffic,
+	}, nil
 }
 
 func (r *PodBindingReconciler) SetupWithManager(manager ctrl.Manager) error {

@@ -98,6 +98,76 @@ spec:
                 x-kubernetes-validations:
                 - message: gatewayRef is immutable
                   rule: self == oldSelf
+              network:
+                description: |-
+                  WorkloadNetworkIntent is the controller-authored, credential-free projection
+                  consumed by the node agent. It contains no provider or Kubernetes credential.
+                  The node agent still validates every field and the exact binding generation
+                  before using it as privileged programming authority.
+                properties:
+                  clusterTraffic:
+                    properties:
+                      bypassCIDRs:
+                        items:
+                          format: cidr
+                          type: string
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-type: set
+                      mode:
+                        enum:
+                        - BypassCluster
+                        - TunnelAll
+                        type: string
+                    required:
+                    - mode
+                    type: object
+                    x-kubernetes-validations:
+                    - message: BypassCluster requires at least one reviewed CIDR
+                      rule: self.mode != 'BypassCluster' || (has(self.bypassCIDRs)
+                        && size(self.bypassCIDRs) > 0)
+                    - message: bypassCIDRs are valid only with BypassCluster
+                      rule: self.mode == 'BypassCluster' || !has(self.bypassCIDRs)
+                        || size(self.bypassCIDRs) == 0
+                  gatewayAddress:
+                    format: ip
+                    type: string
+                  gatewayEndpoint:
+                    maxLength: 253
+                    minLength: 3
+                    type: string
+                  gatewayGeneration:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  gatewayHealthPort:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  mtu:
+                    format: int32
+                    maximum: 9000
+                    minimum: 576
+                    type: integer
+                  overlayCIDR:
+                    format: cidr
+                    type: string
+                  vni:
+                    format: int32
+                    maximum: 16777215
+                    minimum: 1
+                    type: integer
+                required:
+                - clusterTraffic
+                - gatewayAddress
+                - gatewayEndpoint
+                - gatewayGeneration
+                - gatewayHealthPort
+                - mtu
+                - overlayCIDR
+                - vni
+                type: object
               nodeName:
                 description: ObjectName is a Kubernetes object name represented as
                   a DNS subdomain.
@@ -155,6 +225,7 @@ spec:
             required:
             - allocation
             - gatewayRef
+            - network
             - nodeName
             - podRef
             - routeRef

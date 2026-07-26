@@ -3,3 +3,15 @@ fullnameOverride: ""
 
 serviceAccount:
   annotations: {}
+
+# The #138 turnkey installer supplies exact signed image digests and relay TLS
+# material before enabling this production DaemonSet. Keeping it disabled in
+# the API-only chart stage avoids publishing a mutable or placeholder image.
+nodeAgent:
+  enabled: false
+  image:
+    repository: ghcr.io/amoenus/waycloak-node-agent
+    digest: ""
+  observationRelayURL: ""
+  observationCASecret: ""
+  reconcileInterval: 5s

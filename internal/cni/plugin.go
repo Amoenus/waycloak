@@ -34,11 +34,10 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 		if err := sameAttachment(existing, request, namespaceIdentity); err != nil {
 			return err
 		}
-		if existing.Phase == PhaseReady && existing.Config != nil {
-			if err := p.Agent.Check(ctx, request.Pod); err == nil {
-				if err := p.Enforcer.Verify(ctx, request.Pod.NetNS, *existing.Config); err == nil {
-					return nil
-				}
+		if existing.Phase == PhaseReady {
+			binding := Binding{UID: existing.BindingUID, Generation: existing.BindingGeneration, PodUID: request.Pod.UID, GatewayUID: existing.GatewayUID}
+			if err := p.Agent.Check(ctx, request.Pod, binding); err == nil {
+				return nil
 			}
 		}
 	} else {
@@ -73,7 +72,7 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 		Phase: PhaseLockedDown, UpdatedAt: p.now(),
 	}
 	if err := p.Store.Save(attachment); err != nil {
-		rollbackErr := p.Enforcer.Cleanup(ctx, request.Pod.NetNS, request.Pod.UID, nil)
+		rollbackErr := p.Enforcer.Cleanup(ctx, request.Pod.NetNS, request.Pod.UID)
 		return errors.Join(fmt.Errorf("record deny-first attachment state: %w", err), errorWithContext("roll back unrecorded deny-first state", rollbackErr))
 	}
 
@@ -88,16 +87,13 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 	}
 	attachment.BindingUID = binding.UID
 	attachment.BindingGeneration = binding.Generation
-	attachment.Config = &binding.Config
+	attachment.GatewayUID = binding.GatewayUID
 	attachment.UpdatedAt = p.now()
 	if err := p.Store.Save(attachment); err != nil {
 		return fmt.Errorf("record allocated attachment state: %w", err)
 	}
-	if err := p.Enforcer.Configure(ctx, request.Pod.NetNS, binding.Config); err != nil {
-		return fmt.Errorf("program protected path after deny: %w", err)
-	}
-	if err := p.Enforcer.Verify(ctx, request.Pod.NetNS, binding.Config); err != nil {
-		return fmt.Errorf("verify protected path before CNI success: %w", err)
+	if err := p.Agent.Prepare(ctx, request.Pod, binding); err != nil {
+		return fmt.Errorf("ask local agent to program and verify protected path after deny: %w", err)
 	}
 	attachment.Phase = PhaseReady
 	attachment.UpdatedAt = p.now()
@@ -129,14 +125,12 @@ func (p Plugin) Check(ctx context.Context, request Request) error {
 	if err := sameAttachment(attachment, request, namespaceIdentity); err != nil {
 		return err
 	}
-	if attachment.Phase != PhaseReady || attachment.Config == nil {
+	if attachment.Phase != PhaseReady {
 		return errors.New("attachment has not completed deny-first protected-path setup")
 	}
-	if err := p.Agent.Check(ctx, request.Pod); err != nil {
+	binding := Binding{UID: attachment.BindingUID, Generation: attachment.BindingGeneration, PodUID: request.Pod.UID, GatewayUID: attachment.GatewayUID}
+	if err := p.Agent.Check(ctx, request.Pod, binding); err != nil {
 		return fmt.Errorf("local agent cannot confirm live attachment: %w", err)
-	}
-	if err := p.Enforcer.Verify(ctx, request.Pod.NetNS, *attachment.Config); err != nil {
-		return fmt.Errorf("verify live protected path: %w", err)
 	}
 	return nil
 }
@@ -167,11 +161,11 @@ func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
 	}
 	identity, identityErr := p.Enforcer.Identity(path)
 	if identityErr == nil && identity == attachment.NamespaceIdentity {
-		if err := p.Enforcer.Cleanup(ctx, path, attachment.Pod.UID, attachment.Config); err != nil {
+		_ = p.Agent.Withdraw(ctx, attachment.Pod)
+		if err := p.Enforcer.Cleanup(ctx, path, attachment.Pod.UID); err != nil {
 			return fmt.Errorf("remove exact Waycloak network state: %w", err)
 		}
 	}
-	_ = p.Agent.Withdraw(ctx, attachment.Pod)
 	if err := p.Store.Delete(key); err != nil {
 		return fmt.Errorf("delete attachment state: %w", err)
 	}
@@ -206,7 +200,7 @@ func (p Plugin) GC(ctx context.Context, network string, valid map[Key]struct{}) 
 		}
 		identity, identityErr := p.Enforcer.Identity(attachment.Pod.NetNS)
 		if identityErr == nil && identity == attachment.NamespaceIdentity {
-			if err := p.Enforcer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID, attachment.Config); err != nil {
+			if err := p.Enforcer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
 				errs = append(errs, err)
 				continue
 			}

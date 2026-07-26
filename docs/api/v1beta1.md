@@ -91,6 +91,7 @@ Every reconciled user-facing resource exposes positive-polarity `Accepted`, `Res
 | --- | --- | --- | --- |
 | `allocation` | true | `object` | — |
 | `gatewayRef` | true | `object` | — |
+| `network` | true | `object` | WorkloadNetworkIntent is the controller-authored, credential-free projection |
 | `nodeName` | true | `string` | ObjectName is a Kubernetes object name represented as a DNS subdomain. |
 | `podRef` | true | `object` | — |
 | `routeRef` | true | `object` | — |

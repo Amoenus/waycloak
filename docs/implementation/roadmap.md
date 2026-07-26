@@ -30,11 +30,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   PR #150 after resource-scoped vocabularies, current generations, strict live
   readiness, SSA conflicts, concurrent convergence, no-op suppression, and
   transition-time stability passed.
-- [ ] #132 UID-bound binding allocation: active; the current slice persists an
-  atomic gateway-owned Lease before binding creation, rejects stale CNI
-  identities/generations, separates desired/applied/live status, and implements
-  bounded durable quarantine. Kind acceptance and exact CI remain required.
-- [ ] #133–#141: proceed only in declared dependency order.
+- [x] #132 UID-bound binding allocation: merged in PR #151 after atomic
+  reservation, concurrent allocation, restart, stale identity, exact
+  withdrawal, quarantine, envtest, Kind and k3d gates passed.
+- [x] #133 privileged node agent: completed in PR #152 after credential-free
+  binding projection, agent-owned prepare/check/withdraw, drift/restart and
+  reconfiguration reconciliation, exact-ServiceAccount observation relay,
+  controller-loss lockdown, digest-pinned packaging, and privileged packet,
+  Kind/kindnet, and k3d/Flannel gates passed.
+- [ ] #134–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

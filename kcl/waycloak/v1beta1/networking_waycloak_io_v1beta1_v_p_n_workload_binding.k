@@ -44,6 +44,8 @@ schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpec:
         allocation
     gatewayRef : NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecGatewayRef, default is Undefined, required
         gateway ref
+    network : NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecNetwork, default is Undefined, required
+        network
     nodeName : str, default is Undefined, required
         ObjectName is a Kubernetes object name represented as a DNS subdomain.
     podRef : NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecPodRef, default is Undefined, required
@@ -54,6 +56,8 @@ schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpec:
     allocation: NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecAllocation
 
     gatewayRef: NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecGatewayRef
+
+    network: NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecNetwork
 
     nodeName: str
 
@@ -114,6 +118,76 @@ schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecGatewayRef:
         len(uid) <= 128
         len(uid) >= 1
         _regex_match(str(uid), r"^[^[:space:]]+$")
+
+schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecNetwork:
+    r"""
+    WorkloadNetworkIntent is the controller-authored, credential-free projection
+    consumed by the node agent. It contains no provider or Kubernetes credential.
+    The node agent still validates every field and the exact binding generation
+    before using it as privileged programming authority.
+
+    Attributes
+    ----------
+    clusterTraffic : NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecNetworkClusterTraffic, default is Undefined, required
+        cluster traffic
+    gatewayAddress : str, default is Undefined, required
+        gateway address
+    gatewayEndpoint : str, default is Undefined, required
+        gateway endpoint
+    gatewayGeneration : int, default is Undefined, required
+        gateway generation
+    gatewayHealthPort : int, default is Undefined, required
+        gateway health port
+    mtu : int, default is Undefined, required
+        mtu
+    overlayCIDR : str, default is Undefined, required
+        overlay c ID r
+    vni : int, default is Undefined, required
+        vni
+    """
+    clusterTraffic: NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecNetworkClusterTraffic
+
+    gatewayAddress: str
+
+    gatewayEndpoint: str
+
+    gatewayGeneration: int
+
+    gatewayHealthPort: int
+
+    mtu: int
+
+    overlayCIDR: str
+
+    vni: int
+
+    check:
+        len(gatewayEndpoint) <= 253
+        len(gatewayEndpoint) >= 3
+        gatewayGeneration >= 1
+        gatewayHealthPort <= 65535
+        gatewayHealthPort >= 1
+        mtu <= 9000
+        mtu >= 576
+        vni <= 16777215
+        vni >= 1
+
+schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecNetworkClusterTraffic:
+    r"""
+    networking waycloak io v1beta1 v p n workload binding spec network cluster traffic
+
+    Attributes
+    ----------
+    bypassCIDRs : [str], default is Undefined, optional
+        bypass c ID rs
+    mode : str, default is Undefined, required
+        mode
+    """
+    bypassCIDRs?: [str]
+    mode: "BypassCluster" | "TunnelAll"
+
+    check:
+        len(bypassCIDRs) <= 64 if bypassCIDRs
 
 schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecPodRef:
     r"""

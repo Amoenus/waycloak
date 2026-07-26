@@ -16,6 +16,40 @@ type WorkloadAllocation struct {
 	Address string `json:"address"`
 }
 
+// WorkloadNetworkIntent is the controller-authored, credential-free projection
+// consumed by the node agent. It contains no provider or Kubernetes credential.
+// The node agent still validates every field and the exact binding generation
+// before using it as privileged programming authority.
+type WorkloadNetworkIntent struct {
+	// +kubebuilder:validation:Minimum=1
+	// +required
+	GatewayGeneration int64 `json:"gatewayGeneration"`
+	// +kubebuilder:validation:Format=cidr
+	// +required
+	OverlayCIDR string `json:"overlayCIDR"`
+	// +kubebuilder:validation:Format=ip
+	// +required
+	GatewayAddress string `json:"gatewayAddress"`
+	// +kubebuilder:validation:MinLength=3
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	GatewayEndpoint string `json:"gatewayEndpoint"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +required
+	GatewayHealthPort int32 `json:"gatewayHealthPort"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=16777215
+	// +required
+	VNI int32 `json:"vni"`
+	// +kubebuilder:validation:Minimum=576
+	// +kubebuilder:validation:Maximum=9000
+	// +required
+	MTU int32 `json:"mtu"`
+	// +required
+	ClusterTraffic ClusterTraffic `json:"clusterTraffic"`
+}
+
 type VPNWorkloadBindingSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="podRef is immutable"
 	// +required
@@ -31,6 +65,8 @@ type VPNWorkloadBindingSpec struct {
 	NodeName ObjectName `json:"nodeName"`
 	// +required
 	Allocation WorkloadAllocation `json:"allocation"`
+	// +required
+	Network WorkloadNetworkIntent `json:"network"`
 }
 
 type NodeAgentObservation struct {

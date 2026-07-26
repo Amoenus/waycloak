@@ -1,0 +1,133 @@
+{{- if .Values.nodeAgent.enabled }}
+{{- $digest := required "nodeAgent.image.digest is required when nodeAgent.enabled=true" .Values.nodeAgent.image.digest }}
+{{- $relayURL := required "nodeAgent.observationRelayURL is required when nodeAgent.enabled=true" .Values.nodeAgent.observationRelayURL }}
+{{- $caSecret := required "nodeAgent.observationCASecret is required when nodeAgent.enabled=true" .Values.nodeAgent.observationCASecret }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "waycloak.fullname" . }}-node-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-agent
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "waycloak.fullname" . }}-node-agent
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: waycloak-node-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "waycloak.fullname" . }}-node-agent
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "waycloak.fullname" . }}-node-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "waycloak.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node-agent
+  template:
+    metadata:
+      labels:
+        {{- include "waycloak.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: node-agent
+    spec:
+      serviceAccountName: {{ include "waycloak.fullname" . }}-node-agent
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-agent
+          image: "{{ .Values.nodeAgent.image.repository }}@{{ $digest }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --node-name=$(WAYCLOAK_NODE_NAME)
+            - --observation-relay-url={{ $relayURL }}
+            - --reconcile-interval={{ .Values.nodeAgent.reconcileInterval }}
+          env:
+            - name: WAYCLOAK_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: true
+          volumeMounts:
+            - name: run
+              mountPath: /run/waycloak
+            - name: state
+              mountPath: /var/lib/cni/waycloak
+            - name: netns
+              mountPath: /var/run/netns
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: observation-identity
+              mountPath: /var/run/secrets/waycloak-observation
+              readOnly: true
+            - name: api-identity
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              memory: 192Mi
+      volumes:
+        - name: run
+          hostPath:
+            path: /run/waycloak
+            type: DirectoryOrCreate
+        - name: state
+          hostPath:
+            path: /var/lib/cni/waycloak
+            type: DirectoryOrCreate
+        - name: netns
+          hostPath:
+            path: /var/run/netns
+            type: Directory
+        - name: observation-identity
+          projected:
+            defaultMode: 0400
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: https://kubernetes.default.svc
+                  expirationSeconds: 600
+              - secret:
+                  name: {{ $caSecret }}
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+        - name: api-identity
+          projected:
+            defaultMode: 0400
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: https://kubernetes.default.svc
+                  expirationSeconds: 600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+{{- end }}

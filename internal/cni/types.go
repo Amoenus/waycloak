@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/Amoenus/waycloak/internal/dataplane"
 )
 
 const AgentAPIVersion = "networking.waycloak.io/cni-node/v1"
@@ -42,33 +40,27 @@ type Resolution struct {
 }
 
 type Binding struct {
-	UID        string           `json:"uid"`
-	Generation int64            `json:"generation"`
-	PodUID     string           `json:"podUID"`
-	GatewayUID string           `json:"gatewayUID"`
-	Config     dataplane.Config `json:"config"`
+	UID        string `json:"uid"`
+	Generation int64  `json:"generation"`
+	PodUID     string `json:"podUID"`
+	GatewayUID string `json:"gatewayUID"`
 }
 
 func (b Binding) Validate(expectedPodUID string) error {
 	if b.UID == "" || b.Generation < 1 || b.PodUID == "" || b.GatewayUID == "" {
 		return errors.New("binding UID, generation, Pod UID, and gateway UID are required")
 	}
-	if b.PodUID != expectedPodUID || b.Config.PodUID != expectedPodUID {
+	if b.PodUID != expectedPodUID {
 		return errors.New("binding Pod UID does not match exact CNI Pod UID")
 	}
-	if b.Config.AllocationGeneration != b.Generation {
-		return errors.New("binding generation does not match allocation generation")
-	}
-	if b.Config.GatewayGeneration < 1 {
-		return errors.New("current gateway generation is required")
-	}
-	return b.Config.Validate()
+	return nil
 }
 
 type Agent interface {
 	Resolve(context.Context, PodIdentity) (Resolution, error)
 	Binding(context.Context, PodIdentity) (Binding, error)
-	Check(context.Context, PodIdentity) error
+	Prepare(context.Context, PodIdentity, Binding) error
+	Check(context.Context, PodIdentity, Binding) error
 	Withdraw(context.Context, PodIdentity) error
 	Status(context.Context) error
 }
@@ -76,9 +68,7 @@ type Agent interface {
 type Enforcer interface {
 	Identity(string) (string, error)
 	InstallLockdown(context.Context, string, string) error
-	Configure(context.Context, string, dataplane.Config) error
-	Verify(context.Context, string, dataplane.Config) error
-	Cleanup(context.Context, string, string, *dataplane.Config) error
+	Cleanup(context.Context, string, string) error
 }
 
 type Phase string
@@ -89,14 +79,14 @@ const (
 )
 
 type Attachment struct {
-	Network           string            `json:"network"`
-	Pod               PodIdentity       `json:"pod"`
-	NamespaceIdentity string            `json:"namespaceIdentity"`
-	Phase             Phase             `json:"phase"`
-	BindingUID        string            `json:"bindingUID,omitempty"`
-	BindingGeneration int64             `json:"bindingGeneration,omitempty"`
-	Config            *dataplane.Config `json:"config,omitempty"`
-	UpdatedAt         time.Time         `json:"updatedAt"`
+	Network           string      `json:"network"`
+	Pod               PodIdentity `json:"pod"`
+	NamespaceIdentity string      `json:"namespaceIdentity"`
+	Phase             Phase       `json:"phase"`
+	BindingUID        string      `json:"bindingUID,omitempty"`
+	BindingGeneration int64       `json:"bindingGeneration,omitempty"`
+	GatewayUID        string      `json:"gatewayUID,omitempty"`
+	UpdatedAt         time.Time   `json:"updatedAt"`
 }
 
 func (a Attachment) Key() Key {
@@ -116,8 +106,8 @@ func (a Attachment) Validate() error {
 	switch a.Phase {
 	case PhaseLockedDown:
 	case PhaseReady:
-		if a.Config == nil || a.BindingUID == "" || a.BindingGeneration < 1 || a.Config.AllocationGeneration != a.BindingGeneration {
-			return errors.New("ready attachment requires exact current binding and protected-path configuration")
+		if a.BindingUID == "" || a.BindingGeneration < 1 || a.GatewayUID == "" {
+			return errors.New("ready attachment requires exact current binding identity")
 		}
 	default:
 		return fmt.Errorf("unknown attachment phase %q", a.Phase)
