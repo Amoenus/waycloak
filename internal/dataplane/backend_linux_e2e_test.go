@@ -415,7 +415,9 @@ func exchangeDNS(network, target string) error {
 			return err
 		}
 		response := make([]byte, binary.BigEndian.Uint16(length))
-		_, err = io.ReadFull(connection, response)
+		if _, err = io.ReadFull(connection, response); err != nil {
+			return err
+		}
 		return validateDNSResponse(response, query[:2])
 	}
 	if _, err = connection.Write(query); err != nil {

@@ -70,8 +70,8 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 	for _, resource := range []string{"validatingadmissionpolicy", "validatingadmissionpolicybinding"} {
 		command(t, nil, "kubectl", "get", resource, release+"-binding-guard")
 	}
+	command(t, nil, "kubectl", "get", "clusterrole", release)
 	for _, role := range []string{
-		"waycloak-controller",
 		"waycloak-distribution",
 		"waycloak-network-operator",
 		"waycloak-workload-owner",
