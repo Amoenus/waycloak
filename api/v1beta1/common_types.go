@@ -68,6 +68,12 @@ const (
 	FieldManagerBindingController = "waycloak-binding-controller"
 	FieldManagerLeaseController   = "waycloak-lease-controller"
 	FieldManagerAdapterController = "waycloak-adapter-controller"
+
+	// GatewayAddressOverlayCIDR identifies the controller-observed address pool
+	// used for UID-bound workload allocations. It is status, not user-authored
+	// configuration: the gateway controller derives it from an explicitly
+	// confirmed native configuration reference.
+	GatewayAddressOverlayCIDR QualifiedName = "networking.waycloak.io/OverlayCIDR"
 )
 
 func CoreFeatures() []FeatureName {

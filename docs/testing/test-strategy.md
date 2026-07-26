@@ -8,6 +8,9 @@ Networking claims require packet-level evidence. Unit tests and “Pod Ready” 
 
 - annotation parsing and mutation idempotence;
 - stable allocation and quarantine;
+- exact UID-derived replacement binding identity, atomic Lease collision,
+  exhaustion, restart recovery, stale generation rejection, and durable
+  quarantine recreation when the active reservation is missing;
 - condition transitions and observed generations;
 - provider capability decisions;
 - native engine ConfigMap precedence, reserved-key redaction, mount isolation,

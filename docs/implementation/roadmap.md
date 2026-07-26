@@ -26,11 +26,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] #130 cross-namespace parent consent and reference privacy: merged in PR
   #149 after uncached authorization, non-disclosure, revocation, dependency
   fan-out, envtest, Kind, and k3d gates passed.
-- [ ] #131 common conditions, per-parent status, and field ownership: active;
-  prove resource-scoped diagnostic vocabularies, current generations, strict
-  live readiness, SSA conflicts, concurrent convergence, semantic no-op
-  suppression, and timestamp stability.
-- [ ] #132–#141: proceed only in declared dependency order.
+- [x] #131 common conditions, per-parent status, and field ownership: merged in
+  PR #150 after resource-scoped vocabularies, current generations, strict live
+  readiness, SSA conflicts, concurrent convergence, no-op suppression, and
+  transition-time stability passed.
+- [ ] #132 UID-bound binding allocation: active; the current slice persists an
+  atomic gateway-owned Lease before binding creation, rejects stale CNI
+  identities/generations, separates desired/applied/live status, and implements
+  bounded durable quarantine. Kind acceptance and exact CI remain required.
+- [ ] #133–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

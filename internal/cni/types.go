@@ -42,8 +42,27 @@ type Resolution struct {
 }
 
 type Binding struct {
-	PodUID string           `json:"podUID"`
-	Config dataplane.Config `json:"config"`
+	UID        string           `json:"uid"`
+	Generation int64            `json:"generation"`
+	PodUID     string           `json:"podUID"`
+	GatewayUID string           `json:"gatewayUID"`
+	Config     dataplane.Config `json:"config"`
+}
+
+func (b Binding) Validate(expectedPodUID string) error {
+	if b.UID == "" || b.Generation < 1 || b.PodUID == "" || b.GatewayUID == "" {
+		return errors.New("binding UID, generation, Pod UID, and gateway UID are required")
+	}
+	if b.PodUID != expectedPodUID || b.Config.PodUID != expectedPodUID {
+		return errors.New("binding Pod UID does not match exact CNI Pod UID")
+	}
+	if b.Config.AllocationGeneration != b.Generation {
+		return errors.New("binding generation does not match allocation generation")
+	}
+	if b.Config.GatewayGeneration < 1 {
+		return errors.New("current gateway generation is required")
+	}
+	return b.Config.Validate()
 }
 
 type Agent interface {
@@ -74,6 +93,8 @@ type Attachment struct {
 	Pod               PodIdentity       `json:"pod"`
 	NamespaceIdentity string            `json:"namespaceIdentity"`
 	Phase             Phase             `json:"phase"`
+	BindingUID        string            `json:"bindingUID,omitempty"`
+	BindingGeneration int64             `json:"bindingGeneration,omitempty"`
 	Config            *dataplane.Config `json:"config,omitempty"`
 	UpdatedAt         time.Time         `json:"updatedAt"`
 }
@@ -95,8 +116,8 @@ func (a Attachment) Validate() error {
 	switch a.Phase {
 	case PhaseLockedDown:
 	case PhaseReady:
-		if a.Config == nil {
-			return errors.New("ready attachment requires protected-path configuration")
+		if a.Config == nil || a.BindingUID == "" || a.BindingGeneration < 1 || a.Config.AllocationGeneration != a.BindingGeneration {
+			return errors.New("ready attachment requires exact current binding and protected-path configuration")
 		}
 	default:
 		return fmt.Errorf("unknown attachment phase %q", a.Phase)
