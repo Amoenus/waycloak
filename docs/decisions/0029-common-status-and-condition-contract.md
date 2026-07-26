@@ -1,6 +1,6 @@
 # ADR 0029: Common status and condition contract
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context

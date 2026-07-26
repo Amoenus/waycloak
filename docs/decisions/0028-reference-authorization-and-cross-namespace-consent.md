@@ -1,6 +1,6 @@
 # ADR 0028: Cross-namespace references require target-side consent
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context
@@ -26,11 +26,13 @@ uncached or coherently observed Namespace object, documented as security
 policy, and accompanied by guidance that access labels must not be writable by
 the consuming tenant.
 
-Other cross-namespace references use upstream `ReferenceGrant` when its scope
-and availability meet Waycloak's supported Kubernetes matrix. If Waycloak must
-temporarily define its own grant, it follows the same additive `from` and `to`
-model, lives in the target namespace, excludes name-based pseudo-security, and
-has an explicit migration path to the upstream type.
+Core has no other cross-namespace reference. Gateway native configuration and
+credential refs are local, class refs are cluster scoped, binding identities are
+controller resolved, and Extended Service/adapter refs are local. Core therefore
+does not install or watch upstream `ReferenceGrant` and defines no temporary
+Waycloak grant kind. A future feature that needs another cross-namespace
+reference must adopt upstream `ReferenceGrant` as an explicit optional or Core
+dependency through a new API review, or remain same namespace.
 
 Unauthorized references produce `ResolvedRefs=False` with reason
 `RefNotPermitted`. Status and events do not reveal whether a target object
@@ -49,8 +51,8 @@ and controller reconciliation implement those lifecycles.
   tunnel.
 - Reference changes become watched runtime dependencies rather than admission-
   time checks only.
-- Supporting upstream `ReferenceGrant` may add an optional or required Gateway
-  API CRD dependency; that decision must be explicit for each release.
+- Core has no Gateway API CRD dependency. A future upstream `ReferenceGrant`
+  dependency requires an explicit feature/API decision.
 - Tenant-controlled namespace labels cannot safely authorize themselves.
 
 ## Alternatives rejected

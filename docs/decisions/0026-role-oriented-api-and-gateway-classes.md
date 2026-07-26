@@ -1,6 +1,6 @@
 # ADR 0026: Role-oriented API and gateway implementation classes
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context
@@ -26,6 +26,7 @@ The replacement API has these ownership roles:
 | Workload owner | `VPNEgressRoute` plus a Pod-template route label | bind workloads to an authorized gateway and request workload-owned behavior |
 | Workload owner | `PortForwardLease` when needed | request renewable inbound mapping to a typed backend |
 | Waycloak controller | `VPNWorkloadBinding` and generated dependents | Pod-UID allocation, desired/applied state and observed health |
+| Namespace operator | `WorkloadAdapter` | immutable local adapter trust and capability |
 
 `VPNGatewayClass` is cluster scoped and has an immutable controller name.
 `VPNGateway` is namespaced and references exactly one class. Credentials and

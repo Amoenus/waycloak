@@ -17,7 +17,7 @@ CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci bitmagnet-adapter-image-oci chart-package kcl-package alpha-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci bitmagnet-adapter-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
 
@@ -101,6 +101,9 @@ verify-workflows:
 
 alpha-audit:
 	$(GO) run ./hack/alphaaudit
+
+api-freeze-audit:
+	$(GO) run ./hack/apifreezeaudit
 
 verify-generated: generate manifests verify-chart-generated verify-kcl-generated
 	git diff --exit-code -- api config kcl/waycloak/v1alpha1 kcl/waycloak/k8s

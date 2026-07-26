@@ -1,6 +1,6 @@
 # ADR 0031: CRD installation, clean cutover, and storage lifecycle
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context

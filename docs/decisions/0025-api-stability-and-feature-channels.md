@@ -1,6 +1,6 @@
 # ADR 0025: Clean-break API redesign and feature channels
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 
 ## Context

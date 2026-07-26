@@ -93,6 +93,8 @@ jobs:
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts
         run: make alpha-audit
+      - name: Verify frozen replacement API boundary
+        run: make api-freeze-audit
       - name: Verify deterministic Helm rendering and package
         env:
           DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000

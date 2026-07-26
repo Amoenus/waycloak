@@ -1,6 +1,6 @@
 # ADR 0027: Typed egress routes with explicit Pod-template enrollment
 
-Status: Proposed
+Status: Accepted by issue #127
 Date: 2026-07-26
 Supersedes on acceptance: ADR 0002 workload attachment contract
 

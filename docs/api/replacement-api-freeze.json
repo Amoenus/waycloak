@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "apiGroup": "networking.waycloak.io",
+  "apiVersion": "v1beta1",
+  "minimumKubernetesVersion": "1.36.0",
+  "unknownFields": "Reject",
+  "claimsGatewayAPIConformance": false,
+  "referenceGrantCore": false,
+  "commonConditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"],
+  "conditionReasons": {
+    "Accepted": ["Accepted", "Invalid", "UnsupportedClass", "UnsupportedFeature", "ControllerNotFound", "Deleting"],
+    "ResolvedRefs": ["ResolvedRefs", "InvalidRef", "RefNotFound", "RefNotPermitted", "IncompatibleRef"],
+    "Programmed": ["Programmed", "Pending", "ApplyFailed", "StaleGeneration", "ObservationUnavailable"],
+    "Ready": ["Ready", "NotReady", "ObservationUnavailable", "Deleting"]
+  },
+  "featureChannels": {
+    "Core": [
+      "networking.waycloak.io/CoreFailClosedEgress",
+      "networking.waycloak.io/TCP",
+      "networking.waycloak.io/UDP",
+      "networking.waycloak.io/DNSContainment",
+      "networking.waycloak.io/GatewayReplacementRecovery",
+      "networking.waycloak.io/NodeRestartRecovery"
+    ],
+    "Extended": [
+      "networking.waycloak.io/PortForwardServiceSingleActive",
+      "networking.waycloak.io/WorkloadAdapter"
+    ],
+    "Experimental": []
+  },
+  "fieldManagers": [
+    {"name": "waycloak-class-controller", "owns": "VPNGatewayClass status only"},
+    {"name": "waycloak-gateway-controller", "owns": "VPNGateway status and same-namespace generated dependents"},
+    {"name": "waycloak-route-<controller-name-hash>", "owns": "the Core VPNEgressRoute status.parents atomic list and matching summary status"},
+    {"name": "waycloak-binding-controller", "owns": "VPNWorkloadBinding metadata, spec, finalizer and status"},
+    {"name": "waycloak-lease-controller", "owns": "PortForwardLease status and bounded provider-cleanup finalizer"},
+    {"name": "waycloak-adapter-controller", "owns": "WorkloadAdapter status only"}
+  ],
+  "kinds": [
+    {
+      "kind": "VPNGatewayClass",
+      "scope": "Cluster",
+      "specOwner": "Distribution",
+      "statusOwner": "ClassController",
+      "fields": [
+        "spec.controllerName", "spec.parametersRef", "spec.parametersRef.group", "spec.parametersRef.kind", "spec.parametersRef.name",
+        "spec.releaseIdentity", "spec.releaseIdentity.version", "spec.releaseIdentity.manifestDigest", "spec.supportedFeatures", "spec.conformanceProfile",
+        "status.observedGeneration", "status.conditions"
+      ],
+      "lists": [
+        {"path": "spec.supportedFeatures", "type": "set", "keys": [], "minItems": 6, "maxItems": 64},
+        {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
+      ],
+      "references": [
+        {"path": "spec.parametersRef", "target": "cluster-scoped implementation parameters", "namespaceRule": "ClusterOnly", "existence": "Required when set", "compatibility": "Group and kind advertised by controllerName", "consent": "Distribution owns both class and target", "revocation": "Accepted and Ready become False; gateways withdraw", "privacy": "No Secret kind and no credential values"}
+      ],
+      "immutableFields": ["spec.controllerName", "spec.parametersRef", "spec.releaseIdentity", "spec.supportedFeatures", "spec.conformanceProfile"],
+      "ownerReferences": [],
+      "finalizers": [],
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+    },
+    {
+      "kind": "VPNGateway",
+      "scope": "Namespaced",
+      "specOwner": "ClusterNetworkOperator",
+      "statusOwner": "GatewayController",
+      "fields": [
+        "spec.gatewayClassName", "spec.nativeConfigRefs", "spec.nativeConfigRefs.role", "spec.nativeConfigRefs.name",
+        "spec.credentialRefs", "spec.credentialRefs.role", "spec.credentialRefs.name", "spec.requestedFeatures",
+        "spec.allowedRoutes", "spec.allowedRoutes.namespaces", "spec.allowedRoutes.namespaces.from", "spec.allowedRoutes.namespaces.selector",
+        "spec.clusterTraffic", "spec.clusterTraffic.mode", "spec.clusterTraffic.bypassCIDRs", "spec.dns", "spec.dns.mode",
+        "spec.placement", "spec.placement.nodeSelector", "spec.placement.tolerations",
+        "status.observedGeneration", "status.gatewayClass", "status.gatewayClass.controllerName", "status.gatewayClass.releaseIdentity",
+        "status.supportedFeatures", "status.addresses", "status.addresses.type", "status.addresses.value", "status.conditions"
+      ],
+      "lists": [
+        {"path": "spec.nativeConfigRefs", "type": "map", "keys": ["role"], "minItems": 0, "maxItems": 16},
+        {"path": "spec.credentialRefs", "type": "map", "keys": ["role"], "minItems": 0, "maxItems": 16},
+        {"path": "spec.requestedFeatures", "type": "set", "keys": [], "minItems": 0, "maxItems": 64},
+        {"path": "spec.clusterTraffic.bypassCIDRs", "type": "set", "keys": [], "minItems": 0, "maxItems": 64},
+        {"path": "spec.placement.tolerations", "type": "atomic", "keys": [], "minItems": 0, "maxItems": 32},
+        {"path": "status.supportedFeatures", "type": "set", "keys": [], "minItems": 0, "maxItems": 64},
+        {"path": "status.addresses", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 16},
+        {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
+      ],
+      "references": [
+        {"path": "spec.gatewayClassName", "target": "VPNGatewayClass", "namespaceRule": "ClusterOnly", "existence": "Required", "compatibility": "Accepted class and controllerName", "consent": "Class is cluster operator visible", "revocation": "Gateway and attached routes withdraw", "privacy": "Class identity is public cluster metadata"},
+        {"path": "spec.nativeConfigRefs", "target": "ConfigMap", "namespaceRule": "SameNamespaceOnly", "existence": "Every role required when listed", "compatibility": "Role advertised by class", "consent": "Gateway namespace RBAC", "revocation": "Gateway becomes unresolved and withdraws", "privacy": "Status reports role only"},
+        {"path": "spec.credentialRefs", "target": "Secret", "namespaceRule": "SameNamespaceOnly", "existence": "Every role required when listed", "compatibility": "Role advertised by class", "consent": "Gateway namespace RBAC", "revocation": "Gateway becomes unresolved and withdraws", "privacy": "Controller and status never read or reveal values"}
+      ],
+      "immutableFields": ["spec.gatewayClassName"],
+      "ownerReferences": [
+        {"target": "same-namespace generated gateway dependents", "crossNamespace": false, "controllerOwnedUserIntent": false}
+      ],
+      "finalizers": [],
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+    },
+    {
+      "kind": "VPNEgressRoute",
+      "scope": "Namespaced",
+      "specOwner": "WorkloadOwner",
+      "statusOwner": "RouteControllerPerParent",
+      "fields": [
+        "spec.parentRefs", "spec.parentRefs.group", "spec.parentRefs.kind", "spec.parentRefs.namespace", "spec.parentRefs.name", "spec.requiredFeatures",
+        "status.observedGeneration", "status.conditions", "status.parents", "status.parents.parentRef", "status.parents.controllerName", "status.parents.conditions"
+      ],
+      "lists": [
+        {"path": "spec.parentRefs", "type": "map", "keys": ["group", "kind", "namespace", "name"], "minItems": 1, "maxItems": 1},
+        {"path": "spec.requiredFeatures", "type": "set", "keys": [], "minItems": 0, "maxItems": 64},
+        {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32},
+        {"path": "status.parents", "type": "atomic", "keys": [], "minItems": 0, "maxItems": 1},
+        {"path": "status.parents.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
+      ],
+      "references": [
+        {"path": "spec.parentRefs", "target": "VPNGateway", "namespaceRule": "GatewayAllowedRoutesConsent", "existence": "Exactly one required", "compatibility": "Group, kind and requested features", "consent": "Gateway allowedRoutes admits route namespace", "revocation": "Bindings and allow paths withdraw immediately", "privacy": "Before consent, RefNotPermitted does not reveal existence"}
+      ],
+      "immutableFields": ["status.parents.controllerName"],
+      "ownerReferences": [],
+      "finalizers": [],
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+    },
+    {
+      "kind": "VPNWorkloadBinding",
+      "scope": "Namespaced",
+      "specOwner": "ControllerOnly",
+      "statusOwner": "BindingControllerFromAuthenticatedNodeObservation",
+      "fields": [
+        "spec.podRef", "spec.podRef.name", "spec.podRef.uid", "spec.routeRef", "spec.routeRef.name", "spec.routeRef.uid",
+        "spec.gatewayRef", "spec.gatewayRef.namespace", "spec.gatewayRef.name", "spec.gatewayRef.uid", "spec.nodeName",
+        "spec.allocation", "spec.allocation.identity", "spec.allocation.address",
+        "status.observedGeneration", "status.appliedGeneration", "status.observedPodUID", "status.observedGatewayUID",
+        "status.agent", "status.agent.nodeName", "status.agent.nodeBootID", "status.agent.instanceID", "status.agent.observedAt", "status.conditions"
+      ],
+      "lists": [
+        {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
+      ],
+      "references": [
+        {"path": "spec.podRef", "target": "Pod", "namespaceRule": "SameNamespaceOnly", "existence": "Exact name and UID required", "compatibility": "Enrolled Pod and scheduled node", "consent": "Pod template label is explicit enrollment", "revocation": "Pod deletion starts bounded withdrawal", "privacy": "Only same-namespace identity is exposed"},
+        {"path": "spec.routeRef", "target": "VPNEgressRoute", "namespaceRule": "SameNamespaceOnly", "existence": "Exact name and UID required", "compatibility": "Accepted effective parent", "consent": "Inherited from route parent consent", "revocation": "Binding programming withdraws", "privacy": "No additional target data"},
+        {"path": "spec.gatewayRef", "target": "VPNGateway", "namespaceRule": "ResolvedByControllerOnly", "existence": "Exact namespace, name and UID required", "compatibility": "Same gateway accepted by route", "consent": "Already proven on route", "revocation": "Binding programming withdraws", "privacy": "Controller-created diagnostic identity only"}
+      ],
+      "immutableFields": ["spec.podRef", "spec.routeRef", "spec.gatewayRef", "spec.nodeName", "spec.allocation.identity"],
+      "ownerReferences": [
+        {"target": "exact same-namespace Pod UID", "crossNamespace": false, "controllerOwnedUserIntent": false}
+      ],
+      "finalizers": [
+        {"name": "networking.waycloak.io/dataplane-cleanup", "externalCleanup": true, "bounded": true, "maximumDuration": "10m", "timeoutOutcome": "deny retained, identity never reused, address quarantined"}
+      ],
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+    },
+    {
+      "kind": "PortForwardLease",
+      "scope": "Namespaced",
+      "specOwner": "WorkloadOwner",
+      "statusOwner": "LeaseController",
+      "fields": [
+        "spec.gatewayRef", "spec.gatewayRef.namespace", "spec.gatewayRef.name", "spec.backendRef", "spec.backendRef.group", "spec.backendRef.kind", "spec.backendRef.name", "spec.backendRef.port",
+        "spec.protocols", "spec.endpointPolicy", "spec.applicationAdapterRef", "spec.applicationAdapterRef.name",
+        "status.observedGeneration", "status.activeEndpoint", "status.activeEndpoint.serviceUID", "status.activeEndpoint.endpointSliceUID", "status.activeEndpoint.podUID",
+        "status.activeEndpoint.phase", "status.provider", "status.provider.publicAddress", "status.provider.publicPort", "status.provider.expiresAt",
+        "status.handoffGeneration", "status.conditions"
+      ],
+      "lists": [
+        {"path": "spec.protocols", "type": "set", "keys": [], "minItems": 1, "maxItems": 2},
+        {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
+      ],
+      "references": [
+        {"path": "spec.gatewayRef", "target": "VPNGateway", "namespaceRule": "GatewayAllowedRoutesConsent", "existence": "Required", "compatibility": "PortForwardServiceSingleActive feature", "consent": "Gateway allowedRoutes admits lease namespace", "revocation": "Provider mapping and gateway rules withdraw", "privacy": "Before consent, RefNotPermitted does not reveal existence"},
+        {"path": "spec.backendRef", "target": "Service", "namespaceRule": "SameNamespaceOnly", "existence": "Required with typed port", "compatibility": "SingleActive EndpointSlice Pod UID", "consent": "Same-namespace workload ownership", "revocation": "Drain then withdraw; never cross-deliver", "privacy": "Only selected Pod UID enters status"},
+        {"path": "spec.applicationAdapterRef", "target": "WorkloadAdapter", "namespaceRule": "SameNamespaceOnly", "existence": "Required when set", "compatibility": "Protocol and application capability", "consent": "Namespace operator trust record", "revocation": "Delivery withdraws before mapping Ready", "privacy": "No credential or Kubernetes token delivery"}
+      ],
+      "immutableFields": [],
+      "ownerReferences": [],
+      "finalizers": [
+        {"name": "networking.waycloak.io/provider-cleanup", "externalCleanup": true, "bounded": true, "maximumDuration": "10m", "timeoutOutcome": "mapping quarantined and Ready False"}
+      ],
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+    },
+    {
+      "kind": "WorkloadAdapter",
+      "scope": "Namespaced",
+      "specOwner": "Operator",
+      "statusOwner": "AdapterController",
+      "fields": [
+        "spec.image", "spec.protocolVersion", "spec.supportedApplications", "spec.supportedFeatures",
+        "status.observedGeneration", "status.conditions"
+      ],
+      "lists": [
+        {"path": "spec.supportedApplications", "type": "set", "keys": [], "minItems": 1, "maxItems": 32},
+        {"path": "spec.supportedFeatures", "type": "set", "keys": [], "minItems": 0, "maxItems": 32},
+        {"path": "status.conditions", "type": "map", "keys": ["type"], "minItems": 0, "maxItems": 32}
+      ],
+      "references": [],
+      "immutableFields": ["spec.image", "spec.protocolVersion", "spec.supportedApplications", "spec.supportedFeatures"],
+      "ownerReferences": [],
+      "finalizers": [],
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+    }
+  ]
+}
