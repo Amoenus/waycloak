@@ -344,6 +344,15 @@ user attempts. Allocation identity is persisted before CNI success and is never
 derived from list order. Status reports exact node-agent observation; object
 existence is not readiness.
 
+The gateway controller publishes the explicitly configured pool as the typed
+status address `networking.waycloak.io/OverlayCIDR`. The binding controller
+atomically reserves a canonical address with a non-expiring, gateway-owned
+`coordination.k8s.io/Lease` before creating the binding. That internal Lease
+contains only exact UIDs, opaque identity, address, and `Active` or
+`Quarantined` state. It is not a workload projection or CNI handshake, and the
+node agent cannot read it. Initial Core supports IPv4 `/16` through `/29` pools
+and reserves the network address, first gateway host, and broadcast address.
+
 Every reference and `nodeName` is immutable and UID-bound. Allocation identity
 is immutable; an address may change only through controller-owned desired state,
 which increments metadata generation. `appliedGeneration` reports the exact
@@ -354,6 +363,8 @@ authenticated observation. The exact same-namespace Pod owns the binding. A
 and gateway withdrawal for at most ten minutes; timeout retains deny, never
 reuses identity, quarantines the address, records `Ready=False`, and releases the
 finalizer according to the #132 durable quarantine protocol.
+ADR 0037 defines the atomic reservation, restart recovery, collision,
+exhaustion, verified release, and missing-record quarantine behavior.
 
 ## PortForwardLease direction
 

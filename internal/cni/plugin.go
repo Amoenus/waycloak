@@ -83,12 +83,11 @@ func (p Plugin) Add(ctx context.Context, request Request) error {
 	if err != nil {
 		return fmt.Errorf("wait for UID-bound allocation with deny retained: %w", err)
 	}
-	if binding.PodUID != request.Pod.UID || binding.Config.PodUID != request.Pod.UID {
-		return fmt.Errorf("binding Pod UID does not match exact CNI Pod UID %q", request.Pod.UID)
-	}
-	if err := binding.Config.Validate(); err != nil {
+	if err := binding.Validate(request.Pod.UID); err != nil {
 		return fmt.Errorf("validate UID-bound protected-path configuration with deny retained: %w", err)
 	}
+	attachment.BindingUID = binding.UID
+	attachment.BindingGeneration = binding.Generation
 	attachment.Config = &binding.Config
 	attachment.UpdatedAt = p.now()
 	if err := p.Store.Save(attachment); err != nil {

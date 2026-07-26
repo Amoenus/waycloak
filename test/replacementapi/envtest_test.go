@@ -18,9 +18,11 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	waybinding "github.com/Amoenus/waycloak/internal/binding"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/enrollment"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -68,6 +70,7 @@ func TestReplacementAPI(t *testing.T) {
 	must(t, corev1.AddToScheme(scheme))
 	must(t, rbacv1.AddToScheme(scheme))
 	must(t, admissionv1.AddToScheme(scheme))
+	must(t, coordinationv1.AddToScheme(scheme))
 	admin := mustClient(t, config, scheme)
 	must(t, admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}))
 
@@ -382,6 +385,117 @@ func TestReplacementAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("UID-bound allocation survives concurrency restart and stale observation", func(t *testing.T) {
+		now := time.Date(2026, 7, 26, 15, 0, 0, 0, time.UTC)
+		gateway := validGateway("binding-parent")
+		must(t, admin.Create(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.Addresses = []wayv1.GatewayAddress{{Type: wayv1.GatewayAddressOverlayCIDR, Value: "198.51.100.0/29"}}
+		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
+		must(t, admin.Status().Update(ctx, gateway))
+
+		route := validRoute("binding-route")
+		route.Spec.ParentRefs[0].Name = wayv1.ObjectName(gateway.Name)
+		must(t, admin.Create(ctx, route))
+		routeReconciler := &waycontroller.VPNEgressRouteReconciler{Client: admin, Scheme: scheme, Now: func() time.Time { return now }}
+		_, err := routeReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(route)})
+		must(t, err)
+
+		pods := []*corev1.Pod{
+			{ObjectMeta: metav1.ObjectMeta{Name: "binding-pod-a", Namespace: testNamespace, Labels: map[string]string{enrollment.RouteLabel: route.Name}}, Spec: corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "binding-pod-b", Namespace: testNamespace, Labels: map[string]string{enrollment.RouteLabel: route.Name}}, Spec: corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}},
+		}
+		for _, pod := range pods {
+			must(t, admin.Create(ctx, pod))
+		}
+		allocator := &waycontroller.PodBindingReconciler{Client: admin, APIReader: admin, Now: func() time.Time { return now }}
+		errors := make(chan error, len(pods))
+		for _, pod := range pods {
+			go func(pod *corev1.Pod) {
+				_, err := allocator.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(pod)})
+				errors <- err
+			}(pod)
+		}
+		for range pods {
+			must(t, <-errors)
+		}
+
+		bindings := make([]*wayv1.VPNWorkloadBinding, 0, len(pods))
+		addresses := map[string]struct{}{}
+		for _, pod := range pods {
+			binding := &wayv1.VPNWorkloadBinding{}
+			must(t, admin.Get(ctx, ctrlclient.ObjectKey{Namespace: pod.Namespace, Name: waybinding.BindingName(pod.UID)}, binding))
+			if binding.Spec.PodRef.UID != wayv1.ObjectUID(pod.UID) || binding.Spec.GatewayRef.UID != wayv1.ObjectUID(gateway.UID) {
+				t.Fatalf("inexact binding = %#v", binding.Spec)
+			}
+			assertMainManagedBy(t, binding, wayv1.FieldManagerBindingController)
+			if _, exists := addresses[binding.Spec.Allocation.Address]; exists {
+				t.Fatalf("concurrent address collision at %s", binding.Spec.Allocation.Address)
+			}
+			addresses[binding.Spec.Allocation.Address] = struct{}{}
+			bindings = append(bindings, binding)
+		}
+		leases := &coordinationv1.LeaseList{}
+		must(t, admin.List(ctx, leases, ctrlclient.InNamespace(gateway.Namespace), ctrlclient.MatchingLabels{waybinding.ReservationManagedByLabel: waybinding.ReservationManagedByValue}))
+		if len(leases.Items) != len(pods) {
+			t.Fatalf("reservations = %d, want %d", len(leases.Items), len(pods))
+		}
+
+		// A new reconciler instance recovers the exact Lease transaction without
+		// changing either allocation or resource version.
+		restarted := &waycontroller.PodBindingReconciler{Client: admin, APIReader: admin, Now: func() time.Time { return now.Add(time.Second) }}
+		for i, pod := range pods {
+			version := bindings[i].ResourceVersion
+			_, err := restarted.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(pod)})
+			must(t, err)
+			current := &wayv1.VPNWorkloadBinding{}
+			must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(bindings[i]), current))
+			if current.ResourceVersion != version || current.Spec.Allocation != bindings[i].Spec.Allocation {
+				t.Fatalf("restart changed persisted allocation: %#v", current)
+			}
+		}
+
+		binding := bindings[0]
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		binding.Status.AppliedGeneration = binding.Generation
+		binding.Status.ObservedPodUID = "stale-pod-uid"
+		binding.Status.ObservedGatewayUID = binding.Spec.GatewayRef.UID
+		binding.Status.Agent = &wayv1.NodeAgentObservation{NodeName: binding.Spec.NodeName, NodeBootID: "boot-a", InstanceID: "agent-a", ObservedAt: metav1.NewTime(now)}
+		must(t, admin.Status().Update(ctx, binding))
+		lifecycle := &waycontroller.VPNWorkloadBindingReconciler{Client: admin, Now: func() time.Time { return now }}
+		_, err = lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(binding)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionFalse {
+			t.Fatalf("stale identity readiness = %#v", binding.Status)
+		}
+		assertManagedBy(t, binding, wayv1.FieldManagerBindingController)
+
+		// An applied allocation cannot be silently reused when withdrawal is
+		// unconfirmed. The bounded finalizer recreates a missing reservation as
+		// a durable quarantine before allowing deletion.
+		quarantined := bindings[1]
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(quarantined), quarantined))
+		quarantined.Status.AppliedGeneration = quarantined.Generation
+		must(t, admin.Status().Update(ctx, quarantined))
+		reservation, err := waybinding.ReservationForBinding(quarantined)
+		must(t, err)
+		must(t, admin.Delete(ctx, reservation))
+		must(t, admin.Delete(ctx, quarantined))
+		cleanup := &waycontroller.VPNWorkloadBindingReconciler{Client: admin, Now: func() time.Time { return now.Add(11 * time.Minute) }}
+		for range 2 {
+			_, err = cleanup.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(quarantined)})
+			must(t, err)
+		}
+		storedReservation := &coordinationv1.Lease{}
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(reservation), storedReservation))
+		if storedReservation.Annotations[waybinding.ReservationStateAnnotation] != waybinding.ReservationStateQuarantined {
+			t.Fatalf("reservation state = %q, want quarantine", storedReservation.Annotations[waybinding.ReservationStateAnnotation])
+		}
+	})
+
 	t.Run("cross namespace consent is private and fail closed", func(t *testing.T) {
 		targetNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "replacement-cross-gateways"}}
 		must(t, admin.Create(ctx, targetNamespace))
@@ -639,6 +753,16 @@ func assertManagedBy(t *testing.T, object metav1.Object, manager string) {
 		}
 	}
 	t.Fatalf("status managedFields has no %q owner: %#v", manager, object.GetManagedFields())
+}
+
+func assertMainManagedBy(t *testing.T, object metav1.Object, manager string) {
+	t.Helper()
+	for _, entry := range object.GetManagedFields() {
+		if entry.Manager == manager && entry.Subresource == "" {
+			return
+		}
+	}
+	t.Fatalf("managedFields has no main-resource %q owner: %#v", manager, object.GetManagedFields())
 }
 
 func testPod(name string, annotations, labels map[string]string) *corev1.Pod {

@@ -17,13 +17,16 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	waybinding "github.com/Amoenus/waycloak/internal/binding"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/enrollment"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -144,7 +147,7 @@ spec:
       name: private
 `, namespace, className, namespace, namespace)
 	applyInput(t, nil, gatewayAndRoute)
-	patch := `{"status":{"observedGeneration":1,"supportedFeatures":["networking.waycloak.io/CoreFailClosedEgress","networking.waycloak.io/TCP","networking.waycloak.io/UDP","networking.waycloak.io/DNSContainment","networking.waycloak.io/GatewayReplacementRecovery","networking.waycloak.io/NodeRestartRecovery"],"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
+	patch := `{"status":{"observedGeneration":1,"supportedFeatures":["networking.waycloak.io/CoreFailClosedEgress","networking.waycloak.io/TCP","networking.waycloak.io/UDP","networking.waycloak.io/DNSContainment","networking.waycloak.io/GatewayReplacementRecovery","networking.waycloak.io/NodeRestartRecovery"],"addresses":[{"type":"networking.waycloak.io/OverlayCIDR","value":"198.51.100.0/29"}],"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
 	command(t, nil, "kubectl", "patch", "vpngateway", "private", "-n", namespace, "--subresource=status", "--type=merge", "-p", patch)
 	componentPatch := `{"status":{"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"TunnelReady","status":"True","reason":"TunnelReady","message":"Tunnel is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"DNSReady","status":"True","reason":"DNSReady","message":"DNS is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"MembershipApplied","status":"True","reason":"MembershipApplied","message":"Membership is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
 	command(t, nil, "kubectl", "patch", "vpngateway", "private", "-n", namespace, "--subresource=status", "--type=merge", "-p", componentPatch)
@@ -228,6 +231,7 @@ spec:
 	assertCommandFails(t, "live Pod enrollment label was mutable", nil, "kubectl", "label", "pod", "protected", "-n", namespace, "networking.waycloak.io/egress-route=other", "--overwrite")
 	assertCommandFails(t, "unlabeled live Pod could be enrolled in place", nil, "kubectl", "label", "pod", "unprotected", "-n", namespace, "networking.waycloak.io/egress-route=private")
 	verifyRouteControllerAndEnrollment(t, namespace)
+	verifyUIDBoundBindings(t, namespace, release)
 	verifyCrossNamespaceConsentWatches(t, namespace, className, suffix)
 
 	binding := fmt.Sprintf(`apiVersion: networking.waycloak.io/v1beta1
@@ -256,6 +260,169 @@ spec:
 	applyInput(t, []string{"--as=" + controllerUser}, binding)
 	command(t, nil, "kubectl", "get", "vpnworkloadbinding", "protected-11111111", "-n", namespace)
 	command(t, nil, "kubectl", "delete", "vpnworkloadbinding", "protected-11111111", "-n", namespace, "--as="+controllerUser, "--wait=true", "--timeout=30s")
+}
+
+func verifyUIDBoundBindings(t *testing.T, namespace, serviceAccount string) {
+	t.Helper()
+	ctx := context.Background()
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{wayv1.AddToScheme, corev1.AddToScheme, coordinationv1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	admin, err := ctrlclient.New(config, ctrlclient.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerConfig := rest.CopyConfig(config)
+	controllerConfig.Impersonate = rest.ImpersonationConfig{
+		UserName: "system:serviceaccount:" + namespace + ":" + serviceAccount,
+		Groups:   []string{"system:serviceaccounts", "system:serviceaccounts:" + namespace, "system:authenticated"},
+	}
+	controllerClient, err := ctrlclient.New(controllerConfig, ctrlclient.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	protected := waitForScheduledPod(t, ctx, admin, ctrlclient.ObjectKey{Namespace: namespace, Name: "protected"})
+	peer := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "binding-peer", Namespace: namespace, Labels: map[string]string{enrollment.RouteLabel: "private"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
+	if err := admin.Create(ctx, peer); err != nil {
+		t.Fatal(err)
+	}
+	peer = waitForScheduledPod(t, ctx, admin, ctrlclient.ObjectKeyFromObject(peer))
+
+	reconciler := &waycontroller.PodBindingReconciler{Client: controllerClient, APIReader: controllerClient}
+	errors := make(chan error, 2)
+	for _, pod := range []*corev1.Pod{protected, peer} {
+		go func(pod *corev1.Pod) {
+			_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(pod)})
+			errors <- err
+		}(pod)
+	}
+	for range 2 {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bindings := make([]*wayv1.VPNWorkloadBinding, 0, 2)
+	addresses := map[string]struct{}{}
+	for _, pod := range []*corev1.Pod{protected, peer} {
+		binding := &wayv1.VPNWorkloadBinding{}
+		if err := controllerClient.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: waybinding.BindingName(pod.UID)}, binding); err != nil {
+			t.Fatal(err)
+		}
+		if binding.Spec.PodRef.UID != wayv1.ObjectUID(pod.UID) || binding.Spec.NodeName != wayv1.ObjectName(pod.Spec.NodeName) {
+			t.Fatalf("inexact binding = %#v", binding.Spec)
+		}
+		if _, found := addresses[binding.Spec.Allocation.Address]; found {
+			t.Fatalf("concurrent binding collision at %s", binding.Spec.Allocation.Address)
+		}
+		addresses[binding.Spec.Allocation.Address] = struct{}{}
+		bindings = append(bindings, binding)
+	}
+	leases := &coordinationv1.LeaseList{}
+	if err := controllerClient.List(ctx, leases, ctrlclient.InNamespace(namespace), ctrlclient.MatchingLabels{waybinding.ReservationManagedByLabel: waybinding.ReservationManagedByValue}); err != nil {
+		t.Fatal(err)
+	}
+	if len(leases.Items) != 2 {
+		t.Fatalf("address reservations = %d, want 2", len(leases.Items))
+	}
+
+	lifecycle := &waycontroller.VPNWorkloadBindingReconciler{Client: controllerClient, CleanupTimeout: time.Millisecond, Now: func() time.Time { return time.Now().Add(time.Second) }}
+	for _, binding := range bindings {
+		if _, err := lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(binding)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := controllerClient.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding); err != nil {
+			t.Fatal(err)
+		}
+		ready := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionReady)
+		if ready == nil || ready.Status != metav1.ConditionUnknown {
+			t.Fatalf("desired-only binding claimed readiness: %#v", binding.Status)
+		}
+	}
+	versions := []string{bindings[0].ResourceVersion, bindings[1].ResourceVersion}
+	restarted := &waycontroller.PodBindingReconciler{Client: controllerClient, APIReader: controllerClient}
+	for i, pod := range []*corev1.Pod{protected, peer} {
+		if _, err := restarted.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(pod)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := controllerClient.Get(ctx, ctrlclient.ObjectKeyFromObject(bindings[i]), bindings[i]); err != nil {
+			t.Fatal(err)
+		}
+		if bindings[i].ResourceVersion != versions[i] {
+			t.Fatal("restart recovery rewrote an unchanged binding")
+		}
+	}
+
+	oldUID := peer.UID
+	oldBinding := bindings[1].DeepCopy()
+	if err := admin.Delete(ctx, peer); err != nil {
+		t.Fatal(err)
+	}
+	waitForBindingDeletionTimestamp(t, ctx, controllerClient, oldBinding)
+	for range 2 {
+		if _, err := lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(oldBinding)}); err != nil && !apierrors.IsNotFound(err) {
+			t.Fatal(err)
+		}
+	}
+	waitForObjectDeletion(t, ctx, controllerClient, ctrlclient.ObjectKeyFromObject(oldBinding), &wayv1.VPNWorkloadBinding{})
+	waitForObjectDeletion(t, ctx, admin, ctrlclient.ObjectKeyFromObject(peer), &corev1.Pod{})
+	replacement := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: peer.Name, Namespace: namespace, Labels: map[string]string{enrollment.RouteLabel: "private"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
+	if err := admin.Create(ctx, replacement); err != nil {
+		t.Fatal(err)
+	}
+	replacement = waitForScheduledPod(t, ctx, admin, ctrlclient.ObjectKeyFromObject(replacement))
+	if replacement.UID == oldUID {
+		t.Fatalf("Pod name reuse retained UID %q", oldUID)
+	}
+	if _, err := restarted.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(replacement)}); err != nil {
+		t.Fatal(err)
+	}
+	if waybinding.BindingName(replacement.UID) == oldBinding.Name {
+		t.Fatal("Pod name reuse retained binding identity")
+	}
+}
+
+func waitForScheduledPod(t *testing.T, ctx context.Context, client ctrlclient.Client, key ctrlclient.ObjectKey) *corev1.Pod {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		pod := &corev1.Pod{}
+		if err := client.Get(ctx, key, pod); err != nil {
+			t.Fatal(err)
+		}
+		if pod.Spec.NodeName != "" {
+			return pod
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Pod %s was not scheduled", key)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func waitForBindingDeletionTimestamp(t *testing.T, ctx context.Context, client ctrlclient.Client, binding *wayv1.VPNWorkloadBinding) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if err := client.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding); err != nil {
+			t.Fatal(err)
+		}
+		if !binding.DeletionTimestamp.IsZero() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("binding %s did not begin deletion", binding.Name)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func verifyRouteControllerAndEnrollment(t *testing.T, namespace string) {

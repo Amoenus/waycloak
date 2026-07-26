@@ -88,13 +88,23 @@ intentionally has no `ReferenceGrant` dependency. Binding allocation, node
 programming, and creation-time CNI admission remain downstream gates, so this
 slice does not yet make the intermediate chart safe for workload use.
 
-Issue #131 is the active dependency. Its current slice centralizes current-
-generation condition construction and reads, freezes stable reason constants,
-adds resource-scoped tunnel, DNS, membership, node, gateway-rule, delivery, and
+Issue #131 is complete and merged in PR #150. It centralizes current-generation
+condition construction and reads, freezes stable reason constants, adds
+resource-scoped tunnel, DNS, membership, node, gateway-rule, delivery, and
 acknowledgement conditions, and proves server-side ownership, concurrent
-convergence, semantic no-op suppression, and transition-time stability. Later
-resource controllers must consume this contract; this slice does not infer
-live readiness for components that #132–#137 have not implemented.
+convergence, semantic no-op suppression, and transition-time stability.
+
+Issue #132 is the active dependency. ADR 0037 defines its controller-owned,
+UID-bound allocation transaction: a typed gateway overlay-pool observation,
+stable opaque identity independent of list order, and atomic gateway-owned
+Kubernetes Lease persisted before binding creation. The current vertical slice
+creates exact Pod/route/gateway UID bindings, rejects missing or stale binding
+identity/generation at CNI, separates desired, node-applied, and fresh live
+status, and makes finalizer timeout recreate durable quarantine before deletion.
+Unit and Kubernetes 1.36 envtest cover simultaneous allocation, controller
+restart, collisions, exhaustion, stale UID/generation, and missing reservation
+recovery. Kind acceptance and the complete exact-artifact CI matrix remain
+required before #132 can close or #133 can begin.
 
 ## Current phase
 

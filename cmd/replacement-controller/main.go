@@ -44,6 +44,14 @@ func main() {
 		ctrl.Log.Error(err, "setup VPNEgressRoute controller")
 		os.Exit(1)
 	}
+	if err = (&waycontroller.PodBindingReconciler{Client: manager.GetClient()}).SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup Pod binding controller")
+		os.Exit(1)
+	}
+	if err = (&waycontroller.VPNWorkloadBindingReconciler{Client: manager.GetClient()}).SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup VPNWorkloadBinding controller")
+		os.Exit(1)
+	}
 	if err = manager.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		ctrl.Log.Error(err, "add health check")
 		os.Exit(1)

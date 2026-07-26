@@ -198,6 +198,31 @@ func TestAddBindingWaitIsBoundedWithDenyRetained(t *testing.T) {
 	}
 }
 
+func TestAddRejectsMissingStaleOrMismatchedBindingIdentityWithDenyRetained(t *testing.T) {
+	tests := map[string]func(*Binding){
+		"missing binding UID":      func(binding *Binding) { binding.UID = "" },
+		"stale generation":         func(binding *Binding) { binding.Generation++ },
+		"gateway identity missing": func(binding *Binding) { binding.GatewayUID = "" },
+		"Pod UID mismatch":         func(binding *Binding) { binding.PodUID = "replacement-uid" },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			plugin, request, events := fixture(t)
+			mutate(&plugin.Agent.(*fakeAgent).binding)
+			if err := plugin.Add(context.Background(), request); err == nil {
+				t.Fatal("invalid binding unexpectedly allowed CNI ADD")
+			}
+			attachment, err := plugin.Store.Load(request.Key())
+			if err != nil || attachment.Phase != PhaseLockedDown {
+				t.Fatalf("deny-first state = %#v, %v", attachment, err)
+			}
+			if index(*events, "configure") >= 0 || index(*events, "verify") >= 0 {
+				t.Fatalf("invalid binding reached programming: %v", *events)
+			}
+		})
+	}
+}
+
 func TestAddRejectsUIDAndNamespaceReuse(t *testing.T) {
 	plugin, request, _ := fixture(t)
 	agent := plugin.Agent.(*fakeAgent)
@@ -352,11 +377,12 @@ func fixture(t *testing.T) (Plugin, Request, *[]string) {
 	events := &[]string{}
 	request := Request{Network: "kindnet", Pod: PodIdentity{Namespace: "apps", Name: "protected", UID: "pod-uid", ContainerID: "sandbox-id", IfName: "eth0", NetNS: "/netns/current"}}
 	cfg := dataplane.Config{
-		PodUID: request.Pod.UID, Address: netip.MustParsePrefix("172.30.99.2/24"), OverlayCIDR: netip.MustParsePrefix("172.30.99.0/24"),
+		PodUID: request.Pod.UID, AllocationGeneration: 1, GatewayGeneration: 1,
+		Address: netip.MustParsePrefix("172.30.99.2/24"), OverlayCIDR: netip.MustParsePrefix("172.30.99.0/24"),
 		GatewayAddress: netip.MustParseAddr("172.30.99.1"), GatewayEndpoint: netip.MustParseAddrPort("192.0.2.10:4789"),
 		GatewayHealthPort: 18080, VNI: 7999, MTU: 1320, ClusterTrafficMode: dataplane.ClusterTrafficGateway,
 	}
-	agent := &fakeAgent{events: events, resolution: Resolution{PodUID: request.Pod.UID, Enrolled: true}, binding: Binding{PodUID: request.Pod.UID, Config: cfg}}
+	agent := &fakeAgent{events: events, resolution: Resolution{PodUID: request.Pod.UID, Enrolled: true}, binding: Binding{UID: "binding-uid", Generation: cfg.AllocationGeneration, PodUID: request.Pod.UID, GatewayUID: "gateway-uid", Config: cfg}}
 	enforcer := &fakeEnforcer{events: events, identities: map[string]string{request.Pod.NetNS: "12:34"}, identityErrors: map[string]error{}}
 	plugin := Plugin{Agent: agent, Enforcer: enforcer, Store: FileStore{Directory: t.TempDir()}, ResolveTimeout: 20 * time.Millisecond, BindingTimeout: 20 * time.Millisecond, RetryInterval: time.Millisecond}
 	return plugin, request, events

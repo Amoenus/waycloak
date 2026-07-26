@@ -38,5 +38,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0034: CNI creation-time enforcement and node-owned data plane](0034-cni-creation-time-enforcement.md)
 - [0035: Node-agent trust boundary and authenticated local protocol](0035-node-agent-trust-and-local-protocol.md)
 - [0036: Replacement API freeze](0036-replacement-api-freeze.md)
+- [0037: UID-bound allocation and durable quarantine](0037-uid-bound-allocation-and-quarantine.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.
