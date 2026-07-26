@@ -18,7 +18,6 @@
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=workloadadapters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=workloadadapters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=pods;namespaces;nodes;services;configmaps,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete

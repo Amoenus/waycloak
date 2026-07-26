@@ -29,6 +29,7 @@ manifests:
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-workload-owner,fileName=workload-owner-role.yaml paths="./internal/rbac/workloadowner" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-adapter-operator,fileName=adapter-operator-role.yaml paths="./internal/rbac/adapteroperator" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-node-agent,fileName=node-agent-role.yaml paths="./internal/rbac/nodeagent" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-gateway-secret-reader,fileName=gateway-secret-reader-role.yaml paths="./internal/rbac/gatewaysecretreader" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) webhook paths="./cmd/controller" output:webhook:artifacts:config=config/webhook
 
 api-reference: manifests
@@ -104,6 +105,7 @@ verify-chart-generated:
 	diff -u config/rbac/workload-owner-role.yaml charts/waycloak/files/workload-owner-role.yaml
 	diff -u config/rbac/adapter-operator-role.yaml charts/waycloak/files/adapter-operator-role.yaml
 	diff -u config/rbac/node-agent-role.yaml charts/waycloak/files/node-agent-role.yaml
+	diff -u config/rbac/gateway-secret-reader-role.yaml charts/waycloak/files/gateway-secret-reader-role.yaml
 
 verify-kcl-generated:
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \

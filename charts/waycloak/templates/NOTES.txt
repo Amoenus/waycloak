@@ -13,3 +13,11 @@ not a stable product installation.
 Bind the waycloak-workload-owner ClusterRole only with a namespaced RoleBinding
 in each approved workload namespace. Do not grant it through a
 ClusterRoleBinding.
+
+The controller has no Secret access until a namespaced RoleBinding in each
+approved gateway namespace binds the waycloak-gateway-secret-reader ClusterRole
+to ServiceAccount {{ include "waycloak.fullname" . }} in namespace
+{{ .Release.Namespace }}. Never bind that role cluster-wide.
+
+Install one Waycloak Helm release per cluster; the CRDs, admission policy, and
+persona ClusterRoles are cluster-scoped product identities.

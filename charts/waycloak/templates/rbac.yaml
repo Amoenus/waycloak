@@ -22,7 +22,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "waycloak.fullname" . }}
     namespace: {{ .Release.Namespace }}
-{{- range $path := list "files/distribution-role.yaml" "files/network-operator-role.yaml" "files/workload-owner-role.yaml" "files/adapter-operator-role.yaml" "files/node-agent-role.yaml" }}
+{{- range $path := list "files/distribution-role.yaml" "files/network-operator-role.yaml" "files/workload-owner-role.yaml" "files/adapter-operator-role.yaml" "files/node-agent-role.yaml" "files/gateway-secret-reader-role.yaml" }}
 {{- $personaRole := required (printf "missing persona role file %s" $path) ($.Files.Get $path) | fromYaml }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

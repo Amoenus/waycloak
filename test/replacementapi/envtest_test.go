@@ -251,6 +251,8 @@ func TestReplacementAPI(t *testing.T) {
 		mustRejectForbidden(t, outsider.Create(ctx, validBindingForNamespace("outsider-binding", namespace.Name)))
 		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: namespace.Name}}
 		must(t, admin.Create(ctx, secret))
+		mustRejectForbidden(t, controller.Get(ctx, ctrlclient.ObjectKeyFromObject(secret), &corev1.Secret{}))
+		bindRole(t, ctx, admin, namespace.Name, "controller", "waycloak-gateway-secret-reader")
 		must(t, controller.Get(ctx, ctrlclient.ObjectKeyFromObject(secret), &corev1.Secret{}))
 		mustRejectForbidden(t, controller.List(ctx, &corev1.SecretList{}, ctrlclient.InNamespace(namespace.Name)))
 
@@ -381,7 +383,7 @@ func applyStatusError(ctx context.Context, resource dynamic.ResourceInterface, n
 
 func installRoles(t *testing.T, ctx context.Context, client ctrlclient.Client, root string) {
 	t.Helper()
-	for _, name := range []string{"controller-role.yaml", "distribution-role.yaml", "network-operator-role.yaml", "workload-owner-role.yaml", "adapter-operator-role.yaml", "node-agent-role.yaml"} {
+	for _, name := range []string{"controller-role.yaml", "distribution-role.yaml", "network-operator-role.yaml", "workload-owner-role.yaml", "adapter-operator-role.yaml", "node-agent-role.yaml", "gateway-secret-reader-role.yaml"} {
 		data, err := os.ReadFile(filepath.Join(root, "config", "rbac", name))
 		must(t, err)
 		role := &rbacv1.ClusterRole{}

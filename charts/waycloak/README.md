@@ -23,3 +23,12 @@ Persona roles are intentionally unbound. Grant workload authorship in each
 approved workload namespace with a namespaced `RoleBinding` to the
 `waycloak-workload-owner` ClusterRole. Do not use a `ClusterRoleBinding`, which
 would grant route and lease authorship in every namespace.
+
+The controller has no Secret permission by default. In each approved gateway
+namespace, bind the `waycloak-gateway-secret-reader` ClusterRole to the chart's
+controller ServiceAccount with a namespaced `RoleBinding`. Never use a
+`ClusterRoleBinding` for this credential-reader role.
+
+Install exactly one Waycloak release per cluster. The CRDs, admission policy,
+and fixed persona ClusterRoles are cluster-wide product identities and are not
+safe for competing Helm release ownership.

@@ -77,6 +77,7 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 		"waycloak-workload-owner",
 		"waycloak-adapter-operator",
 		"waycloak-node-agent",
+		"waycloak-gateway-secret-reader",
 	} {
 		command(t, nil, "kubectl", "get", "clusterrole", role)
 	}
