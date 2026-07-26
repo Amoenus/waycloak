@@ -11,8 +11,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 
 - [x] #124 chained-CNI creation-time feasibility: merged in PR #143 with exact
   Kind, k3d and authorized homelab evidence.
-- [ ] #125 node-agent threat model and authenticated local protocol: in progress.
-- [ ] #126–#141: proceed only in declared dependency order.
+- [x] #125 node-agent threat model and authenticated local protocol: merged in
+  PR #144 with exact CI and authorized homelab evidence.
+- [ ] #126 alpha removal inventory and unknown-artifact audit: in progress;
+  replacement schema freeze remains blocked pending review.
+- [ ] #127–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

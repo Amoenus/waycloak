@@ -30,13 +30,23 @@ packets during failed `ADD`; pinned Kind/kindnet also passes while containerd
 is restarted during `ADD`. ADR 0034 therefore records a support decision for
 the tested matrix.
 
-Issue #125 is the active dependency. ADR 0035 and the updated threat model
-define the node-wide privilege boundary, read-only Kubernetes scope, host-access
-matrix, exact identity checks, unsupported categories, and the authenticated
-`cni-node/v1` protocol. The vertical slice adds a root-only rotating node key,
-mutually authenticated request/response envelopes, freshness/replay/size
-bounds, and abuse tests while retaining deny during agent/key restart. No
-replacement CRD has been generated.
+Issue #125 passed and merged in [#144](https://github.com/Amoenus/waycloak/pull/144).
+ADR 0035 and the updated threat model define the node-wide privilege boundary,
+read-only Kubernetes scope, host-access matrix, exact identity checks,
+unsupported categories, and authenticated `cni-node/v1` protocol. The tested
+slice adds a root-only rotating node key, mutually authenticated envelopes,
+freshness/replay/size bounds, and abuse tests while retaining denial during
+agent or key restart.
+
+Issue #126 is the active dependency. Its machine-readable removal ledger names
+the alpha APIs, markers, injected runtime, persisted formats, status/events,
+RBAC, generated/chart/KCL surfaces, examples, tests, and historical evidence.
+The repository audit rejects any unlisted alpha artifact and permits only the
+three reviewed dispositions. Runtime deletion remains ordered under #135 after
+replacement route, binding, and node-agent Core conformance; the destructive
+sequence keeps protected workloads stopped and separates normal uninstall from
+explicit CR/CRD purge. Issue #127 remains blocked pending review. No replacement
+CRD has been generated.
 
 ## Current phase
 
