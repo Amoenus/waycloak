@@ -15,6 +15,24 @@
         }
       }
     },
+    "defaultGatewayClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "name", "releaseIdentity"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+        "releaseIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "manifestDigest"],
+          "properties": {
+            "version": {"type": "string", "maxLength": 128},
+            "manifestDigest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+          }
+        }
+      }
+    },
     "nodeAgent": {
       "type": "object",
       "additionalProperties": false,

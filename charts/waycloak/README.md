@@ -1,19 +1,25 @@
 # Waycloak Helm chart
 
-This chart currently represents the #128 API installation plus the #129–#131
-route enrollment, static admission, cross-namespace, and stable status API
-contracts. It
+This chart currently represents the #128 API installation plus the #129–#134
+route enrollment, static admission, cross-namespace, stable status, UID-bound
+allocation, node-agent, and gateway-class contract surfaces. It
 installs only the six `networking.waycloak.io/v1beta1` CRDs, generated persona,
 controller, and unbound read-only node-agent RBAC, the future controller
 ServiceAccount identity, controller-only `VPNWorkloadBinding` defense, and
 declarative rejection of alpha Pod annotations, malformed route lookup labels,
 and live-Pod enrollment mutation.
 
+When `defaultGatewayClass.enabled=true`, the chart renders the tested Gluetun
+class only from an exact release version and `sha256` manifest digest supplied
+by the verified install plan. The development defaults do not invent a release
+identity. Gateway manifests contain no Waycloak image digest.
+
 It does not render the alpha controller, mutation webhooks, sidecars, init
-containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render a
-replacement controller Deployment, CNI plugin, or node agent. Do not enroll
-workloads from this intermediate chart. #129-#136 add those components only after their hard
-prerequisites pass; the stable turnkey journey is not complete at #131.
+containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render
+the replacement controller Deployment or CNI installer. The digest-only
+node-agent DaemonSet surface remains disabled until the signed install plan
+supplies its TLS and artifact identity. Do not enroll workloads from this
+intermediate chart; the stable turnkey journey is not complete at #134.
 
 The only replacement enrollment key is the Pod-template label
 `networking.waycloak.io/egress-route: <same-namespace-route-name>`. A present

@@ -44,6 +44,11 @@ Use envtest for:
 - namespace authorization;
 - finalizer behavior;
 - status conflicts and retries.
+- exact controller-name ownership, immutable release/profile identity, and
+  semantic no-op suppression for classes and gateways;
+- missing, foreign, deleting, mismatched, unsupported-feature and unauthorized
+  gateway references with `Programmed=False` and no addresses;
+- credential canaries absent from class and gateway status.
 
 ### Cluster end-to-end tests
 
@@ -68,6 +73,12 @@ Mandatory scenarios:
     `Accepted`, and no Secret file mount appears outside the engine container;
 15. legacy and native gateway shapes remain mutually exclusive across API and
     controller version-skew tests.
+16. a verified manifest input renders exactly one default Gluetun class while
+    absent or malformed identity renders none or fails; a minimal gateway needs
+    no Waycloak image digest;
+17. class deletion, foreign-controller claims, unsupported features, and
+    credential-reference loss produce stable conditions before any data-plane
+    object or address is published.
 
 ### Port-forward tests
 

@@ -26,6 +26,7 @@ import (
 
 func main() {
 	var metricsAddress, probeAddress, observationAddress, observationCert, observationKey, observationAgentNamespace, observationAgentServiceAccount string
+	var gatewayControllerName, releaseVersion, releaseManifestDigest, conformanceProfile string
 	var leaderElection bool
 	flag.StringVar(&metricsAddress, "metrics-bind-address", ":8080", "metrics listener")
 	flag.StringVar(&probeAddress, "health-probe-bind-address", ":8081", "health listener")
@@ -35,10 +36,18 @@ func main() {
 	flag.StringVar(&observationKey, "observation-tls-key", "", "node-observation TLS private key")
 	flag.StringVar(&observationAgentNamespace, "observation-agent-namespace", "", "authorized node-agent namespace")
 	flag.StringVar(&observationAgentServiceAccount, "observation-agent-service-account", "", "authorized node-agent service account")
+	flag.StringVar(&gatewayControllerName, "gateway-controller-name", string(waycontroller.DefaultGatewayControllerName), "immutable VPNGatewayClass controller identity")
+	flag.StringVar(&releaseVersion, "release-version", "", "immutable signed release version")
+	flag.StringVar(&releaseManifestDigest, "release-manifest-digest", "", "immutable signed release manifest digest")
+	flag.StringVar(&conformanceProfile, "conformance-profile", "networking.waycloak.io/Core-v1", "immutable conformance profile identity")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options)))
+	if !waycontroller.ValidReleaseIdentity(wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}) {
+		ctrl.Log.Error(nil, "exact signed release version and manifest digest are required")
+		os.Exit(1)
+	}
 
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -49,6 +58,24 @@ func main() {
 	})
 	if err != nil {
 		ctrl.Log.Error(err, "create replacement manager")
+		os.Exit(1)
+	}
+	classController := &waycontroller.VPNGatewayClassReconciler{
+		Client: manager.GetClient(), ControllerName: wayv1.ControllerName(gatewayControllerName),
+		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
+		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: wayv1.CoreFeatures(),
+	}
+	if err = classController.SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup VPNGatewayClass controller")
+		os.Exit(1)
+	}
+	if err = (&waycontroller.ReplacementVPNGatewayReconciler{
+		Client: manager.GetClient(), APIReader: manager.GetAPIReader(), ControllerName: wayv1.ControllerName(gatewayControllerName),
+		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
+		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: wayv1.CoreFeatures(),
+		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
+	}).SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup VPNGateway controller")
 		os.Exit(1)
 	}
 	if err = (&waycontroller.VPNEgressRouteReconciler{Client: manager.GetClient(), Scheme: manager.GetScheme()}).SetupWithManager(manager); err != nil {
