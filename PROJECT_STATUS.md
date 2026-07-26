@@ -68,16 +68,25 @@ field rejection, list ownership, status ownership, persona RBAC, binding
 admission defense, and deletion behavior. Fresh-install Kind evidence remains
 green in the merged exact-artifact CI run.
 
-Issue #129 is the active dependency. The current vertical slice implements the
+Issue #129 is complete and merged in
+[#148](https://github.com/Amoenus/waycloak/pull/148). It implements the
 single `networking.waycloak.io/egress-route` Pod-template lookup key, rejects
 alpha annotations and live-Pod enrollment mutation declaratively, resolves the
 exact Pod and route UIDs, and reconciles one effective gateway parent through
 the common positive-polarity status contract. A present label remains enrolled
 and fail closed when its route is missing, stale, rejected, changed, or deleted;
-unlabeled Pods remain outside Waycloak. Cross-namespace parents are denied by
-default behind the authorization seam implemented by #130. Binding allocation,
-node programming, and creation-time CNI admission remain downstream gates, so
-this slice does not yet make the intermediate chart safe for workload use.
+unlabeled Pods remain outside Waycloak.
+
+Issue #130 is the active dependency. Its current slice implements gateway-side
+`allowedRoutes` consent through an uncached authorization reader, preserves
+privacy between missing and denied cross-namespace targets, and requeues routes
+on Namespace labels, gateway policy/class state, and target lifecycle changes.
+The replacement route and lease APIs share tested dependency indexes; the route
+controller consumes them now and the replacement lease controller will consume
+its mappings in #137 without coupling this work to the alpha lease runtime. Core
+intentionally has no `ReferenceGrant` dependency. Binding allocation, node
+programming, and creation-time CNI admission remain downstream gates, so this
+slice does not yet make the intermediate chart safe for workload use.
 
 ## Current phase
 

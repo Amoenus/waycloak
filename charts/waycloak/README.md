@@ -1,7 +1,7 @@
 # Waycloak Helm chart
 
-This chart currently represents the #128 API installation plus the static #129
-Pod-enrollment admission slice. It
+This chart currently represents the #128 API installation plus the #129/#130
+route enrollment, static admission, and cross-namespace API contract. It
 installs only the six `networking.waycloak.io/v1beta1` CRDs, generated persona,
 controller, and unbound read-only node-agent RBAC, the future controller
 ServiceAccount identity, controller-only `VPNWorkloadBinding` defense, and
@@ -12,13 +12,19 @@ It does not render the alpha controller, mutation webhooks, sidecars, init
 containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render a
 replacement controller Deployment, CNI plugin, or node agent. Do not enroll
 workloads from this intermediate chart. #129-#136 add those components only after their hard
-prerequisites pass; the stable turnkey journey is not complete at #129.
+prerequisites pass; the stable turnkey journey is not complete at #130.
 
 The only replacement enrollment key is the Pod-template label
 `networking.waycloak.io/egress-route: <same-namespace-route-name>`. A present
 label is fail-closed intent even when the route is not yet accepted or ready.
 Removing or changing enrollment requires changing the workload template and
 creating a new Pod; the admission policy rejects edits to an existing Pod.
+
+Cross-namespace gateway references use `VPNGateway.spec.allowedRoutes`; Core
+does not install Gateway API `ReferenceGrant`. Namespace labels selected for
+authorization must be operator controlled and outside tenant write authority.
+See [`cross-namespace-consent.md`](../../docs/security/cross-namespace-consent.md)
+before enabling a selector.
 
 ```sh
 helm lint charts/waycloak

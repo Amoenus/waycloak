@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"sort"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"github.com/Amoenus/waycloak/internal/reference"
+	corev1 "k8s.io/api/core/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,24 +25,14 @@ import (
 
 const (
 	RouteControllerName wayv1.ControllerName = "networking.waycloak.io/route-controller"
-	routeParentIndex    string               = "networking.waycloak.io/route-parent"
 	routeFieldManager   string               = "waycloak-route-core"
 )
-
-type RouteReferenceAuthorizer interface {
-	Authorize(context.Context, *wayv1.VPNEgressRoute, wayv1.GatewayParentReference) (bool, error)
-}
-
-type SameNamespaceRouteAuthorizer struct{}
-
-func (SameNamespaceRouteAuthorizer) Authorize(_ context.Context, route *wayv1.VPNEgressRoute, parent wayv1.GatewayParentReference) (bool, error) {
-	return route.Namespace == string(parent.Namespace), nil
-}
 
 type VPNEgressRouteReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
-	Authorizer RouteReferenceAuthorizer
+	APIReader  client.Reader
+	Authorizer reference.GatewayResolver
 	Now        func() time.Time
 }
 
@@ -83,29 +73,24 @@ func (r *VPNEgressRouteReconciler) desiredStatus(ctx context.Context, route *way
 	}
 	authorizer := r.Authorizer
 	if authorizer == nil {
-		authorizer = SameNamespaceRouteAuthorizer{}
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		authorizer = reference.GatewayAuthorizer{Reader: reader}
 	}
-	authorized, err := authorizer.Authorize(ctx, route, parent)
+	resolution, err := authorizer.ResolveGateway(ctx, route.Namespace, wayv1.NamespacedObjectReference{Namespace: parent.Namespace, Name: parent.Name})
 	switch {
 	case err != nil:
 		statuses.resolved = unavailable("Reference authorization is unavailable")
 		statuses.programmed = unavailable("Route programming observation is unavailable")
 		statuses.ready = unavailable("Protected route observation is unavailable")
-	case !authorized:
+	case !resolution.Permitted:
 		statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: "RefNotPermitted", message: "Parent reference is not permitted"}
+	case resolution.Gateway == nil:
+		statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: "RefNotFound", message: "Parent reference was not found"}
 	default:
-		gateway := &wayv1.VPNGateway{}
-		err = r.Get(ctx, types.NamespacedName{Namespace: string(parent.Namespace), Name: string(parent.Name)}, gateway)
-		switch {
-		case apierrors.IsNotFound(err):
-			statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: "RefNotFound", message: "Parent reference was not found"}
-		case err != nil:
-			statuses.resolved = unavailable("Parent reference observation is unavailable")
-			statuses.programmed = unavailable("Route programming observation is unavailable")
-			statuses.ready = unavailable("Protected route observation is unavailable")
-		default:
-			statuses = evaluateGateway(route, gateway, statuses)
-		}
+		statuses = evaluateGateway(route, resolution.Gateway, statuses)
 	}
 	conditions := statuses.conditions(route.Status.Conditions, route.Generation, r.now())
 	return wayv1.VPNEgressRouteStatus{
@@ -119,6 +104,12 @@ func (r *VPNEgressRouteReconciler) desiredStatus(ctx context.Context, route *way
 
 func evaluateGateway(route *wayv1.VPNEgressRoute, gateway *wayv1.VPNGateway, statuses routeConditionSet) routeConditionSet {
 	statuses.resolved = conditionState{status: metav1.ConditionTrue, reason: "ResolvedRefs", message: "Parent reference is resolved"}
+	if !gateway.DeletionTimestamp.IsZero() {
+		statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: "Deleting", message: "Parent gateway is deleting"}
+		statuses.programmed = conditionState{status: metav1.ConditionFalse, reason: "Pending", message: "Route programming is withdrawn"}
+		statuses.ready = conditionState{status: metav1.ConditionFalse, reason: "Deleting", message: "Parent gateway is deleting"}
+		return statuses
+	}
 	if gateway.Status.ObservedGeneration != gateway.Generation {
 		statuses.accepted = unavailable("Parent acceptance observation is unavailable")
 		statuses.programmed = unavailable("Parent programming observation is unavailable")
@@ -227,38 +218,33 @@ func (r *VPNEgressRouteReconciler) SetupWithManager(manager ctrl.Manager) error 
 	if r.Scheme == nil {
 		r.Scheme = manager.GetScheme()
 	}
-	if err := manager.GetFieldIndexer().IndexField(context.Background(), &wayv1.VPNEgressRoute{}, routeParentIndex, func(object client.Object) []string {
-		route := object.(*wayv1.VPNEgressRoute)
-		if len(route.Spec.ParentRefs) != 1 {
-			return nil
-		}
-		return []string{parentKey(route.Spec.ParentRefs[0])}
-	}); err != nil {
+	if r.APIReader == nil {
+		r.APIReader = manager.GetAPIReader()
+	}
+	if err := manager.GetFieldIndexer().IndexField(context.Background(), &wayv1.VPNEgressRoute{}, reference.RouteParentIndex, reference.RouteParentIndexValues); err != nil {
 		return fmt.Errorf("index route parent references: %w", err)
+	}
+	if err := manager.GetFieldIndexer().IndexField(context.Background(), &wayv1.VPNGateway{}, reference.GatewayClassIndex, reference.GatewayClassIndexValues); err != nil {
+		return fmt.Errorf("index gateway class references: %w", err)
 	}
 	return ctrl.NewControllerManagedBy(manager).
 		For(&wayv1.VPNEgressRoute{}).
 		Watches(&wayv1.VPNGateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway)).
+		Watches(&wayv1.VPNGatewayClass{}, handler.EnqueueRequestsFromMapFunc(r.routesForGatewayClass)).
+		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.routesForNamespace)).
 		Complete(r)
 }
 
 func (r *VPNEgressRouteReconciler) routesForGateway(ctx context.Context, object client.Object) []reconcile.Request {
-	routes := &wayv1.VPNEgressRouteList{}
-	if err := r.List(ctx, routes, client.MatchingFields{routeParentIndex: object.GetNamespace() + "/" + object.GetName()}); err != nil {
-		return nil
-	}
-	requests := make([]reconcile.Request, 0, len(routes.Items))
-	for i := range routes.Items {
-		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&routes.Items[i])})
-	}
-	sort.Slice(requests, func(i, j int) bool {
-		return requests[i].NamespacedName.String() < requests[j].NamespacedName.String()
-	})
-	return requests
+	return (reference.DependencyMapper{Client: r.Client}).RoutesForGateway(ctx, object)
 }
 
-func parentKey(parent wayv1.GatewayParentReference) string {
-	return string(parent.Namespace) + "/" + string(parent.Name)
+func (r *VPNEgressRouteReconciler) routesForGatewayClass(ctx context.Context, object client.Object) []reconcile.Request {
+	return (reference.DependencyMapper{Client: r.Client}).RoutesForGatewayClass(ctx, object)
+}
+
+func (r *VPNEgressRouteReconciler) routesForNamespace(ctx context.Context, object client.Object) []reconcile.Request {
+	return (reference.DependencyMapper{Client: r.Client}).RoutesForNamespace(ctx, object)
 }
 
 func (r *VPNEgressRouteReconciler) now() time.Time {

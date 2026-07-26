@@ -3,7 +3,7 @@
   "blockedIssue": 127,
   "markers": [
     "(?i)v1alpha[0-9]+",
-    "networking\\.waycloak\\.io/(gateway|port-forward-container|workload-adapter|adapter-container|allocation-quarantine|provider-lease-quarantine)",
+    "networking\\.waycloak\\.io/(gateway|port-forward-container|workload-adapter|adapter-container|allocation-quarantine|provider-lease-quarantine)(?:[^A-Za-z0-9._~-]|$)",
     "internal\\.networking\\.waycloak\\.io/",
     "waycloak-(prepare|verify|engine-firewall)",
     "allocation-configmap|port-forward-leases\\.json",
@@ -22,7 +22,6 @@
     "config/webhook/manifests.yaml",
     "config/webhook/match-annotated-pods.yaml",
     "docs/api/api-contract.md",
-    "docs/api/replacement-api-proposal.md",
     "docs/architecture/architecture.md",
     "docs/concepts/architecture-and-ownership.md",
     "docs/decisions/0011-renewable-port-lease-delivery.md",
