@@ -91,7 +91,7 @@ jobs:
           go vet -tags=e2e,envtest ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -tags=e2e,envtest ./...
-      - name: Verify generated CRDs, RBAC, webhooks, and chart copies
+      - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts
         run: make alpha-audit
@@ -111,6 +111,10 @@ jobs:
           test "$(grep -Ec '^kind: (Mutating|Validating)WebhookConfiguration$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
           if grep -q 'v1alpha' "$RUNNER_TEMP/render-1.yaml"; then
             echo "rendered chart contains a v1alpha API marker" >&2
+            exit 1
+          fi
+          if grep -Eq 'mutate-v1-pod|waycloak-(prepare|verify)|allocation-configmap|port-forward-delivery-digest' "$RUNNER_TEMP/render-1.yaml"; then
+            echo "rendered chart contains a removed alpha runtime contract" >&2
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"

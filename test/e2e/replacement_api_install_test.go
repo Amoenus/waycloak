@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -216,6 +217,7 @@ metadata:
   labels:
     networking.waycloak.io/egress-route: private
 spec:
+  automountServiceAccountToken: false
   containers:
     - name: app
       image: registry.k8s.io/pause:3.10.1
@@ -233,6 +235,7 @@ spec:
       image: registry.k8s.io/pause:3.10.1
 `, namespace, namespace, namespace)
 	applyInput(t, nil, pods)
+	assertApplicationPodUnmodified(t, namespace, "protected", "private")
 	assertCommandFails(t, "live Pod enrollment label was mutable", nil, "kubectl", "label", "pod", "protected", "-n", namespace, "networking.waycloak.io/egress-route=other", "--overwrite")
 	assertCommandFails(t, "unlabeled live Pod could be enrolled in place", nil, "kubectl", "label", "pod", "unprotected", "-n", namespace, "networking.waycloak.io/egress-route=private")
 	verifyRouteControllerAndEnrollment(t, namespace)
@@ -869,5 +872,29 @@ func assertCommandFails(t *testing.T, failureMessage string, env []string, name 
 	}
 	if output, err := cmd.CombinedOutput(); err == nil {
 		t.Fatalf("%s: %s", failureMessage, output)
+	}
+}
+
+func assertApplicationPodUnmodified(t *testing.T, namespace, name, route string) {
+	t.Helper()
+	var pod corev1.Pod
+	if err := json.Unmarshal([]byte(command(t, nil, "kubectl", "get", "pod", name, "-n", namespace, "-o", "json")), &pod); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Labels["networking.waycloak.io/egress-route"] != route {
+		t.Fatalf("enrollment label = %q, want %q", pod.Labels["networking.waycloak.io/egress-route"], route)
+	}
+	if len(pod.Spec.InitContainers) != 0 || len(pod.Spec.Containers) != 1 {
+		t.Fatalf("application Pod was injected: init=%d containers=%d", len(pod.Spec.InitContainers), len(pod.Spec.Containers))
+	}
+	container := pod.Spec.Containers[0]
+	if len(container.VolumeMounts) != 0 || len(container.Env) != 0 ||
+		(container.SecurityContext != nil && container.SecurityContext.Capabilities != nil) {
+		t.Fatalf("application container received Waycloak wiring: %#v", container)
+	}
+	for _, volume := range pod.Spec.Volumes {
+		if volume.HostPath != nil || volume.Projected != nil || volume.Secret != nil || volume.ConfigMap != nil {
+			t.Fatalf("application Pod received credential or host/config volume: %#v", volume)
+		}
 	}
 }

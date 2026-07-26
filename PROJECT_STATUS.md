@@ -127,7 +127,16 @@ release version and exact manifest digest are supplied. Unit, race, Kubernetes
 foreign-controller and unsupported-feature gates passed in exact CI run
 30199319231.
 
-## Current phase
+Issue #135 is in implementation. The replacement build no longer contains or
+links the served alpha API, mutation webhook, Pod injection runtime, allocation
+ConfigMap handshake, alpha gateway manager, adapter protocol, alpha release
+workflow, or their executable tests and examples. The controller, CNI, and node
+agent dependency graphs are replacement-only. Static admission rejects old
+Waycloak annotations, and the removal audit rejects legacy runtime paths or
+markers. Final CI, rendered-chart, envtest, and Kind evidence is still required
+before #135 is complete.
+
+## Alpha as-built history
 
 The `v0.3.4` sidecar recovery candidate for #121 fixes a fail-closed startup
 deadlock found after the qBitTorrent Pod sandbox was recreated while its

@@ -1,8 +1,8 @@
 // Copyright 2026 The Waycloak Authors.
 // SPDX-License-Identifier: MIT
 
-// Command alphaaudit verifies that every tracked alpha contract is present in
-// the reviewed removal ledger and rejects newly introduced alpha surfaces.
+// Command alphaaudit proves that shipped replacement surfaces contain no alpha
+// API, admission-injection, sidecar, or persisted-handshake contract.
 package main
 
 import (
@@ -19,56 +19,39 @@ import (
 	"strings"
 )
 
-const defaultInventory = "docs/implementation/alpha-removal-inventory.json"
+const defaultPolicy = "docs/implementation/alpha-removal-completion.json"
 
-var allowedClassifications = map[string]bool{
-	"invariant_redesign":           true,
-	"implementation_delete":        true,
-	"independent_product_decision": true,
-}
-
-var artifactKinds = []string{"code", "chart", "generated", "tests", "docs"}
-
-type inventory struct {
-	SchemaVersion   int      `json:"schemaVersion"`
-	BlockedIssue    int      `json:"blockedIssue"`
-	Markers         []string `json:"markers"`
-	KnownAlphaPaths []string `json:"knownAlphaPaths"`
-	ExemptPaths     []string `json:"exemptPaths"`
-	Entries         []entry  `json:"entries"`
-}
-
-type entry struct {
-	ID             string              `json:"id"`
-	Classification string              `json:"classification"`
-	RemovalIssue   int                 `json:"removalIssue"`
-	Contracts      []string            `json:"contracts"`
-	Artifacts      map[string][]string `json:"artifacts"`
+type policy struct {
+	SchemaVersion    int      `json:"schemaVersion"`
+	AuditedPaths     []string `json:"auditedPaths"`
+	ExemptPaths      []string `json:"exemptPaths"`
+	ForbiddenPaths   []string `json:"forbiddenPaths"`
+	ForbiddenMarkers []string `json:"forbiddenMarkers"`
 }
 
 func main() {
-	inventoryPath := flag.String("inventory", defaultInventory, "path to the alpha removal inventory")
+	policyPath := flag.String("policy", defaultPolicy, "path to the completed alpha-removal policy")
 	flag.Parse()
-	if err := run(context.Background(), ".", *inventoryPath); err != nil {
+	if err := run(context.Background(), ".", *policyPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, root, inventoryPath string) error {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(inventoryPath)))
+func run(ctx context.Context, root, policyPath string) error {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(policyPath)))
 	if err != nil {
-		return fmt.Errorf("read inventory: %w", err)
+		return fmt.Errorf("read policy: %w", err)
 	}
-	var inv inventory
-	if err := json.Unmarshal(data, &inv); err != nil {
-		return fmt.Errorf("decode inventory: %w", err)
+	var value policy
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("decode policy: %w", err)
 	}
 	paths, err := trackedPaths(ctx, root)
 	if err != nil {
 		return err
 	}
-	return audit(root, inv, paths)
+	return audit(root, value, paths)
 }
 
 func trackedPaths(ctx context.Context, root string) ([]string, error) {
@@ -76,148 +59,70 @@ func trackedPaths(ctx context.Context, root string) ([]string, error) {
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list tracked files: %w", err)
+		return nil, fmt.Errorf("list repository files: %w", err)
 	}
-	parts := strings.Split(string(output), "\x00")
-	paths := make([]string, 0, len(parts))
-	for _, path := range parts {
+	var paths []string
+	for _, path := range strings.Split(string(output), "\x00") {
 		if path == "" {
 			continue
 		}
-		_, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(path)))
-		if errors.Is(statErr, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); errors.Is(err, os.ErrNotExist) {
 			continue
-		}
-		if statErr != nil {
-			return nil, fmt.Errorf("inspect tracked file %s: %w", path, statErr)
+		} else if err != nil {
+			return nil, fmt.Errorf("inspect %s: %w", path, err)
 		}
 		paths = append(paths, filepath.ToSlash(path))
 	}
 	return paths, nil
 }
 
-func audit(root string, inv inventory, paths []string) error {
-	if inv.SchemaVersion != 1 {
-		return fmt.Errorf("unsupported inventory schemaVersion %d", inv.SchemaVersion)
+func audit(root string, value policy, paths []string) error {
+	if value.SchemaVersion != 1 || len(value.AuditedPaths) == 0 || len(value.ForbiddenPaths) == 0 || len(value.ForbiddenMarkers) == 0 {
+		return errors.New("alpha-removal policy must declare schemaVersion 1 and non-empty audited paths, forbidden paths, and markers")
 	}
-	if inv.BlockedIssue != 127 {
-		return fmt.Errorf("inventory must block issue 127, got %d", inv.BlockedIssue)
-	}
-	if len(inv.Markers) == 0 || len(inv.KnownAlphaPaths) == 0 || len(inv.Entries) == 0 {
-		return errors.New("inventory markers, knownAlphaPaths, and entries must not be empty")
-	}
-	patterns := append([]string(nil), inv.ExemptPaths...)
-	seenIDs := map[string]bool{}
-	for _, item := range inv.Entries {
-		if item.ID == "" || seenIDs[item.ID] {
-			return fmt.Errorf("inventory entry ID %q is empty or duplicated", item.ID)
-		}
-		seenIDs[item.ID] = true
-		if !allowedClassifications[item.Classification] {
-			return fmt.Errorf("entry %s has unsupported classification %q", item.ID, item.Classification)
-		}
-		if item.RemovalIssue == 0 || len(item.Contracts) == 0 {
-			return fmt.Errorf("entry %s must name contracts and a removal issue", item.ID)
-		}
-		for _, kind := range artifactKinds {
-			listed, ok := item.Artifacts[kind]
-			if !ok {
-				return fmt.Errorf("entry %s does not declare %s artifacts", item.ID, kind)
-			}
-			patterns = append(patterns, listed...)
-		}
-		for kind := range item.Artifacts {
-			if !contains(artifactKinds, kind) {
-				return fmt.Errorf("entry %s has unknown artifact kind %q", item.ID, kind)
-			}
-		}
-	}
-	for _, pattern := range patterns {
-		if !matchesAny(pattern, paths) {
-			return fmt.Errorf("inventory path %q does not match a tracked file", pattern)
-		}
-	}
-	knownAlphaPaths := make(map[string]bool, len(inv.KnownAlphaPaths))
-	for _, path := range inv.KnownAlphaPaths {
-		if strings.Contains(path, "*") || knownAlphaPaths[path] {
-			return fmt.Errorf("knownAlphaPaths entry %q is a pattern or duplicate", path)
-		}
-		if !matchesAny(path, paths) {
-			return fmt.Errorf("known alpha path %q is not tracked", path)
-		}
-		knownAlphaPaths[path] = true
-	}
-	compiled := make([]*regexp.Regexp, 0, len(inv.Markers))
-	for _, marker := range inv.Markers {
-		re, err := regexp.Compile(marker)
+	compiled := make([]*regexp.Regexp, 0, len(value.ForbiddenMarkers))
+	for _, marker := range value.ForbiddenMarkers {
+		expression, err := regexp.Compile(marker)
 		if err != nil {
-			return fmt.Errorf("compile marker %q: %w", marker, err)
+			return fmt.Errorf("compile forbidden marker %q: %w", marker, err)
 		}
-		compiled = append(compiled, re)
+		compiled = append(compiled, expression)
 	}
-	var unknown []string
-	observedKnown := make(map[string]bool, len(knownAlphaPaths))
+	var violations []string
 	for _, path := range paths {
-		if covered(path, inv.ExemptPaths) {
+		if covered(path, value.ForbiddenPaths) {
+			violations = append(violations, path+" (removed alpha path exists)")
+		}
+		if !covered(path, value.AuditedPaths) || covered(path, value.ExemptPaths) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 		if err != nil {
-			return fmt.Errorf("read tracked file %s: %w", path, err)
+			return fmt.Errorf("read audited file %s: %w", path, err)
 		}
-		for index, re := range compiled {
-			if re.FindString(path) != "" || re.Find(data) != nil {
-				observedKnown[path] = true
-				if !covered(path, patterns) || !knownAlphaPaths[path] {
-					unknown = append(unknown, fmt.Sprintf("%s (marker %d: %s)", path, index+1, inv.Markers[index]))
-				}
+		for index, expression := range compiled {
+			if expression.Find(data) != nil {
+				violations = append(violations, fmt.Sprintf("%s (forbidden marker %d)", path, index+1))
 				break
 			}
 		}
 	}
-	for path := range knownAlphaPaths {
-		if !observedKnown[path] {
-			unknown = append(unknown, fmt.Sprintf("%s (listed path no longer contains an alpha marker)", path))
-		}
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		return fmt.Errorf("replacement contains alpha runtime contracts:\n  %s", strings.Join(violations, "\n  "))
 	}
-	if len(unknown) > 0 {
-		sort.Strings(unknown)
-		return fmt.Errorf("unlisted alpha artifacts:\n  %s", strings.Join(unknown, "\n  "))
-	}
-	fmt.Printf("alpha removal inventory verified: %d entries, %d tracked files\n", len(inv.Entries), len(paths))
+	fmt.Printf("replacement alpha-removal audit passed: %d repository files\n", len(paths))
 	return nil
-}
-
-func matchesAny(pattern string, paths []string) bool {
-	for _, path := range paths {
-		if pathMatches(pattern, path) {
-			return true
-		}
-	}
-	return false
 }
 
 func covered(path string, patterns []string) bool {
 	for _, pattern := range patterns {
-		if pathMatches(pattern, path) {
-			return true
-		}
-	}
-	return false
-}
-
-func pathMatches(pattern, path string) bool {
-	pattern = filepath.ToSlash(pattern)
-	path = filepath.ToSlash(path)
-	if strings.HasSuffix(pattern, "/**") {
-		return strings.HasPrefix(path, strings.TrimSuffix(pattern, "**"))
-	}
-	return path == pattern
-}
-
-func contains(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
+		pattern = filepath.ToSlash(pattern)
+		if strings.HasSuffix(pattern, "/**") {
+			if strings.HasPrefix(path, strings.TrimSuffix(pattern, "**")) {
+				return true
+			}
+		} else if path == pattern {
 			return true
 		}
 	}

@@ -1,76 +1,28 @@
 # Waycloak documentation
 
-## Stable/turnkey replacement design
-
-These documents define the proposed clean-break future architecture. They take
-precedence for new design work; alpha documents below describe the current
-installed implementation only.
+## Replacement authority
 
 1. [Stable and turnkey product requirements](product/stable-turnkey-product.md)
 2. [Kubernetes API maturity and target architecture](architecture/kubernetes-api-maturity.md)
 3. [Replacement API proposal](api/replacement-api-proposal.md)
-4. [Dependency-ordered implementation plan](implementation/stable-product-plan.md)
-5. [ADRs 0025–0034](decisions/README.md)
+4. [Dependency-ordered stable product plan](implementation/stable-product-plan.md)
+5. [Threat model](security/threat-model.md)
+6. [Test strategy](testing/test-strategy.md)
+7. [Replacement ADRs](decisions/README.md)
 
-There is no backward-compatibility, conversion, translation, or dual-serving
-requirement from the alpha API to this replacement.
+The implementation is a destructive clean break. There is no conversion, translation, imported runtime state, dual serving, deprecated alias, annotation bridge, or sidecar fallback.
 
-## New users
+## Implementation evidence
 
-Start here if you found Waycloak and want to evaluate it in your own cluster:
-
-1. [Getting started](getting-started.md) — the shortest path from a VPN
-   account to one protected workload
-2. [Architecture and ownership](concepts/architecture-and-ownership.md)
-3. [Security exceptions](operations/security-exceptions.md)
-4. [Gluetun-native configuration](guides/gluetun-native-configuration.md)
-5. [Workload-adapter authoring](guides/workload-adapter-authoring.md)
-6. [Troubleshooting](operations/troubleshooting.md)
-7. [Advanced configuration](operations/advanced-configuration.md)
-7. [Upgrade and rollback](operations/upgrade.md)
-8. [Uninstall](operations/uninstall.md)
-
-The [protected curl example](../examples/curl/README.md) exercises ordinary
-private egress. The [qBitTorrent example](../examples/qbittorrent/README.md)
-adds the more advanced provider-assigned port workflow.
-
-## Operations
-
-- [Detailed installation and release verification](operations/install.md)
-- [Gluetun-native configuration](guides/gluetun-native-configuration.md)
-- [Workload-adapter authoring](guides/workload-adapter-authoring.md)
-- [Security exceptions](operations/security-exceptions.md)
-- [Troubleshooting](operations/troubleshooting.md)
-- [Advanced configuration](operations/advanced-configuration.md)
-- [Upgrade and rollback](operations/upgrade.md)
-- [Uninstall](operations/uninstall.md)
-- [Real-provider port-forward acceptance](testing/real-provider-port-forward.md)
-
-## Product and API contract
-
-- [Product requirements](product/PRD.md)
-- [Developer experience](product/developer-experience.md)
-- [API contract](api/api-contract.md)
-- [Threat model](security/threat-model.md)
-- [v0.2 release scope](product/release-scope-v0.2.md)
-
-## Technical design
-
-- [Architecture and ownership](concepts/architecture-and-ownership.md)
-- [Detailed architecture](architecture/architecture.md)
-- [Networking](architecture/networking.md)
-- [Dependencies](implementation/dependencies.md)
-- [Implementation blueprint](implementation/blueprint.md)
+- [Project status](../PROJECT_STATUS.md)
 - [Roadmap](implementation/roadmap.md)
+- [CNI creation-time feasibility](implementation/cni-creation-time-feasibility.md)
+- [Node-agent threat-model evidence](implementation/node-agent-threat-model-evidence.md)
+- [Alpha removal order](implementation/alpha-removal-order.md)
+- [Alpha removal inventory](implementation/alpha-removal-inventory.json)
 
-## Quality, delivery, and provenance
+## As-built evidence
 
-- [Test strategy](testing/test-strategy.md)
-- [Release engineering](release/release-engineering.md)
-- [Release procedure](release/releasing.md)
-- [Homelab prototype provenance](provenance/homelab-prototype.md)
-- [Architecture decision records](decisions/README.md)
+The [alpha PRD](product/PRD.md), [alpha API contract](api/api-contract.md), older ADRs, research, provenance, and release-scope records describe the removed implementation or its teardown inputs. They are retained for evidence and are not product guidance.
 
-For the replacement program, the stable/turnkey PRD and threat model define
-behavior and accepted ADRs define implementation choices. The alpha PRD/API
-remain authoritative only for the currently installed release until teardown.
+Install, upgrade, rollback, restore, destructive purge, and support-bundle instructions will be published by issues #138–#140 only after their executable workflows pass. Until then there is no supported turnkey install or destructive migration procedure.
