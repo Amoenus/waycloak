@@ -1,4 +1,4 @@
-{{- $generatedRole := .Files.Get "files/controller-role.yaml" | fromYaml -}}
+{{- $generatedRole := required "missing controller role file files/controller-role.yaml" (.Files.Get "files/controller-role.yaml") | fromYaml -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -23,12 +23,12 @@ subjects:
     name: {{ include "waycloak.fullname" . }}
     namespace: {{ .Release.Namespace }}
 {{- range $path := list "files/distribution-role.yaml" "files/network-operator-role.yaml" "files/workload-owner-role.yaml" "files/adapter-operator-role.yaml" "files/node-agent-role.yaml" }}
-{{- $personaRole := $.Files.Get $path | fromYaml }}
+{{- $personaRole := required (printf "missing persona role file %s" $path) ($.Files.Get $path) | fromYaml }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ $personaRole.metadata.name }}
+  name: {{ required (printf "persona role %s has no metadata.name" $path) $personaRole.metadata.name }}
   labels:
     {{- include "waycloak.labels" $ | nindent 4 }}
 rules:

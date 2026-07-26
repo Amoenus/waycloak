@@ -125,8 +125,8 @@
       ],
       "artifacts": {
         "code": ["api/v1alpha1/**"],
-        "chart": ["charts/waycloak/crds/**"],
-        "generated": ["config/crd/bases/**"],
+        "chart": [],
+        "generated": [],
         "tests": ["test/integration/envtest_test.go"],
         "docs": ["docs/api/api-contract.md", "docs/product/PRD.md", "docs/decisions/0025-api-stability-and-feature-channels.md"]
       }

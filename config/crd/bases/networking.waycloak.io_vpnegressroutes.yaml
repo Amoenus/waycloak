@@ -173,10 +173,11 @@ spec:
                 - message: Accepted condition reason is not stable
                   rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                     'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
-                    'Deleting'])
+                    'Deleting', 'ObservationUnavailable'])
                 - message: ResolvedRefs condition reason is not stable
                   rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
-                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef',
+                    'ObservationUnavailable'])
                 - message: Programmed condition reason is not stable
                   rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
                     'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
@@ -264,11 +265,11 @@ spec:
                       - message: Accepted condition reason is not stable
                         rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                           'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
-                          'Deleting'])
+                          'Deleting', 'ObservationUnavailable'])
                       - message: ResolvedRefs condition reason is not stable
                         rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in
                           ['ResolvedRefs', 'InvalidRef', 'RefNotFound', 'RefNotPermitted',
-                          'IncompatibleRef'])
+                          'IncompatibleRef', 'ObservationUnavailable'])
                       - message: Programmed condition reason is not stable
                         rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
                           'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
@@ -322,9 +323,10 @@ spec:
                 x-kubernetes-list-type: atomic
             type: object
             x-kubernetes-validations:
-            - message: parent status controllerName is immutable
-              rule: '!has(oldSelf.parents) || size(oldSelf.parents) == 0 || !has(self.parents)
-                || size(self.parents) == 0 || self.parents[0].controllerName == oldSelf.parents[0].controllerName'
+            - message: parent status controllerName is immutable and an assigned parent
+                status cannot be cleared
+              rule: '!has(oldSelf.parents) || size(oldSelf.parents) == 0 || (has(self.parents)
+                && size(self.parents) == 1 && self.parents[0].controllerName == oldSelf.parents[0].controllerName)'
         required:
         - spec
         type: object

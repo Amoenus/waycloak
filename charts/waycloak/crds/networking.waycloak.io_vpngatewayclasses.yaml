@@ -123,7 +123,7 @@ spec:
             x-kubernetes-validations:
             - message: VPNGatewayClass spec is immutable
               rule: self == oldSelf
-            - message: Core classes must advertise every frozen Core feature
+            - message: every class must advertise the frozen Core feature baseline
               rule: self.supportedFeatures.exists(f, f == 'networking.waycloak.io/CoreFailClosedEgress')
                 && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/TCP')
                 && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/UDP')
@@ -204,10 +204,11 @@ spec:
                 - message: Accepted condition reason is not stable
                   rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                     'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
-                    'Deleting'])
+                    'Deleting', 'ObservationUnavailable'])
                 - message: ResolvedRefs condition reason is not stable
                   rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
-                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef',
+                    'ObservationUnavailable'])
                 - message: Programmed condition reason is not stable
                   rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
                     'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])

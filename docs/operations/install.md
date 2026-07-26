@@ -12,7 +12,7 @@ before installation. Never substitute mutable tags for the recorded digests.
 
 ## Prerequisites
 
-- Kubernetes 1.35 or 1.36 with Linux worker nodes and VXLAN support (`v0.2.1`
+- Kubernetes 1.36 with Linux worker nodes and VXLAN support (`v0.2.1`
   is verified with Kindnet and Flannel; the chart's broader API-version check is
   not a compatibility claim);
 - Helm 3.14 or newer;

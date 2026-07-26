@@ -17,7 +17,9 @@ spec:
   validations:
     - expression: >-
         request.userInfo.username in [{{ $controllerUsername | quote }},
-        "system:serviceaccount:kube-system:generic-garbage-collector"]
+        "system:serviceaccount:kube-system:generic-garbage-collector"] ||
+        (request.operation == "DELETE" && namespaceObject != null &&
+        has(namespaceObject.metadata.deletionTimestamp))
       message: VPNWorkloadBinding is controller-authored and cannot be changed by users
       reason: Forbidden
 ---

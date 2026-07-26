@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -48,13 +49,13 @@ type entry struct {
 func main() {
 	inventoryPath := flag.String("inventory", defaultInventory, "path to the alpha removal inventory")
 	flag.Parse()
-	if err := run(".", *inventoryPath); err != nil {
+	if err := run(context.Background(), ".", *inventoryPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(root, inventoryPath string) error {
+func run(ctx context.Context, root, inventoryPath string) error {
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(inventoryPath)))
 	if err != nil {
 		return fmt.Errorf("read inventory: %w", err)
@@ -63,15 +64,15 @@ func run(root, inventoryPath string) error {
 	if err := json.Unmarshal(data, &inv); err != nil {
 		return fmt.Errorf("decode inventory: %w", err)
 	}
-	paths, err := trackedPaths(root)
+	paths, err := trackedPaths(ctx, root)
 	if err != nil {
 		return err
 	}
 	return audit(root, inv, paths)
 }
 
-func trackedPaths(root string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+func trackedPaths(ctx context.Context, root string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {

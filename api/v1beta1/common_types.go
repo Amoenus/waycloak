@@ -90,8 +90,8 @@ type FeatureName QualifiedName
 // +listMapKey=type
 // +kubebuilder:validation:MaxItems=32
 // +kubebuilder:validation:XValidation:rule="self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed', 'Ready'])",message="condition type is not part of the Waycloak common contract"
-// +kubebuilder:validation:XValidation:rule="self.all(c, c.type != 'Accepted' || c.reason in ['Accepted', 'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound', 'Deleting'])",message="Accepted condition reason is not stable"
-// +kubebuilder:validation:XValidation:rule="self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs', 'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])",message="ResolvedRefs condition reason is not stable"
+// +kubebuilder:validation:XValidation:rule="self.all(c, c.type != 'Accepted' || c.reason in ['Accepted', 'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound', 'Deleting', 'ObservationUnavailable'])",message="Accepted condition reason is not stable"
+// +kubebuilder:validation:XValidation:rule="self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs', 'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef', 'ObservationUnavailable'])",message="ResolvedRefs condition reason is not stable"
 // +kubebuilder:validation:XValidation:rule="self.all(c, c.type != 'Programmed' || c.reason in ['Programmed', 'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])",message="Programmed condition reason is not stable"
 // +kubebuilder:validation:XValidation:rule="self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady', 'ObservationUnavailable', 'Deleting'])",message="Ready condition reason is not stable"
 // +kubebuilder:validation:XValidation:rule="self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')",message="Unknown conditions must use ObservationUnavailable"

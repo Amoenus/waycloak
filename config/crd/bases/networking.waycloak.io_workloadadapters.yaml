@@ -157,10 +157,11 @@ spec:
                 - message: Accepted condition reason is not stable
                   rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                     'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
-                    'Deleting'])
+                    'Deleting', 'ObservationUnavailable'])
                 - message: ResolvedRefs condition reason is not stable
                   rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
-                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef',
+                    'ObservationUnavailable'])
                 - message: Programmed condition reason is not stable
                   rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
                     'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])

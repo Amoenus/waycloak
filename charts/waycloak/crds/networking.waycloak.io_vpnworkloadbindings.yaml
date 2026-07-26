@@ -99,13 +99,10 @@ spec:
                 - message: gatewayRef is immutable
                   rule: self == oldSelf
               nodeName:
-                allOf:
-                - maxLength: 253
-                  minLength: 1
-                - maxLength: 253
-                  minLength: 1
                 description: ObjectName is a Kubernetes object name represented as
                   a DNS subdomain.
+                maxLength: 253
+                minLength: 1
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
                 x-kubernetes-validations:
@@ -262,10 +259,11 @@ spec:
                 - message: Accepted condition reason is not stable
                   rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                     'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
-                    'Deleting'])
+                    'Deleting', 'ObservationUnavailable'])
                 - message: ResolvedRefs condition reason is not stable
                   rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
-                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef'])
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef',
+                    'ObservationUnavailable'])
                 - message: Programmed condition reason is not stable
                   rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
                     'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])

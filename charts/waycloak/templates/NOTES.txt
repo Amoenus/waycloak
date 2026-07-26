@@ -9,3 +9,7 @@ Do not enroll workloads yet. Replacement route reconciliation, UID-bound
 bindings, node programming, and CNI-capable scheduling land in dependency order
 in #129-#136. Until those gates pass, this chart is an API validation artifact,
 not a stable product installation.
+
+Bind the waycloak-workload-owner ClusterRole only with a namespaced RoleBinding
+in each approved workload namespace. Do not grant it through a
+ClusterRoleBinding.

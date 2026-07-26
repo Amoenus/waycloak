@@ -62,11 +62,9 @@ schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpec:
     routeRef: NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecRouteRef
 
     check:
+        len(nodeName) <= 253
+        len(nodeName) >= 1
         _regex_match(str(nodeName), r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")
-        len(nodeName) <= 253
-        len(nodeName) >= 1
-        len(nodeName) <= 253
-        len(nodeName) >= 1
 
 schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingSpecAllocation:
     r"""

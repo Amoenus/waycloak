@@ -174,6 +174,17 @@ func TestReplacementAPI(t *testing.T) {
 
 		stored := &wayv1.VPNEgressRoute{}
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(route), stored))
+		stored.Status.Parents = nil
+		mustReject(t, admin.Status().Update(ctx, stored), "cannot be cleared")
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(route), stored))
+		stored.Status.Conditions = wayv1.Conditions{
+			{Type: wayv1.ConditionAccepted, Status: metav1.ConditionUnknown, Reason: "ObservationUnavailable", LastTransitionTime: metav1.Now()},
+			{Type: wayv1.ConditionResolvedRefs, Status: metav1.ConditionUnknown, Reason: "ObservationUnavailable", LastTransitionTime: metav1.Now()},
+		}
+		must(t, admin.Status().Update(ctx, stored))
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(route), stored))
 		stored.Status.Conditions = wayv1.Conditions{{Type: wayv1.ConditionReady, Status: metav1.ConditionTrue, Reason: "Registered", LastTransitionTime: metav1.Now()}}
 		mustReject(t, admin.Status().Update(ctx, stored), "Ready condition reason")
 	})
@@ -238,6 +249,10 @@ func TestReplacementAPI(t *testing.T) {
 		allowed := validBindingForNamespace("controller-binding", namespace.Name)
 		must(t, controller.Create(ctx, allowed))
 		mustRejectForbidden(t, outsider.Create(ctx, validBindingForNamespace("outsider-binding", namespace.Name)))
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: namespace.Name}}
+		must(t, admin.Create(ctx, secret))
+		must(t, controller.Get(ctx, ctrlclient.ObjectKeyFromObject(secret), &corev1.Secret{}))
+		mustRejectForbidden(t, controller.List(ctx, &corev1.SecretList{}, ctrlclient.InNamespace(namespace.Name)))
 
 		nodeAgent := mustClient(t, impersonate(config, namespace.Name, "node-agent"), scheme)
 		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "protected", Namespace: namespace.Name}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
@@ -254,6 +269,11 @@ func TestReplacementAPI(t *testing.T) {
 		allowed.Spec.Allocation.Address = "192.0.2.11/32"
 		mustRejectForbidden(t, outsider.Update(ctx, allowed))
 		mustRejectForbidden(t, outsider.Delete(ctx, allowed))
+
+		cleanup := validBindingForNamespace("namespace-cleanup", namespace.Name)
+		must(t, controller.Create(ctx, cleanup))
+		must(t, admin.Delete(ctx, namespace))
+		must(t, outsider.Delete(ctx, cleanup))
 	})
 
 	t.Run("deletion does not cascade user intent", func(t *testing.T) {
@@ -399,7 +419,7 @@ func installBindingPolicy(t *testing.T, ctx context.Context, client ctrlclient.C
 					},
 				}},
 			},
-			Validations: []admissionv1.Validation{{Expression: fmt.Sprintf("request.userInfo.username in [%q, %q]", username, "system:serviceaccount:kube-system:generic-garbage-collector"), Message: "VPNWorkloadBinding is controller-authored and cannot be changed by users", Reason: &reason}},
+			Validations: []admissionv1.Validation{{Expression: fmt.Sprintf("request.userInfo.username in [%q, %q] || (request.operation == 'DELETE' && namespaceObject != null && has(namespaceObject.metadata.deletionTimestamp))", username, "system:serviceaccount:kube-system:generic-garbage-collector"), Message: "VPNWorkloadBinding is controller-authored and cannot be changed by users", Reason: &reason}},
 		},
 	}
 	must(t, client.Create(ctx, policy))

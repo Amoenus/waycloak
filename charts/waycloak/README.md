@@ -18,3 +18,8 @@ helm lint charts/waycloak
 ```
 
 CRDs follow Helm's `crds/` lifecycle: they install before namespaced resources and are not deleted during uninstall.
+
+Persona roles are intentionally unbound. Grant workload authorship in each
+approved workload namespace with a namespaced `RoleBinding` to the
+`waycloak-workload-owner` ClusterRole. Do not use a `ClusterRoleBinding`, which
+would grant route and lease authorship in every namespace.

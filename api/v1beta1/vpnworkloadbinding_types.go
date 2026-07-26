@@ -27,8 +27,6 @@ type VPNWorkloadBindingSpec struct {
 	// +required
 	GatewayRef NamespacedUIDReference `json:"gatewayRef"`
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeName is immutable"
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
 	// +required
 	NodeName ObjectName `json:"nodeName"`
 	// +required

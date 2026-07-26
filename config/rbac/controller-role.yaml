@@ -11,7 +11,6 @@ rules:
   - namespaces
   - nodes
   - pods
-  - secrets
   - services
   verbs:
   - get
@@ -24,6 +23,12 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
 - apiGroups:
   - apps
   resources:

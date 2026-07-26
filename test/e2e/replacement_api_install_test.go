@@ -71,6 +71,7 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 		command(t, nil, "kubectl", "get", resource, release+"-binding-guard")
 	}
 	for _, role := range []string{
+		"waycloak-controller",
 		"waycloak-distribution",
 		"waycloak-network-operator",
 		"waycloak-workload-owner",
