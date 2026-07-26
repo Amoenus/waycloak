@@ -35,6 +35,9 @@ func TestParseRequiresExactKubernetesIdentityAndPrevResult(t *testing.T) {
 	if parsed.Request.Pod.UID != "uid-1" || parsed.Conf.PrevResult == nil || parsed.BindingTimeout != 4*time.Second {
 		t.Fatalf("parsed configuration = %#v", parsed)
 	}
+	if parsed.Conf.AgentKeyFile != DefaultAgentKeyFile {
+		t.Fatalf("default local protocol key path = %q", parsed.Conf.AgentKeyFile)
+	}
 	if _, err := Parse([]byte(primaryResult), "different", "/netns/pod", "eth0", args, true, true); err == nil {
 		t.Fatal("mismatched sandbox identity was accepted")
 	}
@@ -64,6 +67,17 @@ func TestParseRejectsUnboundedWaits(t *testing.T) {
 	config = []byte(`{"cniVersion":"1.0.0","name":"kindnet","type":"waycloak","bindingTimeout":"31s"}`)
 	if _, err := Parse(config, "", "", "", "", false, false); err == nil {
 		t.Fatal("unbounded binding timeout was accepted")
+	}
+}
+
+func TestParseRejectsRelativeLocalProtocolPaths(t *testing.T) {
+	config := []byte(`{"cniVersion":"1.0.0","name":"kindnet","type":"waycloak","agentKeyFile":"relative.key"}`)
+	if _, err := Parse(config, "", "", "", "", false, false); err == nil {
+		t.Fatal("relative local protocol key path was accepted")
+	}
+	config = []byte(`{"cniVersion":"1.0.0","name":"kindnet","type":"waycloak","agentSocket":"/run/waycloak/agent.sock","agentKeyFile":"/run/other/agent.key"}`)
+	if _, err := Parse(config, "", "", "", "", false, false); err == nil {
+		t.Fatal("split local protocol directories were accepted")
 	}
 }
 
