@@ -1,0 +1,394 @@
+{
+  "schemaVersion": 1,
+  "blockedIssue": 127,
+  "markers": [
+    "(?i)v1alpha[0-9]+",
+    "networking\\.waycloak\\.io/(gateway|port-forward-container|workload-adapter|adapter-container|allocation-quarantine|provider-lease-quarantine)",
+    "internal\\.networking\\.waycloak\\.io/",
+    "waycloak-(prepare|verify|engine-firewall)",
+    "allocation-configmap|port-forward-leases\\.json",
+    "WAYCLOAK_(ADAPTER_PROTOCOL|LEASE_ENDPOINT)",
+    "mutate-v1-pod|validate-v1-pod"
+  ],
+  "knownAlphaPaths": [
+    ".github/workflows/ci.yaml",
+    ".github/workflows/release.yaml",
+    "api/v1alpha1/groupversion_info.go",
+    "api/v1alpha1/types.go",
+    "api/v1alpha1/zz_generated.deepcopy.go",
+    "charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml",
+    "charts/waycloak/crds/networking.waycloak.io_vpngateways.yaml",
+    "charts/waycloak/crds/networking.waycloak.io_vpnworkloads.yaml",
+    "charts/waycloak/crds/networking.waycloak.io_workloadadapters.yaml",
+    "charts/waycloak/templates/NOTES.txt",
+    "charts/waycloak/templates/webhooks.yaml",
+    "cmd/agent/main_test.go",
+    "cmd/controller/main.go",
+    "cmd/qbittorrent-adapter/main.go",
+    "config/crd/bases/networking.waycloak.io_portforwardleases.yaml",
+    "config/crd/bases/networking.waycloak.io_vpngateways.yaml",
+    "config/crd/bases/networking.waycloak.io_vpnworkloads.yaml",
+    "config/crd/bases/networking.waycloak.io_workloadadapters.yaml",
+    "config/samples/networking_v1alpha1_portforwardlease.yaml",
+    "config/samples/networking_v1alpha1_vpngateway.yaml",
+    "config/samples/networking_v1alpha1_workloadadapter.yaml",
+    "config/webhook/manifests.yaml",
+    "config/webhook/match-annotated-pods.yaml",
+    "docs/api/api-contract.md",
+    "docs/api/replacement-api-proposal.md",
+    "docs/architecture/architecture.md",
+    "docs/concepts/architecture-and-ownership.md",
+    "docs/decisions/0011-renewable-port-lease-delivery.md",
+    "docs/decisions/0017-engine-native-configuration-boundary.md",
+    "docs/decisions/0025-api-stability-and-feature-channels.md",
+    "docs/decisions/0027-explicit-workload-opt-in-and-attachment.md",
+    "docs/getting-started.md",
+    "docs/guides/bitmagnet-adapter.md",
+    "docs/guides/gluetun-native-configuration.md",
+    "docs/guides/workload-adapter-authoring.md",
+    "docs/implementation/blueprint.md",
+    "docs/operations/advanced-configuration.md",
+    "docs/operations/install.md",
+    "docs/operations/security-exceptions.md",
+    "docs/operations/uninstall.md",
+    "docs/operations/upgrade.md",
+    "docs/product/developer-experience.md",
+    "docs/product/PRD.md",
+    "docs/product/release-scope-v0.2.md",
+    "docs/product/release-scope-v0.4.md",
+    "docs/release/manifest.schema.json",
+    "docs/research/ebpf-data-plane.md",
+    "examples/curl/deployment.yaml",
+    "examples/qbittorrent/adapter.yaml",
+    "examples/qbittorrent/lease.yaml",
+    "examples/qbittorrent/workload.yaml",
+    "examples/workload-adapter-python/adapter.py",
+    "examples/workload-adapter-python/README.md",
+    "hack/releasemanifest/main.go",
+    "hack/releasemanifest/main_test.go",
+    "internal/admission/adapter.go",
+    "internal/admission/pod.go",
+    "internal/admission/pod_test.go",
+    "internal/agentconfig/config_test.go",
+    "internal/contract/contract.go",
+    "internal/controller/engine_config.go",
+    "internal/controller/gateway_controller.go",
+    "internal/controller/gateway_controller_test.go",
+    "internal/controller/pod_controller.go",
+    "internal/controller/pod_controller_test.go",
+    "internal/controller/portforwardlease_controller.go",
+    "internal/controller/portforwardlease_controller_test.go",
+    "internal/controller/workload_gc_controller.go",
+    "internal/controller/workload_gc_controller_test.go",
+    "internal/dataplane/observation.go",
+    "internal/delivery/protocol_fixtures_test.go",
+    "internal/delivery/record.go",
+    "internal/delivery/record_test.go",
+    "internal/gateway/observation.go",
+    "internal/gateway/portforward.go",
+    "internal/gateway/portforward_client_test.go",
+    "internal/gateway/resources.go",
+    "internal/gateway/resources_test.go",
+    "kcl/waycloak/examples/basic.k",
+    "kcl/waycloak/examples/private-egress.k",
+    "kcl/waycloak/examples/workload-adapter.k",
+    "kcl/waycloak/helpers/annotations.k",
+    "kcl/waycloak/kcl.mod",
+    "kcl/waycloak/README.md",
+    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_port_forward_lease.k",
+    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_v_p_n_gateway.k",
+    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_v_p_n_workload.k",
+    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_workload_adapter.k",
+    "Makefile",
+    "PROJECT_STATUS.md",
+    "protocol/adapter/v1alpha1/README.md",
+    "protocol/adapter/v1alpha1/acknowledgement.schema.json",
+    "protocol/adapter/v1alpha1/conformance-fixtures.json",
+    "protocol/adapter/v1alpha1/fixtures/current-ack.json",
+    "protocol/adapter/v1alpha1/fixtures/current.json",
+    "protocol/adapter/v1alpha1/fixtures/duplicate.json",
+    "protocol/adapter/v1alpha1/fixtures/expired.json",
+    "protocol/adapter/v1alpha1/fixtures/missing.json",
+    "protocol/adapter/v1alpha1/fixtures/rotated-ack.json",
+    "protocol/adapter/v1alpha1/fixtures/rotated.json",
+    "protocol/adapter/v1alpha1/fixtures/wrong-pod-uid-ack.json",
+    "protocol/adapter/v1alpha1/lease-document.schema.json",
+    "README.md",
+    "test/e2e/cluster_test.go",
+    "test/e2e/injected_image_test.go",
+    "test/e2e/qbittorrent_adapter_test.go",
+    "test/e2e/qbittorrent_example_test.go",
+    "test/e2e/real_port_forward_test.go",
+    "test/e2e/real_vpn_test.go",
+    "test/integration/envtest_test.go"
+  ],
+  "exemptPaths": [
+    "architecture_as_is/**",
+    "docs/implementation/alpha-removal-inventory.json",
+    "hack/alphaaudit/**"
+  ],
+  "entries": [
+    {
+      "id": "alpha-api-types-and-schemas",
+      "classification": "implementation_delete",
+      "removalIssue": 135,
+      "contracts": [
+        "networking.waycloak.io/v1alpha1 served and storage version",
+        "VPNGateway namespaced kind, vpngw short name, Accepted and Ready printer columns",
+        "VPNGateway spec paths clusterTraffic.mode/cidrs, dns.mode, engine.type/image/config.envFrom/config.files.configMapRef/secretRef/mountPath, overlay.cidr/vni/mtu, portForwarding.enabled/driver, provider.name/protocol/region/credentialsSecretRef, workloadAccess.namespaceSelector",
+        "VPNGateway defaults overlay.mtu=1320 and LocalObjectReference.name empty string; Preserve/CIDR, IPv4, file-source exclusivity, native-config/provider exclusivity, and port-forward driver CEL; atomic selector lists and maximum-eight input lists",
+        "VPNGateway status observedGeneration/clientCount/overlay.endpoint/healthPort/desiredMembershipGeneration/appliedMembershipGeneration/conditions",
+        "VPNWorkload namespaced kind, vpnlw short name, address and Ready printer columns, spec podRef.name/uid and gatewayRef.namespace/name",
+        "VPNWorkload status allocation.address/generation/releasedAt, observedGeneration, requestedAllocationGeneration, requestedGatewayGeneration, observedGatewayGeneration, observedAllocationGeneration, observedPodUID, and conditions",
+        "PortForwardLease namespaced kind, pflease short name, Public Port and Ready printer columns, spec gatewayRef/protocols/target.podSelector/port/applicationPortMode",
+        "PortForwardLease set-list TCP/UDP protocols, Fixed default, nonempty selector rule, and status observedGeneration/target.podRef/workloadRef/overlayAddress/port/providerInternalPort/publicAddress/publicPort/issuedAt/renewAfter/expiresAt/leaseGeneration/conditions",
+        "WorkloadAdapter cluster-scoped kind, wcadapter short name, protocol and image printer columns, immutable digest image, and protocolVersion networking.waycloak.io/adapter/v1alpha1",
+        "generated deepcopy implementations and OpenAPI unknown-field behavior"
+      ],
+      "artifacts": {
+        "code": ["api/v1alpha1/**"],
+        "chart": ["charts/waycloak/crds/**"],
+        "generated": ["config/crd/bases/**", "kcl/waycloak/v1alpha1/**"],
+        "tests": ["test/integration/envtest_test.go"],
+        "docs": ["docs/api/api-contract.md", "docs/product/PRD.md", "docs/decisions/0025-api-stability-and-feature-channels.md"]
+      }
+    },
+    {
+      "id": "alpha-explicit-opt-in-markers",
+      "classification": "invariant_redesign",
+      "removalIssue": 129,
+      "contracts": [
+        "networking.waycloak.io/gateway workload annotation",
+        "networking.waycloak.io/port-forward-container, networking.waycloak.io/workload-adapter, and networking.waycloak.io/adapter-container annotations",
+        "unannotated Pod pass-through behavior"
+      ],
+      "artifacts": {
+        "code": ["internal/contract/contract.go", "internal/admission/**"],
+        "chart": ["charts/waycloak/templates/webhooks.yaml", "charts/waycloak/templates/NOTES.txt"],
+        "generated": ["config/webhook/**", "kcl/waycloak/helpers/annotations.k"],
+        "tests": ["test/e2e/cluster_test.go", "test/e2e/qbittorrent_example_test.go"],
+        "docs": ["docs/decisions/0027-explicit-workload-opt-in-and-attachment.md", "docs/api/replacement-api-proposal.md"]
+      }
+    },
+    {
+      "id": "alpha-admission-and-injection",
+      "classification": "implementation_delete",
+      "removalIssue": 135,
+      "contracts": [
+        "mutate-v1-pod and validate-v1-pod webhooks",
+        "waycloak-prepare, waycloak-verify, and waycloak-agent injection",
+        "internal.networking.waycloak.io/injection-version=v1alpha2 and internal.networking.waycloak.io/admission-generation markers",
+        "waycloak-allocation and waycloak-port-forward volumes, /run/waycloak and /run/waycloak/port-forward mounts",
+        "application capability, host wiring, readiness/startup probe, automountServiceAccountToken, and projected-token rewriting",
+        "webhook failurePolicy, namespace/object selectors, match conditions, reinvocation policy, TLS Secret/CA bundle, cert-manager Certificate/Issuer option, and admission-generation ConfigMap"
+      ],
+      "artifacts": {
+        "code": ["cmd/controller/main.go", "internal/admission/**", "internal/contract/contract.go"],
+        "chart": ["charts/waycloak/templates/admission-generation.yaml", "charts/waycloak/templates/certificate.yaml", "charts/waycloak/templates/deployment.yaml", "charts/waycloak/templates/webhooks.yaml", "charts/waycloak/values.yaml", "charts/waycloak/values.schema.json"],
+        "generated": ["config/webhook/**"],
+        "tests": ["test/e2e/injected_image_test.go", "internal/admission/pod_test.go"],
+        "docs": ["docs/architecture/architecture.md", "docs/product/developer-experience.md", "docs/operations/security-exceptions.md"]
+      }
+    },
+    {
+      "id": "alpha-allocation-projection",
+      "classification": "invariant_redesign",
+      "removalIssue": 132,
+      "contracts": [
+        "deterministic waycloak-allocation-<sha256-prefix> ConfigMap name and pod-<sha256-prefix> VPNWorkload identity",
+        "internal.networking.waycloak.io/allocation-configmap annotation and allocation version v1alpha1",
+        "projected keys version, podUID, address, overlayCIDR, gatewayAddress, gatewayEndpoint, gatewayHealthPort, vni, mtu, clusterTrafficMode, clusterCIDRs, underlayInterface, allocationGeneration, and gatewayGeneration",
+        "networking.waycloak.io/allocation-quarantine finalizer",
+        "Pod controller owner references from exact Pod UID to VPNWorkload and allocation ConfigMap",
+        "desired allocation, applied sidecar state, and live observation conflated across VPNWorkload status and ConfigMap projection"
+      ],
+      "artifacts": {
+        "code": ["internal/agentconfig/**", "internal/allocation/**", "internal/controller/pod_controller.go", "internal/controller/workload_gc_controller.go", "internal/contract/contract.go"],
+        "chart": ["charts/waycloak/files/manager-role.yaml"],
+        "generated": ["config/rbac/role.yaml"],
+        "tests": ["internal/controller/pod_controller_test.go", "internal/controller/workload_gc_controller_test.go", "internal/agentconfig/config_test.go"],
+        "docs": ["docs/decisions/0005-allocation-startup-handshake.md", "docs/implementation/blueprint.md"]
+      }
+    },
+    {
+      "id": "alpha-node-sidecar-dataplane",
+      "classification": "invariant_redesign",
+      "removalIssue": 133,
+      "contracts": [
+        "Pod-local NET_ADMIN routing agent",
+        "VXLAN, nftables, policy-routing, DNS containment, and observation owned inside the application Pod",
+        "sidecar readiness and restart behavior"
+      ],
+      "artifacts": {
+        "code": ["cmd/agent/**", "internal/dataplane/**"],
+        "chart": ["charts/waycloak/values.yaml"],
+        "generated": [],
+        "tests": ["test/e2e/dataplane_test.go", "test/e2e/injected_image_test.go"],
+        "docs": ["docs/architecture/networking.md", "docs/research/ebpf-data-plane.md", "docs/decisions/0034-cni-creation-time-enforcement.md", "docs/decisions/0035-node-agent-trust-and-local-protocol.md"]
+      }
+    },
+    {
+      "id": "alpha-gateway-runtime",
+      "classification": "invariant_redesign",
+      "removalIssue": 134,
+      "contracts": [
+        "controller-owned singleton StatefulSet and headless Service",
+        "vpn-engine, waycloak-gateway-manager, and waycloak-engine-firewall containers",
+        "internal.networking.waycloak.io/gateway label, internal.networking.waycloak.io/gateway-name and engine-config-digest annotations",
+        "gateway ConfigMap keys config.toml, post-rules.txt, gateway.json, membership-generation, and engine control authentication material",
+        "tunwaycloak interface, UDP VXLAN, loopback health URL http://127.0.0.1:9999/, and observed endpoint/health port",
+        "VPNGateway controller owner references to ConfigMap, Service, PodDisruptionBudget, and StatefulSet",
+        "engine image and provider intent embedded in VPNGateway"
+      ],
+      "artifacts": {
+        "code": ["cmd/gateway-manager/**", "internal/gateway/**", "internal/controller/gateway_controller.go", "internal/controller/engine_config.go"],
+        "chart": ["charts/waycloak/values.yaml", "charts/waycloak/templates/deployment.yaml"],
+        "generated": [],
+        "tests": ["test/e2e/gateway_manager_test.go", "internal/controller/gateway_controller_test.go"],
+        "docs": ["docs/decisions/0008-gateway-credential-and-engine-control-boundary.md", "docs/decisions/0017-engine-native-configuration-boundary.md", "docs/decisions/0022-native-engine-input-projection.md"]
+      }
+    },
+    {
+      "id": "alpha-status-events-and-ownership",
+      "classification": "invariant_redesign",
+      "removalIssue": 131,
+      "contracts": [
+        "condition types Accepted, Allocated, AllocationPublished, Scheduled, TunnelReady, OverlayReady, MembershipApplied, DNSReady, PortForwardReady, ProviderLeaseReady, GatewayRulesReady, TargetReady, Delivered, and Ready",
+        "reasons Accepted, InvalidOverlay, AllocationPending, AllocationPersisted, AllocationConfigMapReady, DataPlaneNotImplemented, InvalidEngineImage, InvalidCredentialsReference, InvalidEngineConfiguration, EngineConfigurationUnavailable, GatewayResourcesReady, GatewayPodPending, GatewayPodScheduled, TunnelObservedReady, TunnelNotReady, OverlayObservedReady, OverlayNotReady, MembershipGenerationApplied, MembershipGenerationPending, MembershipObservationFailed, AgentObservationFailed, AgentGenerationStale, OverlayNotImplemented, DNSObservedReady, DNSNotReady, PortForwardDisabled, PortForwardObservedReady, PortForwardNotReady",
+        "reasons LeaseAccepted, InvalidTargetSelector, PortForwardUnsupported, TargetNotFound, TargetAmbiguous, TargetGatewayMismatch, TargetRegistrationPending, TargetObservedReady, ProviderLeasePending, ProviderLeaseObservedReady, ProviderLeaseObservationFailed, ProviderLeaseExpired, GatewayRulesPending, GatewayRulesObservedReady, DeliveryPending, DeliveryObservationFailed, DeliveryObservedReady, LeaseComponentsNotReady, LeaseReady, GatewayReady, GatewayComponentsNotReady, GatewayNotFound, UnauthorizedGateway, AdmissionGenerationConflict, AdmissionVersionConflict, and ApplicationCredentialsForbidden",
+        "events GatewayQuarantined, GatewayConfigCreated, GatewayServiceCreated, GatewayDisruptionBudgetCreated, GatewayStatefulSetCreated, GatewayRolloutRequired, GatewayMembershipPending, GatewayMembershipObservationFailed, RegistrationCreated, AllocationPersisted, AllocationPublished, StaleAllocationRemoved, GatewayEndpointUpdated, and AllocationUpdated; lease condition reasons are also emitted as event reasons",
+        "whole-object Create/Update/Patch behavior with no explicit server-side-apply field manager",
+        "alpha owner references and allocation/provider quarantine finalizers"
+      ],
+      "artifacts": {
+        "code": ["internal/status/**", "internal/controller/**"],
+        "chart": [],
+        "generated": ["config/rbac/role.yaml"],
+        "tests": ["internal/controller/**"],
+        "docs": ["docs/decisions/0029-common-status-and-condition-contract.md", "docs/architecture/kubernetes-api-maturity.md"]
+      }
+    },
+    {
+      "id": "alpha-reference-authorization",
+      "classification": "invariant_redesign",
+      "removalIssue": 130,
+      "contracts": [
+        "namespace selector gateway authorization",
+        "same and cross-namespace gateway references without explicit parent consent",
+        "alpha denial messages and reference visibility"
+      ],
+      "artifacts": {
+        "code": ["internal/controller/pod_controller.go", "internal/controller/portforwardlease_controller.go"],
+        "chart": [],
+        "generated": ["config/crd/bases/networking.waycloak.io_vpngateways.yaml"],
+        "tests": ["internal/controller/pod_controller_test.go", "test/integration/envtest_test.go"],
+        "docs": ["docs/decisions/0028-reference-authorization-and-cross-namespace-consent.md"]
+      }
+    },
+    {
+      "id": "alpha-port-forwarding-and-delivery",
+      "classification": "independent_product_decision",
+      "removalIssue": 137,
+      "contracts": [
+        "selector-bound PortForwardLease and alphabetical target selection",
+        "networking.waycloak.io/provider-lease-quarantine finalizer, NAT-PMP state, gateway DNAT, and projected delivery document",
+        "port-forward-leases.json Document fields apiVersion/podUID/leases and Record fields identity/namespace/name/state/gateway/publicAddress/publicPort/targetPort/applicationPort/applicationPortMode/protocols/generation/issuedAt/renewAfter/expiresAt",
+        "v1alpha1 Observation fields apiVersion/identity/podUID/generation/expiresAt/ready/appliedPort and acknowledgement fields apiVersion/podUID/leaseIdentity/generation/applicationPort",
+        "Fixed and ProviderAssigned application port modes, Active state, deterministic record ordering, renewable generation, and TCP/UDP protocol set"
+      ],
+      "artifacts": {
+        "code": ["internal/provider/**", "internal/delivery/**", "internal/controller/portforwardlease_controller.go", "internal/gateway/portforward.go", "internal/gateway/portforward_client_test.go", "internal/gateway/forwarding_linux.go"],
+        "chart": [],
+        "generated": ["protocol/adapter/v1alpha1/**", "config/samples/networking_v1alpha1_portforwardlease.yaml"],
+        "tests": ["test/e2e/real_port_forward_test.go", "test/fixtures/fake-lease-agent/**", "test/fixtures/fake-natpmp/**"],
+        "docs": ["docs/decisions/0011-renewable-port-lease-delivery.md", "docs/decisions/0012-port-forward-lease-identity-and-target-binding.md", "docs/decisions/0013-proton-nat-pmp-ownership-and-observation.md", "docs/decisions/0014-atomic-port-forward-dnat.md", "docs/decisions/0015-stable-target-port-translation.md", "docs/decisions/0016-provider-assigned-application-port-handoff.md"]
+      }
+    },
+    {
+      "id": "alpha-workload-adapters",
+      "classification": "independent_product_decision",
+      "removalIssue": 137,
+      "contracts": [
+        "cluster-scoped WorkloadAdapter trust record",
+        "adapter selection annotations and injected adapter container",
+        "v1alpha1 loopback HTTP acknowledgement API, WAYCLOAK_ADAPTER_PROTOCOL and WAYCLOAK_LEASE_ENDPOINT environment, and OCI labels",
+        "adapter protocol version networking.waycloak.io/adapter/v1alpha1 and immutable digest image trust"
+      ],
+      "artifacts": {
+        "code": ["cmd/qbittorrent-adapter/**", "cmd/bitmagnet-adapter/**", "internal/qbittorrent/**", "internal/bitmagnet/**"],
+        "chart": [],
+        "generated": ["protocol/adapter/v1alpha1/**", "config/samples/networking_v1alpha1_workloadadapter.yaml"],
+        "tests": ["test/e2e/qbittorrent_adapter_test.go", "test/fixtures/qbittorrent-observer/**"],
+        "docs": ["docs/decisions/0018-workload-adapter-protocol.md", "docs/guides/workload-adapter-authoring.md", "docs/guides/bitmagnet-adapter.md"]
+      }
+    },
+    {
+      "id": "alpha-installation-rbac-and-release",
+      "classification": "implementation_delete",
+      "removalIssue": 135,
+      "contracts": [
+        "alpha controller, agent, gateway manager, and adapter image set",
+        "alpha CRD, webhook TLS, broad controller RBAC for ConfigMaps/Services/Events/Namespaces/Pods/StatefulSets/Leases/PodDisruptionBudgets and all four alpha kinds/status/finalizers, Helm values, and KCL package",
+        "alpha release manifest image roles, storage version, protocol metadata, and generated checks"
+      ],
+      "artifacts": {
+        "code": ["hack/releasemanifest/**", "hack/generate-kcl-models.sh", "Makefile", ".github/workflows/release.yaml", ".github/workflows/ci.yaml"],
+        "chart": ["charts/waycloak/**"],
+        "generated": ["config/**", "kcl/waycloak/**", "docs/release/manifest.schema.json"],
+        "tests": ["test/e2e/helm_install_test.go", "hack/releasemanifest/main_test.go"],
+        "docs": ["charts/waycloak/README.md", "kcl/waycloak/README.md", "docs/release/releasing.md"]
+      }
+    },
+    {
+      "id": "alpha-examples-and-operator-guides",
+      "classification": "implementation_delete",
+      "removalIssue": 135,
+      "contracts": [
+        "annotated curl and qBitTorrent workloads",
+        "alpha gateway, lease, adapter, KCL, and native engine examples",
+        "alpha install, upgrade, troubleshooting, and uninstall instructions"
+      ],
+      "artifacts": {
+        "code": ["examples/workload-adapter-python/**"],
+        "chart": ["charts/waycloak/templates/NOTES.txt"],
+        "generated": ["config/samples/**", "kcl/waycloak/examples/**"],
+        "tests": ["test/e2e/qbittorrent_example_test.go", "test/e2e/real_vpn_test.go"],
+        "docs": ["README.md", "docs/getting-started.md", "docs/operations/**", "docs/guides/gluetun-native-configuration.md", "examples/curl/**", "examples/qbittorrent/**", "examples/workload-adapter-python/README.md"]
+      }
+    },
+    {
+      "id": "alpha-as-built-evidence",
+      "classification": "invariant_redesign",
+      "removalIssue": 126,
+      "contracts": [
+        "historical ADRs 0001 through 0024",
+        "alpha release-scope and as-built architecture descriptions",
+        "project history retained only as evidence and teardown input"
+      ],
+      "artifacts": {
+        "code": ["PROJECT_STATUS.md"],
+        "chart": [],
+        "generated": [],
+        "tests": [],
+        "docs": ["docs/decisions/0001-shared-gateway.md", "docs/decisions/0002-kubernetes-api-and-admission.md", "docs/decisions/0003-gluetun-provider-interface.md", "docs/decisions/0004-helm-oci-distribution.md", "docs/decisions/0005-allocation-startup-handshake.md", "docs/decisions/0006-native-linux-data-plane.md", "docs/decisions/0007-transparent-gateway-dns.md", "docs/decisions/0008-gateway-credential-and-engine-control-boundary.md", "docs/decisions/0009-gluetun-firewall-forwarding-boundary.md", "docs/decisions/0010-external-webhook-certificate-ownership.md", "docs/decisions/0011-renewable-port-lease-delivery.md", "docs/decisions/0012-port-forward-lease-identity-and-target-binding.md", "docs/decisions/0013-proton-nat-pmp-ownership-and-observation.md", "docs/decisions/0014-atomic-port-forward-dnat.md", "docs/decisions/0015-stable-target-port-translation.md", "docs/decisions/0016-provider-assigned-application-port-handoff.md", "docs/decisions/0017-engine-native-configuration-boundary.md", "docs/decisions/0018-workload-adapter-protocol.md", "docs/decisions/0019-optional-ebpf-data-plane.md", "docs/decisions/0020-observed-admission-generation.md", "docs/decisions/0021-observed-membership-generation.md", "docs/decisions/0022-native-engine-input-projection.md", "docs/decisions/0023-manager-owned-port-forward-generation.md", "docs/decisions/0024-ebpf-preview-cni-handoff.md", "docs/product/release-scope-v0.2.md", "docs/product/release-scope-v0.4.md", "docs/concepts/architecture-and-ownership.md"]
+      }
+    },
+    {
+      "id": "alpha-destructive-clean-break",
+      "classification": "invariant_redesign",
+      "removalIssue": 139,
+      "contracts": [
+        "enumerate and stop protected workloads while the old deny path remains",
+        "separate normal uninstall from explicit alpha CR and CRD purge",
+        "fresh replacement install and newly authored manifests with no state carry-over"
+      ],
+      "artifacts": {
+        "code": [],
+        "chart": [],
+        "generated": [],
+        "tests": [],
+        "docs": ["docs/implementation/alpha-removal-order.md", "docs/operations/uninstall.md", "docs/implementation/stable-product-plan.md"]
+      }
+    }
+  ]
+}

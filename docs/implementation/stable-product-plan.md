@@ -25,8 +25,10 @@ eBPF without changing workload intent.
 Gate status (2026-07-26): #124 passed on pinned Kind/kindnet and
 k3d/k3s/Flannel CI rows plus an authorized k3s homelab row and merged in
 PR #143. ADR 0034 accepts the matrix-limited support decision and links the
-exact evidence. Issue #125 is the active Phase 0 dependency; no replacement
-CRD work starts until the declared prerequisites are complete.
+exact evidence. #125 merged in PR #144 with the authenticated local-protocol
+and node trust-boundary proof. #126 is now the active Phase 0 dependency; its
+reviewed removal inventory must pass before #127 can freeze replacement APIs.
+No replacement CRD work starts until that gate is complete.
 4. Prove no application process can emit ordinary egress before successful
    Waycloak `ADD` on every proposed support-matrix row.
 5. Update the threat model for node agent/CNI privilege and local protocol.
@@ -38,6 +40,11 @@ safe failure. If this fails, redesign before generating stable APIs.
 
 1. Inventory every alpha field/annotation/finalizer/status reason solely to
    prove complete removal and identify invariants worth redesigning.
+   The machine-readable ledger is
+   [alpha-removal-inventory.json](alpha-removal-inventory.json); CI rejects an
+   unlisted alpha marker or artifact. Runtime deletion remains assigned to
+   #135 after replacement Core conformance, and the confirmation-gated ordering
+   input is [alpha-removal-order.md](alpha-removal-order.md).
 2. Implement `VPNGatewayClass`, redesigned `VPNGateway`, `VPNEgressRoute`, and
    controller-only `VPNWorkloadBinding` schemas with CEL and list semantics.
 3. Implement RBAC and admission that prevent user-authored bindings and reject
