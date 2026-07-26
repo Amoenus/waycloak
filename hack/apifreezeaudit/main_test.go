@@ -56,6 +56,20 @@ func TestRejectsIncompleteCoreFeatureSet(t *testing.T) {
 	}
 }
 
+func TestRejectsKindMissingCommonCondition(t *testing.T) {
+	data := strings.Replace(string(repositoryContract(t)), `"conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready", "TunnelReady", "DNSReady", "MembershipApplied"]`, `"conditions": ["Accepted", "ResolvedRefs", "Programmed", "TunnelReady", "DNSReady", "MembershipApplied"]`, 1)
+	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "frozen condition contract") {
+		t.Fatalf("audit() error = %v, want missing common condition failure", err)
+	}
+}
+
+func TestRejectsConditionWithoutUnavailableObservation(t *testing.T) {
+	data := strings.Replace(string(repositoryContract(t)), `"TunnelReady": ["TunnelReady", "TunnelNotReady", "ObservationUnavailable"]`, `"TunnelReady": ["TunnelReady", "TunnelNotReady"]`, 1)
+	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "unavailable observation") {
+		t.Fatalf("audit() error = %v, want unavailable observation failure", err)
+	}
+}
+
 func TestRejectsCrossNamespaceOwnerReference(t *testing.T) {
 	data := strings.Replace(string(repositoryContract(t)), `"crossNamespace": false`, `"crossNamespace": true`, 1)
 	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "unsafe owner reference") {

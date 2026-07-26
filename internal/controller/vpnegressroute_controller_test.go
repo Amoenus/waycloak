@@ -220,7 +220,7 @@ func allowAllRoutes(gateway *wayv1.VPNGateway) *wayv1.VPNGateway {
 
 func readyGateway(namespace string) *wayv1.VPNGateway {
 	generation := int64(4)
-	conditions := wayv1.Conditions{}
+	conditions := wayv1.GatewayConditions{}
 	for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
 		conditions = append(conditions, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType, ObservedGeneration: generation})
 	}

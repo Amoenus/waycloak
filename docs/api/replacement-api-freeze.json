@@ -8,10 +8,17 @@
   "referenceGrantCore": false,
   "commonConditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"],
   "conditionReasons": {
-    "Accepted": ["Accepted", "Invalid", "UnsupportedClass", "UnsupportedFeature", "ControllerNotFound", "Deleting"],
-    "ResolvedRefs": ["ResolvedRefs", "InvalidRef", "RefNotFound", "RefNotPermitted", "IncompatibleRef"],
+    "Accepted": ["Accepted", "Invalid", "UnsupportedClass", "UnsupportedFeature", "ControllerNotFound", "Deleting", "ObservationUnavailable"],
+    "ResolvedRefs": ["ResolvedRefs", "InvalidRef", "RefNotFound", "RefNotPermitted", "IncompatibleRef", "ObservationUnavailable"],
     "Programmed": ["Programmed", "Pending", "ApplyFailed", "StaleGeneration", "ObservationUnavailable"],
-    "Ready": ["Ready", "NotReady", "ObservationUnavailable", "Deleting"]
+    "Ready": ["Ready", "NotReady", "ObservationUnavailable", "Deleting"],
+    "TunnelReady": ["TunnelReady", "TunnelNotReady", "ObservationUnavailable"],
+    "DNSReady": ["DNSReady", "DNSNotReady", "ObservationUnavailable"],
+    "MembershipApplied": ["MembershipApplied", "MembershipPending", "ObservationUnavailable"],
+    "NodeReady": ["NodeReady", "NodeNotReady", "ObservationUnavailable"],
+    "GatewayRulesReady": ["GatewayRulesReady", "GatewayRulesPending", "ObservationUnavailable"],
+    "Delivered": ["Delivered", "DeliveryPending", "ObservationUnavailable"],
+    "Acknowledged": ["Acknowledged", "AcknowledgementPending", "ObservationUnavailable"]
   },
   "featureChannels": {
     "Core": [
@@ -93,7 +100,7 @@
         {"target": "same-namespace generated gateway dependents", "crossNamespace": false, "controllerOwnedUserIntent": false}
       ],
       "finalizers": [],
-      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready", "TunnelReady", "DNSReady", "MembershipApplied"]
     },
     {
       "kind": "VPNEgressRoute",
@@ -146,7 +153,7 @@
       "finalizers": [
         {"name": "networking.waycloak.io/dataplane-cleanup", "externalCleanup": true, "bounded": true, "maximumDuration": "10m", "timeoutOutcome": "deny retained, identity never reused, address quarantined"}
       ],
-      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready", "NodeReady"]
     },
     {
       "kind": "PortForwardLease",
@@ -174,7 +181,7 @@
       "finalizers": [
         {"name": "networking.waycloak.io/provider-cleanup", "externalCleanup": true, "bounded": true, "maximumDuration": "10m", "timeoutOutcome": "mapping quarantined and Ready False"}
       ],
-      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"]
+      "conditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready", "GatewayRulesReady", "Delivered", "Acknowledged"]
     },
     {
       "kind": "WorkloadAdapter",

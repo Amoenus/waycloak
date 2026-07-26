@@ -77,7 +77,7 @@ the common positive-polarity status contract. A present label remains enrolled
 and fail closed when its route is missing, stale, rejected, changed, or deleted;
 unlabeled Pods remain outside Waycloak.
 
-Issue #130 is the active dependency. Its current slice implements gateway-side
+Issue #130 is complete and merged in PR #149. It implements gateway-side
 `allowedRoutes` consent through an uncached authorization reader, preserves
 privacy between missing and denied cross-namespace targets, and requeues routes
 on Namespace labels, gateway policy/class state, and target lifecycle changes.
@@ -87,6 +87,14 @@ its mappings in #137 without coupling this work to the alpha lease runtime. Core
 intentionally has no `ReferenceGrant` dependency. Binding allocation, node
 programming, and creation-time CNI admission remain downstream gates, so this
 slice does not yet make the intermediate chart safe for workload use.
+
+Issue #131 is the active dependency. Its current slice centralizes current-
+generation condition construction and reads, freezes stable reason constants,
+adds resource-scoped tunnel, DNS, membership, node, gateway-rule, delivery, and
+acknowledgement conditions, and proves server-side ownership, concurrent
+convergence, semantic no-op suppression, and transition-time stability. Later
+resource controllers must consume this contract; this slice does not infer
+live readiness for components that #132–#137 have not implemented.
 
 ## Current phase
 

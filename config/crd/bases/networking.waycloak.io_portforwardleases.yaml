@@ -177,8 +177,9 @@ spec:
                 - serviceUID
                 type: object
               conditions:
-                description: Conditions implements the common positive-polarity status
-                  contract.
+                description: |-
+                  LeaseConditions adds the gateway-rule, delivery, and application
+                  acknowledgement observations required for Extended lease readiness.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -239,9 +240,9 @@ spec:
                 - type
                 x-kubernetes-list-type: map
                 x-kubernetes-validations:
-                - message: condition type is not part of the Waycloak common contract
+                - message: condition type is not valid for PortForwardLease
                   rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
-                    'Ready'])
+                    'Ready', 'GatewayRulesReady', 'Delivered', 'Acknowledged'])
                 - message: Accepted condition reason is not stable
                   rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                     'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
@@ -256,6 +257,15 @@ spec:
                 - message: Ready condition reason is not stable
                   rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady',
                     'ObservationUnavailable', 'Deleting'])
+                - message: GatewayRulesReady condition reason is not stable
+                  rule: self.all(c, c.type != 'GatewayRulesReady' || c.reason in ['GatewayRulesReady',
+                    'GatewayRulesPending', 'ObservationUnavailable'])
+                - message: Delivered condition reason is not stable
+                  rule: self.all(c, c.type != 'Delivered' || c.reason in ['Delivered',
+                    'DeliveryPending', 'ObservationUnavailable'])
+                - message: Acknowledged condition reason is not stable
+                  rule: self.all(c, c.type != 'Acknowledged' || c.reason in ['Acknowledged',
+                    'AcknowledgementPending', 'ObservationUnavailable'])
                 - message: Unknown conditions must use ObservationUnavailable
                   rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
               handoffGeneration:

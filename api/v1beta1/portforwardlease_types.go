@@ -95,7 +95,7 @@ type PortForwardLeaseStatus struct {
 	// +optional
 	HandoffGeneration int64 `json:"handoffGeneration,omitempty"`
 	// +optional
-	Conditions Conditions `json:"conditions,omitempty"`
+	Conditions LeaseConditions `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

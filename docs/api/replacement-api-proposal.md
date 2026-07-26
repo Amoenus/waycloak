@@ -102,6 +102,13 @@ Stable summary reasons are:
 | `Programmed` | `Programmed`, `Pending`, `ApplyFailed`, `StaleGeneration`, `ObservationUnavailable` |
 | `Ready` | `Ready`, `NotReady`, `ObservationUnavailable`, `Deleting` |
 
+Resource-specific diagnostic conditions use the stable vocabulary in
+[status-contract.md](status-contract.md). Gateway conditions distinguish
+tunnel, DNS, and membership observation; binding conditions distinguish current
+node health; lease conditions distinguish gateway rules, delivery, and
+application acknowledgement. The schema rejects those conditions on unrelated
+kinds.
+
 `Unknown` always uses `ObservationUnavailable`. `Ready=True` is resource-
 specific live health; it is never inferred from registration or desired-state
 publication. Status writes require current `observedGeneration`, preserve

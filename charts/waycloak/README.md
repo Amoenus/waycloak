@@ -1,7 +1,8 @@
 # Waycloak Helm chart
 
-This chart currently represents the #128 API installation plus the #129/#130
-route enrollment, static admission, and cross-namespace API contract. It
+This chart currently represents the #128 API installation plus the #129–#131
+route enrollment, static admission, cross-namespace, and stable status API
+contracts. It
 installs only the six `networking.waycloak.io/v1beta1` CRDs, generated persona,
 controller, and unbound read-only node-agent RBAC, the future controller
 ServiceAccount identity, controller-only `VPNWorkloadBinding` defense, and
@@ -12,7 +13,7 @@ It does not render the alpha controller, mutation webhooks, sidecars, init
 containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render a
 replacement controller Deployment, CNI plugin, or node agent. Do not enroll
 workloads from this intermediate chart. #129-#136 add those components only after their hard
-prerequisites pass; the stable turnkey journey is not complete at #130.
+prerequisites pass; the stable turnkey journey is not complete at #131.
 
 The only replacement enrollment key is the Pod-template label
 `networking.waycloak.io/egress-route: <same-namespace-route-name>`. A present

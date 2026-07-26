@@ -230,6 +230,50 @@ func TestReplacementAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("resource condition vocabularies are stable and scoped", func(t *testing.T) {
+		gateway := validGateway("component-conditions")
+		must(t, admin.Create(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.Conditions = wayv1.GatewayConditions{
+			currentCondition(wayv1.ConditionTunnelReady, metav1.ConditionTrue, wayv1.ReasonTunnelReady, gateway.Generation),
+			currentCondition(wayv1.ConditionDNSReady, metav1.ConditionUnknown, wayv1.ReasonObservationUnavailable, gateway.Generation),
+			currentCondition(wayv1.ConditionMembershipApplied, metav1.ConditionFalse, wayv1.ReasonMembershipPending, gateway.Generation),
+		}
+		must(t, admin.Status().Update(ctx, gateway))
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.Conditions[0].Reason = wayv1.ReasonReady
+		mustReject(t, admin.Status().Update(ctx, gateway), "TunnelReady condition reason")
+
+		route := validRoute("component-scope")
+		must(t, admin.Create(ctx, route))
+		route.Status.Conditions = wayv1.Conditions{
+			currentCondition(wayv1.ConditionTunnelReady, metav1.ConditionTrue, wayv1.ReasonTunnelReady, route.Generation),
+		}
+		mustReject(t, admin.Status().Update(ctx, route), "condition type")
+
+		binding := validBinding("component-conditions")
+		must(t, admin.Create(ctx, binding))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		binding.Status.ObservedGeneration = binding.Generation
+		binding.Status.Conditions = wayv1.BindingConditions{
+			currentCondition(wayv1.ConditionNodeReady, metav1.ConditionTrue, wayv1.ReasonNodeReady, binding.Generation),
+		}
+		must(t, admin.Status().Update(ctx, binding))
+
+		lease := validLease("component-conditions")
+		must(t, admin.Create(ctx, lease))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(lease), lease))
+		lease.Status.ObservedGeneration = lease.Generation
+		lease.Status.Conditions = wayv1.LeaseConditions{
+			currentCondition(wayv1.ConditionGatewayRulesReady, metav1.ConditionTrue, wayv1.ReasonGatewayRulesReady, lease.Generation),
+			currentCondition(wayv1.ConditionDelivered, metav1.ConditionTrue, wayv1.ReasonDelivered, lease.Generation),
+			currentCondition(wayv1.ConditionAcknowledged, metav1.ConditionFalse, wayv1.ReasonAcknowledgementPending, lease.Generation),
+		}
+		must(t, admin.Status().Update(ctx, lease))
+	})
+
 	t.Run("route reconciliation and exact Pod enrollment", func(t *testing.T) {
 		gateway := validGateway("route-parent")
 		must(t, admin.Create(ctx, gateway))
@@ -248,6 +292,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, err)
 		must(t, admin.Get(ctx, request.NamespacedName, route))
 		assertCurrentTrueConditions(t, route)
+		assertManagedBy(t, route, wayv1.FieldManagerRoutePrefix+"core")
 		firstVersion := route.ResourceVersion
 		_, err = reconciler.Reconcile(ctx, request)
 		must(t, err)
@@ -286,6 +331,54 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, err)
 		if !resolved.Enrolled || resolved.Ready || resolved.Reason != enrollment.ReasonRouteNotFound {
 			t.Fatalf("deleted route must retain fail-closed enrollment: %#v", resolved)
+		}
+	})
+
+	t.Run("concurrent route reconciliation converges without timestamp churn", func(t *testing.T) {
+		gateway := validGateway("route-concurrent-parent")
+		must(t, admin.Create(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
+		must(t, admin.Status().Update(ctx, gateway))
+
+		route := validRoute("route-concurrent")
+		route.Spec.ParentRefs[0].Name = wayv1.ObjectName(gateway.Name)
+		must(t, admin.Create(ctx, route))
+		now := time.Date(2026, 7, 26, 14, 0, 0, 0, time.UTC)
+		reconciler := &waycontroller.VPNEgressRouteReconciler{Client: admin, Scheme: scheme, Now: func() time.Time { return now }}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(route)}
+		errors := make(chan error, 2)
+		for range 2 {
+			go func() {
+				_, err := reconciler.Reconcile(ctx, request)
+				errors <- err
+			}()
+		}
+		for range 2 {
+			must(t, <-errors)
+		}
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		assertCurrentTrueConditions(t, route)
+		firstVersion := route.ResourceVersion
+		firstTransitions := make(map[string]metav1.Time, len(route.Status.Conditions))
+		for _, condition := range route.Status.Conditions {
+			firstTransitions[condition.Type] = condition.LastTransitionTime
+		}
+		for range 2 {
+			_, err := reconciler.Reconcile(ctx, request)
+			must(t, err)
+		}
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		if route.ResourceVersion != firstVersion {
+			t.Fatalf("converged reconciliation wrote status: resourceVersion %s -> %s", firstVersion, route.ResourceVersion)
+		}
+		for _, condition := range route.Status.Conditions {
+			firstTransition := firstTransitions[condition.Type]
+			if !condition.LastTransitionTime.Equal(&firstTransition) {
+				t.Fatalf("%s transition churned: %s -> %s", condition.Type, firstTransitions[condition.Type], condition.LastTransitionTime)
+			}
 		}
 	})
 
@@ -510,12 +603,19 @@ func condition(conditionType, reason string) map[string]any {
 	return map[string]any{"type": conditionType, "status": "True", "reason": reason, "message": "observed", "lastTransitionTime": time.Now().UTC().Format(time.RFC3339)}
 }
 
-func currentTrueConditions(generation int64, conditionTypes ...string) wayv1.Conditions {
-	result := make(wayv1.Conditions, 0, len(conditionTypes))
+func currentTrueConditions(generation int64, conditionTypes ...string) wayv1.GatewayConditions {
+	result := make(wayv1.GatewayConditions, 0, len(conditionTypes))
 	for _, conditionType := range conditionTypes {
 		result = append(result, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType, ObservedGeneration: generation, LastTransitionTime: metav1.Now()})
 	}
 	return result
+}
+
+func currentCondition(conditionType string, status metav1.ConditionStatus, reason string, generation int64) metav1.Condition {
+	return metav1.Condition{
+		Type: conditionType, Status: status, Reason: reason, Message: "Observed state is non-sensitive",
+		ObservedGeneration: generation, LastTransitionTime: metav1.Now(),
+	}
 }
 
 func assertCurrentTrueConditions(t *testing.T, route *wayv1.VPNEgressRoute) {
@@ -529,6 +629,16 @@ func assertCurrentTrueConditions(t *testing.T, route *wayv1.VPNEgressRoute) {
 			t.Fatalf("current %s = %#v", conditionType, condition)
 		}
 	}
+}
+
+func assertManagedBy(t *testing.T, object metav1.Object, manager string) {
+	t.Helper()
+	for _, entry := range object.GetManagedFields() {
+		if entry.Manager == manager && entry.Subresource == "status" {
+			return
+		}
+	}
+	t.Fatalf("status managedFields has no %q owner: %#v", manager, object.GetManagedFields())
 }
 
 func testPod(name string, annotations, labels map[string]string) *corev1.Pod {

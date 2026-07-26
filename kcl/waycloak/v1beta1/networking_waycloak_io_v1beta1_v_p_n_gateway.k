@@ -280,7 +280,8 @@ schema NetworkingWaycloakIoV1beta1VPNGatewayStatus:
     addresses : [NetworkingWaycloakIoV1beta1VPNGatewayStatusAddressesItems0], default is Undefined, optional
         addresses
     conditions : [NetworkingWaycloakIoV1beta1VPNGatewayStatusConditionsItems0], default is Undefined, optional
-        Conditions implements the common positive-polarity status contract.
+        GatewayConditions adds the live tunnel, DNS, and membership observations
+        required to explain VPNGateway readiness.
     gatewayClass : NetworkingWaycloakIoV1beta1VPNGatewayStatusGatewayClass, default is Undefined, optional
         gateway class
     observedGeneration : int, default is Undefined, optional

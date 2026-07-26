@@ -11,9 +11,9 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	wayconditions "github.com/Amoenus/waycloak/internal/conditions"
 	"github.com/Amoenus/waycloak/internal/reference"
 	corev1 "k8s.io/api/core/v1"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,7 +25,7 @@ import (
 
 const (
 	RouteControllerName wayv1.ControllerName = "networking.waycloak.io/route-controller"
-	routeFieldManager   string               = "waycloak-route-core"
+	routeFieldManager   string               = wayv1.FieldManagerRoutePrefix + "core"
 )
 
 type VPNEgressRouteReconciler struct {
@@ -66,10 +66,10 @@ func (r *VPNEgressRouteReconciler) Reconcile(ctx context.Context, request ctrl.R
 func (r *VPNEgressRouteReconciler) desiredStatus(ctx context.Context, route *wayv1.VPNEgressRoute) wayv1.VPNEgressRouteStatus {
 	parent := route.Spec.ParentRefs[0]
 	statuses := routeConditionSet{
-		accepted:   conditionState{status: metav1.ConditionTrue, reason: "Accepted", message: "Route intent is accepted"},
-		resolved:   conditionState{status: metav1.ConditionFalse, reason: "RefNotFound", message: "Parent reference is unresolved"},
-		programmed: conditionState{status: metav1.ConditionFalse, reason: "Pending", message: "Route programming is pending"},
-		ready:      conditionState{status: metav1.ConditionFalse, reason: "NotReady", message: "Protected route is not ready"},
+		accepted:   conditionState{status: metav1.ConditionTrue, reason: wayv1.ReasonAccepted, message: "Route intent is accepted"},
+		resolved:   conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonRefNotFound, message: "Parent reference is unresolved"},
+		programmed: conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonPending, message: "Route programming is pending"},
+		ready:      conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonNotReady, message: "Protected route is not ready"},
 	}
 	authorizer := r.Authorizer
 	if authorizer == nil {
@@ -86,9 +86,9 @@ func (r *VPNEgressRouteReconciler) desiredStatus(ctx context.Context, route *way
 		statuses.programmed = unavailable("Route programming observation is unavailable")
 		statuses.ready = unavailable("Protected route observation is unavailable")
 	case !resolution.Permitted:
-		statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: "RefNotPermitted", message: "Parent reference is not permitted"}
+		statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonRefNotPermitted, message: "Parent reference is not permitted"}
 	case resolution.Gateway == nil:
-		statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: "RefNotFound", message: "Parent reference was not found"}
+		statuses.resolved = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonRefNotFound, message: "Parent reference was not found"}
 	default:
 		statuses = evaluateGateway(route, resolution.Gateway, statuses)
 	}
@@ -103,11 +103,11 @@ func (r *VPNEgressRouteReconciler) desiredStatus(ctx context.Context, route *way
 }
 
 func evaluateGateway(route *wayv1.VPNEgressRoute, gateway *wayv1.VPNGateway, statuses routeConditionSet) routeConditionSet {
-	statuses.resolved = conditionState{status: metav1.ConditionTrue, reason: "ResolvedRefs", message: "Parent reference is resolved"}
+	statuses.resolved = conditionState{status: metav1.ConditionTrue, reason: wayv1.ReasonResolvedRefs, message: "Parent reference is resolved"}
 	if !gateway.DeletionTimestamp.IsZero() {
-		statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: "Deleting", message: "Parent gateway is deleting"}
-		statuses.programmed = conditionState{status: metav1.ConditionFalse, reason: "Pending", message: "Route programming is withdrawn"}
-		statuses.ready = conditionState{status: metav1.ConditionFalse, reason: "Deleting", message: "Parent gateway is deleting"}
+		statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonDeleting, message: "Parent gateway is deleting"}
+		statuses.programmed = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonPending, message: "Route programming is withdrawn"}
+		statuses.ready = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonDeleting, message: "Parent gateway is deleting"}
 		return statuses
 	}
 	if gateway.Status.ObservedGeneration != gateway.Generation {
@@ -124,7 +124,7 @@ func evaluateGateway(route *wayv1.VPNEgressRoute, gateway *wayv1.VPNGateway, sta
 		return statuses
 	}
 	if accepted.Status != metav1.ConditionTrue {
-		statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: "UnsupportedClass", message: "Parent gateway is not accepted"}
+		statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonUnsupportedClass, message: "Parent gateway is not accepted"}
 		return statuses
 	}
 	supported := make(map[wayv1.FeatureName]struct{}, len(gateway.Status.SupportedFeatures))
@@ -133,7 +133,7 @@ func evaluateGateway(route *wayv1.VPNEgressRoute, gateway *wayv1.VPNGateway, sta
 	}
 	for _, feature := range route.Spec.RequiredFeatures {
 		if _, ok := supported[feature]; !ok {
-			statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: "UnsupportedFeature", message: "A required route feature is unavailable"}
+			statuses.accepted = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonUnsupportedFeature, message: "A required route feature is unavailable"}
 			return statuses
 		}
 	}
@@ -145,32 +145,28 @@ func evaluateGateway(route *wayv1.VPNEgressRoute, gateway *wayv1.VPNGateway, sta
 	}
 	if programmed.Status != metav1.ConditionTrue {
 		reason := programmed.Reason
-		if reason != "ApplyFailed" && reason != "StaleGeneration" {
-			reason = "Pending"
+		if reason != wayv1.ReasonApplyFailed && reason != wayv1.ReasonStaleGeneration {
+			reason = wayv1.ReasonPending
 		}
 		statuses.programmed = conditionState{status: metav1.ConditionFalse, reason: reason, message: "Parent gateway is not programmed"}
 		return statuses
 	}
-	statuses.programmed = conditionState{status: metav1.ConditionTrue, reason: "Programmed", message: "Parent gateway is programmed"}
+	statuses.programmed = conditionState{status: metav1.ConditionTrue, reason: wayv1.ReasonProgrammed, message: "Parent gateway is programmed"}
 	ready := currentCondition(gateway, wayv1.ConditionReady)
 	if ready == nil || ready.Status == metav1.ConditionUnknown {
 		statuses.ready = unavailable("Parent readiness observation is unavailable")
 		return statuses
 	}
 	if ready.Status != metav1.ConditionTrue {
-		statuses.ready = conditionState{status: metav1.ConditionFalse, reason: "NotReady", message: "Parent gateway is not ready"}
+		statuses.ready = conditionState{status: metav1.ConditionFalse, reason: wayv1.ReasonNotReady, message: "Parent gateway is not ready"}
 		return statuses
 	}
-	statuses.ready = conditionState{status: metav1.ConditionTrue, reason: "Ready", message: "Protected route is ready"}
+	statuses.ready = conditionState{status: metav1.ConditionTrue, reason: wayv1.ReasonReady, message: "Protected route is ready"}
 	return statuses
 }
 
 func currentCondition(gateway *wayv1.VPNGateway, conditionType string) *metav1.Condition {
-	condition := apiMeta.FindStatusCondition(gateway.Status.Conditions, conditionType)
-	if condition == nil || condition.ObservedGeneration != gateway.Generation {
-		return nil
-	}
-	return condition
+	return wayconditions.Current(gateway.Status.Conditions, conditionType, gateway.Status.ObservedGeneration, gateway.Generation)
 }
 
 type conditionState struct {
@@ -187,28 +183,18 @@ type routeConditionSet struct {
 }
 
 func unavailable(message string) conditionState {
-	return conditionState{status: metav1.ConditionUnknown, reason: "ObservationUnavailable", message: message}
+	state := wayconditions.Unknown(message)
+	return conditionState{status: state.Status, reason: state.Reason, message: state.Message}
 }
 
 func (s routeConditionSet) conditions(previous wayv1.Conditions, generation int64, now time.Time) wayv1.Conditions {
-	values := []struct {
-		typeName string
-		state    conditionState
-	}{
-		{wayv1.ConditionAccepted, s.accepted},
-		{wayv1.ConditionResolvedRefs, s.resolved},
-		{wayv1.ConditionProgrammed, s.programmed},
-		{wayv1.ConditionReady, s.ready},
+	states := map[string]wayconditions.State{
+		wayv1.ConditionAccepted:     {Status: s.accepted.status, Reason: s.accepted.reason, Message: s.accepted.message},
+		wayv1.ConditionResolvedRefs: {Status: s.resolved.status, Reason: s.resolved.reason, Message: s.resolved.message},
+		wayv1.ConditionProgrammed:   {Status: s.programmed.status, Reason: s.programmed.reason, Message: s.programmed.message},
+		wayv1.ConditionReady:        {Status: s.ready.status, Reason: s.ready.reason, Message: s.ready.message},
 	}
-	conditions := make(wayv1.Conditions, 0, len(values))
-	for _, value := range values {
-		transition := metav1.NewTime(now)
-		if old := apiMeta.FindStatusCondition(previous, value.typeName); old != nil && old.Status == value.state.status {
-			transition = old.LastTransitionTime
-		}
-		conditions = append(conditions, metav1.Condition{Type: value.typeName, Status: value.state.status, Reason: value.state.reason, Message: value.state.message, ObservedGeneration: generation, LastTransitionTime: transition})
-	}
-	return conditions
+	return wayv1.Conditions(wayconditions.Build(previous, generation, now, wayconditions.SummaryOrder(), states))
 }
 
 func (r *VPNEgressRouteReconciler) SetupWithManager(manager ctrl.Manager) error {

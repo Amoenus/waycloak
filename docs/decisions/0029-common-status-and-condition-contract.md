@@ -44,6 +44,13 @@ includes the resource's current `metadata.generation` in
 `observedGeneration`, a stable CamelCase reason, a concise non-sensitive
 message, and a transition time that changes only when status changes.
 
+The replacement schema scopes component conditions to their owning resource:
+gateways use `TunnelReady`, `DNSReady`, and `MembershipApplied`; bindings use
+`NodeReady`; leases use `GatewayRulesReady`, `Delivered`, and `Acknowledged`.
+Their positive and pending reason pairs, plus `ObservationUnavailable`, are
+frozen in the API contract. A component condition on an unrelated kind is
+invalid.
+
 `Unknown` means observation is unavailable; it is not silently converted to
 `False` or `True`. Status writers use optimistic concurrency or explicit
 server-side field ownership and suppress semantic no-op writes. If multiple

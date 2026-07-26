@@ -299,8 +299,9 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               conditions:
-                description: Conditions implements the common positive-polarity status
-                  contract.
+                description: |-
+                  GatewayConditions adds the live tunnel, DNS, and membership observations
+                  required to explain VPNGateway readiness.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -361,9 +362,9 @@ spec:
                 - type
                 x-kubernetes-list-type: map
                 x-kubernetes-validations:
-                - message: condition type is not part of the Waycloak common contract
+                - message: condition type is not valid for VPNGateway
                   rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
-                    'Ready'])
+                    'Ready', 'TunnelReady', 'DNSReady', 'MembershipApplied'])
                 - message: Accepted condition reason is not stable
                   rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
                     'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
@@ -378,6 +379,15 @@ spec:
                 - message: Ready condition reason is not stable
                   rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady',
                     'ObservationUnavailable', 'Deleting'])
+                - message: TunnelReady condition reason is not stable
+                  rule: self.all(c, c.type != 'TunnelReady' || c.reason in ['TunnelReady',
+                    'TunnelNotReady', 'ObservationUnavailable'])
+                - message: DNSReady condition reason is not stable
+                  rule: self.all(c, c.type != 'DNSReady' || c.reason in ['DNSReady',
+                    'DNSNotReady', 'ObservationUnavailable'])
+                - message: MembershipApplied condition reason is not stable
+                  rule: self.all(c, c.type != 'MembershipApplied' || c.reason in ['MembershipApplied',
+                    'MembershipPending', 'ObservationUnavailable'])
                 - message: Unknown conditions must use ObservationUnavailable
                   rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
               gatewayClass:

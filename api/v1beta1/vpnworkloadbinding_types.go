@@ -60,7 +60,7 @@ type VPNWorkloadBindingStatus struct {
 	// +optional
 	Agent *NodeAgentObservation `json:"agent,omitempty"`
 	// +optional
-	Conditions Conditions `json:"conditions,omitempty"`
+	Conditions BindingConditions `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
