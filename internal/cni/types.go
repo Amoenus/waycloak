@@ -12,7 +12,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/dataplane"
 )
 
-const AgentAPIVersion = "networking.waycloak.io/cni-feasibility/v1"
+const AgentAPIVersion = "networking.waycloak.io/cni-node/v1"
 
 var ErrBindingNotReady = errors.New("workload binding is not ready")
 

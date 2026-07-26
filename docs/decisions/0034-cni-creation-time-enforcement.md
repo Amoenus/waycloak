@@ -61,6 +61,8 @@ Admission remains useful but is not the packet-security boundary:
 The node agent exposes only a narrow authenticated local Unix-socket protocol.
 It watches typed resources using least-privilege RBAC and never receives VPN
 credentials. Gateway credentials stay in the gateway namespace.
+ADR 0035 defines the authentication, replay, identity, RBAC, host-access and
+revocation contract for that boundary.
 
 ## Consequences
 
@@ -103,3 +105,4 @@ fragmented-UDP packets. The support decision and exact run are recorded in
 - [ADR 0029](0029-common-status-and-condition-contract.md)
 - [ADR 0030](0030-capability-advertisement-and-conformance-profiles.md)
 - [ADR 0033](0033-upstream-api-integration-boundary.md)
+- [ADR 0035](0035-node-agent-trust-and-local-protocol.md)

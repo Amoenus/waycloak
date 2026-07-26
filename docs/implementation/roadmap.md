@@ -9,9 +9,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-- [ ] #124 chained-CNI creation-time feasibility: implementation and exact Kind,
-  k3d and homelab evidence are complete in PR #143; merge remains pending.
-- [ ] #125–#141: blocked by their declared clean-break prerequisites.
+- [x] #124 chained-CNI creation-time feasibility: merged in PR #143 with exact
+  Kind, k3d and authorized homelab evidence.
+- [ ] #125 node-agent threat model and authenticated local protocol: in progress.
+- [ ] #126–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

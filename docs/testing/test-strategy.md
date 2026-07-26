@@ -107,6 +107,19 @@ but never replace those assertions. eBPF evaluation must record actual kernel
 features, BTF, architecture, CNI, hooks, and verifier results; kernel version
 alone is insufficient evidence.
 
+### Stable CNI and node-agent abuse conformance
+
+Every supported CNI/runtime row runs the creation-time proof with the
+authenticated `cni-node/v1` channel. Unit/abuse coverage rejects non-root Unix
+peers, missing or foreign keys, unsafe key/directory modes, duplicate headers,
+stale/future timestamps, replayed request IDs, method/path/body/status tamper,
+unsigned or tampered responses, oversized messages, unknown fields, trailing
+JSON, UID/sandbox/netns reuse, and foreign cleanup state. Agent restart rotates
+the key during `ADD`; bounded retries may recover only while deny remains
+installed. Positive-control capture followed by zero direct TCP, UDP, DNS
+UDP/TCP, and fragmented-UDP packets is mandatory. Authentication failure is an
+availability failure and never permits fallback.
+
 ### Failure injection
 
 Capture packets at the protected Pod, node/CNI interface, gateway overlay, and tunnel where possible. Inject:
@@ -123,7 +136,8 @@ Capture packets at the protected Pod, node/CNI interface, gateway overlay, and t
 - stale desired generation;
 - provider API timeout;
 - controller/webhook restart;
-- CNI packet loss and MTU mismatch.
+- CNI packet loss and MTU mismatch;
+- node-agent socket loss, wrong key, key rotation, replay and watch/RBAC loss.
 
 The key assertion is absence of direct packets, not only expected application
 errors. Recovery tests also assert stable gateway and workload Pod UIDs, stable

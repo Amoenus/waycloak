@@ -30,15 +30,20 @@ const routeLabel = "networking.waycloak.io/egress-route"
 func main() {
 	var socketPath string
 	var captureFile string
+	var authKeyFile string
 	flag.StringVar(&socketPath, "socket", waycni.DefaultAgentSocket, "host-mounted Unix socket path")
 	flag.StringVar(&captureFile, "capture-file", "/run/waycloak/capture-count", "packet capture count output")
+	flag.StringVar(&authKeyFile, "auth-key-file", waycni.DefaultAgentKeyFile, "root-only local protocol authentication key")
 	flag.Parse()
-	if err := run(socketPath, captureFile); err != nil {
+	if err := run(socketPath, captureFile, authKeyFile); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(socketPath, captureFile string) error {
+func run(socketPath, captureFile, authKeyFile string) error {
+	if filepath.Dir(socketPath) != filepath.Dir(authKeyFile) {
+		return errors.New("local protocol socket and authentication key must share one protected directory")
+	}
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return err
@@ -51,6 +56,14 @@ func run(socketPath, captureFile string) error {
 	defer stop()
 	if err := startPacketCapture(ctx, captureFile); err != nil {
 		return fmt.Errorf("start direct-egress packet capture: %w", err)
+	}
+	key, err := waycni.RotateProtocolKey(authKeyFile)
+	if err != nil {
+		return fmt.Errorf("rotate local protocol authentication: %w", err)
+	}
+	authenticator, err := waycni.NewProtocolAuthenticator(key)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o750); err != nil {
 		return err
@@ -68,11 +81,12 @@ func run(socketPath, captureFile string) error {
 		return err
 	}
 	server := &http.Server{
-		Handler:           handler(client),
+		Handler:           waycni.RootPeerOnlyHandler(waycni.AuthenticatedAgentHandler(authenticator, handler(client))),
 		ReadHeaderTimeout: time.Second,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      5 * time.Second,
 		IdleTimeout:       30 * time.Second,
+		ConnContext:       waycni.LocalPeerContext,
 	}
 	go func() {
 		<-ctx.Done()
@@ -88,49 +102,49 @@ func run(socketPath, captureFile string) error {
 
 func handler(client kubernetes.Interface) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/cni-feasibility/v1/status", func(response http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("/cni-node/v1/status", func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
-			response.WriteHeader(http.StatusMethodNotAllowed)
+			writeAgentError(response, http.StatusMethodNotAllowed, waycni.AgentErrorInvalidRequest, false, "operation method is invalid")
 			return
 		}
 		response.WriteHeader(http.StatusNoContent)
 	})
-	for _, path := range []string{"/cni-feasibility/v1/resolve", "/cni-feasibility/v1/binding", "/cni-feasibility/v1/check", "/cni-feasibility/v1/withdraw"} {
+	for _, path := range []string{"/cni-node/v1/resolve", "/cni-node/v1/binding", "/cni-node/v1/check", "/cni-node/v1/withdraw"} {
 		path := path
 		mux.HandleFunc(path, func(response http.ResponseWriter, request *http.Request) {
 			if request.Method != http.MethodPost {
-				response.WriteHeader(http.StatusMethodNotAllowed)
+				writeAgentError(response, http.StatusMethodNotAllowed, waycni.AgentErrorInvalidRequest, false, "operation method is invalid")
 				return
 			}
 			input, err := decodeRequest(response, request)
 			if err != nil {
-				http.Error(response, "invalid request", http.StatusBadRequest)
+				writeAgentError(response, http.StatusBadRequest, waycni.AgentErrorInvalidRequest, false, "request schema is invalid")
 				return
 			}
 			pod, err := client.CoreV1().Pods(input.Pod.Namespace).Get(request.Context(), input.Pod.Name, metav1.GetOptions{})
 			if err != nil || string(pod.UID) != input.Pod.UID {
-				http.Error(response, "exact Pod UID is unavailable", http.StatusNotFound)
+				writeAgentError(response, http.StatusNotFound, waycni.AgentErrorPodIdentityMismatch, false, "exact Pod identity is unavailable")
 				return
 			}
 			enrolled := pod.Labels[routeLabel] != ""
 			terminating := pod.DeletionTimestamp != nil
 			switch path {
-			case "/cni-feasibility/v1/resolve":
+			case "/cni-node/v1/resolve":
 				writeJSON(response, waycni.AgentResponse{APIVersion: waycni.AgentAPIVersion, Resolution: &waycni.Resolution{PodUID: string(pod.UID), Enrolled: enrolled, Terminating: terminating}})
-			case "/cni-feasibility/v1/binding":
+			case "/cni-node/v1/binding":
 				if !enrolled {
-					http.Error(response, "Pod is not enrolled", http.StatusNotFound)
+					writeAgentError(response, http.StatusNotFound, waycni.AgentErrorNotEnrolled, false, "Pod is not enrolled")
 					return
 				}
 				probeDirectEgress(input.Pod.NetNS)
-				http.Error(response, "UID binding intentionally unavailable for failure proof", http.StatusServiceUnavailable)
-			case "/cni-feasibility/v1/check":
+				writeAgentError(response, http.StatusServiceUnavailable, waycni.AgentErrorBindingNotReady, true, "UID binding is not ready")
+			case "/cni-node/v1/check":
 				if !enrolled {
-					http.Error(response, "Pod is not enrolled", http.StatusNotFound)
+					writeAgentError(response, http.StatusNotFound, waycni.AgentErrorNotEnrolled, false, "Pod is not enrolled")
 					return
 				}
 				response.WriteHeader(http.StatusNoContent)
-			case "/cni-feasibility/v1/withdraw":
+			case "/cni-node/v1/withdraw":
 				response.WriteHeader(http.StatusNoContent)
 			}
 		})
@@ -163,4 +177,13 @@ func writeJSON(response http.ResponseWriter, value any) {
 	if err := json.NewEncoder(response).Encode(value); err != nil {
 		log.Printf("write response: %v", err)
 	}
+}
+
+func writeAgentError(response http.ResponseWriter, status int, code string, retryable bool, message string) {
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(status)
+	writeJSON(response, waycni.AgentResponse{
+		APIVersion: waycni.AgentAPIVersion,
+		Error:      &waycni.AgentError{Code: code, Retryable: retryable, Message: message},
+	})
 }

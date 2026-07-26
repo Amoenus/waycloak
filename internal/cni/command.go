@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -14,13 +16,15 @@ import (
 )
 
 const (
-	DefaultAgentSocket = "/run/waycloak/cni-agent.sock"
-	DefaultStateDir    = "/var/lib/cni/waycloak"
+	DefaultAgentSocket  = "/run/waycloak/cni-agent.sock"
+	DefaultAgentKeyFile = "/run/waycloak/cni-auth.key"
+	DefaultStateDir     = "/var/lib/cni/waycloak"
 )
 
 type NetConf struct {
 	cnitypes.PluginConf
 	AgentSocket    string `json:"agentSocket,omitempty"`
+	AgentKeyFile   string `json:"agentKeyFile,omitempty"`
 	StateDir       string `json:"stateDir,omitempty"`
 	ResolveTimeout string `json:"resolveTimeout,omitempty"`
 	BindingTimeout string `json:"bindingTimeout,omitempty"`
@@ -65,6 +69,15 @@ func Parse(stdin []byte, containerID, netns, ifName, args string, requireIdentit
 	if conf.StateDir == "" {
 		conf.StateDir = DefaultStateDir
 	}
+	if conf.AgentKeyFile == "" {
+		conf.AgentKeyFile = DefaultAgentKeyFile
+	}
+	if !path.IsAbs(conf.AgentSocket) || !path.IsAbs(conf.AgentKeyFile) || strings.ContainsAny(conf.AgentSocket+conf.AgentKeyFile, "\\\x00") {
+		return Parsed{}, errors.New("local agent socket and authentication key paths must be absolute Linux paths")
+	}
+	if path.Dir(conf.AgentSocket) != path.Dir(conf.AgentKeyFile) {
+		return Parsed{}, errors.New("local agent socket and authentication key must share one protected directory")
+	}
 	resolveTimeout, err := boundedDuration(conf.ResolveTimeout, 2*time.Second, 100*time.Millisecond, 5*time.Second, "resolveTimeout")
 	if err != nil {
 		return Parsed{}, err
@@ -101,8 +114,12 @@ func Parse(stdin []byte, containerID, netns, ifName, args string, requireIdentit
 
 func NewPlugin(parsed Parsed, enforcer Enforcer) Plugin {
 	requestTimeout := min(parsed.ResolveTimeout, time.Second)
+	keyFile := parsed.Conf.AgentKeyFile
+	if keyFile == "" {
+		keyFile = DefaultAgentKeyFile
+	}
 	return Plugin{
-		Agent:    UnixAgentClient{SocketPath: parsed.Conf.AgentSocket, RequestTimeout: requestTimeout},
+		Agent:    UnixAgentClient{SocketPath: parsed.Conf.AgentSocket, KeyFile: keyFile, RequestTimeout: requestTimeout},
 		Enforcer: enforcer, Store: FileStore{Directory: parsed.Conf.StateDir},
 		ResolveTimeout: parsed.ResolveTimeout, BindingTimeout: parsed.BindingTimeout, RetryInterval: parsed.RetryInterval,
 	}

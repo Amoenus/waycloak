@@ -36,5 +36,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0032: Turnkey bootstrap uses Helm plus an optional stateless assistant](0032-turnkey-bootstrap-and-preflight.md)
 - [0033: Upstream Kubernetes API integration without semantic mimicry](0033-upstream-api-integration-boundary.md)
 - [0034: CNI creation-time enforcement and node-owned data plane](0034-cni-creation-time-enforcement.md)
+- [0035: Node-agent trust boundary and authenticated local protocol](0035-node-agent-trust-and-local-protocol.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

@@ -132,6 +132,7 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0755", "/tmp/waycloak-cni", "/host-bin/waycloak-cni")
 	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0644", "/tmp/waycloak.conflist", "/host-config/"+cniConfigName)
 	installed = true
+	assertLocalProtocolAuthentication(t, namespace, installerPod.Name)
 
 	before := readCaptureCounts(t, namespace, agentPod.Name)
 	control := cniTrafficPod("ordinary-control", namespace, nodeName, nil)
@@ -243,7 +244,7 @@ func readRemoteAttachment(t *testing.T, namespace, pod string) (waycni.Attachmen
 func execCNI(namespace, pod, cniCommand string, attachment waycni.Attachment, netns string, extra map[string]any) ([]byte, error) {
 	configuration := map[string]any{
 		"cniVersion": "1.1.0", "name": attachment.Network, "type": "waycloak-cni",
-		"agentSocket": "/host-run/agent.sock", "stateDir": "/host-state/waycloak-e2e",
+		"agentSocket": "/host-run/agent.sock", "agentKeyFile": "/host-run/agent.key", "stateDir": "/host-state/waycloak-e2e",
 	}
 	if cniCommand == "CHECK" {
 		configuration["prevResult"] = map[string]any{"cniVersion": "1.1.0", "interfaces": []any{map[string]any{"name": attachment.Pod.IfName, "sandbox": netns}}}
@@ -262,6 +263,37 @@ func execCNI(namespace, pod, cniCommand string, attachment waycni.Attachment, ne
 	invocation := exec.Command("kubectl", "exec", "-i", "-n", namespace, pod, "--", "env",
 		"CNI_COMMAND="+cniCommand, "CNI_CONTAINERID="+attachment.Pod.ContainerID, "CNI_NETNS="+netns,
 		"CNI_IFNAME="+attachment.Pod.IfName, "CNI_PATH=/host-bin", "CNI_ARGS="+arguments, "/host-bin/waycloak-cni")
+	invocation.Stdin = strings.NewReader(string(stdin))
+	return invocation.CombinedOutput()
+}
+
+func assertLocalProtocolAuthentication(t *testing.T, namespace, pod string) {
+	t.Helper()
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "dd", "if=/dev/zero", "of=/host-run/foreign.key", "bs=32", "count=1", "status=none")
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "chmod", "0600", "/host-run/foreign.key")
+	if output, err := execCNIStatus(namespace, pod, "/host-run/foreign.key"); err == nil {
+		t.Fatalf("CNI STATUS authenticated with a foreign key: %s", output)
+	}
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "chmod", "0644", "/host-run/agent.key")
+	if output, err := execCNIStatus(namespace, pod, "/host-run/agent.key"); err == nil {
+		t.Fatalf("CNI STATUS accepted an over-permissive key file: %s", output)
+	}
+	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "chmod", "0600", "/host-run/agent.key")
+	if output, err := execCNIStatus(namespace, pod, "/host-run/agent.key"); err != nil {
+		t.Fatalf("CNI STATUS rejected the root-only current key: %v: %s", err, output)
+	}
+}
+
+func execCNIStatus(namespace, pod, keyFile string) ([]byte, error) {
+	configuration := map[string]any{
+		"cniVersion": "1.1.0", "name": "waycloak-e2e", "type": "waycloak-cni",
+		"agentSocket": "/host-run/agent.sock", "agentKeyFile": keyFile, "stateDir": "/host-state/waycloak-e2e",
+	}
+	stdin, err := json.Marshal(configuration)
+	if err != nil {
+		return nil, err
+	}
+	invocation := exec.Command("kubectl", "exec", "-i", "-n", namespace, pod, "--", "env", "CNI_COMMAND=STATUS", "CNI_PATH=/host-bin", "/host-bin/waycloak-cni")
 	invocation.Stdin = strings.NewReader(string(stdin))
 	return invocation.CombinedOutput()
 }
@@ -329,7 +361,7 @@ func cniTrafficPod(name, namespace, node string, labels map[string]string) *core
 
 func startFixtureAgent(t *testing.T, namespace, pod string) {
 	t.Helper()
-	commandLine := "nohup /tmp/waycloak-cni-agent --socket=/host-run/agent.sock --capture-file=/host-run/capture-count >/host-run/agent.log 2>&1 </dev/null & echo $! >/host-run/agent.pid"
+	commandLine := "nohup /tmp/waycloak-cni-agent --socket=/host-run/agent.sock --auth-key-file=/host-run/agent.key --capture-file=/host-run/capture-count >/host-run/agent.log 2>&1 </dev/null & echo $! >/host-run/agent.pid"
 	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "sh", "-c", commandLine)
 }
 
@@ -358,7 +390,7 @@ func appendWaycloakPlugin(t *testing.T, source, target string) {
 		}
 	}
 	conflist.Plugins = append(conflist.Plugins, map[string]interface{}{
-		"type": "waycloak-cni", "agentSocket": "/run/waycloak-cni-e2e/agent.sock", "stateDir": "/var/lib/cni/waycloak-e2e",
+		"type": "waycloak-cni", "agentSocket": "/run/waycloak-cni-e2e/agent.sock", "agentKeyFile": "/run/waycloak-cni-e2e/agent.key", "stateDir": "/var/lib/cni/waycloak-e2e",
 		"resolveTimeout": "2s", "bindingTimeout": "5s", "retryInterval": "100ms",
 	})
 	rendered, err := json.MarshalIndent(conflist, "", "  ")
