@@ -6,6 +6,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/enrollment"
+	corev1 "k8s.io/api/core/v1"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestReplacementAPIFreshInstall(t *testing.T) {
@@ -68,7 +79,9 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 		}
 	}
 	for _, resource := range []string{"validatingadmissionpolicy", "validatingadmissionpolicybinding"} {
-		command(t, nil, "kubectl", "get", resource, release+"-binding-guard")
+		for _, suffix := range []string{"binding-guard", "pod-enrollment"} {
+			command(t, nil, "kubectl", "get", resource, release+"-"+suffix)
+		}
 	}
 	command(t, nil, "kubectl", "get", "clusterrole", release)
 	for _, role := range []string{
@@ -129,6 +142,8 @@ spec:
       name: private
 `, namespace, className, namespace, namespace)
 	applyInput(t, nil, gatewayAndRoute)
+	patch := `{"status":{"observedGeneration":1,"supportedFeatures":["networking.waycloak.io/CoreFailClosedEgress","networking.waycloak.io/TCP","networking.waycloak.io/UDP","networking.waycloak.io/DNSContainment","networking.waycloak.io/GatewayReplacementRecovery","networking.waycloak.io/NodeRestartRecovery"],"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
+	command(t, nil, "kubectl", "patch", "vpngateway", "private", "-n", namespace, "--subresource=status", "--type=merge", "-p", patch)
 
 	invalidRoute := fmt.Sprintf(`apiVersion: networking.waycloak.io/v1beta1
 kind: VPNEgressRoute
@@ -139,6 +154,72 @@ spec:
   parentRefs: []
 `, namespace)
 	assertApplyFails(t, "API server accepted a route without a parent", nil, invalidRoute)
+
+	alphaPod := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: alpha-annotation
+  namespace: %s
+  annotations:
+    networking.waycloak.io/gateway: old
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+`, namespace)
+	waitForApplyFailure(t, alphaPod)
+	assertApplyFails(t, "API server accepted an alpha Waycloak annotation", nil, alphaPod)
+	invalidEnrollment := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: invalid-enrollment
+  namespace: %s
+  labels:
+    networking.waycloak.io/egress-route: route.with.dot
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+`, namespace)
+	assertApplyFails(t, "API server accepted a non-DNS-label route lookup key", nil, invalidEnrollment)
+	pods := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: unprotected
+  namespace: %s
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: protected
+  namespace: %s
+  labels:
+    networking.waycloak.io/egress-route: private
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: route-before-controller
+  namespace: %s
+  labels:
+    networking.waycloak.io/egress-route: may-arrive-later
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+`, namespace, namespace, namespace)
+	applyInput(t, nil, pods)
+	assertCommandFails(t, "live Pod enrollment label was mutable", nil, "kubectl", "label", "pod", "protected", "-n", namespace, "networking.waycloak.io/egress-route=other", "--overwrite")
+	assertCommandFails(t, "unlabeled live Pod could be enrolled in place", nil, "kubectl", "label", "pod", "unprotected", "-n", namespace, "networking.waycloak.io/egress-route=private")
+	verifyRouteControllerAndEnrollment(t, namespace)
 
 	binding := fmt.Sprintf(`apiVersion: networking.waycloak.io/v1beta1
 kind: VPNWorkloadBinding
@@ -166,6 +247,100 @@ spec:
 	applyInput(t, []string{"--as=" + controllerUser}, binding)
 	command(t, nil, "kubectl", "get", "vpnworkloadbinding", "protected-11111111", "-n", namespace)
 	command(t, nil, "kubectl", "delete", "vpnworkloadbinding", "protected-11111111", "-n", namespace, "--as="+controllerUser, "--wait=true", "--timeout=30s")
+}
+
+func verifyRouteControllerAndEnrollment(t *testing.T, namespace string) {
+	t.Helper()
+	ctx := context.Background()
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheme := runtime.NewScheme()
+	if err := wayv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	client, err := ctrlclient.New(config, ctrlclient.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &waycontroller.VPNEgressRouteReconciler{Client: client, Scheme: scheme, Now: func() time.Time { return time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC) }}
+	request := ctrl.Request{NamespacedName: ctrlclient.ObjectKey{Namespace: namespace, Name: "private"}}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	route := &wayv1.VPNEgressRoute{}
+	if err := client.Get(ctx, request.NamespacedName, route); err != nil {
+		t.Fatal(err)
+	}
+	for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionResolvedRefs, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
+		condition := apiMeta.FindStatusCondition(route.Status.Conditions, conditionType)
+		if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != route.Generation {
+			t.Fatalf("route %s = %#v", conditionType, condition)
+		}
+	}
+	pod := &corev1.Pod{}
+	if err := client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: "protected"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	resolution, err := (enrollment.Resolver{Reader: client}).Resolve(ctx, namespace, pod.Name, pod.UID)
+	if err != nil || !resolution.Enrolled || !resolution.Ready || resolution.RouteUID != route.UID {
+		t.Fatalf("protected Pod resolution = %#v, error = %v", resolution, err)
+	}
+	missing := &corev1.Pod{}
+	if err := client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: "route-before-controller"}, missing); err != nil {
+		t.Fatal(err)
+	}
+	resolution, err = (enrollment.Resolver{Reader: client}).Resolve(ctx, namespace, missing.Name, missing.UID)
+	if err != nil || !resolution.Enrolled || resolution.Ready || resolution.Reason != enrollment.ReasonRouteNotFound {
+		t.Fatalf("GitOps ordering resolution = %#v, error = %v", resolution, err)
+	}
+
+	oldRouteUID := route.UID
+	if err := client.Delete(ctx, route); err != nil {
+		t.Fatal(err)
+	}
+	resolution, err = (enrollment.Resolver{Reader: client}).Resolve(ctx, namespace, pod.Name, pod.UID)
+	if err != nil || !resolution.Enrolled || resolution.Ready || resolution.Reason != enrollment.ReasonRouteNotFound {
+		t.Fatalf("deleted route resolution = %#v, error = %v", resolution, err)
+	}
+	replacement := &wayv1.VPNEgressRoute{ObjectMeta: metav1.ObjectMeta{Name: route.Name, Namespace: route.Namespace}, Spec: route.Spec}
+	if err := client.Create(ctx, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if replacement.UID == oldRouteUID {
+		t.Fatalf("route name reuse retained UID %q", oldRouteUID)
+	}
+	resolution, err = (enrollment.Resolver{Reader: client}).Resolve(ctx, namespace, pod.Name, pod.UID)
+	if err != nil || !resolution.Enrolled || resolution.Ready || resolution.RouteUID != replacement.UID {
+		t.Fatalf("unprogrammed replacement route resolution = %#v, error = %v", resolution, err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	resolution, err = (enrollment.Resolver{Reader: client}).Resolve(ctx, namespace, pod.Name, pod.UID)
+	if err != nil || !resolution.Enrolled || !resolution.Ready || resolution.RouteUID != replacement.UID {
+		t.Fatalf("reprogrammed replacement route resolution = %#v, error = %v", resolution, err)
+	}
+}
+
+func waitForApplyFailure(t *testing.T, manifest string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		cmd := exec.Command("kubectl", "apply", "--server-side", "--dry-run=server", "--field-manager=waycloak-e2e-policy-probe", "-f", "-")
+		cmd.Stdin = strings.NewReader(manifest)
+		if _, err := cmd.CombinedOutput(); err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("admission policy did not become active")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func applyInput(t *testing.T, prefixArgs []string, manifest string) {

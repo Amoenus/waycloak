@@ -43,7 +43,7 @@ type RouteParentStatus struct {
 	Conditions Conditions `json:"conditions,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.parents) || size(oldSelf.parents) == 0 || (has(self.parents) && size(self.parents) == 1 && self.parents[0].controllerName == oldSelf.parents[0].controllerName)",message="parent status controllerName is immutable and an assigned parent status cannot be cleared"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.parents) || size(oldSelf.parents) == 0 || (has(self.parents) && size(self.parents) == 1 && (self.parents[0].parentRef != oldSelf.parents[0].parentRef || self.parents[0].controllerName == oldSelf.parents[0].controllerName))",message="controllerName is immutable for a parent and an assigned parent status cannot be cleared"
 type VPNEgressRouteStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`

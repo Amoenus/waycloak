@@ -8,6 +8,7 @@ package replacementapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,10 +18,13 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/enrollment"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,6 +34,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/yaml"
@@ -225,6 +230,83 @@ func TestReplacementAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("route reconciliation and exact Pod enrollment", func(t *testing.T) {
+		gateway := validGateway("route-parent")
+		must(t, admin.Create(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
+		must(t, admin.Status().Update(ctx, gateway))
+
+		route := validRoute("route-reconciled")
+		route.Spec.ParentRefs[0].Name = wayv1.ObjectName(gateway.Name)
+		must(t, admin.Create(ctx, route))
+		reconciler := &waycontroller.VPNEgressRouteReconciler{Client: admin, Scheme: scheme, Now: func() time.Time { return time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC) }}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(route)}
+		_, err := reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		assertCurrentTrueConditions(t, route)
+		firstVersion := route.ResourceVersion
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		if route.ResourceVersion != firstVersion {
+			t.Fatalf("no-op reconciliation wrote status: resourceVersion %s -> %s", firstVersion, route.ResourceVersion)
+		}
+
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "route-enrolled", Namespace: testNamespace, Labels: map[string]string{enrollment.RouteLabel: route.Name}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
+		must(t, admin.Create(ctx, pod))
+		resolved, err := (enrollment.Resolver{Reader: admin}).Resolve(ctx, pod.Namespace, pod.Name, pod.UID)
+		must(t, err)
+		if !resolved.Enrolled || !resolved.Ready || resolved.RouteUID != route.UID {
+			t.Fatalf("ready exact-UID resolution = %#v", resolved)
+		}
+		if _, err := (enrollment.Resolver{Reader: admin}).Resolve(ctx, pod.Namespace, pod.Name, types.UID("reused-name-uid")); !errors.Is(err, enrollment.ErrPodUIDMismatch) {
+			t.Fatalf("name-reuse resolution error = %v, want ErrPodUIDMismatch", err)
+		}
+
+		route.Spec.ParentRefs[0].Name = "missing-parent"
+		must(t, admin.Update(ctx, route))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		if condition := apiMeta.FindStatusCondition(route.Status.Conditions, wayv1.ConditionResolvedRefs); condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != "RefNotFound" {
+			t.Fatalf("changed parent status = %#v", route.Status)
+		}
+		resolved, err = (enrollment.Resolver{Reader: admin}).Resolve(ctx, pod.Namespace, pod.Name, pod.UID)
+		must(t, err)
+		if !resolved.Enrolled || resolved.Ready {
+			t.Fatalf("changed route must retain fail-closed enrollment: %#v", resolved)
+		}
+
+		must(t, admin.Delete(ctx, route))
+		resolved, err = (enrollment.Resolver{Reader: admin}).Resolve(ctx, pod.Namespace, pod.Name, pod.UID)
+		must(t, err)
+		if !resolved.Enrolled || resolved.Ready || resolved.Reason != enrollment.ReasonRouteNotFound {
+			t.Fatalf("deleted route must retain fail-closed enrollment: %#v", resolved)
+		}
+	})
+
+	t.Run("Pod enrollment admission rejects alpha and live mutation", func(t *testing.T) {
+		installPodEnrollmentPolicy(t, ctx, admin)
+		waitForPodEnrollmentPolicy(t, ctx, admin)
+		alpha := testPod("alpha-annotation", map[string]string{"networking.waycloak.io/gateway": "old"}, nil)
+		mustRejectForbidden(t, admin.Create(ctx, alpha))
+		invalid := testPod("invalid-enrollment", nil, map[string]string{enrollment.RouteLabel: "route.with.dot"})
+		mustReject(t, admin.Create(ctx, invalid), "same-namespace DNS label")
+		unlabeled := testPod("unlabeled", nil, nil)
+		must(t, admin.Create(ctx, unlabeled))
+		valid := testPod("valid-enrollment", nil, map[string]string{enrollment.RouteLabel: "route-may-arrive-later"})
+		must(t, admin.Create(ctx, valid))
+		valid.Labels[enrollment.RouteLabel] = "other-route"
+		mustRejectForbidden(t, admin.Update(ctx, valid))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(unlabeled), unlabeled))
+		unlabeled.Labels = map[string]string{enrollment.RouteLabel: "late-enrollment"}
+		mustRejectForbidden(t, admin.Update(ctx, unlabeled))
+	})
+
 	t.Run("persona RBAC and binding admission deny users", func(t *testing.T) {
 		installRoles(t, ctx, admin, repositoryRoot)
 		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "replacement-rbac"}}
@@ -365,6 +447,84 @@ func validAdapter(name string) *wayv1.WorkloadAdapter {
 
 func condition(conditionType, reason string) map[string]any {
 	return map[string]any{"type": conditionType, "status": "True", "reason": reason, "message": "observed", "lastTransitionTime": time.Now().UTC().Format(time.RFC3339)}
+}
+
+func currentTrueConditions(generation int64, conditionTypes ...string) wayv1.Conditions {
+	result := make(wayv1.Conditions, 0, len(conditionTypes))
+	for _, conditionType := range conditionTypes {
+		result = append(result, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType, ObservedGeneration: generation, LastTransitionTime: metav1.Now()})
+	}
+	return result
+}
+
+func assertCurrentTrueConditions(t *testing.T, route *wayv1.VPNEgressRoute) {
+	t.Helper()
+	if route.Status.ObservedGeneration != route.Generation || len(route.Status.Parents) != 1 || route.Status.Parents[0].ControllerName != waycontroller.RouteControllerName {
+		t.Fatalf("route status identity = %#v", route.Status)
+	}
+	for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionResolvedRefs, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
+		condition := apiMeta.FindStatusCondition(route.Status.Conditions, conditionType)
+		if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != route.Generation {
+			t.Fatalf("current %s = %#v", conditionType, condition)
+		}
+	}
+}
+
+func testPod(name string, annotations, labels map[string]string) *corev1.Pod {
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Annotations: annotations, Labels: labels}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}}}}
+}
+
+func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlclient.Client) {
+	t.Helper()
+	failure := admissionv1.Fail
+	exact := admissionv1.Exact
+	forbidden := metav1.StatusReasonForbidden
+	invalid := metav1.StatusReasonInvalid
+	policy := &admissionv1.ValidatingAdmissionPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "waycloak-pod-enrollment-test"},
+		Spec: admissionv1.ValidatingAdmissionPolicySpec{
+			FailurePolicy: &failure,
+			MatchConstraints: &admissionv1.MatchResources{
+				MatchPolicy: &exact,
+				ResourceRules: []admissionv1.NamedRuleWithOperations{{
+					RuleWithOperations: admissionv1.RuleWithOperations{
+						Operations: []admissionv1.OperationType{admissionv1.Create, admissionv1.Update},
+						Rule: admissionv1.Rule{
+							APIGroups:   []string{""},
+							APIVersions: []string{"v1"},
+							Resources:   []string{"pods"},
+							Scope:       scope(admissionv1.NamespacedScope),
+						},
+					},
+				}},
+			},
+			Validations: []admissionv1.Validation{
+				{Expression: `!has(object.metadata.annotations) || object.metadata.annotations.all(key, !key.startsWith("networking.waycloak.io/") && !key.startsWith("internal.networking.waycloak.io/"))`, Message: "alpha Waycloak annotations are not accepted by the replacement API", Reason: &forbidden},
+				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || object.metadata.labels["networking.waycloak.io/egress-route"].matches("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")`, Message: "the Waycloak egress-route label must contain one same-namespace DNS label", Reason: &invalid},
+				{Expression: `request.operation != "UPDATE" || (has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels ? object.metadata.labels["networking.waycloak.io/egress-route"] : "") == (has(oldObject.metadata.labels) && "networking.waycloak.io/egress-route" in oldObject.metadata.labels ? oldObject.metadata.labels["networking.waycloak.io/egress-route"] : "")`, Message: "enrollment on an existing Pod is immutable; update the Pod template and create a new Pod", Reason: &forbidden},
+			},
+		},
+	}
+	must(t, client.Create(ctx, policy))
+	must(t, client.Create(ctx, &admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: policy.Name}, Spec: admissionv1.ValidatingAdmissionPolicyBindingSpec{PolicyName: policy.Name, ValidationActions: []admissionv1.ValidationAction{admissionv1.Deny}}}))
+}
+
+func waitForPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlclient.Client) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := client.Create(ctx, testPod("policy-probe", map[string]string{"networking.waycloak.io/gateway": "old"}, nil), &ctrlclient.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+		if apierrors.IsForbidden(err) {
+			return
+		}
+		if err != nil {
+			t.Fatalf("Pod admission probe error = %v, want Forbidden", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Pod enrollment admission policy did not become active")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func applyStatus(t *testing.T, ctx context.Context, resource dynamic.ResourceInterface, name, manager string, status map[string]any) {

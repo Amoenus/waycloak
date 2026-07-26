@@ -1,0 +1,46 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "waycloak.fullname" . }}-pod-enrollment
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: Namespaced
+  validations:
+    - expression: >-
+        !has(object.metadata.annotations) ||
+        object.metadata.annotations.all(key, !key.startsWith("networking.waycloak.io/") &&
+        !key.startsWith("internal.networking.waycloak.io/"))
+      message: alpha Waycloak annotations are not accepted by the replacement API
+      reason: Forbidden
+    - expression: >-
+        !has(object.metadata.labels) ||
+        !("networking.waycloak.io/egress-route" in object.metadata.labels) ||
+        object.metadata.labels["networking.waycloak.io/egress-route"].matches("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+      message: the Waycloak egress-route label must contain one same-namespace DNS label
+      reason: Invalid
+    - expression: >-
+        request.operation != "UPDATE" ||
+        (has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels ?
+        object.metadata.labels["networking.waycloak.io/egress-route"] : "") ==
+        (has(oldObject.metadata.labels) && "networking.waycloak.io/egress-route" in oldObject.metadata.labels ?
+        oldObject.metadata.labels["networking.waycloak.io/egress-route"] : "")
+      message: enrollment on an existing Pod is immutable; update the Pod template and create a new Pod
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "waycloak.fullname" . }}-pod-enrollment
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "waycloak.fullname" . }}-pod-enrollment
+  validationActions: [Deny]

@@ -17,10 +17,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   with exact CI and review evidence.
 - [x] #127 replacement API ownership and lifecycle freeze: merged in PR #146
   with exact CI and review evidence.
-- [ ] #128 replacement CRDs, generated APIs, and RBAC: in progress; the API-only
-  slice must pass fresh-install discovery, schema, admission, RBAC, envtest, and
-  reproducibility gates before #129 begins.
-- [ ] #129–#141: proceed only in declared dependency order.
+- [x] #128 replacement CRDs, generated APIs, and RBAC: merged in PR #147 after
+  fresh-install discovery, schema, admission, RBAC, envtest, reproducibility,
+  and review gates passed.
+- [ ] #129 VPNEgressRoute and explicit Pod enrollment: active; prove the single
+  label lookup, exact Pod/route UID identity, one-parent status, fail-closed
+  missing/change/delete behavior, alpha-marker rejection, and GitOps ordering.
+- [ ] #130–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

@@ -15,6 +15,7 @@
     "api/v1alpha1/groupversion_info.go",
     "api/v1alpha1/types.go",
     "api/v1alpha1/zz_generated.deepcopy.go",
+    "charts/waycloak/templates/pod-enrollment-admission.yaml",
     "cmd/agent/main_test.go",
     "cmd/controller/main.go",
     "cmd/qbittorrent-adapter/main.go",
@@ -75,6 +76,8 @@
     "internal/gateway/portforward_client_test.go",
     "internal/gateway/resources.go",
     "internal/gateway/resources_test.go",
+    "internal/enrollment/resolver.go",
+    "internal/enrollment/resolver_test.go",
     "Makefile",
     "PROJECT_STATUS.md",
     "protocol/adapter/v1alpha1/README.md",
@@ -141,10 +144,10 @@
         "unannotated Pod pass-through behavior"
       ],
       "artifacts": {
-        "code": ["internal/contract/contract.go", "internal/admission/**"],
-        "chart": ["charts/waycloak/templates/NOTES.txt"],
+        "code": ["internal/contract/contract.go", "internal/admission/**", "internal/enrollment/resolver.go"],
+        "chart": ["charts/waycloak/templates/NOTES.txt", "charts/waycloak/templates/pod-enrollment-admission.yaml"],
         "generated": ["config/webhook/**"],
-        "tests": ["test/e2e/cluster_test.go", "test/e2e/qbittorrent_example_test.go"],
+        "tests": ["test/e2e/cluster_test.go", "test/e2e/qbittorrent_example_test.go", "internal/enrollment/resolver_test.go"],
         "docs": ["docs/decisions/0027-explicit-workload-opt-in-and-attachment.md", "docs/api/replacement-api-proposal.md"]
       }
     },
