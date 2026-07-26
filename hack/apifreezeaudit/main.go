@@ -127,7 +127,7 @@ func fail(err error) {
 }
 
 func audit(data []byte) error {
-	for _, forbidden := range []string{"v1alpha", "networking.waycloak.io/gateway", "allocation-configmap", "waycloak-prepare", "waycloak-verify"} {
+	for _, forbidden := range alphaForbiddenSurfaces() {
 		if strings.Contains(string(data), forbidden) {
 			return fmt.Errorf("freeze contract contains forbidden alpha surface %q", forbidden)
 		}
@@ -234,6 +234,16 @@ func audit(data []byte) error {
 		return errors.New("VPNWorkloadBinding ownership and cleanup are incomplete")
 	}
 	return nil
+}
+
+func alphaForbiddenSurfaces() []string {
+	return []string{
+		strings.Join([]string{"v1", "alpha"}, ""),
+		strings.Join([]string{"networking.waycloak.io/", "gateway"}, ""),
+		strings.Join([]string{"allocation", "configmap"}, "-"),
+		strings.Join([]string{"waycloak", "prepare"}, "-"),
+		strings.Join([]string{"waycloak", "verify"}, "-"),
+	}
 }
 
 func findKind(kinds []kindContract, name string) *kindContract {

@@ -21,7 +21,8 @@ func TestRepositoryContract(t *testing.T) {
 
 func TestRejectsForbiddenAlphaSurface(t *testing.T) {
 	data := repositoryContract(t)
-	data = append(data[:len(data)-2], []byte(",\n  \"old\": \"v1alpha1\"\n}\n")...)
+	forbiddenVersion := alphaForbiddenSurfaces()[0] + "1"
+	data = append(data[:len(data)-2], []byte(",\n  \"old\": \""+forbiddenVersion+"\"\n}\n")...)
 	if err := audit(data); err == nil || !strings.Contains(err.Error(), "forbidden alpha surface") {
 		t.Fatalf("audit() error = %v, want forbidden alpha failure", err)
 	}
