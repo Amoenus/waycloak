@@ -1,6 +1,6 @@
 # ADR 0034: CNI creation-time enforcement and node-owned data plane
 
-Status: Proposed
+Status: Accepted
 Date: 2026-07-26
 Supersedes on acceptance: ADR 0002 mutation path, ADR 0005 startup handshake,
 ADR 0006 Pod-local backend, and ADR 0024 preview-only CNI handoff
@@ -72,6 +72,15 @@ credentials. Gateway credentials stay in the gateway namespace.
   obligations.
 - The existing sidecar backend is removed after cutover, not maintained as a
   second stable path.
+
+## Feasibility evidence
+
+Issue #124 passed the pinned Kind/kindnet and k3d/k3s/Flannel matrix plus an
+authorized k3s homelab row. The proof includes deny-before-binding packet
+capture, failed sandbox creation, no application start, agent and containerd
+restart, exact stale-state GC, idempotent DEL, and no direct TCP, UDP, DNS or
+fragmented-UDP packets. The support decision and exact run are recorded in
+[the feasibility evidence](../implementation/cni-creation-time-feasibility.md).
 
 ## Alternatives rejected
 
