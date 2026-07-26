@@ -21,7 +21,7 @@ this release gate.
 
 ## Prerequisites
 
-- a Kubernetes 1.35 or 1.36 Linux cluster where the operator has explicitly
+- a Kubernetes 1.36 Linux cluster where the operator has explicitly
   allowed this disruptive test;
 - a verified, release-manifest-pinned Waycloak installation from the commit
   under test;

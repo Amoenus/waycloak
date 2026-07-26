@@ -1,0 +1,17 @@
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNGatewayClass
+metadata:
+  name: example.waycloak.io
+spec:
+  controllerName: example.waycloak.io/controller
+  releaseIdentity:
+    version: v1.0.0-beta.1
+    manifestDigest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  supportedFeatures:
+    - networking.waycloak.io/CoreFailClosedEgress
+    - networking.waycloak.io/TCP
+    - networking.waycloak.io/UDP
+    - networking.waycloak.io/DNSContainment
+    - networking.waycloak.io/GatewayReplacementRecovery
+    - networking.waycloak.io/NodeRestartRecovery
+  conformanceProfile: networking.waycloak.io/Core-v1

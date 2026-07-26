@@ -11,25 +11,25 @@ spec:
     kind: WorkloadAdapter
     listKind: WorkloadAdapterList
     plural: workloadadapters
-    shortNames:
-    - wcadapter
     singular: workloadadapter
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
     - jsonPath: .spec.protocolVersion
       name: Protocol
       type: string
-    - jsonPath: .spec.image
-      name: Image
+    - jsonPath: .status.conditions[?(@.type=='Accepted')].status
+      name: Accepted
       type: string
-    name: v1alpha1
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
-        description: |-
-          WorkloadAdapter is cluster-scoped operator trust policy, not a workload
-          execution request. Creating one asserts that the referenced digest and its
-          supply-chain evidence have been reviewed by the cluster operator.
         properties:
           apiVersion:
             description: |-
@@ -49,29 +49,135 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              WorkloadAdapterSpec is an operator-approved adapter identity. Workloads
-              select this object by name; the admission webhook only accepts an existing
-              sidecar whose immutable image and protocol version exactly match it.
             properties:
               image:
-                description: Image must be an immutable OCI manifest or index reference.
-                pattern: ^[^\s@]+@sha256:[a-f0-9]{64}$
+                pattern: ^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$
                 type: string
               protocolVersion:
-                description: |-
-                  ProtocolVersion is the public Pod-local adapter protocol implemented by
-                  the image.
                 enum:
-                - networking.waycloak.io/adapter/v1alpha1
+                - networking.waycloak.io/adapter/v1
                 type: string
+              supportedApplications:
+                items:
+                  description: QualifiedName is a Kubernetes qualified name.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                  type: string
+                maxItems: 32
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: set
+              supportedFeatures:
+                items:
+                  description: FeatureName is a stable qualified feature identifier.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                  type: string
+                maxItems: 32
+                type: array
+                x-kubernetes-list-type: set
             required:
             - image
             - protocolVersion
+            - supportedApplications
+            type: object
+            x-kubernetes-validations:
+            - message: WorkloadAdapter spec is immutable
+              rule: self == oldSelf
+          status:
+            properties:
+              conditions:
+                description: Conditions implements the common positive-polarity status
+                  contract.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: condition type is not part of the Waycloak common contract
+                  rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
+                    'Ready'])
+                - message: Accepted condition reason is not stable
+                  rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
+                    'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
+                    'Deleting', 'ObservationUnavailable'])
+                - message: ResolvedRefs condition reason is not stable
+                  rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef',
+                    'ObservationUnavailable'])
+                - message: Programmed condition reason is not stable
+                  rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
+                    'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
+                - message: Ready condition reason is not stable
+                  rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady',
+                    'ObservationUnavailable', 'Deleting'])
+                - message: Unknown conditions must use ObservationUnavailable
+                  rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
+              observedGeneration:
+                format: int64
+                type: integer
             type: object
         required:
         - spec
         type: object
     served: true
     storage: true
-    subresources: {}
+    subresources:
+      status: {}

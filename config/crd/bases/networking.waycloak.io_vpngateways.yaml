@@ -11,19 +11,23 @@ spec:
     kind: VPNGateway
     listKind: VPNGatewayList
     plural: vpngateways
-    shortNames:
-    - vpngw
     singular: vpngateway
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.gatewayClassName
+      name: Class
+      type: string
     - jsonPath: .status.conditions[?(@.type=='Accepted')].status
       name: Accepted
       type: string
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    name: v1alpha1
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
         properties:
@@ -46,253 +50,257 @@ spec:
             type: object
           spec:
             properties:
+              allowedRoutes:
+                default:
+                  namespaces:
+                    from: Same
+                properties:
+                  namespaces:
+                    properties:
+                      from:
+                        default: Same
+                        enum:
+                        - Same
+                        - Selector
+                        - All
+                        type: string
+                      selector:
+                        description: |-
+                          A label selector is a label query over a set of resources. The result of matchLabels and
+                          matchExpressions are ANDed. An empty label selector matches all objects. A null
+                          label selector matches no objects.
+                        properties:
+                          matchExpressions:
+                            description: matchExpressions is a list of label selector
+                              requirements. The requirements are ANDed.
+                            items:
+                              description: |-
+                                A label selector requirement is a selector that contains values, a key, and an operator that
+                                relates the key and values.
+                              properties:
+                                key:
+                                  description: key is the label key that the selector
+                                    applies to.
+                                  type: string
+                                operator:
+                                  description: |-
+                                    operator represents a key's relationship to a set of values.
+                                    Valid operators are In, NotIn, Exists and DoesNotExist.
+                                  type: string
+                                values:
+                                  description: |-
+                                    values is an array of string values. If the operator is In or NotIn,
+                                    the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                    the values array must be empty. This array is replaced during a strategic
+                                    merge patch.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - operator
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                              map is equivalent to an element of matchExpressions, whose key field is "key", the
+                              operator is "In", and the values array contains only "value". The requirements are ANDed.
+                            type: object
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                    x-kubernetes-validations:
+                    - message: selector is required only when from is Selector
+                      rule: 'self.from == ''Selector'' ? has(self.selector) : !has(self.selector)'
+                type: object
               clusterTraffic:
                 properties:
-                  cidrs:
-                    description: CIDRs remain on the CNI main routing table in Preserve
-                      mode.
+                  bypassCIDRs:
                     items:
                       format: cidr
-                      maxLength: 18
                       type: string
                     maxItems: 64
-                    minItems: 1
                     type: array
-                    x-kubernetes-validations:
-                    - message: cluster CIDRs must be IPv4
-                      rule: self.all(c, !c.contains(':'))
+                    x-kubernetes-list-type: set
                   mode:
                     enum:
-                    - Preserve
-                    - Gateway
-                    - Deny
+                    - BypassCluster
+                    - TunnelAll
                     type: string
+                required:
+                - mode
                 type: object
                 x-kubernetes-validations:
-                - message: Preserve mode requires at least one cluster CIDR
-                  rule: '!has(self.mode) || self.mode != ''Preserve'' || (has(self.cidrs)
-                    && size(self.cidrs) > 0)'
-                - message: cluster CIDRs are only valid in Preserve mode
-                  rule: '!has(self.cidrs) || size(self.cidrs) == 0 || (has(self.mode)
-                    && self.mode == ''Preserve'')'
+                - message: BypassCluster requires at least one reviewed CIDR
+                  rule: self.mode != 'BypassCluster' || (has(self.bypassCIDRs) &&
+                    size(self.bypassCIDRs) > 0)
+                - message: bypassCIDRs are valid only with BypassCluster
+                  rule: self.mode == 'BypassCluster' || !has(self.bypassCIDRs) ||
+                    size(self.bypassCIDRs) == 0
+              credentialRefs:
+                items:
+                  properties:
+                    name:
+                      description: ObjectName is a Kubernetes object name represented
+                        as a DNS subdomain.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    role:
+                      description: QualifiedName is a Kubernetes qualified name.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                      type: string
+                  required:
+                  - name
+                  - role
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - role
+                x-kubernetes-list-type: map
               dns:
+                default:
+                  mode: Gateway
                 properties:
                   mode:
-                    type: string
-                type: object
-              engine:
-                properties:
-                  config:
-                    properties:
-                      envFrom:
-                        description: |-
-                          EnvFrom imports engine-native non-secret environment variables. Waycloak
-                          validates reserved integration keys but never copies values into the Pod specification.
-                        items:
-                          description: |-
-                            LocalObjectReference contains enough information to let you locate the
-                            referenced object inside the same namespace.
-                          properties:
-                            name:
-                              default: ""
-                              description: |-
-                                Name of the referent.
-                                This field is effectively required, but due to backwards compatibility is
-                                allowed to be empty. Instances of this type with an empty value here are
-                                almost certainly wrong.
-                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              type: string
-                          type: object
-                          x-kubernetes-map-type: atomic
-                        maxItems: 8
-                        minItems: 1
-                        type: array
-                      files:
-                        description: Files mounts operator-owned ConfigMaps or Secrets
-                          only into the engine.
-                        items:
-                          properties:
-                            configMapRef:
-                              description: |-
-                                LocalObjectReference contains enough information to let you locate the
-                                referenced object inside the same namespace.
-                              properties:
-                                name:
-                                  default: ""
-                                  description: |-
-                                    Name of the referent.
-                                    This field is effectively required, but due to backwards compatibility is
-                                    allowed to be empty. Instances of this type with an empty value here are
-                                    almost certainly wrong.
-                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  type: string
-                              type: object
-                              x-kubernetes-map-type: atomic
-                            mountPath:
-                              pattern: ^/.*
-                              type: string
-                            secretRef:
-                              description: |-
-                                LocalObjectReference contains enough information to let you locate the
-                                referenced object inside the same namespace.
-                              properties:
-                                name:
-                                  default: ""
-                                  description: |-
-                                    Name of the referent.
-                                    This field is effectively required, but due to backwards compatibility is
-                                    allowed to be empty. Instances of this type with an empty value here are
-                                    almost certainly wrong.
-                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  type: string
-                              type: object
-                              x-kubernetes-map-type: atomic
-                          required:
-                          - mountPath
-                          type: object
-                          x-kubernetes-validations:
-                          - message: exactly one of configMapRef or secretRef is required
-                            rule: has(self.configMapRef) != has(self.secretRef)
-                        maxItems: 8
-                        type: array
-                    required:
-                    - envFrom
-                    type: object
-                  image:
-                    type: string
-                  type:
-                    type: string
-                required:
-                - type
-                type: object
-              overlay:
-                properties:
-                  cidr:
-                    format: cidr
-                    type: string
-                  mtu:
-                    default: 1320
-                    format: int32
-                    minimum: 576
-                    type: integer
-                  vni:
-                    format: int32
-                    maximum: 16777215
-                    minimum: 1
-                    type: integer
-                required:
-                - cidr
-                - vni
-                type: object
-              portForwarding:
-                properties:
-                  driver:
+                    default: Gateway
                     enum:
-                    - ProtonNatPmp
+                    - Gateway
                     type: string
-                  enabled:
-                    type: boolean
                 type: object
+              gatewayClassName:
+                description: ObjectName is a Kubernetes object name represented as
+                  a DNS subdomain.
+                maxLength: 253
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
                 x-kubernetes-validations:
-                - message: enabled port forwarding requires driver ProtonNatPmp
-                  rule: '!has(self.enabled) || !self.enabled || (has(self.driver)
-                    && self.driver == ''ProtonNatPmp'')'
-              provider:
+                - message: gatewayClassName is immutable
+                  rule: self == oldSelf
+              nativeConfigRefs:
+                items:
+                  properties:
+                    name:
+                      description: ObjectName is a Kubernetes object name represented
+                        as a DNS subdomain.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    role:
+                      description: QualifiedName is a Kubernetes qualified name.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                      type: string
+                  required:
+                  - name
+                  - role
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - role
+                x-kubernetes-list-type: map
+              placement:
                 properties:
-                  credentialsSecretRef:
-                    description: |-
-                      LocalObjectReference contains enough information to let you locate the
-                      referenced object inside the same namespace.
-                    properties:
-                      name:
-                        default: ""
-                        description: |-
-                          Name of the referent.
-                          This field is effectively required, but due to backwards compatibility is
-                          allowed to be empty. Instances of this type with an empty value here are
-                          almost certainly wrong.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                        type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
                     type: object
-                    x-kubernetes-map-type: atomic
-                  name:
-                    type: string
-                  protocol:
-                    type: string
-                  region:
-                    type: string
-                required:
-                - credentialsSecretRef
-                - name
-                type: object
-              workloadAccess:
-                properties:
-                  namespaceSelector:
-                    description: |-
-                      A label selector is a label query over a set of resources. The result of matchLabels and
-                      matchExpressions are ANDed. An empty label selector matches all objects. A null
-                      label selector matches no objects.
-                    properties:
-                      matchExpressions:
-                        description: matchExpressions is a list of label selector
-                          requirements. The requirements are ANDed.
-                        items:
+                  tolerations:
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
                           description: |-
-                            A label selector requirement is a selector that contains values, a key, and an operator that
-                            relates the key and values.
-                          properties:
-                            key:
-                              description: key is the label key that the selector
-                                applies to.
-                              type: string
-                            operator:
-                              description: |-
-                                operator represents a key's relationship to a set of values.
-                                Valid operators are In, NotIn, Exists and DoesNotExist.
-                              type: string
-                            values:
-                              description: |-
-                                values is an array of string values. If the operator is In or NotIn,
-                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
-                                the values array must be empty. This array is replaced during a strategic
-                                merge patch.
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
-                          required:
-                          - key
-                          - operator
-                          type: object
-                        type: array
-                        x-kubernetes-list-type: atomic
-                      matchLabels:
-                        additionalProperties:
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
                           type: string
-                        description: |-
-                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
-                          map is equivalent to an element of matchExpressions, whose key field is "key", the
-                          operator is "In", and the values array contains only "value". The requirements are ANDed.
-                        type: object
-                    type: object
-                    x-kubernetes-map-type: atomic
-                required:
-                - namespaceSelector
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: atomic
                 type: object
+              requestedFeatures:
+                items:
+                  description: FeatureName is a stable qualified feature identifier.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: set
             required:
-            - engine
-            - overlay
-            - workloadAccess
+            - clusterTraffic
+            - gatewayClassName
             type: object
-            x-kubernetes-validations:
-            - message: exactly one of legacy provider or engine.config is required
-              rule: has(self.provider) != has(self.engine.config)
           status:
             properties:
-              clientCount:
-                format: int32
-                type: integer
+              addresses:
+                items:
+                  properties:
+                    type:
+                      description: QualifiedName is a Kubernetes qualified name.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                      type: string
+                    value:
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - type
+                  - value
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               conditions:
+                description: Conditions implements the common positive-polarity status
+                  contract.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -347,25 +355,70 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 32
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: condition type is not part of the Waycloak common contract
+                  rule: self.all(c, c.type in ['Accepted', 'ResolvedRefs', 'Programmed',
+                    'Ready'])
+                - message: Accepted condition reason is not stable
+                  rule: self.all(c, c.type != 'Accepted' || c.reason in ['Accepted',
+                    'Invalid', 'UnsupportedClass', 'UnsupportedFeature', 'ControllerNotFound',
+                    'Deleting', 'ObservationUnavailable'])
+                - message: ResolvedRefs condition reason is not stable
+                  rule: self.all(c, c.type != 'ResolvedRefs' || c.reason in ['ResolvedRefs',
+                    'InvalidRef', 'RefNotFound', 'RefNotPermitted', 'IncompatibleRef',
+                    'ObservationUnavailable'])
+                - message: Programmed condition reason is not stable
+                  rule: self.all(c, c.type != 'Programmed' || c.reason in ['Programmed',
+                    'Pending', 'ApplyFailed', 'StaleGeneration', 'ObservationUnavailable'])
+                - message: Ready condition reason is not stable
+                  rule: self.all(c, c.type != 'Ready' || c.reason in ['Ready', 'NotReady',
+                    'ObservationUnavailable', 'Deleting'])
+                - message: Unknown conditions must use ObservationUnavailable
+                  rule: self.all(c, c.status != 'Unknown' || c.reason == 'ObservationUnavailable')
+              gatewayClass:
+                properties:
+                  controllerName:
+                    description: ControllerName identifies one immutable controller
+                      implementation.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+/[A-Za-z0-9][A-Za-z0-9/._~-]*$
+                    type: string
+                  releaseIdentity:
+                    properties:
+                      manifestDigest:
+                        pattern: ^sha256:[a-f0-9]{64}$
+                        type: string
+                      version:
+                        maxLength: 128
+                        minLength: 1
+                        type: string
+                    required:
+                    - manifestDigest
+                    - version
+                    type: object
+                required:
+                - controllerName
+                - releaseIdentity
+                type: object
               observedGeneration:
                 format: int64
                 type: integer
-              overlay:
-                description: |-
-                  GatewayOverlayStatus contains observed data-plane state. Endpoint is an IP
-                  address and UDP port suitable for netip.ParseAddrPort.
-                properties:
-                  appliedMembershipGeneration:
-                    type: string
-                  desiredMembershipGeneration:
-                    type: string
-                  endpoint:
-                    type: string
-                  healthPort:
-                    format: int32
-                    type: integer
-                type: object
+              supportedFeatures:
+                items:
+                  description: FeatureName is a stable qualified feature identifier.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9]$
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: set
             type: object
         required:
         - spec

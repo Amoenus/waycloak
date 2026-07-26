@@ -88,7 +88,9 @@ jobs:
           go test ./...
           go test -race ./...
           go vet ./...
+          go vet -tags=e2e,envtest ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -tags=e2e,envtest ./...
       - name: Verify generated CRDs, RBAC, webhooks, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts
@@ -96,58 +98,54 @@ jobs:
       - name: Verify frozen replacement API boundary
         run: make api-freeze-audit
       - name: Verify deterministic Helm rendering and package
-        env:
-          DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
         run: |
-          helm lint charts/waycloak \
-            --set images.controller.digest="$DIGEST" \
-            --set images.agent.digest="$DIGEST" \
-            --set images.gatewayManager.digest="$DIGEST" \
-            --set webhook.tls.existingSecret=waycloak-webhook-tls \
-            --set-string webhook.tls.caBundle=Y2E=
-          render_args=(waycloak charts/waycloak --namespace waycloak-system --include-crds \
-            --set images.controller.digest="$DIGEST" \
-            --set images.agent.digest="$DIGEST" \
-            --set images.gatewayManager.digest="$DIGEST" \
-            --set webhook.tls.existingSecret=waycloak-webhook-tls \
-            --set-string webhook.tls.caBundle=Y2E=)
+          helm lint charts/waycloak
+          render_args=(waycloak charts/waycloak --namespace waycloak-system --include-crds)
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-1.yaml"
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-2.yaml"
           cmp "$RUNNER_TEMP/render-1.yaml" "$RUNNER_TEMP/render-2.yaml"
-          helm template waycloak charts/waycloak --namespace waycloak-system \
-            --set images.controller.digest="$DIGEST" \
-            --set images.agent.digest="$DIGEST" \
-            --set images.gatewayManager.digest="$DIGEST" \
-            --set webhook.tls.certManager.enabled=true \
-            >"$RUNNER_TEMP/render-cert-manager.yaml"
-          test "$(grep -c '^kind: Certificate$' "$RUNNER_TEMP/render-cert-manager.yaml")" -eq 1
-          test "$(grep -c '^kind: Issuer$' "$RUNNER_TEMP/render-cert-manager.yaml")" -eq 1
-          test "$(grep -c 'cert-manager.io/inject-ca-from:' "$RUNNER_TEMP/render-cert-manager.yaml")" -eq 2
+          test "$(grep -c '^kind: CustomResourceDefinition$' "$RUNNER_TEMP/render-1.yaml")" -eq 6
+          test "$(grep -c '^kind: ValidatingAdmissionPolicy$' "$RUNNER_TEMP/render-1.yaml")" -eq 1
+          test "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "$RUNNER_TEMP/render-1.yaml")" -eq 1
+          test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
+          test "$(grep -Ec '^kind: (Mutating|Validating)WebhookConfiguration$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
+          if grep -q 'v1alpha' "$RUNNER_TEMP/render-1.yaml"; then
+            echo "rendered chart contains a v1alpha API marker" >&2
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"
           chart_version="$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
           cmp "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" "$RUNNER_TEMP/chart-2/waycloak-$chart_version.tgz"
-          test "$(tar -tzf "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpngateways|vpnworkloads|workloadadapters)\.yaml$')" -eq 4
+          test "$(tar -tzf "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpnegressroutes|vpngatewayclasses|vpngateways|vpnworkloadbindings|workloadadapters)\.yaml$')" -eq 6
       - name: Verify KCL rendering and deterministic package
         run: |
           module_version="$(awk '$1 == "version" {gsub(/\"/, "", $3); print $3; exit}' kcl/waycloak/kcl.mod)"
           test "$module_version" = "$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
           kcl run kcl/waycloak/examples/basic.k -S items >"$RUNNER_TEMP/kcl-example.yaml"
+          kcl run kcl/waycloak/examples/private-egress.k -S items >"$RUNNER_TEMP/kcl-private-egress-example.yaml"
           kcl run kcl/waycloak/examples/workload-adapter.k -S items >"$RUNNER_TEMP/kcl-workload-adapter-example.yaml"
+          test "$(grep -c '^kind: VPNGatewayClass$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
           test "$(grep -c '^kind: VPNGateway$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
-          test "$(grep -c '^kind: PortForwardLease$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
+          test "$(grep -c '^kind: VPNEgressRoute$' "$RUNNER_TEMP/kcl-private-egress-example.yaml")" -eq 1
+          test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/kcl-private-egress-example.yaml")" -eq 1
+          grep -q 'networking.waycloak.io/egress-route: private' "$RUNNER_TEMP/kcl-private-egress-example.yaml"
           test "$(grep -c '^kind: WorkloadAdapter$' "$RUNNER_TEMP/kcl-workload-adapter-example.yaml")" -eq 1
           mkdir -p "$RUNNER_TEMP/kcl-1" "$RUNNER_TEMP/kcl-2"
           (cd kcl/waycloak && kcl mod pkg --target "$RUNNER_TEMP/kcl-1")
           (cd kcl/waycloak && kcl mod pkg --target "$RUNNER_TEMP/kcl-2")
           cmp "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" "$RUNNER_TEMP/kcl-2/waycloak_${module_version}.tar"
-          test "$(tar -tf "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" | grep -Ec '^(helpers/annotations\.k|v1alpha1/networking_waycloak_io_v1alpha1_(port_forward_lease|v_p_n_gateway|v_p_n_workload|workload_adapter)\.k)$')" -eq 5
+          test "$(tar -tf "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" | grep -Ec '^v1beta1/networking_waycloak_io_v1beta1_(port_forward_lease|v_p_n_egress_route|v_p_n_gateway|v_p_n_gateway_class|v_p_n_workload_binding|workload_adapter)\.k$')" -eq 6
+          if tar -tf "$RUNNER_TEMP/kcl-1/waycloak_${module_version}.tar" | grep -q 'v1alpha'; then
+            echo "KCL package contains a v1alpha API marker" >&2
+            exit 1
+          fi
       - name: Run envtest reconciliation
         run: |
           KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0 use -p path 1.36.x)"
           export KUBEBUILDER_ASSETS
-          go test -tags=envtest ./test/integration/... -v -count=1
+          go test -tags=envtest ./test/replacementapi/... -v -count=1
       - name: Scan source and dependencies
         run: |
           gitleaks git --redact --no-banner
@@ -170,11 +168,16 @@ jobs:
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: waycloak-ci
-          version: v0.31.0
-          node_image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+          version: v0.32.0
+          node_image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
           wait: 120s
-      - name: Run Kind acceptance
-        run: go test -tags=e2e ./test/e2e/... -v -count=1 -timeout=20m
+      - name: Run replacement API fresh-install acceptance
+        env:
+          WAYCLOAK_E2E_REPLACEMENT_API: "1"
+        run: |
+          go test -tags=e2e ./test/e2e/... \
+            -run '^TestReplacementAPIFreshInstall$' \
+            -v -count=1 -timeout=10m
 
   kind-cni-e2e:
     needs: classify
@@ -195,8 +198,8 @@ jobs:
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: waycloak-cni-ci
-          version: v0.31.0
-          node_image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+          version: v0.32.0
+          node_image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
           wait: 120s
       - name: Run Kind and kindnet CNI feasibility proof with runtime restart
         env:

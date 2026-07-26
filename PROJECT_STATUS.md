@@ -48,13 +48,24 @@ replacement route, binding, and node-agent Core conformance; the destructive
 sequence keeps protected workloads stopped and separates normal uninstall from
 explicit CR/CRD purge.
 
-Issue #127 is the active dependency. The accepted API target is
+Issue #127 is complete and merged. The accepted API target is
 `networking.waycloak.io/v1beta1` on Kubernetes 1.36+, with six role-owned kinds,
 one explicit Core route parent, controller-only UID bindings, common conditions,
 bounded finalizers, exact SSA managers, and no Core webhook or Gateway API CRD
 dependency. The machine-readable freeze and negative audit block ambiguous list,
-reference, ownership, lifecycle, alpha, or conformance changes. No replacement
-CRD has been generated; #128 remains the first schema/code generation issue.
+reference, ownership, lifecycle, alpha, or conformance changes.
+
+Issue #128 is the active dependency. Its vertically testable slice generates the
+six replacement Go APIs and structural CRDs, persona-separated RBAC, controller-
+only `VPNWorkloadBinding` admission defense, Helm CRD/RBAC output, KCL models,
+samples, and a deterministic API reference from one schema source. The chart is
+deliberately API-only at this boundary: it renders no controller, mutation
+webhook, sidecar, init container, allocation ConfigMap, CNI, or node agent, and
+must not be used to enroll workloads until the downstream Core path is proven.
+Kubernetes 1.36 envtest covers defaults, CEL and immutability, strict unknown-
+field rejection, list ownership, status ownership, persona RBAC, binding
+admission defense, and deletion behavior. Fresh-install Kind evidence remains
+required before #128 can close.
 
 ## Current phase
 

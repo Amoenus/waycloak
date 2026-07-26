@@ -1,0 +1,34 @@
+{{- $controllerUsername := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "waycloak.fullname" .) -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "waycloak.fullname" . }}-binding-guard
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.waycloak.io"]
+        apiVersions: ["v1beta1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["vpnworkloadbindings", "vpnworkloadbindings/status"]
+        scope: Namespaced
+  validations:
+    - expression: >-
+        request.userInfo.username in [{{ $controllerUsername | quote }},
+        "system:serviceaccount:kube-system:generic-garbage-collector"] ||
+        (request.operation == "DELETE" && namespaceObject != null &&
+        has(namespaceObject.metadata.deletionTimestamp))
+      message: VPNWorkloadBinding is controller-authored and cannot be changed by users
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "waycloak.fullname" . }}-binding-guard
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "waycloak.fullname" . }}-binding-guard
+  validationActions: [Deny]

@@ -1,54 +1,20 @@
-# Waycloak KCL module
+# Waycloak KCL package
 
-This optional module exposes KCL schemas generated from Waycloak's served CRDs
-and constants for the canonical workload annotations. It is an authoring
-adapter over the Kubernetes API; the Waycloak runtime never depends on KCL.
+This optional package contains generated KCL schemas for the clean-break
+`networking.waycloak.io/v1beta1` API. The CRDs under `config/crd/bases` are the
+single source of truth; `hack/generate-kcl-models.sh` reproduces these models.
 
-Add the released module from GHCR using the release version:
+The package contains schemas for `VPNGatewayClass`, `VPNGateway`,
+`VPNEgressRoute`, `VPNWorkloadBinding`, `PortForwardLease`, and
+`WorkloadAdapter`. `VPNWorkloadBinding` is controller-authored and is included
+for validation and tooling, not as a user manifest surface.
 
-```sh
-kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag RELEASE_VERSION
+Use the examples as API-only authoring references. This #128 intermediate does
+not install a controller or data plane and must not be used to start enrolled
+workloads. Pod enrollment is exactly one same-namespace route label:
+
+```yaml
+networking.waycloak.io/egress-route: private
 ```
 
-Import the generated `v1alpha1` schemas and the annotation helpers:
-
-```kcl
-import waycloak.helpers
-import waycloak.v1alpha1 as networking
-
-gateway_ref = helpers.GatewayReference {
-    namespace = "private-egress"
-    name = "private"
-}
-
-gateway = networking.VPNGateway {
-    metadata = {name = gateway_ref.name, namespace = gateway_ref.namespace}
-    spec = {
-        # Supply the ordinary Kubernetes API fields documented by Waycloak.
-    }
-}
-
-pod_template_annotations = {
-    helpers.gatewayAnnotation = gateway_ref.value
-}
-```
-
-`VPNWorkload` is included because it is a served, inspectable API, but it is
-controller-owned and consumers must not author it. The module contains no
-credentials, private endpoints, provider defaults, or homelab-specific values.
-`WorkloadAdapter` is also generated from the served CRD. Operators may author
-it to approve an exact adapter digest; workload templates use
-`helpers.workloadAdapterAnnotation` and `helpers.adapterContainerAnnotation`
-to declare the matching workload intent.
-See `examples/workload-adapter.k` for the minimal digest-pinned trust record.
-
-Start with the egress-only example:
-
-```sh
-kcl run examples/private-egress.k -S items
-```
-
-It renders a native Gluetun ConfigMap plus one `VPNGateway` and exposes the
-annotation map to merge into a workload Pod template. Provision the referenced
-engine-only Secret separately. The more advanced `examples/basic.k` is the
-Proton-specific example and adds a provider-assigned `PortForwardLease`.
+There are no compatibility helpers for legacy annotations or objects.

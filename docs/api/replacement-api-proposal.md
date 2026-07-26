@@ -97,8 +97,8 @@ Stable summary reasons are:
 
 | Condition | Reasons |
 | --- | --- |
-| `Accepted` | `Accepted`, `Invalid`, `UnsupportedClass`, `UnsupportedFeature`, `ControllerNotFound`, `Deleting` |
-| `ResolvedRefs` | `ResolvedRefs`, `InvalidRef`, `RefNotFound`, `RefNotPermitted`, `IncompatibleRef` |
+| `Accepted` | `Accepted`, `Invalid`, `UnsupportedClass`, `UnsupportedFeature`, `ControllerNotFound`, `Deleting`, `ObservationUnavailable` |
+| `ResolvedRefs` | `ResolvedRefs`, `InvalidRef`, `RefNotFound`, `RefNotPermitted`, `IncompatibleRef`, `ObservationUnavailable` |
 | `Programmed` | `Programmed`, `Pending`, `ApplyFailed`, `StaleGeneration`, `ObservationUnavailable` |
 | `Ready` | `Ready`, `NotReady`, `ObservationUnavailable`, `Deleting` |
 

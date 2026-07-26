@@ -17,14 +17,23 @@ CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci bitmagnet-adapter-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci qbittorrent-adapter-image-oci bitmagnet-adapter-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1"
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1;./api/v1beta1"
 
 manifests:
-	$(CONTROLLER_GEN) crd paths="./api/v1alpha1" output:crd:artifacts:config=config/crd/bases
-	$(CONTROLLER_GEN) rbac:roleName=waycloak-manager-role paths="./internal/controller" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) crd paths="./api/v1beta1" output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-controller,fileName=controller-role.yaml paths="./internal/rbac/controller" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-distribution,fileName=distribution-role.yaml paths="./internal/rbac/distribution" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-network-operator,fileName=network-operator-role.yaml paths="./internal/rbac/networkoperator" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-workload-owner,fileName=workload-owner-role.yaml paths="./internal/rbac/workloadowner" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-adapter-operator,fileName=adapter-operator-role.yaml paths="./internal/rbac/adapteroperator" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-node-agent,fileName=node-agent-role.yaml paths="./internal/rbac/nodeagent" output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=waycloak-gateway-secret-reader,fileName=gateway-secret-reader-role.yaml paths="./internal/rbac/gatewaysecretreader" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) webhook paths="./cmd/controller" output:webhook:artifacts:config=config/webhook
+
+api-reference: manifests
+	$(GO) run ./hack/apireference --output docs/api/v1beta1.md
 
 webhook-manifests:
 	kubectl kustomize config/webhook
@@ -39,7 +48,7 @@ vet:
 	$(GO) vet ./...
 
 envtest:
-	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use -p path 1.36.x)" $(GO) test -tags=envtest ./test/integration/...
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use -p path 1.36.x)" $(GO) test -tags=envtest ./test/replacementapi/...
 
 e2e:
 	$(GO) test -tags=e2e ./test/e2e/... -v -count=1
@@ -85,16 +94,24 @@ kcl-package:
 
 verify-chart-generated:
 	diff -u config/crd/bases/networking.waycloak.io_portforwardleases.yaml charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml
+	diff -u config/crd/bases/networking.waycloak.io_vpnegressroutes.yaml charts/waycloak/crds/networking.waycloak.io_vpnegressroutes.yaml
+	diff -u config/crd/bases/networking.waycloak.io_vpngatewayclasses.yaml charts/waycloak/crds/networking.waycloak.io_vpngatewayclasses.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpngateways.yaml charts/waycloak/crds/networking.waycloak.io_vpngateways.yaml
-	diff -u config/crd/bases/networking.waycloak.io_vpnworkloads.yaml charts/waycloak/crds/networking.waycloak.io_vpnworkloads.yaml
+	diff -u config/crd/bases/networking.waycloak.io_vpnworkloadbindings.yaml charts/waycloak/crds/networking.waycloak.io_vpnworkloadbindings.yaml
 	diff -u config/crd/bases/networking.waycloak.io_workloadadapters.yaml charts/waycloak/crds/networking.waycloak.io_workloadadapters.yaml
-	diff -u config/rbac/role.yaml charts/waycloak/files/manager-role.yaml
+	diff -u config/rbac/controller-role.yaml charts/waycloak/files/controller-role.yaml
+	diff -u config/rbac/distribution-role.yaml charts/waycloak/files/distribution-role.yaml
+	diff -u config/rbac/network-operator-role.yaml charts/waycloak/files/network-operator-role.yaml
+	diff -u config/rbac/workload-owner-role.yaml charts/waycloak/files/workload-owner-role.yaml
+	diff -u config/rbac/adapter-operator-role.yaml charts/waycloak/files/adapter-operator-role.yaml
+	diff -u config/rbac/node-agent-role.yaml charts/waycloak/files/node-agent-role.yaml
+	diff -u config/rbac/gateway-secret-reader-role.yaml charts/waycloak/files/gateway-secret-reader-role.yaml
 
 verify-kcl-generated:
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 		hack/generate-kcl-models.sh "$$tmp/models"; \
-		diff -ru "$$tmp/models/waycloak/v1alpha1" "$(KCL_MODULE_DIR)/v1alpha1"; \
-		diff -ru "$$tmp/models/waycloak/k8s" "$(KCL_MODULE_DIR)/k8s"
+		diff -ru --exclude=.sonar "$$tmp/models/waycloak/v1beta1" "$(KCL_MODULE_DIR)/v1beta1"; \
+		diff -ru --exclude=.sonar "$$tmp/models/waycloak/k8s" "$(KCL_MODULE_DIR)/k8s"
 
 verify-workflows:
 	$(ACTIONLINT)
@@ -105,5 +122,5 @@ alpha-audit:
 api-freeze-audit:
 	$(GO) run ./hack/apifreezeaudit
 
-verify-generated: generate manifests verify-chart-generated verify-kcl-generated
-	git diff --exit-code -- api config kcl/waycloak/v1alpha1 kcl/waycloak/k8s
+verify-generated: generate api-reference verify-chart-generated verify-kcl-generated
+	git diff --exit-code -- api config docs/api/v1beta1.md kcl/waycloak/v1beta1 kcl/waycloak/k8s

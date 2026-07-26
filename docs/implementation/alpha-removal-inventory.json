@@ -11,27 +11,13 @@
     "mutate-v1-pod|validate-v1-pod"
   ],
   "knownAlphaPaths": [
-    ".github/workflows/ci.yaml",
     ".github/workflows/release.yaml",
     "api/v1alpha1/groupversion_info.go",
     "api/v1alpha1/types.go",
     "api/v1alpha1/zz_generated.deepcopy.go",
-    "charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml",
-    "charts/waycloak/crds/networking.waycloak.io_vpngateways.yaml",
-    "charts/waycloak/crds/networking.waycloak.io_vpnworkloads.yaml",
-    "charts/waycloak/crds/networking.waycloak.io_workloadadapters.yaml",
-    "charts/waycloak/templates/NOTES.txt",
-    "charts/waycloak/templates/webhooks.yaml",
     "cmd/agent/main_test.go",
     "cmd/controller/main.go",
     "cmd/qbittorrent-adapter/main.go",
-    "config/crd/bases/networking.waycloak.io_portforwardleases.yaml",
-    "config/crd/bases/networking.waycloak.io_vpngateways.yaml",
-    "config/crd/bases/networking.waycloak.io_vpnworkloads.yaml",
-    "config/crd/bases/networking.waycloak.io_workloadadapters.yaml",
-    "config/samples/networking_v1alpha1_portforwardlease.yaml",
-    "config/samples/networking_v1alpha1_vpngateway.yaml",
-    "config/samples/networking_v1alpha1_workloadadapter.yaml",
     "config/webhook/manifests.yaml",
     "config/webhook/match-annotated-pods.yaml",
     "docs/api/api-contract.md",
@@ -89,16 +75,6 @@
     "internal/gateway/portforward_client_test.go",
     "internal/gateway/resources.go",
     "internal/gateway/resources_test.go",
-    "kcl/waycloak/examples/basic.k",
-    "kcl/waycloak/examples/private-egress.k",
-    "kcl/waycloak/examples/workload-adapter.k",
-    "kcl/waycloak/helpers/annotations.k",
-    "kcl/waycloak/kcl.mod",
-    "kcl/waycloak/README.md",
-    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_port_forward_lease.k",
-    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_v_p_n_gateway.k",
-    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_v_p_n_workload.k",
-    "kcl/waycloak/v1alpha1/networking_waycloak_io_v1alpha1_workload_adapter.k",
     "Makefile",
     "PROJECT_STATUS.md",
     "protocol/adapter/v1alpha1/README.md",
@@ -125,7 +101,9 @@
   "exemptPaths": [
     "architecture_as_is/**",
     "docs/implementation/alpha-removal-inventory.json",
-    "hack/alphaaudit/**"
+    "hack/alphaaudit/**",
+    "test/e2e/replacement_api_install_test.go",
+    "test/replacementapi/envtest_test.go"
   ],
   "entries": [
     {
@@ -147,8 +125,8 @@
       ],
       "artifacts": {
         "code": ["api/v1alpha1/**"],
-        "chart": ["charts/waycloak/crds/**"],
-        "generated": ["config/crd/bases/**", "kcl/waycloak/v1alpha1/**"],
+        "chart": [],
+        "generated": [],
         "tests": ["test/integration/envtest_test.go"],
         "docs": ["docs/api/api-contract.md", "docs/product/PRD.md", "docs/decisions/0025-api-stability-and-feature-channels.md"]
       }
@@ -164,8 +142,8 @@
       ],
       "artifacts": {
         "code": ["internal/contract/contract.go", "internal/admission/**"],
-        "chart": ["charts/waycloak/templates/webhooks.yaml", "charts/waycloak/templates/NOTES.txt"],
-        "generated": ["config/webhook/**", "kcl/waycloak/helpers/annotations.k"],
+        "chart": ["charts/waycloak/templates/NOTES.txt"],
+        "generated": ["config/webhook/**"],
         "tests": ["test/e2e/cluster_test.go", "test/e2e/qbittorrent_example_test.go"],
         "docs": ["docs/decisions/0027-explicit-workload-opt-in-and-attachment.md", "docs/api/replacement-api-proposal.md"]
       }
@@ -184,7 +162,7 @@
       ],
       "artifacts": {
         "code": ["cmd/controller/main.go", "internal/admission/**", "internal/contract/contract.go"],
-        "chart": ["charts/waycloak/templates/admission-generation.yaml", "charts/waycloak/templates/certificate.yaml", "charts/waycloak/templates/deployment.yaml", "charts/waycloak/templates/webhooks.yaml", "charts/waycloak/values.yaml", "charts/waycloak/values.schema.json"],
+        "chart": ["charts/waycloak/values.yaml", "charts/waycloak/values.schema.json"],
         "generated": ["config/webhook/**"],
         "tests": ["test/e2e/injected_image_test.go", "internal/admission/pod_test.go"],
         "docs": ["docs/architecture/architecture.md", "docs/product/developer-experience.md", "docs/operations/security-exceptions.md"]
@@ -204,8 +182,8 @@
       ],
       "artifacts": {
         "code": ["internal/agentconfig/**", "internal/allocation/**", "internal/controller/pod_controller.go", "internal/controller/workload_gc_controller.go", "internal/contract/contract.go"],
-        "chart": ["charts/waycloak/files/manager-role.yaml"],
-        "generated": ["config/rbac/role.yaml"],
+        "chart": [],
+        "generated": [],
         "tests": ["internal/controller/pod_controller_test.go", "internal/controller/workload_gc_controller_test.go", "internal/agentconfig/config_test.go"],
         "docs": ["docs/decisions/0005-allocation-startup-handshake.md", "docs/implementation/blueprint.md"]
       }
@@ -242,7 +220,7 @@
       ],
       "artifacts": {
         "code": ["cmd/gateway-manager/**", "internal/gateway/**", "internal/controller/gateway_controller.go", "internal/controller/engine_config.go"],
-        "chart": ["charts/waycloak/values.yaml", "charts/waycloak/templates/deployment.yaml"],
+        "chart": ["charts/waycloak/values.yaml"],
         "generated": [],
         "tests": ["test/e2e/gateway_manager_test.go", "internal/controller/gateway_controller_test.go"],
         "docs": ["docs/decisions/0008-gateway-credential-and-engine-control-boundary.md", "docs/decisions/0017-engine-native-configuration-boundary.md", "docs/decisions/0022-native-engine-input-projection.md"]
@@ -263,7 +241,7 @@
       "artifacts": {
         "code": ["internal/status/**", "internal/controller/**"],
         "chart": [],
-        "generated": ["config/rbac/role.yaml"],
+        "generated": [],
         "tests": ["internal/controller/**"],
         "docs": ["docs/decisions/0029-common-status-and-condition-contract.md", "docs/architecture/kubernetes-api-maturity.md"]
       }
@@ -299,7 +277,7 @@
       "artifacts": {
         "code": ["internal/provider/**", "internal/delivery/**", "internal/controller/portforwardlease_controller.go", "internal/gateway/portforward.go", "internal/gateway/portforward_client_test.go", "internal/gateway/forwarding_linux.go"],
         "chart": [],
-        "generated": ["protocol/adapter/v1alpha1/**", "config/samples/networking_v1alpha1_portforwardlease.yaml"],
+        "generated": ["protocol/adapter/v1alpha1/**"],
         "tests": ["test/e2e/real_port_forward_test.go", "test/fixtures/fake-lease-agent/**", "test/fixtures/fake-natpmp/**"],
         "docs": ["docs/decisions/0011-renewable-port-lease-delivery.md", "docs/decisions/0012-port-forward-lease-identity-and-target-binding.md", "docs/decisions/0013-proton-nat-pmp-ownership-and-observation.md", "docs/decisions/0014-atomic-port-forward-dnat.md", "docs/decisions/0015-stable-target-port-translation.md", "docs/decisions/0016-provider-assigned-application-port-handoff.md"]
       }
@@ -317,7 +295,7 @@
       "artifacts": {
         "code": ["cmd/qbittorrent-adapter/**", "cmd/bitmagnet-adapter/**", "internal/qbittorrent/**", "internal/bitmagnet/**"],
         "chart": [],
-        "generated": ["protocol/adapter/v1alpha1/**", "config/samples/networking_v1alpha1_workloadadapter.yaml"],
+        "generated": ["protocol/adapter/v1alpha1/**"],
         "tests": ["test/e2e/qbittorrent_adapter_test.go", "test/fixtures/qbittorrent-observer/**"],
         "docs": ["docs/decisions/0018-workload-adapter-protocol.md", "docs/guides/workload-adapter-authoring.md", "docs/guides/bitmagnet-adapter.md"]
       }

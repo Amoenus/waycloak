@@ -1,21 +1,23 @@
-Waycloak has been installed in namespace {{ .Release.Namespace }}.
+The clean-break Waycloak replacement API has been installed in namespace
+{{ .Release.Namespace }}.
 
-{{- if .Values.webhook.tls.certManager.enabled }}
-cert-manager owns the webhook serving certificate and CA injection. Confirm the
-Certificate becomes Ready before creating an annotated Pod.
-{{- else }}
-The admission webhooks use the pre-existing TLS Secret
-{{ .Values.webhook.tls.existingSecret }}. Keep that certificate valid for:
-  {{ include "waycloak.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
-{{- end }}
+This #128 development slice installs only the v1beta1 CRDs, persona/controller
+RBAC, controller identity, and binding admission defense. It intentionally does
+not start the alpha controller or admission webhooks.
 
-Next:
-  1. Read https://github.com/Amoenus/waycloak/blob/main/docs/getting-started.md
-  2. Create a dedicated gateway namespace and provider credential Secret.
-  3. Apply a VPNGateway and wait for Ready=True.
-  4. Authorize a workload namespace and add this Pod-template annotation:
+Do not enroll workloads yet. Replacement route reconciliation, UID-bound
+bindings, node programming, and CNI-capable scheduling land in dependency order
+in #129-#136. Until those gates pass, this chart is an API validation artifact,
+not a stable product installation.
 
-     networking.waycloak.io/gateway: <gateway-namespace>/<gateway-name>
+Bind the waycloak-workload-owner ClusterRole only with a namespaced RoleBinding
+in each approved workload namespace. Do not grant it through a
+ClusterRoleBinding.
 
-Do not annotate an existing Pod. Roll the workload so admission can create a
-new UID-bound, fail-closed Pod.
+The controller has no Secret access until a namespaced RoleBinding in each
+approved gateway namespace binds the waycloak-gateway-secret-reader ClusterRole
+to ServiceAccount {{ include "waycloak.fullname" . }} in namespace
+{{ .Release.Namespace }}. Never bind that role cluster-wide.
+
+Install one Waycloak Helm release per cluster; the CRDs, admission policy, and
+persona ClusterRoles are cluster-scoped product identities.

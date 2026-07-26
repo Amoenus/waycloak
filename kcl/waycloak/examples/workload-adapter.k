@@ -1,11 +1,18 @@
-import v1alpha1 as networking
+# Copyright 2026 The Waycloak Authors.
+# SPDX-License-Identifier: MIT
+import v1beta1 as networking
 
-adapter = networking.WorkloadAdapter {
-    metadata = {name = "sample"}
+_adapter = networking.WorkloadAdapter {
+    metadata = {
+        name = "qbittorrent"
+        namespace = "media"
+    }
     spec = {
-        protocolVersion = "networking.waycloak.io/adapter/v1alpha1"
-        image = "ghcr.io/example/adapter@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        protocolVersion = "networking.waycloak.io/adapter/v1"
+        image = "ghcr.io/example/waycloak-qbittorrent-adapter@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        supportedApplications = ["networking.waycloak.io/qbittorrent"]
+        supportedFeatures = ["networking.waycloak.io/PortForwardServiceSingleActive"]
     }
 }
 
-items = [adapter]
+items = [_adapter]

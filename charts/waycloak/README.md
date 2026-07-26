@@ -1,35 +1,34 @@
 # Waycloak Helm chart
 
-First-time users should follow the repository's
-[getting-started guide](../../docs/getting-started.md). It verifies the signed
-release manifest, pulls this chart by its recorded OCI digest, prepares webhook
-TLS, creates a gateway, and protects a disposable workload.
+This chart currently represents the #128 clean-break API installation slice. It
+installs only the six `networking.waycloak.io/v1beta1` CRDs, generated persona,
+controller, and unbound read-only node-agent RBAC, the future controller
+ServiceAccount identity, and stable
+validating-admission-policy defense for controller-only
+`VPNWorkloadBinding` objects.
 
-This chart installs the Waycloak CRDs, controller/webhook Deployment, Service,
-least-privilege RBAC, admission configurations, controller disruption budget,
-and the desired admission-generation ConfigMap. The generation is a
-deterministic hash of the immutable controller and injected-agent identities;
-stale webhook replicas become unready and reject opted-in admission without
-affecting unannotated Pods.
-
-All three image digests and webhook TLS are mandatory. By default the chart
-consumes an externally managed TLS Secret and CA bundle. Clusters that already
-run cert-manager may opt into a chart-owned self-signed serving certificate and
-CA injection; cert-manager is never a Waycloak runtime dependency. The chart
-never emits mutable image references. See the repository
-[installation guide](../../docs/operations/install.md) for both certificate
-modes, required security exceptions, and gateway creation.
+It does not render the alpha controller, mutation webhooks, sidecars, init
+containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render a
+replacement controller, CNI plugin, or node agent. Do not enroll workloads from
+this intermediate chart. #129-#136 add those components only after their hard
+prerequisites pass; the stable turnkey journey is not complete at #128.
 
 ```sh
-helm lint charts/waycloak \
-  --set images.controller.digest="sha256:$CONTROLLER_DIGEST" \
-  --set images.agent.digest="sha256:$AGENT_DIGEST" \
-  --set images.gatewayManager.digest="sha256:$GATEWAY_MANAGER_DIGEST" \
-  --set webhook.tls.existingSecret=waycloak-webhook-tls \
-  --set-string webhook.tls.caBundle="$CA_BUNDLE"
+helm lint charts/waycloak
 ```
 
-For a declarative cert-manager installation, replace the two webhook TLS flags
-with `--set webhook.tls.certManager.enabled=true`.
-
 CRDs follow Helm's `crds/` lifecycle: they install before namespaced resources and are not deleted during uninstall.
+
+Persona roles are intentionally unbound. Grant workload authorship in each
+approved workload namespace with a namespaced `RoleBinding` to the
+`waycloak-workload-owner` ClusterRole. Do not use a `ClusterRoleBinding`, which
+would grant route and lease authorship in every namespace.
+
+The controller has no Secret permission by default. In each approved gateway
+namespace, bind the `waycloak-gateway-secret-reader` ClusterRole to the chart's
+controller ServiceAccount with a namespaced `RoleBinding`. Never use a
+`ClusterRoleBinding` for this credential-reader role.
+
+Install exactly one Waycloak release per cluster. The CRDs, admission policy,
+and fixed persona ClusterRoles are cluster-wide product identities and are not
+safe for competing Helm release ownership.

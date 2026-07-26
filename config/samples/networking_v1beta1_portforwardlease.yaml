@@ -1,0 +1,18 @@
+apiVersion: networking.waycloak.io/v1beta1
+kind: PortForwardLease
+metadata:
+  name: example
+  namespace: media
+spec:
+  gatewayRef:
+    namespace: media
+    name: example
+  backendRef:
+    group: ""
+    kind: Service
+    name: downloader
+    port: peer
+  protocols:
+    - TCP
+    - UDP
+  endpointPolicy: SingleActive
