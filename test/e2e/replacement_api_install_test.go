@@ -20,11 +20,13 @@ import (
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/enrollment"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 func TestReplacementAPIFreshInstall(t *testing.T) {
@@ -220,6 +222,7 @@ spec:
 	assertCommandFails(t, "live Pod enrollment label was mutable", nil, "kubectl", "label", "pod", "protected", "-n", namespace, "networking.waycloak.io/egress-route=other", "--overwrite")
 	assertCommandFails(t, "unlabeled live Pod could be enrolled in place", nil, "kubectl", "label", "pod", "unprotected", "-n", namespace, "networking.waycloak.io/egress-route=private")
 	verifyRouteControllerAndEnrollment(t, namespace)
+	verifyCrossNamespaceConsentWatches(t, namespace, className, suffix)
 
 	binding := fmt.Sprintf(`apiVersion: networking.waycloak.io/v1beta1
 kind: VPNWorkloadBinding
@@ -324,6 +327,199 @@ func verifyRouteControllerAndEnrollment(t *testing.T, namespace string) {
 	resolution, err = (enrollment.Resolver{Reader: client}).Resolve(ctx, namespace, pod.Name, pod.UID)
 	if err != nil || !resolution.Enrolled || !resolution.Ready || resolution.RouteUID != replacement.UID {
 		t.Fatalf("reprogrammed replacement route resolution = %#v, error = %v", resolution, err)
+	}
+}
+
+func verifyCrossNamespaceConsentWatches(t *testing.T, sourceNamespace, className, suffix string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheme := runtime.NewScheme()
+	if err := wayv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := ctrl.NewManager(config, ctrl.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0", LeaderElection: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &waycontroller.VPNEgressRouteReconciler{Client: manager.GetClient(), Scheme: scheme, APIReader: manager.GetAPIReader()}
+	if err := reconciler.SetupWithManager(manager); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- manager.Start(ctx) }()
+	if !manager.GetCache().WaitForCacheSync(ctx) {
+		t.Fatal("controller cache did not synchronize")
+	}
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("stop route manager: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("route manager did not stop")
+		}
+	}()
+
+	apiClient, err := ctrlclient.New(config, ctrlclient.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &corev1.Namespace{}
+	if err := apiClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceNamespace}, source); err != nil {
+		t.Fatal(err)
+	}
+	if source.Labels == nil {
+		source.Labels = map[string]string{}
+	}
+	source.Labels["networking.waycloak.io/gateway-access"] = "allowed"
+	if err := apiClient.Update(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+
+	targetNamespace := "waycloak-gateway-" + suffix
+	if err := apiClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: targetNamespace}}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = apiClient.Delete(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: targetNamespace}})
+	}()
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"networking.waycloak.io/gateway-access": "allowed"}}
+	gateway := crossNamespaceGateway(targetNamespace, className, selector)
+	if err := apiClient.Create(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+	setGatewayReady(t, ctx, apiClient, gateway)
+	route := &wayv1.VPNEgressRoute{ObjectMeta: metav1.ObjectMeta{Name: "cross-private", Namespace: sourceNamespace}, Spec: wayv1.VPNEgressRouteSpec{ParentRefs: []wayv1.GatewayParentReference{{Group: wayv1.GroupName, Kind: "VPNGateway", Namespace: wayv1.NamespaceName(targetNamespace), Name: wayv1.ObjectName(gateway.Name)}}}}
+	if err := apiClient.Create(ctx, route); err != nil {
+		t.Fatal(err)
+	}
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionReady, metav1.ConditionTrue, "Ready")
+	if len(route.OwnerReferences) != 0 {
+		t.Fatalf("cross-namespace route owner references = %#v", route.OwnerReferences)
+	}
+
+	if err := apiClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceNamespace}, source); err != nil {
+		t.Fatal(err)
+	}
+	delete(source.Labels, "networking.waycloak.io/gateway-access")
+	if err := apiClient.Update(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionResolvedRefs, metav1.ConditionFalse, "RefNotPermitted")
+	denied := *apiMeta.FindStatusCondition(route.Status.Conditions, wayv1.ConditionResolvedRefs)
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionReady, metav1.ConditionFalse, "NotReady")
+
+	if err := apiClient.Delete(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+	waitForObjectDeletion(t, ctx, apiClient, ctrlclient.ObjectKeyFromObject(gateway), &wayv1.VPNGateway{})
+	if err := apiClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceNamespace}, source); err != nil {
+		t.Fatal(err)
+	}
+	source.Labels["networking.waycloak.io/gateway-access"] = "allowed"
+	if err := apiClient.Update(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionResolvedRefs, metav1.ConditionFalse, "RefNotPermitted")
+	missing := apiMeta.FindStatusCondition(route.Status.Conditions, wayv1.ConditionResolvedRefs)
+	if missing == nil || missing.Reason != denied.Reason || missing.Message != denied.Message {
+		t.Fatalf("cross-namespace missing status leaked existence: denied=%#v missing=%#v", denied, missing)
+	}
+
+	gateway = crossNamespaceGateway(targetNamespace, className, selector)
+	if err := apiClient.Create(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+	setGatewayReady(t, ctx, apiClient, gateway)
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionReady, metav1.ConditionTrue, "Ready")
+
+	if err := apiClient.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway); err != nil {
+		t.Fatal(err)
+	}
+	gateway.Spec.AllowedRoutes.Namespaces = wayv1.RouteNamespaces{From: wayv1.RouteNamespaceSame}
+	if err := apiClient.Update(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionResolvedRefs, metav1.ConditionFalse, "RefNotPermitted")
+
+	if err := apiClient.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway); err != nil {
+		t.Fatal(err)
+	}
+	gateway.Spec.AllowedRoutes.Namespaces = wayv1.RouteNamespaces{From: wayv1.RouteNamespaceAll}
+	if err := apiClient.Update(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+	setGatewayReady(t, ctx, apiClient, gateway)
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionReady, metav1.ConditionTrue, "Ready")
+	if err := apiClient.Delete(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+	waitForRouteCondition(t, ctx, apiClient, route, wayv1.ConditionResolvedRefs, metav1.ConditionFalse, "RefNotPermitted")
+}
+
+func crossNamespaceGateway(namespace, className string, selector *metav1.LabelSelector) *wayv1.VPNGateway {
+	return &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: namespace}, Spec: wayv1.VPNGatewaySpec{GatewayClassName: wayv1.ObjectName(className), AllowedRoutes: wayv1.AllowedRoutes{Namespaces: wayv1.RouteNamespaces{From: wayv1.RouteNamespaceSelector, Selector: selector}}, ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll}}}
+}
+
+func setGatewayReady(t *testing.T, ctx context.Context, client ctrlclient.Client, gateway *wayv1.VPNGateway) {
+	t.Helper()
+	if err := client.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway); err != nil {
+		t.Fatal(err)
+	}
+	gateway.Status.ObservedGeneration = gateway.Generation
+	gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+	gateway.Status.Conditions = nil
+	for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
+		gateway.Status.Conditions = append(gateway.Status.Conditions, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType, Message: "Gateway observation is current", ObservedGeneration: gateway.Generation, LastTransitionTime: metav1.Now()})
+	}
+	if err := client.Status().Update(ctx, gateway); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForRouteCondition(t *testing.T, ctx context.Context, client ctrlclient.Client, route *wayv1.VPNEgressRoute, conditionType string, status metav1.ConditionStatus, reason string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if err := client.Get(ctx, ctrlclient.ObjectKeyFromObject(route), route); err != nil {
+			t.Fatal(err)
+		}
+		condition := apiMeta.FindStatusCondition(route.Status.Conditions, conditionType)
+		if condition != nil && condition.Status == status && condition.Reason == reason && condition.ObservedGeneration == route.Generation {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("route %s did not reach %s/%s: %#v", conditionType, status, reason, route.Status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func waitForObjectDeletion(t *testing.T, ctx context.Context, client ctrlclient.Client, key ctrlclient.ObjectKey, object ctrlclient.Object) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		err := client.Get(ctx, key, object)
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("object %s was not deleted", key)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

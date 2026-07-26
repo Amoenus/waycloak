@@ -289,6 +289,61 @@ func TestReplacementAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("cross namespace consent is private and fail closed", func(t *testing.T) {
+		targetNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "replacement-cross-gateways"}}
+		must(t, admin.Create(ctx, targetNamespace))
+		sourceNamespace := &corev1.Namespace{}
+		must(t, admin.Get(ctx, ctrlclient.ObjectKey{Name: testNamespace}, sourceNamespace))
+		sourceNamespace.Labels = map[string]string{"networking.waycloak.io/gateway-access": "allowed"}
+		must(t, admin.Update(ctx, sourceNamespace))
+		selector := &metav1.LabelSelector{MatchLabels: map[string]string{"networking.waycloak.io/gateway-access": "allowed"}}
+		gateway := validGatewayForNamespace("cross-private", targetNamespace.Name)
+		gateway.Spec.AllowedRoutes.Namespaces = wayv1.RouteNamespaces{From: wayv1.RouteNamespaceSelector, Selector: selector}
+		must(t, admin.Create(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
+		must(t, admin.Status().Update(ctx, gateway))
+		route := validRoute("cross-private")
+		route.Spec.ParentRefs[0].Namespace = wayv1.NamespaceName(targetNamespace.Name)
+		route.Spec.ParentRefs[0].Name = wayv1.ObjectName(gateway.Name)
+		must(t, admin.Create(ctx, route))
+		reconciler := &waycontroller.VPNEgressRouteReconciler{Client: admin, APIReader: admin, Scheme: scheme}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(route)}
+		_, err := reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		assertCurrentTrueConditions(t, route)
+		if len(route.OwnerReferences) != 0 {
+			t.Fatalf("cross-namespace owner references = %#v", route.OwnerReferences)
+		}
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKey{Name: testNamespace}, sourceNamespace))
+		delete(sourceNamespace.Labels, "networking.waycloak.io/gateway-access")
+		must(t, admin.Update(ctx, sourceNamespace))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		denied := apiMeta.FindStatusCondition(route.Status.Conditions, wayv1.ConditionResolvedRefs)
+		if denied == nil || denied.Status != metav1.ConditionFalse || denied.Reason != "RefNotPermitted" {
+			t.Fatalf("revoked consent = %#v", route.Status)
+		}
+		deniedMessage := denied.Message
+
+		must(t, admin.Delete(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKey{Name: testNamespace}, sourceNamespace))
+		sourceNamespace.Labels["networking.waycloak.io/gateway-access"] = "allowed"
+		must(t, admin.Update(ctx, sourceNamespace))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, route))
+		missing := apiMeta.FindStatusCondition(route.Status.Conditions, wayv1.ConditionResolvedRefs)
+		if missing == nil || missing.Status != metav1.ConditionFalse || missing.Reason != "RefNotPermitted" || missing.Message != deniedMessage {
+			t.Fatalf("missing target leaked existence: denied=%q missing=%#v", deniedMessage, missing)
+		}
+	})
+
 	t.Run("Pod enrollment admission rejects alpha and live mutation", func(t *testing.T) {
 		installPodEnrollmentPolicy(t, ctx, admin)
 		waitForPodEnrollmentPolicy(t, ctx, admin)
@@ -323,6 +378,8 @@ func TestReplacementAPI(t *testing.T) {
 		ownerRoute := validRouteForNamespace("owner", namespace.Name)
 		must(t, owner.Create(ctx, ownerRoute))
 		mustRejectForbidden(t, owner.Create(ctx, validBindingForNamespace("owner-binding", namespace.Name)))
+		namespace.Labels = map[string]string{"networking.waycloak.io/gateway-access": "allowed"}
+		mustRejectForbidden(t, owner.Update(ctx, namespace))
 
 		installBindingPolicy(t, ctx, admin, namespace.Name, "controller")
 		controller := mustClient(t, impersonate(config, namespace.Name, "controller"), scheme)
@@ -384,9 +441,13 @@ func validClass(name string) *wayv1.VPNGatewayClass {
 }
 
 func validGateway(name string) *wayv1.VPNGateway {
+	return validGatewayForNamespace(name, testNamespace)
+}
+
+func validGatewayForNamespace(name, namespace string) *wayv1.VPNGateway {
 	return &wayv1.VPNGateway{
 		TypeMeta:   metav1.TypeMeta{APIVersion: wayv1.GroupVersion.String(), Kind: "VPNGateway"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec:       wayv1.VPNGatewaySpec{GatewayClassName: "example.waycloak.io", ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll}},
 	}
 }

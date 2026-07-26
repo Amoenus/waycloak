@@ -32,6 +32,17 @@ func TestAuditRejectsUnknownAlphaArtifactInsideListedRoot(t *testing.T) {
 	}
 }
 
+func TestAuditDistinguishesExactAlphaKeyFromStableQualifiedNames(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "known.go", `const annotation = "networking.waycloak.io/gateway"`)
+	writeTestFile(t, root, "stable.go", `const controller = "networking.waycloak.io/gateway-controller"`)
+	inv := testInventory()
+	inv.Markers = []string{`networking\.waycloak\.io/(gateway)(?:[^A-Za-z0-9._~-]|$)`}
+	if err := audit(root, inv, []string{"known.go", "stable.go"}); err != nil {
+		t.Fatalf("audit() error = %v, want stable qualified suffix ignored", err)
+	}
+}
+
 func TestAuditAcceptsCompleteInventory(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "known.go", "const version = \"v1alpha1\"")

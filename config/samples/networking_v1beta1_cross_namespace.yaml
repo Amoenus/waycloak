@@ -1,0 +1,40 @@
+# Namespace labels used for gateway authorization must be operator managed.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workloads
+  labels:
+    networking.waycloak.io/gateway-access: approved
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateways
+---
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNGateway
+metadata:
+  name: private
+  namespace: gateways
+spec:
+  gatewayClassName: example.waycloak.io
+  allowedRoutes:
+    namespaces:
+      from: Selector
+      selector:
+        matchLabels:
+          networking.waycloak.io/gateway-access: approved
+  clusterTraffic:
+    mode: TunnelAll
+---
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNEgressRoute
+metadata:
+  name: private
+  namespace: workloads
+spec:
+  parentRefs:
+    - group: networking.waycloak.io
+      kind: VPNGateway
+      namespace: gateways
+      name: private

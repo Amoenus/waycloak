@@ -20,10 +20,14 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] #128 replacement CRDs, generated APIs, and RBAC: merged in PR #147 after
   fresh-install discovery, schema, admission, RBAC, envtest, reproducibility,
   and review gates passed.
-- [ ] #129 VPNEgressRoute and explicit Pod enrollment: active; prove the single
-  label lookup, exact Pod/route UID identity, one-parent status, fail-closed
-  missing/change/delete behavior, alpha-marker rejection, and GitOps ordering.
-- [ ] #130–#141: proceed only in declared dependency order.
+- [x] #129 VPNEgressRoute and explicit Pod enrollment: merged in PR #148 after
+  exact label/UID, status, fail-closed lifecycle, admission, GitOps ordering,
+  Kind, k3d, envtest, and reproducibility gates passed.
+- [ ] #130 cross-namespace parent consent and reference privacy: active; prove
+  uncached `allowedRoutes` authorization, non-disclosure, revocation watches,
+  hostile-tenant boundaries, target lifecycle behavior, and shared exact
+  dependency fan-out for replacement routes and leases.
+- [ ] #131–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 
@@ -308,7 +312,7 @@ required lifecycle transition.
 - product-wide metrics, alerts, and dashboards beyond eBPF diagnostics (#33);
 - Loadstone lease-consumption certification;
 - additional VPN engines and providers;
-- cross-namespace reference grants and deeper multi-tenancy;
+- any future upstream ReferenceGrant integration and deeper multi-tenancy;
 - Service-targeted lease handoff;
 - kubectl plugin;
 - Gateway API or CNI-native integration exploration;
