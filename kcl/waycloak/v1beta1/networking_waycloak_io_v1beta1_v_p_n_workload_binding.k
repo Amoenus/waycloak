@@ -172,7 +172,8 @@ schema NetworkingWaycloakIoV1beta1VPNWorkloadBindingStatus:
     appliedGeneration : int, default is Undefined, optional
         applied generation
     conditions : [NetworkingWaycloakIoV1beta1VPNWorkloadBindingStatusConditionsItems0], default is Undefined, optional
-        Conditions implements the common positive-polarity status contract.
+        BindingConditions adds the current node observation required to explain an
+        exact Pod UID binding's readiness.
     observedGatewayUID : str, default is Undefined, optional
         ObjectUID is the exact UID of a Kubernetes object.
     observedGeneration : int, default is Undefined, optional

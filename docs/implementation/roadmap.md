@@ -23,11 +23,14 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] #129 VPNEgressRoute and explicit Pod enrollment: merged in PR #148 after
   exact label/UID, status, fail-closed lifecycle, admission, GitOps ordering,
   Kind, k3d, envtest, and reproducibility gates passed.
-- [ ] #130 cross-namespace parent consent and reference privacy: active; prove
-  uncached `allowedRoutes` authorization, non-disclosure, revocation watches,
-  hostile-tenant boundaries, target lifecycle behavior, and shared exact
-  dependency fan-out for replacement routes and leases.
-- [ ] #131–#141: proceed only in declared dependency order.
+- [x] #130 cross-namespace parent consent and reference privacy: merged in PR
+  #149 after uncached authorization, non-disclosure, revocation, dependency
+  fan-out, envtest, Kind, and k3d gates passed.
+- [ ] #131 common conditions, per-parent status, and field ownership: active;
+  prove resource-scoped diagnostic vocabularies, current generations, strict
+  live readiness, SSA conflicts, concurrent convergence, semantic no-op
+  suppression, and timestamp stability.
+- [ ] #132–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

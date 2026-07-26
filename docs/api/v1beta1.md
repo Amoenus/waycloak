@@ -53,7 +53,7 @@ Every reconciled user-facing resource exposes positive-polarity `Accepted`, `Res
 | Field | Required | Type | Description |
 | --- | --- | --- | --- |
 | `addresses` | false | `array<object>` | — |
-| `conditions` | false | `array<object>` | Conditions implements the common positive-polarity status contract. |
+| `conditions` | false | `array<object>` | GatewayConditions adds the live tunnel, DNS, and membership observations |
 | `gatewayClass` | false | `object` | — |
 | `observedGeneration` | false | `integer (int64)` | — |
 | `supportedFeatures` | false | `array<string>` | — |
@@ -101,7 +101,7 @@ Every reconciled user-facing resource exposes positive-polarity `Accepted`, `Res
 | --- | --- | --- | --- |
 | `agent` | false | `object` | — |
 | `appliedGeneration` | false | `integer (int64)` | — |
-| `conditions` | false | `array<object>` | Conditions implements the common positive-polarity status contract. |
+| `conditions` | false | `array<object>` | BindingConditions adds the current node observation required to explain an |
 | `observedGatewayUID` | false | `string` | ObjectUID is the exact UID of a Kubernetes object. |
 | `observedGeneration` | false | `integer (int64)` | — |
 | `observedPodUID` | false | `string` | ObjectUID is the exact UID of a Kubernetes object. |
@@ -127,7 +127,7 @@ Every reconciled user-facing resource exposes positive-polarity `Accepted`, `Res
 | Field | Required | Type | Description |
 | --- | --- | --- | --- |
 | `activeEndpoint` | false | `object` | — |
-| `conditions` | false | `array<object>` | Conditions implements the common positive-polarity status contract. |
+| `conditions` | false | `array<object>` | LeaseConditions adds the gateway-rule, delivery, and application |
 | `handoffGeneration` | false | `integer (int64)` | — |
 | `observedGeneration` | false | `integer (int64)` | — |
 | `provider` | false | `object` | — |

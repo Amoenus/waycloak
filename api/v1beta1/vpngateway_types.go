@@ -139,7 +139,7 @@ type VPNGatewayStatus struct {
 	// +optional
 	Addresses []GatewayAddress `json:"addresses,omitempty"`
 	// +optional
-	Conditions Conditions `json:"conditions,omitempty"`
+	Conditions GatewayConditions `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

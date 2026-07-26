@@ -28,6 +28,15 @@ var requiredKinds = map[string]kindExpectation{
 
 var requiredConditions = []string{"Accepted", "ResolvedRefs", "Programmed", "Ready"}
 
+var requiredKindConditions = map[string][]string{
+	"VPNGatewayClass":    {"Accepted", "ResolvedRefs", "Programmed", "Ready"},
+	"VPNGateway":         {"Accepted", "ResolvedRefs", "Programmed", "Ready", "TunnelReady", "DNSReady", "MembershipApplied"},
+	"VPNEgressRoute":     {"Accepted", "ResolvedRefs", "Programmed", "Ready"},
+	"VPNWorkloadBinding": {"Accepted", "ResolvedRefs", "Programmed", "Ready", "NodeReady"},
+	"PortForwardLease":   {"Accepted", "ResolvedRefs", "Programmed", "Ready", "GatewayRulesReady", "Delivered", "Acknowledged"},
+	"WorkloadAdapter":    {"Accepted", "ResolvedRefs", "Programmed", "Ready"},
+}
+
 var requiredCoreFeatures = []string{
 	"networking.waycloak.io/CoreFailClosedEgress",
 	"networking.waycloak.io/TCP",
@@ -171,6 +180,7 @@ func audit(data []byte) error {
 		return fmt.Errorf("kind count = %d, want %d", len(value.Kinds), len(requiredKinds))
 	}
 	seenKinds := map[string]bool{}
+	usedConditions := map[string]bool{}
 	for _, kind := range value.Kinds {
 		expectation, ok := requiredKinds[kind.Kind]
 		if !ok || seenKinds[kind.Kind] {
@@ -180,8 +190,16 @@ func audit(data []byte) error {
 		if kind.Scope != expectation.scope || kind.SpecOwner != expectation.specOwner || kind.StatusOwner == "" {
 			return fmt.Errorf("kind %s ownership or scope is not frozen", kind.Kind)
 		}
-		if !slices.Equal(kind.Conditions, requiredConditions) {
-			return fmt.Errorf("kind %s does not implement common conditions", kind.Kind)
+		if !slices.Equal(kind.Conditions, requiredKindConditions[kind.Kind]) {
+			return fmt.Errorf("kind %s does not implement its frozen condition contract", kind.Kind)
+		}
+		seenConditions := map[string]bool{}
+		for _, condition := range kind.Conditions {
+			if seenConditions[condition] || len(value.ConditionReasons[condition]) == 0 {
+				return fmt.Errorf("kind %s condition %s is duplicated or has no stable reasons", kind.Kind, condition)
+			}
+			seenConditions[condition] = true
+			usedConditions[condition] = true
 		}
 		fields := map[string]bool{}
 		for _, field := range kind.Fields {
@@ -220,6 +238,14 @@ func audit(data []byte) error {
 			if finalizer.Name == "" || !finalizer.ExternalCleanup || !finalizer.Bounded || finalizer.MaximumDuration == "" || finalizer.TimeoutOutcome == "" {
 				return fmt.Errorf("kind %s has unbounded or non-external finalizer", kind.Kind)
 			}
+		}
+	}
+	if len(value.ConditionReasons) != len(usedConditions) {
+		return errors.New("condition reason contract contains an unused or missing condition")
+	}
+	for condition := range usedConditions {
+		if !slices.Contains(value.ConditionReasons[condition], "ObservationUnavailable") {
+			return fmt.Errorf("condition %s cannot represent unavailable observation", condition)
 		}
 	}
 	route := findKind(value.Kinds, "VPNEgressRoute")

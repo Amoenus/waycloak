@@ -144,7 +144,8 @@ schema NetworkingWaycloakIoV1beta1PortForwardLeaseStatus:
     activeEndpoint : NetworkingWaycloakIoV1beta1PortForwardLeaseStatusActiveEndpoint, default is Undefined, optional
         active endpoint
     conditions : [NetworkingWaycloakIoV1beta1PortForwardLeaseStatusConditionsItems0], default is Undefined, optional
-        Conditions implements the common positive-polarity status contract.
+        LeaseConditions adds the gateway-rule, delivery, and application
+        acknowledgement observations required for Extended lease readiness.
     handoffGeneration : int, default is Undefined, optional
         handoff generation
     observedGeneration : int, default is Undefined, optional
