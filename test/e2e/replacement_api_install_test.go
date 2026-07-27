@@ -884,17 +884,27 @@ func assertApplicationPodUnmodified(t *testing.T, namespace, name, route string)
 	if pod.Labels["networking.waycloak.io/egress-route"] != route {
 		t.Fatalf("enrollment label = %q, want %q", pod.Labels["networking.waycloak.io/egress-route"], route)
 	}
-	if len(pod.Spec.InitContainers) != 0 || len(pod.Spec.Containers) != 1 {
-		t.Fatalf("application Pod was injected: init=%d containers=%d", len(pod.Spec.InitContainers), len(pod.Spec.Containers))
+	for key := range pod.Annotations {
+		if strings.HasPrefix(key, "networking.waycloak.io/") || strings.HasPrefix(key, "internal.networking.waycloak.io/") {
+			t.Fatalf("application Pod received Waycloak annotation %q", key)
+		}
+	}
+	if len(pod.Spec.InitContainers) != 0 || len(pod.Spec.EphemeralContainers) != 0 || len(pod.Spec.Containers) != 1 {
+		t.Fatalf("application Pod was injected: init=%d ephemeral=%d containers=%d", len(pod.Spec.InitContainers), len(pod.Spec.EphemeralContainers), len(pod.Spec.Containers))
 	}
 	container := pod.Spec.Containers[0]
-	if len(container.VolumeMounts) != 0 || len(container.Env) != 0 ||
-		(container.SecurityContext != nil && container.SecurityContext.Capabilities != nil) {
+	if container.Name != "app" || container.Image != "registry.k8s.io/pause:3.10.1" ||
+		len(container.Command) != 0 || len(container.Args) != 0 ||
+		len(container.Ports) != 0 || len(container.EnvFrom) != 0 || len(container.Env) != 0 ||
+		len(container.VolumeMounts) != 0 || len(container.VolumeDevices) != 0 ||
+		container.WorkingDir != "" || container.LivenessProbe != nil || container.ReadinessProbe != nil ||
+		container.StartupProbe != nil || container.Lifecycle != nil || container.SecurityContext != nil ||
+		len(container.Resources.Limits) != 0 || len(container.Resources.Requests) != 0 || len(container.Resources.Claims) != 0 {
 		t.Fatalf("application container received Waycloak wiring: %#v", container)
 	}
-	for _, volume := range pod.Spec.Volumes {
-		if volume.HostPath != nil || volume.Projected != nil || volume.Secret != nil || volume.ConfigMap != nil {
-			t.Fatalf("application Pod received credential or host/config volume: %#v", volume)
-		}
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken ||
+		len(pod.Spec.Volumes) != 0 || pod.Spec.SecurityContext != nil ||
+		pod.Spec.HostNetwork || pod.Spec.HostPID || pod.Spec.HostIPC {
+		t.Fatalf("application Pod received credential, volume, capability, or host wiring: %#v", pod.Spec)
 	}
 }

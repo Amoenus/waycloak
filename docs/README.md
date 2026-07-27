@@ -19,7 +19,8 @@ The implementation is a destructive clean break. There is no conversion, transla
 - [CNI creation-time feasibility](implementation/cni-creation-time-feasibility.md)
 - [Node-agent threat-model evidence](implementation/node-agent-threat-model-evidence.md)
 - [Alpha removal order](implementation/alpha-removal-order.md)
-- [Alpha removal inventory](implementation/alpha-removal-inventory.json)
+- [Reviewed alpha inventory](implementation/alpha-removal-inventory.json)
+- [Replacement removal-completion policy](implementation/alpha-removal-completion.json)
 
 ## As-built evidence
 

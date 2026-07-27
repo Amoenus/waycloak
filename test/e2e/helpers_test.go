@@ -53,7 +53,10 @@ func waitForPodReady(t *testing.T, c client.Client, pod *corev1.Pod) {
 	t.Helper()
 	waitFor(t, 60*time.Second, func() bool {
 		var current corev1.Pod
-		if c.Get(context.Background(), client.ObjectKeyFromObject(pod), &current) != nil {
+		lookupContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := c.Get(lookupContext, client.ObjectKeyFromObject(pod), &current)
+		cancel()
+		if err != nil {
 			return false
 		}
 		for _, condition := range current.Status.Conditions {

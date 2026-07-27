@@ -4,6 +4,8 @@
 > `v1alpha1` API. It is not a compatibility input to the replacement. See
 > [replacement-api-proposal.md](replacement-api-proposal.md). The replacement
 > will not serve, convert, translate, or alias these objects and annotations.
+> The alpha Gluetun-native operator guide was removed; every `v1alpha1`
+> manifest below is historical evidence, not replacement installation guidance.
 
 This document proposes the `v1alpha1` API. Field names may change before the first release, but implementations must preserve the product invariants.
 
