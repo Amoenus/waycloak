@@ -903,8 +903,23 @@ func assertApplicationPodUnmodified(t *testing.T, namespace, name, route string)
 		t.Fatalf("application container received Waycloak wiring: %#v", container)
 	}
 	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken ||
-		len(pod.Spec.Volumes) != 0 || pod.Spec.SecurityContext != nil ||
+		len(pod.Spec.Volumes) != 0 || hasInjectedPodSecurityContext(pod.Spec.SecurityContext) ||
 		pod.Spec.HostNetwork || pod.Spec.HostPID || pod.Spec.HostIPC {
 		t.Fatalf("application Pod received credential, volume, capability, or host wiring: %#v", pod.Spec)
 	}
+}
+
+func hasInjectedPodSecurityContext(securityContext *corev1.PodSecurityContext) bool {
+	if securityContext == nil {
+		return false
+	}
+	defaultSupplementalGroupsPolicy := securityContext.SupplementalGroupsPolicy == nil ||
+		*securityContext.SupplementalGroupsPolicy == corev1.SupplementalGroupsPolicyMerge
+	return securityContext.SELinuxOptions != nil || securityContext.WindowsOptions != nil ||
+		securityContext.RunAsUser != nil || securityContext.RunAsGroup != nil ||
+		securityContext.RunAsNonRoot != nil || len(securityContext.SupplementalGroups) != 0 ||
+		!defaultSupplementalGroupsPolicy || securityContext.FSGroup != nil ||
+		len(securityContext.Sysctls) != 0 || securityContext.FSGroupChangePolicy != nil ||
+		securityContext.SeccompProfile != nil || securityContext.AppArmorProfile != nil ||
+		securityContext.SELinuxChangePolicy != nil
 }
