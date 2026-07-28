@@ -78,10 +78,21 @@ func (manifest ReleaseManifest) Validate() error {
 	if manifest.APIVersion != "release.waycloak.io/v1" || manifest.Version == "" || !validDigest(manifest.ManifestDigest) {
 		return errors.New("release manifest identity is invalid")
 	}
-	if !contains(manifest.Profiles, "networking.waycloak.io/Core-v1") {
+	profiles := append([]string(nil), manifest.Profiles...)
+	sort.Strings(profiles)
+	for index, profile := range profiles {
+		if profile == "" || index > 0 && profile == profiles[index-1] {
+			return errors.New("release manifest profiles must be non-empty and unique")
+		}
+	}
+	if !contains(profiles, "networking.waycloak.io/Core-v1") {
 		return errors.New("release manifest does not attest the Core profile")
 	}
-	for _, name := range []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"} {
+	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"}
+	if len(manifest.Images) != len(requiredImages) {
+		return errors.New("release manifest image inventory must contain only the required artifacts")
+	}
+	for _, name := range requiredImages {
 		artifact, ok := manifest.Images[name]
 		if !ok || artifact.Repository == "" || !validDigest(artifact.Digest) || strings.Contains(artifact.Repository, "@") {
 			return fmt.Errorf("release manifest lacks exact %s image identity", name)
@@ -90,10 +101,40 @@ func (manifest ReleaseManifest) Validate() error {
 	if manifest.Chart.Repository == "" || !validDigest(manifest.Chart.Digest) || strings.Contains(manifest.Chart.Repository, "@") {
 		return errors.New("release manifest lacks exact chart identity")
 	}
+	digest, err := manifest.IdentityDigest()
+	if err != nil {
+		return fmt.Errorf("compute release manifest identity: %w", err)
+	}
+	if manifest.ManifestDigest != digest {
+		return fmt.Errorf("release manifest digest does not match canonical identity: want %s", digest)
+	}
 	return nil
 }
 
+// IdentityDigest returns the deterministic digest of every release identity
+// field except ManifestDigest itself. Profiles are canonicalized as a set and
+// encoding/json deterministically orders the image map keys.
+func (manifest ReleaseManifest) IdentityDigest() (string, error) {
+	profiles := append([]string(nil), manifest.Profiles...)
+	sort.Strings(profiles)
+	payload := struct {
+		APIVersion string              `json:"apiVersion"`
+		Version    string              `json:"version"`
+		Chart      Artifact            `json:"chart"`
+		Images     map[string]Artifact `json:"images"`
+		Profiles   []string            `json:"profiles"`
+	}{APIVersion: manifest.APIVersion, Version: manifest.Version, Chart: manifest.Chart, Images: manifest.Images, Profiles: profiles}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return digestBytes(data), nil
+}
+
 func BuildInstallPlan(manifest ReleaseManifest, namespace, release string, report PreflightReport) (InstallPlan, error) {
+	if err := manifest.Validate(); err != nil {
+		return InstallPlan{}, err
+	}
 	if !report.Compatible || report.CNI.ConfigPath == "" || namespace == "" || release == "" {
 		return InstallPlan{}, errors.New("a compatible preflight report and explicit namespace/release are required")
 	}

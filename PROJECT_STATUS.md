@@ -175,7 +175,10 @@ deterministic redacted support bundle. The chart can install the replacement
 controller, deny-first chained CNI, node agent, gateway runtime, and exact
 default class only from immutable release identities. A privileged namespace
 test proves the gateway deny-first TCP/UDP and tunnel-loss path. Read-only
-homelab preflight correctly refuses the still-served alpha API. Issue #138 is
+homelab preflight correctly refuses the still-served alpha API. Release-manifest
+validation now recomputes a canonical identity across the exact version, chart,
+required images, and profiles, rejecting a changed artifact, hidden extra image,
+or stale declared digest before an install plan can be built. Issue #138 is
 not complete: a published signed CLI artifact, clean Kind installation, the
 under-15-minute real-provider journey, and exact-artifact disruptive smoke
 evidence remain required.

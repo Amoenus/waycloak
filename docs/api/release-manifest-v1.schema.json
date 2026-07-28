@@ -8,7 +8,10 @@
   "properties": {
     "apiVersion": { "const": "release.waycloak.io/v1" },
     "version": { "type": "string", "minLength": 1 },
-    "manifestDigest": { "$ref": "#/$defs/digest" },
+    "manifestDigest": {
+      "allOf": [{ "$ref": "#/$defs/digest" }],
+      "description": "SHA-256 of the canonical JSON identity containing apiVersion, version, chart, images, and lexically sorted profiles; the manifestDigest field itself is excluded."
+    },
     "chart": { "$ref": "#/$defs/artifact" },
     "images": {
       "type": "object",
