@@ -43,6 +43,10 @@ a retry into ordinary egress. Terminating-Pod `DEL`, `CHECK`, `GC`, chained
 `prevResult`, rollback, runtime restart, and stale namespace cleanup follow the
 CNI specification.
 
+The node agent verifies the CNI-supplied Pod UID and node assignment with a
+direct API-server read. An eventually consistent informer cache is not an
+authority for sandbox creation or Pod name/UID reuse.
+
 A privileged per-node agent owns ongoing nftables/netlink/eBPF state, node
 capability reporting, drift repair and tunnel-loss enforcement. Application
 Pods receive no Waycloak sidecars, init containers, host mounts, or Linux

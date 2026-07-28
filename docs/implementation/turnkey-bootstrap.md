@@ -51,6 +51,11 @@ there is no namespace bypass or fail-open interval. An already-deployed Helm
 release goes directly to the full reviewed revision so re-apply and upgrade do
 not temporarily remove its deny path.
 
+The node agent resolves each CNI request's exact Pod UID and node assignment
+with a direct API-server read. Its informer cache remains useful for ordinary
+reconciliation, but it is not authoritative for creation-time identity or Pod
+name reuse.
+
 Release automation, never the cluster operator, assembles this input with the
 publisher-only `go run ./hack/corerelease` command. The command requires an
 exact OCI chart identity and exactly the replacement controller, CNI, node
