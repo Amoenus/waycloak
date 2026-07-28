@@ -159,7 +159,10 @@ func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, e
 	if err := netlink.LinkSetAlias(link, ownedAlias); err != nil {
 		return fmt.Errorf("mark %s ownership: %w", name, err)
 	}
-	prefix := mustPrefix(address)
+	prefix, err := parseInterfacePrefix(address)
+	if err != nil {
+		return fmt.Errorf("parse %s address: %w", name, err)
+	}
 	if err := netlink.AddrReplace(link, &netlink.Addr{IPNet: prefixToIPNet(prefix)}); err != nil {
 		return fmt.Errorf("address %s: %w", name, err)
 	}
@@ -185,6 +188,10 @@ func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, e
 	}
 	keep = true
 	return nil
+}
+
+func parseInterfacePrefix(value string) (netip.Prefix, error) {
+	return netip.ParsePrefix(value)
 }
 
 func installExitRoute(destination netip.Prefix) error {
