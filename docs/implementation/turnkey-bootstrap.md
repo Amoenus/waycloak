@@ -43,6 +43,12 @@ An alpha API causes `preflight` to fail: stop protected workloads and complete
 the explicit alpha purge procedure before installing the replacement. There is
 no migration or conversion path.
 
+For an existing alpha installation, use the separately reviewed
+[destructive purge runbook](../operations/alpha-purge-and-reinstall.md).
+`waycloakctl alpha-purge plan` is read-only; `alpha-purge apply` binds deletion
+to exact cluster/CR/CRD UID fingerprints and requires explicit runtime-empty and
+separate-uninstall attestations.
+
 ## Gateway and workload verification
 
 Create the provider credential Secret separately, then render non-secret native

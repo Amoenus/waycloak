@@ -39,6 +39,8 @@ func Run(ctx context.Context, arguments []string, dependencies Dependencies) err
 		return runVerify(ctx, arguments[1:], dependencies)
 	case "support-bundle":
 		return runSupportBundle(ctx, arguments[1:], dependencies)
+	case "alpha-purge":
+		return runAlphaPurge(ctx, arguments[1:], dependencies)
 	case "version":
 		_, err := fmt.Fprintln(dependencies.Stdout, Version)
 		return err
@@ -189,7 +191,7 @@ func writeOutput(writer io.Writer, format string, value any) error {
 }
 
 func usage(writer io.Writer) error {
-	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|gateway init|doctor|verify|support-bundle|version>")
+	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|version>")
 	return errors.New("invalid command")
 }
 

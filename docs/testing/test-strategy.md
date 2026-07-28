@@ -213,6 +213,22 @@ presence is a preflight refusal, never an automatic migration.
 
 Provider tests run only in protected CI environments or operator-owned clusters with short-lived credentials. Pull requests from forks never receive credentials. Logs and artifacts are redacted, retained minimally, and must not publish residential/provider-linked public IP history.
 
+## Destructive alpha purge drills
+
+Unit and fake-client tests require canonical target ordering, cluster/CA/UID
+fingerprints, strict plan decoding, exact confirmation, UID-preconditioned
+deletion, idempotent subset retry, and refusal on new/reused targets, finalizers,
+or protected Pods. Credential, endpoint, spec, and status canaries must never
+appear in plans or reports.
+
+The destructive drill additionally proves the independent admission fence,
+workload-owner suspension, runtime process/sandbox absence, alpha cleanup before
+uninstall, exact CR/CRD deletion, fresh replacement install, new UID allocation
+and provider mapping, and protected/unprotected verification. Packet capture
+must record zero direct TCP, UDP, DNS UDP/TCP, and fragmented UDP before, during,
+and after purge. A failed drill keeps protected workloads stopped and cannot be
+waived into an ordinary-egress fallback.
+
 The sustained Proton/qBitTorrent procedure is defined in
 [real-provider port-forward acceptance](real-provider-port-forward.md). It is
 an explicit, gated operator-cluster suite and is not replaced by the

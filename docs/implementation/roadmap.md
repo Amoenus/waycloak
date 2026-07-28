@@ -56,7 +56,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   of the still-unadvertised Extended #137 capability. Do not close until signed
   exact-artifact, clean-install, under-15-minute provider, and disruptive smoke
   evidence pass.
-- [ ] #139–#141: proceed in their declared dependency order.
+- [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
+  implemented; keep open until repeated real-alpha and clean-reinstall drills
+  capture zero direct packets and fresh state reacquisition.
+- [ ] #140–#141: proceed in their declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

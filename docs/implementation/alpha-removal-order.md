@@ -1,7 +1,7 @@
 # Alpha removal order
 
-Status: reviewed input to issue #139; execution is intentionally blocked until
-the replacement Core path required by issue #135 passes conformance.
+Status: executable planning/purge slice implemented for issue #139; destructive
+alpha-install and clean-replacement drills remain pending.
 
 The alpha system is teardown input and as-built evidence only. Nothing in this
 sequence converts an object, carries runtime state forward, or creates a mixed
@@ -86,3 +86,6 @@ purge confirmation; exact release identities; elapsed clean-install time;
 protected/unprotected packet results; and failure-path outcomes. Evidence must
 contain neither credentials nor private endpoints, and the same fingerprints
 must be re-derived immediately before destructive confirmation.
+
+The operator command contract and abort/recovery procedure are published in
+[alpha-purge-and-reinstall.md](../operations/alpha-purge-and-reinstall.md).
