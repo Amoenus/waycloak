@@ -25,6 +25,12 @@ import (
 
 const routeLabel = "networking.waycloak.io/egress-route"
 
+// A CNI ADD can spend at most 5s resolving the Pod, 30s waiting for its
+// binding, and 5s in one local programming request. During that transaction
+// the durable record intentionally remains LockedDown. Drift reconciliation
+// must not race the CNI-owned transition to Ready.
+const lockedDownReconcileDelay = 45 * time.Second
+
 // Programmer is the narrow privileged network-namespace boundary. Production
 // uses the native nftables/netlink backend; tests use an in-memory recorder.
 type Programmer interface {
@@ -290,6 +296,14 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 			continue
 		}
 		if err != nil || !pod.DeletionTimestamp.IsZero() {
+			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+			continue
+		}
+		if attachment.Phase == waycni.PhaseLockedDown {
+			age := s.now().Sub(attachment.UpdatedAt)
+			if !attachment.UpdatedAt.IsZero() && age >= 0 && age < lockedDownReconcileDelay {
+				continue
+			}
 			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
 			continue
 		}

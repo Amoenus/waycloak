@@ -239,6 +239,36 @@ func TestRestartRecoveryAdoptsNewGenerationOnlyAfterVerification(t *testing.T) {
 	}
 }
 
+func TestDriftReconciliationDoesNotRaceFreshLockedDownADD(t *testing.T) {
+	service, identity, _, programmer := fixture(t)
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
+		UpdatedAt: service.now().Add(-lockedDownReconcileDelay + time.Second),
+	}}
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(programmer.events) != 0 {
+		t.Fatalf("fresh CNI ADD was raced by drift reconciliation: %v", programmer.events)
+	}
+}
+
+func TestDriftReconciliationReassertsAbandonedLockedDownState(t *testing.T) {
+	service, identity, _, programmer := fixture(t)
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
+		UpdatedAt: service.now().Add(-lockedDownReconcileDelay),
+	}}
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("abandoned ADD operations = %v, want %v", programmer.events, want)
+	}
+}
+
 func TestRestartRecoveryDiscardsMissingNamespaceWithoutProgramming(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
 	store := &recordingAttachments{staticAttachments: staticAttachments{{
