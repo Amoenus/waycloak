@@ -80,11 +80,39 @@ func TestAlphaPurgeInterruptedDrillBeforeFreshReplacement(t *testing.T) {
 		}},
 	}, metav1.CreateOptions{})
 	must(t, err)
+	var replicaSetName string
+	must(t, wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 20*time.Second, true, func(ctx context.Context) (bool, error) {
+		replicaSets, listErr := clients.Kubernetes.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=protected-owner"})
+		if listErr != nil {
+			return false, listErr
+		}
+		if len(replicaSets.Items) != 1 {
+			return false, nil
+		}
+		replicaSetName = replicaSets.Items[0].Name
+		return true, nil
+	}))
 
 	plan, err := waycloakctl.BuildAlphaPurgePlan(ctx, clients)
 	must(t, err)
-	if len(plan.Targets) != 8 || len(plan.ProtectedWorkloadOwners) != 1 || len(plan.ProtectedPods) != 0 {
+	if len(plan.Targets) != 8 || len(plan.ProtectedWorkloadOwners) != 2 || len(plan.ProtectedPods) != 0 {
 		t.Fatalf("unexpected exact plan inventory: targets=%d owners=%d pods=%d", len(plan.Targets), len(plan.ProtectedWorkloadOwners), len(plan.ProtectedPods))
+	}
+	wantOwners := map[string]bool{"Deployment/protected-owner": false, "ReplicaSet/" + replicaSetName: false}
+	for _, owner := range plan.ProtectedWorkloadOwners {
+		key := owner.Kind + "/" + owner.Name
+		if owner.Namespace != namespace {
+			t.Fatalf("protected owner escaped fixture namespace: %#v", owner)
+		}
+		if _, exists := wantOwners[key]; !exists {
+			t.Fatalf("unexpected protected owner: %#v", owner)
+		}
+		wantOwners[key] = true
+	}
+	for key, found := range wantOwners {
+		if !found {
+			t.Fatalf("protected owner %s was not inventoried", key)
+		}
 	}
 	encoded, err := json.Marshal(plan)
 	must(t, err)
