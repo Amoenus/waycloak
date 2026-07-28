@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -30,9 +31,16 @@ type fakeProgrammer struct {
 	configured   dataplane.Config
 	configureErr error
 	verifyErrs   []error
+	identity     string
+	identityErr  error
 }
 
-func (p *fakeProgrammer) Identity(string) (string, error) { return "1:2", nil }
+func (p *fakeProgrammer) Identity(string) (string, error) {
+	if p.identity == "" {
+		p.identity = "1:2"
+	}
+	return p.identity, p.identityErr
+}
 func (p *fakeProgrammer) InstallLockdown(context.Context, string, string) error {
 	p.events = append(p.events, "lockdown")
 	return nil
@@ -60,6 +68,18 @@ type staticAttachments []waycni.Attachment
 
 func (s staticAttachments) ListAll() ([]waycni.Attachment, error) { return s, nil }
 func (s staticAttachments) Save(waycni.Attachment) error          { return nil }
+func (s staticAttachments) Delete(waycni.Key) error               { return nil }
+
+type recordingAttachments struct {
+	staticAttachments
+	deleted   []waycni.Key
+	deleteErr error
+}
+
+func (s *recordingAttachments) Delete(key waycni.Key) error {
+	s.deleted = append(s.deleted, key)
+	return s.deleteErr
+}
 
 func TestPrepareUsesControllerBindingAndVerifiesBeforeReady(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
@@ -210,6 +230,67 @@ func TestRestartRecoveryAdoptsNewGenerationOnlyAfterVerification(t *testing.T) {
 	if want := []string{"lockdown", "configure", "verify"}; !reflect.DeepEqual(programmer.events, want) {
 		t.Fatalf("generation adoption operations = %v, want %v", programmer.events, want)
 	}
+}
+
+func TestRestartRecoveryDiscardsMissingNamespaceWithoutProgramming(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	store := &recordingAttachments{staticAttachments: staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}}
+	service.Store = store
+	programmer.identityErr = fs.ErrNotExist
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(programmer.events) != 0 {
+		t.Fatalf("missing namespace was programmed: %v", programmer.events)
+	}
+	if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) {
+		t.Fatalf("deleted keys = %#v", store.deleted)
+	}
+}
+
+func TestRestartRecoveryDiscardsReusedNamespaceWithoutTouchingReplacement(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	store := &recordingAttachments{staticAttachments: staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}}
+	service.Store = store
+	programmer.identity = "9:9"
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(programmer.events) != 0 {
+		t.Fatalf("replacement namespace was touched: %v", programmer.events)
+	}
+	if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) {
+		t.Fatalf("deleted keys = %#v", store.deleted)
+	}
+}
+
+func TestRestartRecoveryKeepsBackendUnhealthyWhenStaleStateCannotBeDeleted(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	store := &recordingAttachments{staticAttachments: staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}, deleteErr: errors.New("read-only state")}
+	service.Store = store
+	programmer.identityErr = fs.ErrNotExist
+
+	if err := service.ReconcileAll(context.Background()); err == nil || !strings.Contains(err.Error(), "delete stale attachment") {
+		t.Fatalf("delete failure = %v", err)
+	}
+	if len(programmer.events) != 0 {
+		t.Fatalf("missing namespace was programmed after delete failure: %v", programmer.events)
+	}
+}
+
+func identityKey(identity waycni.PodIdentity) waycni.Key {
+	return waycni.Key{Network: "kindnet", ContainerID: identity.ContainerID, IfName: identity.IfName}
 }
 
 func fixture(t *testing.T) (*Service, waycni.PodIdentity, waycni.Binding, *fakeProgrammer) {

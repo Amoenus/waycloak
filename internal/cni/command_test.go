@@ -93,7 +93,7 @@ func TestNewPluginSeparatesAgentRequestTimeoutFromRetryCadence(t *testing.T) {
 	if !ok {
 		t.Fatalf("agent = %T", plugin.Agent)
 	}
-	if client.RequestTimeout != time.Second || client.RequestTimeout == parsed.RetryInterval {
+	if client.RequestTimeout != AgentRequestTimeout || client.RequestTimeout == parsed.RetryInterval {
 		t.Fatalf("agent request timeout = %s, retry interval = %s", client.RequestTimeout, parsed.RetryInterval)
 	}
 }

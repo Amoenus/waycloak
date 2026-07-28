@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,7 @@ type Programmer interface {
 type AttachmentStore interface {
 	ListAll() ([]waycni.Attachment, error)
 	Save(waycni.Attachment) error
+	Delete(waycni.Key) error
 }
 
 type Observation struct {
@@ -211,6 +213,14 @@ func (s *Service) LockdownAll(ctx context.Context) error {
 	}
 	var errs []error
 	for _, attachment := range attachments {
+		stale, err := s.discardStaleAttachment(attachment)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if stale {
+			continue
+		}
 		if err := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
 			errs = append(errs, err)
 			continue
@@ -259,9 +269,23 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		if attachment.Pod.UID == "" || attachment.Pod.NetNS == "" {
 			continue
 		}
+		stale, staleErr := s.discardStaleAttachment(attachment)
+		if staleErr != nil {
+			errs = append(errs, staleErr)
+			continue
+		}
+		if stale {
+			continue
+		}
 		pod, err := s.pod(ctx, attachment.Pod)
 		if apierrors.IsNotFound(err) {
-			errs = append(errs, s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+			if cleanupErr := s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID); cleanupErr != nil {
+				errs = append(errs, cleanupErr)
+				continue
+			}
+			if deleteErr := s.Store.Delete(attachment.Key()); deleteErr != nil {
+				errs = append(errs, fmt.Errorf("delete absent Pod attachment: %w", deleteErr))
+			}
 			continue
 		}
 		if err != nil || !pod.DeletionTimestamp.IsZero() {
@@ -301,6 +325,26 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// discardStaleAttachment removes durable state only when its exact network
+// namespace no longer exists or its path has been reused. It deliberately
+// performs no network operation against a reused path.
+func (s *Service) discardStaleAttachment(attachment waycni.Attachment) (bool, error) {
+	identity, err := s.Programmer.Identity(attachment.Pod.NetNS)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("observe durable attachment namespace: %w", err)
+	}
+	if err == nil && identity == attachment.NamespaceIdentity {
+		return false, nil
+	}
+	if err := s.Store.Delete(attachment.Key()); err != nil {
+		return false, fmt.Errorf("delete stale attachment: %w", err)
+	}
+	s.mu.Lock()
+	delete(s.observations, attachment.Pod.UID)
+	s.mu.Unlock()
+	return true, nil
 }
 
 func (s *Service) Observations() []Observation {
