@@ -146,6 +146,15 @@ func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, e
 	if err := netlink.LinkAdd(link); err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = netlink.LinkDel(link)
+		}
+	}()
+	if err := netlink.LinkSetAlias(link, ownedAlias); err != nil {
+		return fmt.Errorf("mark %s ownership: %w", name, err)
+	}
 	prefix := mustPrefix(address)
 	if err := netlink.AddrReplace(link, &netlink.Addr{IPNet: prefixToIPNet(prefix)}); err != nil {
 		return fmt.Errorf("address %s: %w", name, err)
@@ -166,6 +175,7 @@ func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, e
 	if err := netlink.LinkSetUp(link); err != nil {
 		return fmt.Errorf("activate %s: %w", name, err)
 	}
+	keep = true
 	return nil
 }
 
