@@ -1,7 +1,7 @@
 # Threat model
 
 Status: clean-break stable architecture
-Last updated: 2026-07-26
+Last updated: 2026-07-28
 
 ## Security claim
 
@@ -111,6 +111,8 @@ capability resolution. It never receives a sidecar or ordinary-egress fallback.
 | Resolve gateway credential ref | controller | exact `get` only through an operator-granted namespaced binding; metadata-only client and no status value | `ResolvedRefs=False`; programming remains pending | reference or permission restoration requeues; removal withdraws | missing/forbidden Secret, value canary absent from status |
 | Mount VPN credential | gateway engine | referenced Secret mounted read-only only into engine | gateway refs unresolved/not ready | Secret rotation restarts/reloads engine per class contract | agent/application mount absence; class/status redaction |
 | Authorize cross-namespace ref | target owner + controller | explicit target-side consent; no tenant-writable authorization label | `ResolvedRefs=False/RefNotPermitted` without existence leak | consent removal withdraws programming/readiness | unauthorized existing/non-existing targets indistinguishable |
+| Acquire provider port and program inbound rules | tokenless gateway runtime | TLS 1.3 mTLS from the exact controller SPIFFE identity; exact gateway UID; owned nftables table and provider session only | mapping/rules unknown or false; no successor activation | durable internal-port reservation, atomic rule repair, withdrawal and quarantine | capacity regression, restart, expiry, TCP/UDP symmetry, wrong UID/generation |
+| Configure an application adapter | operator-authored immutable WorkloadAdapter | one exact unprivileged Pod, no API/VPN credential, host access, init/ephemeral container, or added capability; exact gateway-runtime mTLS identity | delivery/acknowledgement unknown or false; lease not ready | durable generation state, exact-Pod revalidation, withdraw before handoff | wrong Pod/address/generation, restart, stale record, failed withdrawal |
 | Collect diagnostics | waycloakctl/controller | allowlisted fields and bounded recent events; no Secret/key/raw endpoint | bundle section reports redaction/unavailable | rotate disclosed material and regenerate | canary secrets/endpoints never appear |
 
 ## Primary threats and controls
@@ -171,6 +173,26 @@ or object changes between resolution and programming redirect privilege.
 device/inode. The agent rechecks UID/node/binding generation immediately before
 privilege and verifies observed ownership afterward. Mismatch never cleans or
 programs a foreign namespace. Desired/applied/live generations remain separate.
+
+### Inbound port cross-delivery and stale advertisement
+
+**Threat:** overlapping EndpointSlices, Pod/IP reuse, provider renewal, gateway
+restart, or adapter restart sends an inbound mapping to the wrong workload or
+leaves qBittorrent advertising a stale public port.
+
+**Controls:** a Service is identity input only and never the packet path. The
+controller requires the exact Service UID and owner-controlled EndpointSlice,
+one exact current Pod UID/address, and a current UID-bound workload binding.
+Selection is deterministic and sticky. The gateway removes and reads back the
+old generation's complete inbound and symmetric return rules before programming
+a successor. Provider internal ports are durably collision-checked and
+quarantined. Adapter records bind lease UID, generation, Pod UID, exact Pod
+address, backend/public ports and expiry; an immutable declared capability is
+required before the qBittorrent target port may follow the provider port. The
+out-of-process adapter uses application-owned TLS, observes and probes the
+listener, reannounces, persists withdrawal state, and cannot acknowledge a
+different or stale identity. Any missing observation keeps the Extended lease
+unready without weakening the independent outbound deny path.
 
 ### Host privilege expansion
 

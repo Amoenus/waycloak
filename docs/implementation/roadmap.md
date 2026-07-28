@@ -49,7 +49,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   with stable declarative mutation, protected capability labels, exact
   authenticated release reports, CNI installation receipt verification,
   expiry, independent CNI refusal, and exact-head CI/Kind/k3d evidence.
-- [ ] #137–#141: proceed only in declared dependency order.
+- [ ] #137 Service-backed SingleActive PortForwardLease: implementation is in
+  progress; keep the capability unadvertised until Kind and real-provider
+  rolling-replacement evidence passes.
+- [ ] #138–#141: proceed only after #137 acceptance and in declared dependency
+  order.
 
 ## Phase 0 — repository and design baseline
 

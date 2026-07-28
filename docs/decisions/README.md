@@ -40,5 +40,7 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0036: Replacement API freeze](0036-replacement-api-freeze.md)
 - [0037: UID-bound allocation and durable quarantine](0037-uid-bound-allocation-and-quarantine.md)
 - [0038: Credential-free binding projection and node-scoped observations](0038-binding-network-projection-and-node-observations.md)
+- [0039: Declarative admission and authenticated capability scheduling](0039-declarative-admission-and-capability-scheduling.md)
+- [0040: Service-backed SingleActive port forwarding](0040-service-backed-single-active-port-forwarding.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

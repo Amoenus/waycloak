@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-26
+Last updated: 2026-07-28
 
 ## Replacement architecture decision set
 
@@ -151,6 +151,21 @@ aaad5b40f73e3abcba656e0ce55bf7f9a3e569c4 passed Linux race/static analysis,
 Kubernetes 1.36 envtest, deterministic generated/Helm/KCL output, security
 scans, Kind/kindnet, k3d/Flannel, fresh-install admission, and privileged
 packet/gateway-loss gates in CI run 30318076473.
+
+Issue #137 is in progress and remains unadvertised. ADR 0040 freezes a
+same-namespace typed Service as identity input only, deterministic sticky
+SingleActive EndpointSlice/Pod-UID selection, withdraw-before-successor
+handoff, durable gateway-scoped provider-port reservation and quarantine, and
+separate provider, rule, delivery, and acknowledgement observations. The
+tokenless gateway runtime uses exact-UID TLS 1.3 mTLS, atomically owns inbound
+DNAT and symmetric return SNAT, and rejects provider capacity regression. A
+separate immutable-digest WorkloadAdapter path verifies one exact
+credential-free Pod and supports a qBittorrent-specific declared
+provider-assigned application-port capability without changing Service routing
+or adding an application sidecar. Unit, Kubernetes 1.36 envtest, exact mTLS,
+restart, and privileged TCP/UDP namespace handoff tests pass locally. Kind and
+real-provider rolling-replacement evidence are still required before the
+Extended capability can be advertised or #137 can close.
 
 ## Alpha as-built history
 

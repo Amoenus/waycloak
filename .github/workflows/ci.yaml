@@ -91,6 +91,12 @@ jobs:
           go vet -tags=e2e,envtest ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -tags=e2e,envtest ./...
+      - name: Prove atomic SingleActive port-forward packet path
+        run: |
+          sudo env "PATH=$PATH" WAYCLOAK_E2E_PORT_FORWARD_NETNS=1 \
+            go test -tags=e2e ./internal/portforward \
+              -run '^TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal$' \
+              -v -count=1 -timeout=2m
       - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts

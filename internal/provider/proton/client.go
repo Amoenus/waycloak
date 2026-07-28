@@ -58,8 +58,10 @@ func (client *Client) ObserveCapabilities(ctx context.Context) (provider.PortFor
 		return provider.PortForwardCapabilities{}, err
 	}
 	return provider.PortForwardCapabilities{
-		Protocols:             []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP},
-		MaxLeases:             0,
+		Protocols: []provider.PortForwardProtocol{provider.ProtocolTCP, provider.ProtocolUDP},
+		// Proton exposes one active forwarded port per VPN session. TCP and
+		// UDP share that externally assigned port.
+		MaxLeases:             1,
 		SharedPort:            true,
 		SupportsRequestedPort: false,
 		MinimumLeaseDuration:  requestedLifetime,

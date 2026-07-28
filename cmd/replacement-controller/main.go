@@ -14,6 +14,7 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/observationrelay"
+	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/scheduling"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -28,6 +29,10 @@ import (
 func main() {
 	var metricsAddress, probeAddress, observationAddress, observationCert, observationKey, observationAgentNamespace, observationAgentServiceAccount string
 	var gatewayControllerName, releaseVersion, releaseManifestDigest, conformanceProfile string
+	var portForwardRuntimeCA, portForwardRuntimeCert, portForwardRuntimeKey string
+	var portForwardRuntimePort uint
+	var adapterCA, adapterCert, adapterKey string
+	var adapterPort uint
 	var leaderElection bool
 	flag.StringVar(&metricsAddress, "metrics-bind-address", ":8080", "metrics listener")
 	flag.StringVar(&probeAddress, "health-probe-bind-address", ":8081", "health listener")
@@ -41,6 +46,14 @@ func main() {
 	flag.StringVar(&releaseVersion, "release-version", "", "immutable signed release version")
 	flag.StringVar(&releaseManifestDigest, "release-manifest-digest", "", "immutable signed release manifest digest")
 	flag.StringVar(&conformanceProfile, "conformance-profile", "networking.waycloak.io/Core-v1", "immutable conformance profile identity")
+	flag.StringVar(&portForwardRuntimeCA, "port-forward-runtime-ca", "", "CA bundle for per-gateway runtime Services; empty disables Extended port forwarding")
+	flag.StringVar(&portForwardRuntimeCert, "port-forward-runtime-client-cert", "", "controller mTLS certificate for gateway runtimes")
+	flag.StringVar(&portForwardRuntimeKey, "port-forward-runtime-client-key", "", "controller mTLS private key for gateway runtimes")
+	flag.UintVar(&portForwardRuntimePort, "port-forward-runtime-port", 9443, "deterministic gateway runtime Service HTTPS port")
+	flag.StringVar(&adapterCA, "adapter-ca", "", "CA bundle for out-of-process WorkloadAdapter Services")
+	flag.StringVar(&adapterCert, "adapter-client-cert", "", "controller mTLS certificate for adapter health")
+	flag.StringVar(&adapterKey, "adapter-client-key", "", "controller mTLS private key for adapter health")
+	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic WorkloadAdapter Service HTTPS port")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -48,6 +61,39 @@ func main() {
 	if !waycontroller.ValidReleaseIdentity(wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}) {
 		ctrl.Log.Error(nil, "exact signed release version and manifest digest are required")
 		os.Exit(1)
+	}
+	supportedFeatures := wayv1.CoreFeatures()
+	var leaseRuntime portforward.Runtime
+	var adapterHealth portforward.AdapterHealthChecker
+	portForwardConfigured := portForwardRuntimeCA != "" || portForwardRuntimeCert != "" || portForwardRuntimeKey != ""
+	if portForwardConfigured {
+		if portForwardRuntimeCA == "" || portForwardRuntimeCert == "" || portForwardRuntimeKey == "" || portForwardRuntimePort == 0 || portForwardRuntimePort > 65535 {
+			ctrl.Log.Error(nil, "complete port-forward runtime mTLS identity and valid port are required")
+			os.Exit(1)
+		}
+		router, runtimeErr := portforward.NewRuntimeRouter(portForwardRuntimeCA, portForwardRuntimeCert, portForwardRuntimeKey, uint16(portForwardRuntimePort))
+		if runtimeErr != nil {
+			ctrl.Log.Error(runtimeErr, "configure port-forward runtime routing")
+			os.Exit(1)
+		}
+		leaseRuntime = router
+		supportedFeatures = append(supportedFeatures, wayv1.FeaturePortForwardSingleActive)
+	}
+	adapterConfigured := adapterCA != "" || adapterCert != "" || adapterKey != ""
+	if adapterConfigured {
+		if adapterCA == "" || adapterCert == "" || adapterKey == "" || adapterPort == 0 || adapterPort > 65535 {
+			ctrl.Log.Error(nil, "complete adapter mTLS identity and valid port are required")
+			os.Exit(1)
+		}
+		adapterClient, adapterErr := portforward.NewHTTPAdapterClient(adapterCA, adapterCert, adapterKey, uint16(adapterPort))
+		if adapterErr != nil {
+			ctrl.Log.Error(adapterErr, "configure WorkloadAdapter health client")
+			os.Exit(1)
+		}
+		adapterHealth = adapterClient
+	}
+	if portForwardConfigured && adapterConfigured {
+		supportedFeatures = append(supportedFeatures, wayv1.FeatureWorkloadAdapter)
 	}
 
 	scheme := runtime.NewScheme()
@@ -64,7 +110,7 @@ func main() {
 	classController := &waycontroller.VPNGatewayClassReconciler{
 		Client: manager.GetClient(), ControllerName: wayv1.ControllerName(gatewayControllerName),
 		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
-		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: wayv1.CoreFeatures(),
+		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: supportedFeatures,
 	}
 	if err = classController.SetupWithManager(manager); err != nil {
 		ctrl.Log.Error(err, "setup VPNGatewayClass controller")
@@ -73,7 +119,7 @@ func main() {
 	if err = (&waycontroller.ReplacementVPNGatewayReconciler{
 		Client: manager.GetClient(), APIReader: manager.GetAPIReader(), ControllerName: wayv1.ControllerName(gatewayControllerName),
 		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
-		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: wayv1.CoreFeatures(),
+		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: supportedFeatures,
 		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
 	}).SetupWithManager(manager); err != nil {
 		ctrl.Log.Error(err, "setup VPNGateway controller")
@@ -89,6 +135,14 @@ func main() {
 	}
 	if err = (&waycontroller.VPNWorkloadBindingReconciler{Client: manager.GetClient()}).SetupWithManager(manager); err != nil {
 		ctrl.Log.Error(err, "setup VPNWorkloadBinding controller")
+		os.Exit(1)
+	}
+	if err = (&portforward.PortForwardLeaseReconciler{Client: manager.GetClient(), APIReader: manager.GetAPIReader(), Runtime: leaseRuntime}).SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup PortForwardLease controller")
+		os.Exit(1)
+	}
+	if err = (&portforward.WorkloadAdapterReconciler{Client: manager.GetClient(), APIReader: manager.GetAPIReader(), Health: adapterHealth}).SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup WorkloadAdapter controller")
 		os.Exit(1)
 	}
 	if err = (&scheduling.NodeCapabilityReconciler{Client: manager.GetClient()}).SetupWithManager(manager); err != nil {

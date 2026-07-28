@@ -95,27 +95,36 @@ Mandatory scenarios:
 
 ### Port-forward tests
 
-- protocol-faithful NAT-PMP acquisition, paired TCP/UDP mapping, rotation,
-  renewal, expiration, release, timeout, and provider-result failures;
-- tunnel-interface binding on Linux and rejection of unsupported platforms;
-- stable provider internal-port allocation, generation persistence, and
-  deletion quarantine across controller restart and membership changes;
-- exact serving-gateway observation without gateway Kubernetes credentials;
-- TCP and UDP inbound delivery to the correct target;
-- deterministic UID/generation/expiry delivery readback, filtered application
-  projection, loopback parity, expiration rejection, and renewal without a Pod
-  restart;
-- no cross-delivery after target deletion/address reuse;
-- two or more simultaneous leases when capabilities permit;
-- explicit failure when provider only permits one lease;
-- a compatibility probe proves qBitTorrent's native PCP mapping still
-  announces the local listener when the external port differs;
-- the qBitTorrent sidecar applies the exact current public port and acknowledges
-  its lease UID, generation, and applied application port; the acknowledged
-  port matches both the delivered `applicationPort` and observed bound listener,
-  without the sidecar receiving Kubernetes or VPN credentials;
-- sustained qBitTorrent DHT health through lease renewal;
-- Bitmagnet and Loadstone can consume the neutral lease record.
+- typed same-namespace Service and named/numeric port resolution through an
+  exact Service UID, controller-owned EndpointSlice, Pod UID/address, and
+  current UID-bound `VPNWorkloadBinding`;
+- deterministic sticky `SingleActive` selection with overlapping rollout
+  endpoints, endpoint loss, rapid replacement, Pod name/UID/IP reuse, and
+  withdraw-before-successor ordering;
+- protocol-faithful provider acquisition, paired TCP/UDP capability checks,
+  rotation, renewal, expiration, release, timeout, capacity regression, and
+  provider-result failures;
+- durable collision-free provider internal-port allocation, restart/restore
+  recovery, deletion quarantine, and no reuse while an old mapping can live;
+- exact TLS 1.3 controller-to-gateway runtime identity, strict versioned
+  messages, exact gateway UID, oversized/unknown input rejection, and no
+  Kubernetes credential in the runtime;
+- privileged TCP and UDP packet delivery to only the selected overlay address,
+  provider-port return symmetry, atomic generation handoff, unmatched-tunnel
+  drop, withdrawal, drift, and runtime restart;
+- separate provider, gateway-rule, delivery, and adapter-acknowledgement
+  observations with current generations, stale-observation rejection, and
+  no-op status stability;
+- cross-namespace gateway consent and indistinguishable missing/unauthorized
+  references; backend Services remain same-namespace;
+- qBittorrent compatibility requires an immutable
+  `ProviderAssignedApplicationPort` adapter capability, exact EndpointSlice Pod
+  address, application-owned HTTPS, listener update/readback/probe, all-torrent
+  reannounce, durable restart revalidation, and backend-port restoration on
+  withdrawal;
+- Kind/k3d rollout tests and real-provider qBittorrent tests prove no wrong-Pod
+  delivery, stale advertisement, or direct-egress fallback. Failure keeps this
+  Extended capability unavailable.
 
 ### Adapter conformance
 
