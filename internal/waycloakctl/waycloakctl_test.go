@@ -219,6 +219,35 @@ func TestTunnelLossTargetsOnlyExactOwnedGatewayPod(t *testing.T) {
 	}
 }
 
+func TestVerifyConfirmationBindsProbeEndpointAndPublicCA(t *testing.T) {
+	base := verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca")
+	for name, value := range map[string]string{
+		"namespace": verifyConfirmation("other", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca"),
+		"gateway":   verifyConfirmation("media", "other", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca"),
+		"image":     verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("b", 64), "https://198.18.0.1:8443/ip", "observer-ca"),
+		"url":       verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.2:8443/ip", "observer-ca"),
+		"ca":        verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "other-ca"),
+	} {
+		if value == base {
+			t.Fatalf("%s was not bound into the disruptive verification identity", name)
+		}
+	}
+}
+
+func TestProbePodUsesHTTPSObserverAndPublicCAWithoutCredentials(t *testing.T) {
+	pod := probePod("probe", "media", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca", map[string]string{"verify.waycloak.io/run": "test"}, nil)
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken || len(pod.Spec.Containers) != 1 {
+		t.Fatalf("probe received a Kubernetes credential or unexpected containers: %#v", pod.Spec)
+	}
+	container := pod.Spec.Containers[0]
+	if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].ConfigMap == nil || pod.Spec.Volumes[0].ConfigMap.Name != "observer-ca" || len(container.VolumeMounts) != 1 || !container.VolumeMounts[0].ReadOnly {
+		t.Fatalf("probe public CA is not a read-only ConfigMap mount: %#v %#v", pod.Spec.Volumes, container.VolumeMounts)
+	}
+	if container.SecurityContext == nil || container.SecurityContext.RunAsNonRoot == nil || !*container.SecurityContext.RunAsNonRoot || len(container.SecurityContext.Capabilities.Drop) != 1 || container.SecurityContext.Capabilities.Drop[0] != "ALL" {
+		t.Fatalf("probe security context regressed: %#v", container.SecurityContext)
+	}
+}
+
 func TestSupportBundleIsDeterministicAndOmitsCanaries(t *testing.T) {
 	clients := supportedClients(t)
 	canary := "CANARY-SECRET-private.example.invalid"

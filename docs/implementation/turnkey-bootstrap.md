@@ -55,8 +55,14 @@ uses the real CLI boundary for preflight, plan, and apply. The acceptance first
 proves that an incorrect confirmation creates no namespace, then verifies the
 exact chart and runtime image identities, release-bound CNI receipt and chain,
 authenticated node capability, default class identity, and healthy doctor
-output. This is clean-install evidence only; it does not substitute for the
-signed published-artifact, real-provider, or disruptive smoke gates.
+output. It then builds exact disposable fixture artifacts, creates runtime-only
+WireGuard keys and TLS, and runs the confirmation-gated disruptive verification
+against one HTTPS observer reached through ordinary and protected paths. The
+gate proves refusal without mutation, distinct observed source addresses,
+exact-UID gateway replacement, protected application startup denial during the
+loss window, ordinary-network continuity, recovery, and exact cleanup. The
+fixture is CI evidence for the Core mechanics, not a supported VPN provider and
+not a substitute for the signed published-artifact or real-provider gates.
 
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.
@@ -89,8 +95,11 @@ no Waycloak sidecar, init container, capability, host mount, VPN credential, or
 Kubernetes credential.
 
 `waycloakctl verify` is deliberately disruptive. It requires a gateway rendered
-with `gateway init --allow-disruptive-verify`, an immutable curl probe image, and
-the exact confirmation digest printed by a refused unconfirmed invocation. It
+with `gateway init --allow-disruptive-verify`, an immutable Waycloak probe image,
+and the exact confirmation digest printed by a refused unconfirmed invocation.
+The probe receives an HTTPS observer URL and, when needed, a same-namespace
+ConfigMap containing only public `ca.crt`; both names are bound into the
+confirmation digest. It receives no service-account token or Secret. The command
 creates only run-labeled route/probe objects, proves ordinary and protected
 egress differ, deletes the exact UID-owned gateway Pod, proves new protected
 application containers do not start during loss while ordinary networking
@@ -125,7 +134,7 @@ CI. Read-only homelab preflight correctly refuses the currently served alpha API
 without mutating the cluster.
 
 Issue #138 must remain open until a published signed CLI artifact completes the
-supported clean-cluster Proton/OpenVPN journey in under 15 minutes and the
-confirmation-gated `verify` scenario passes with exact release artifacts. Kind
-installation coverage and the release signature/SBOM/provenance run are also
-required evidence; implementation alone is not certification.
+supported clean-cluster Proton/OpenVPN journey in under 15 minutes. The
+exact-artifact Kind installation and disruptive fixture coverage do not replace
+that provider proof. The release signature/SBOM/provenance run is also required
+evidence; implementation alone is not certification.

@@ -189,9 +189,13 @@ acceptance now exercises that manifest through CLI preflight, plan, exact
 confirmation and apply; it rejects a wrong confirmation before namespace
 creation, then verifies pinned runtime images, the release-bound CNI receipt and
 chain, authenticated node capability, default-class identity, and healthy
-doctor output. Issue #138 is not complete: a published signed CLI artifact, the
-under-15-minute real-provider journey, and exact-artifact disruptive smoke
-evidence remain required.
+doctor output. The same exact-artifact gate now creates a disposable kernel
+WireGuard tunnel and HTTPS egress observer, proves wrong-confirmation
+non-mutation, distinct ordinary/protected source identity, exact-UID gateway
+replacement, protected application startup denial during loss, recovery, and
+owned-object cleanup. The fixture uses runtime-generated keys and certificates
+and is not a supported provider. Issue #138 is not complete: a published signed
+CLI artifact and the under-15-minute real-provider journey remain required.
 
 The turnkey gate additionally found and closed two node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
