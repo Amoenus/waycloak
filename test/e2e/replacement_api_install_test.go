@@ -283,6 +283,7 @@ spec:
 	assertCommandFails(t, "unlabeled live Pod could be enrolled in place", nil, "kubectl", "label", "pod", "unprotected", "-n", namespace, "networking.waycloak.io/egress-route=private")
 	verifyRouteControllerAndEnrollment(t, namespace)
 	verifyUIDBoundBindings(t, namespace, release)
+	verifyPortForwardSingleActiveHandoff(t, namespace, release)
 	verifyCrossNamespaceConsentWatches(t, namespace, className, suffix)
 
 	binding := fmt.Sprintf(`apiVersion: networking.waycloak.io/v1beta1

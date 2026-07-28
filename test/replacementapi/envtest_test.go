@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,10 +23,12 @@ import (
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/enrollment"
 	"github.com/Amoenus/waycloak/internal/nodeagent"
+	wayportforward "github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/scheduling"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -73,6 +76,7 @@ func TestReplacementAPI(t *testing.T) {
 	must(t, rbacv1.AddToScheme(scheme))
 	must(t, admissionv1.AddToScheme(scheme))
 	must(t, coordinationv1.AddToScheme(scheme))
+	must(t, discoveryv1.AddToScheme(scheme))
 	admin := mustClient(t, config, scheme)
 	must(t, admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}))
 
@@ -794,6 +798,205 @@ func TestReplacementAPI(t *testing.T) {
 			t.Fatalf("unsupported gateway status = %#v", gateway.Status)
 		}
 	})
+
+	t.Run("Service-backed lease reconciliation is UID-bound and no-op stable", func(t *testing.T) {
+		now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
+		gateway := validGateway("lease-runtime")
+		gateway.Spec.RequestedFeatures = []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive}
+		must(t, admin.Create(ctx, gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.SupportedFeatures = append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive)
+		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionReady)
+		must(t, admin.Status().Update(ctx, gateway))
+
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "lease-pod", Namespace: testNamespace, Labels: map[string]string{wayportforward.EnrollmentLabel: "private"}}, Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "app", Image: "registry.k8s.io/pause:3.10.1"}},
+		}}
+		must(t, admin.Create(ctx, pod))
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.PodIP = "10.42.0.10"
+		must(t, admin.Status().Update(ctx, pod))
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "lease-backend", Namespace: testNamespace}, Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "lease"}, Ports: []corev1.ServicePort{{Name: "peer", Port: 6881, TargetPort: intstr.FromInt32(6881)}},
+		}}
+		must(t, admin.Create(ctx, service))
+		controller := true
+		ready := true
+		port := int32(6881)
+		portName := "peer"
+		slice := &discoveryv1.EndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: "lease-backend-a", Namespace: testNamespace,
+			Labels: map[string]string{discoveryv1.LabelServiceName: service.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: service.Name, UID: service.UID, Controller: &controller}}},
+			AddressType: discoveryv1.AddressTypeIPv4, Ports: []discoveryv1.EndpointPort{{Name: &portName, Port: &port}}, Endpoints: []discoveryv1.Endpoint{{
+				Addresses: []string{"10.42.0.10"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}, TargetRef: &corev1.ObjectReference{Kind: "Pod", Namespace: testNamespace, Name: pod.Name, UID: pod.UID},
+			}}}
+		must(t, admin.Create(ctx, slice))
+		binding := validBinding("lease-runtime")
+		binding.Spec.PodRef = wayv1.LocalUIDReference{Name: wayv1.ObjectName(pod.Name), UID: wayv1.ObjectUID(pod.UID)}
+		binding.Spec.RouteRef = wayv1.LocalUIDReference{Name: "private", UID: "route-uid"}
+		binding.Spec.GatewayRef = wayv1.NamespacedUIDReference{Namespace: testNamespace, Name: wayv1.ObjectName(gateway.Name), UID: wayv1.ObjectUID(gateway.UID)}
+		binding.Spec.Allocation.Address = "10.42.0.10/32"
+		must(t, admin.Create(ctx, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "lease-runtime-controller", Namespace: testNamespace},
+			RoleRef:  rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "waycloak-controller"},
+			Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: "controller", Namespace: "replacement-rbac"}},
+		}))
+		bindingController := mustClient(t, impersonate(config, "replacement-rbac", "controller"), scheme)
+		must(t, bindingController.Create(ctx, binding))
+		binding.Status.ObservedGeneration = binding.Generation
+		binding.Status.Conditions = wayv1.BindingConditions{
+			currentCondition(wayv1.ConditionProgrammed, metav1.ConditionTrue, wayv1.ReasonProgrammed, binding.Generation),
+			currentCondition(wayv1.ConditionReady, metav1.ConditionTrue, wayv1.ReasonReady, binding.Generation),
+			currentCondition(wayv1.ConditionNodeReady, metav1.ConditionTrue, wayv1.ReasonNodeReady, binding.Generation),
+		}
+		must(t, bindingController.Status().Update(ctx, binding))
+		lease := validLease("lease-runtime")
+		lease.Spec.GatewayRef.Name = wayv1.ObjectName(gateway.Name)
+		lease.Spec.BackendRef.Name = wayv1.ObjectName(service.Name)
+		lease.Spec.Protocols = []wayv1.TransportProtocol{wayv1.ProtocolTCP, wayv1.ProtocolUDP}
+		must(t, admin.Create(ctx, lease))
+
+		runtime := &envtestLeaseRuntime{now: now}
+		reconciler := &wayportforward.PortForwardLeaseReconciler{Client: admin, APIReader: admin, Runtime: runtime, Now: func() time.Time { return now }}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(lease)}
+		_, err := reconciler.Reconcile(ctx, request)
+		must(t, err)
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, lease))
+		if lease.Status.ActiveEndpoint == nil || lease.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) || lease.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseActive {
+			t.Fatalf("active endpoint = %#v", lease.Status.ActiveEndpoint)
+		}
+		for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionResolvedRefs, wayv1.ConditionProgrammed, wayv1.ConditionReady, wayv1.ConditionGatewayRulesReady, wayv1.ConditionDelivered, wayv1.ConditionAcknowledged} {
+			condition := apiMeta.FindStatusCondition(lease.Status.Conditions, conditionType)
+			if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != lease.Generation {
+				t.Fatalf("lease condition %s = %#v", conditionType, condition)
+			}
+		}
+		resourceVersion := lease.ResourceVersion
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, lease))
+		if lease.ResourceVersion != resourceVersion {
+			t.Fatalf("no-op lease reconciliation wrote object: %s -> %s", resourceVersion, lease.ResourceVersion)
+		}
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(slice), slice))
+		falseValue := false
+		slice.Endpoints[0].Conditions.Ready = &falseValue
+		must(t, admin.Update(ctx, slice))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, lease))
+		if lease.Status.ActiveEndpoint != nil || runtime.withdrawals != 1 {
+			t.Fatalf("endpoint withdrawal = %#v, calls=%d", lease.Status.ActiveEndpoint, runtime.withdrawals)
+		}
+	})
+
+	t.Run("WorkloadAdapter reconciliation requires one exact credential-free healthy Pod", func(t *testing.T) {
+		now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
+		adapter := validAdapter("runtime")
+		must(t, admin.Create(ctx, adapter))
+		no := false
+		yes := true
+		port := int32(wayportforward.DefaultAdapterPort)
+		protocol := corev1.ProtocolTCP
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "adapter-runtime", Namespace: testNamespace}, Spec: corev1.PodSpec{
+			AutomountServiceAccountToken: &no,
+			Containers: []corev1.Container{{Name: "adapter", Image: adapter.Spec.Image,
+				Ports: []corev1.ContainerPort{{Name: "https", ContainerPort: port, Protocol: corev1.ProtocolTCP}}, SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: &no, RunAsNonRoot: &yes, ReadOnlyRootFilesystem: &yes,
+					Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+				}},
+			},
+		}}
+		must(t, admin.Create(ctx, pod))
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.PodIP = "10.42.0.20"
+		must(t, admin.Status().Update(ctx, pod))
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: wayportforward.AdapterServiceName(testNamespace, wayv1.ObjectName(adapter.Name)), Namespace: testNamespace},
+			Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "https", Port: port, Protocol: corev1.ProtocolTCP}}}}
+		must(t, admin.Create(ctx, service))
+		controller := true
+		slice := &discoveryv1.EndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: "adapter-runtime", Namespace: testNamespace,
+			Labels: map[string]string{discoveryv1.LabelServiceName: service.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: service.Name, UID: service.UID, Controller: &controller}}},
+			AddressType: discoveryv1.AddressTypeIPv4, Ports: []discoveryv1.EndpointPort{{Port: &port, Protocol: &protocol}}, Endpoints: []discoveryv1.Endpoint{{
+				Addresses: []string{"10.42.0.20"}, Conditions: discoveryv1.EndpointConditions{Ready: &yes}, TargetRef: &corev1.ObjectReference{Kind: "Pod", Namespace: testNamespace, Name: pod.Name, UID: pod.UID},
+			}}}
+		must(t, admin.Create(ctx, slice))
+		reconciler := &wayportforward.WorkloadAdapterReconciler{Client: admin, APIReader: admin,
+			Health: &envtestAdapterHealth{now: now, podUID: wayv1.ObjectUID(pod.UID)}, Now: func() time.Time { return now }}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(adapter)}
+		_, err := reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, adapter))
+		for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionResolvedRefs, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
+			condition := apiMeta.FindStatusCondition(adapter.Status.Conditions, conditionType)
+			if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != adapter.Generation {
+				t.Fatalf("adapter condition %s = %#v", conditionType, condition)
+			}
+		}
+		resourceVersion := adapter.ResourceVersion
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, adapter))
+		if adapter.ResourceVersion != resourceVersion {
+			t.Fatalf("no-op adapter reconciliation wrote status: %s -> %s", resourceVersion, adapter.ResourceVersion)
+		}
+
+		unsafePod := pod.DeepCopy()
+		unsafePod.ResourceVersion = ""
+		unsafePod.UID = ""
+		unsafePod.Name = "adapter-runtime-unsafe"
+		unsafePod.Spec.AutomountServiceAccountToken = &yes
+		unsafePod.Status = corev1.PodStatus{}
+		must(t, admin.Create(ctx, unsafePod))
+		unsafePod.Status.Phase = corev1.PodRunning
+		unsafePod.Status.PodIP = "10.42.0.21"
+		must(t, admin.Status().Update(ctx, unsafePod))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(slice), slice))
+		slice.Endpoints[0].TargetRef.Name = unsafePod.Name
+		slice.Endpoints[0].TargetRef.UID = unsafePod.UID
+		must(t, admin.Update(ctx, slice))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, adapter))
+		resolved := apiMeta.FindStatusCondition(adapter.Status.Conditions, wayv1.ConditionResolvedRefs)
+		readyCondition := apiMeta.FindStatusCondition(adapter.Status.Conditions, wayv1.ConditionReady)
+		if resolved == nil || resolved.Status != metav1.ConditionFalse || resolved.Reason != wayv1.ReasonIncompatibleRef || readyCondition == nil || readyCondition.Status != metav1.ConditionFalse {
+			t.Fatalf("unsafe adapter status = %#v", adapter.Status)
+		}
+	})
+}
+
+type envtestAdapterHealth struct {
+	now    time.Time
+	podUID wayv1.ObjectUID
+}
+
+func (h *envtestAdapterHealth) Observe(_ context.Context, namespace wayv1.NamespaceName, name wayv1.ObjectName, image string) (wayportforward.AdapterHealthObservation, error) {
+	return wayportforward.AdapterHealthObservation{APIVersion: wayportforward.AdapterAPIVersion, Namespace: namespace, Name: name, Image: image,
+		PodUID: h.podUID, ObservedAt: h.now, Ready: true}, nil
+}
+
+type envtestLeaseRuntime struct {
+	now         time.Time
+	withdrawals int
+}
+
+func (r *envtestLeaseRuntime) Reconcile(_ context.Context, _ *wayv1.VPNGateway, intent wayportforward.Intent) (wayportforward.Observation, error) {
+	return wayportforward.Observation{APIVersion: wayportforward.RuntimeAPIVersion, LeaseUID: intent.LeaseUID, GatewayUID: intent.GatewayUID,
+		HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID, ObservedAt: r.now,
+		Provider:          &wayportforward.ProviderObservation{PublicAddress: netip.MustParseAddr("8.8.8.8"), PublicPort: 42000, ExpiresAt: r.now.Add(time.Minute)},
+		GatewayRulesReady: true, Delivered: true, Acknowledged: true}, nil
+}
+
+func (r *envtestLeaseRuntime) Withdraw(_ context.Context, _ *wayv1.VPNGateway, intent wayportforward.WithdrawalIntent) (wayportforward.Observation, error) {
+	r.withdrawals++
+	return wayportforward.Observation{APIVersion: wayportforward.RuntimeAPIVersion, LeaseUID: intent.LeaseUID, GatewayUID: intent.GatewayUID,
+		HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID, ObservedAt: r.now, Withdrawn: true}, nil
+}
+
+func (*envtestLeaseRuntime) Quarantine(context.Context, *wayv1.VPNGateway, wayportforward.WithdrawalIntent, time.Time) error {
+	return nil
 }
 
 func validClass(name string) *wayv1.VPNGatewayClass {

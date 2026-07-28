@@ -91,7 +91,7 @@ func TestObserveCapabilitiesRequiresSuccessfulProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capabilities.MaxLeases != 0 || !capabilities.SharedPort || capabilities.SupportsRequestedPort || len(capabilities.Protocols) != 2 || capabilities.MinimumLeaseDuration != 60*time.Second {
+	if capabilities.MaxLeases != 1 || !capabilities.SharedPort || capabilities.SupportsRequestedPort || len(capabilities.Protocols) != 2 || capabilities.MinimumLeaseDuration != 60*time.Second {
 		t.Fatalf("capabilities = %#v", capabilities)
 	}
 }

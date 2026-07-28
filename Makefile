@@ -5,13 +5,17 @@ KO = $(GO) run github.com/google/ko@v0.19.1
 ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 NODE_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-node-agent
 REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-replacement-controller
+GATEWAY_RUNTIME_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-runtime
+QBITTORRENT_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-qbittorrent-adapter
 NODE_AGENT_OCI_LAYOUT ?= dist/node-agent
 REPLACEMENT_CONTROLLER_OCI_LAYOUT ?= dist/replacement-controller
+GATEWAY_RUNTIME_OCI_LAYOUT ?= dist/gateway-runtime
+QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
 CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests api-reference test test-race vet envtest e2e node-agent-image-oci replacement-controller-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference test test-race vet envtest e2e node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci qbittorrent-adapter-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
 
@@ -50,6 +54,14 @@ node-agent-image-oci:
 replacement-controller-image-oci:
 	mkdir -p $(dir $(REPLACEMENT_CONTROLLER_OCI_LAYOUT))
 	KO_DOCKER_REPO=$(REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(REPLACEMENT_CONTROLLER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/replacement-controller
+
+gateway-runtime-image-oci:
+	mkdir -p $(dir $(GATEWAY_RUNTIME_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(GATEWAY_RUNTIME_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(GATEWAY_RUNTIME_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-gateway-runtime
+
+qbittorrent-adapter-image-oci:
+	mkdir -p $(dir $(QBITTORRENT_ADAPTER_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(QBITTORRENT_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(QBITTORRENT_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-qbittorrent-adapter
 
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)
