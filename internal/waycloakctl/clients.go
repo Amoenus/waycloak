@@ -5,7 +5,10 @@ package waycloakctl
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/discovery"
@@ -40,5 +43,22 @@ func DefaultClientFactory(_ context.Context, kubeconfig, contextName string) (*C
 	if err != nil {
 		return nil, err
 	}
-	return &Clients{Kubernetes: kube, APIExtensions: extensions, Dynamic: dynamicClient, Discovery: discoveryClient}, nil
+	trust := append([]byte(nil), config.CAData...)
+	if len(trust) == 0 && config.CAFile != "" {
+		trust, err = os.ReadFile(config.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read Kubernetes trust root: %w", err)
+		}
+	}
+	return &Clients{Kubernetes: kube, APIExtensions: extensions, Dynamic: dynamicClient, Discovery: discoveryClient,
+		ClusterServerFingerprint: fingerprintText(config.Host), ClusterTrustFingerprint: fingerprintBytes(trust)}, nil
+}
+
+func fingerprintText(value string) string { return fingerprintBytes([]byte(value)) }
+func fingerprintBytes(value []byte) string {
+	if len(value) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(value)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

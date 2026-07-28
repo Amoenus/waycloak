@@ -16,10 +16,12 @@ import (
 const OutputAPIVersion = "cli.waycloak.io/v1"
 
 type Clients struct {
-	Kubernetes    kubernetes.Interface
-	APIExtensions apiextensionsclient.Interface
-	Dynamic       dynamic.Interface
-	Discovery     discovery.DiscoveryInterface
+	Kubernetes               kubernetes.Interface
+	APIExtensions            apiextensionsclient.Interface
+	Dynamic                  dynamic.Interface
+	Discovery                discovery.DiscoveryInterface
+	ClusterServerFingerprint string
+	ClusterTrustFingerprint  string
 }
 
 type ClientFactory func(context.Context, string, string) (*Clients, error)

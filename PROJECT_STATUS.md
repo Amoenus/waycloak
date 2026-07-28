@@ -180,6 +180,19 @@ not complete: a published signed CLI artifact, clean Kind installation, the
 under-15-minute real-provider journey, and exact-artifact disruptive smoke
 evidence remain required.
 
+Issue #139 implementation is in progress. The teardown assistant now creates a
+strictly metadata-only alpha inventory with hashed API-server, trust-root, and
+cluster-UID identity, canonical target digests, protected built-in workload
+owners, and exact Pod UIDs. Destructive apply requires the exact plan ID plus
+runtime-empty and separately-uninstalled attestations, re-derives cluster and
+target identity, refuses additions/UID reuse/protected Pods/finalizers, and uses
+UID-preconditioned CR-before-CRD deletion with idempotent partial retry. The
+homelab read-only plan observed four alpha CRDs, seven CRs, 27 protected owners,
+and four protected Pods without exposing names, object contents, credentials,
+or endpoints. No homelab mutation occurred. #139 remains open until real-alpha
+quiescence/purge and clean replacement reinstall drills capture zero direct
+packets and fresh allocation/provider state.
+
 ## Alpha as-built history
 
 The `v0.3.4` sidecar recovery candidate for #121 fixes a fail-closed startup

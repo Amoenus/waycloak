@@ -311,6 +311,17 @@ control does not count as evidence that its future implementation works.
 
 ## Residual risk
 
+The alpha purge assistant is teardown tooling, not a replacement runtime
+compatibility path. It reads only metadata needed for exact target identity and
+hashes the API server, trust root, and cluster UID before output. It never copies
+old specs/status or Secret, endpoint, allocation, or lease data. Destructive
+apply requires the unchanged cluster fingerprint, an exact plan digest, exact
+UID preconditions, an empty protected-Pod set, zero CR finalizers, and explicit
+attestations for independently verified runtime absence and separately completed
+alpha uninstall. The admission fence and node/runtime packet evidence remain
+operator-owned because Kubernetes object absence cannot prove process absence.
+
+
 - The node agent is privileged: compromise can alter networking for every Pod
   on that node and cause denial or leak. Node hardening and artifact verification
   are part of the trusted base.
