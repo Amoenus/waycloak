@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,6 +66,10 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", report)
 	if err != nil {
 		t.Fatal(err)
+	}
+	nestedIdentity := "  releaseIdentity:\n    version: " + strconv.Quote(manifest.Version) + "\n    manifestDigest: " + strconv.Quote(manifest.ManifestDigest) + "\n"
+	if count := strings.Count(plan.Values, nestedIdentity); count != 2 {
+		t.Fatalf("install values contain %d nested runtime release identities, want node agent and default class", count)
 	}
 	encoded, err := EncodePlan(plan)
 	if err != nil {

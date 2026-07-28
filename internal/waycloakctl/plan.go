@@ -182,6 +182,9 @@ nodeAgent:
   cniReceiptHostPath: %q
   cniBinaryHostPath: %q
   cniConfigHostPath: %q
+  releaseIdentity:
+    version: %q
+    manifestDigest: %q
 defaultGatewayClass:
   enabled: true
   releaseIdentity:
@@ -190,7 +193,8 @@ defaultGatewayClass:
 `, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
 		report.CNI.ConfigPath, report.CNI.BinaryPath, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443/v1/observations", release+"-observation-ca",
-		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath, manifest.Version, manifest.ManifestDigest)
+		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
+		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
 	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + namespace + "\x00" + release + "\x00" + values))
 	return InstallPlan{
 		APIVersion: OutputAPIVersion, Kind: "InstallPlan", PlanID: planID, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Chart: manifest.Chart, Values: values,
