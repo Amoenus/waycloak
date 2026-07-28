@@ -84,6 +84,57 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	}
 }
 
+func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) {
+	manifest := releaseManifest()
+	manifest.Version = "v1.0.0-tampered"
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "canonical identity") {
+		t.Fatalf("tampered manifest identity was accepted: %v", err)
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "release-manifest.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadReleaseManifest(path); err == nil || !strings.Contains(err.Error(), "canonical identity") {
+		t.Fatalf("loader accepted a tampered manifest identity: %v", err)
+	}
+
+	manifest = releaseManifest()
+	manifest.Images["unreviewed-backend"] = Artifact{Repository: "example.invalid/unreviewed", Digest: "sha256:" + strings.Repeat("9", 64)}
+	digest, err := manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ManifestDigest = digest
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "only the required artifacts") {
+		t.Fatalf("extra release artifact was accepted: %v", err)
+	}
+}
+
+func TestReleaseManifestIdentityIsFormattingAndProfileOrderIndependent(t *testing.T) {
+	manifest := releaseManifest()
+	manifest.Profiles = []string{"networking.waycloak.io/Extended-v1", "networking.waycloak.io/Core-v1"}
+	first, err := manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Profiles[0], manifest.Profiles[1] = manifest.Profiles[1], manifest.Profiles[0]
+	second, err := manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("profile ordering changed canonical identity: %s != %s", first, second)
+	}
+	manifest.ManifestDigest = second
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("canonical manifest was rejected: %v", err)
+	}
+}
+
 func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	manifest := releaseManifest()
 	report, err := Preflight(context.Background(), supportedClients(t), "100.96.0.0/16")
@@ -202,7 +253,9 @@ func supportedClients(t *testing.T) *Clients {
 
 func releaseManifest() ReleaseManifest {
 	digest := func(char string) string { return "sha256:" + strings.Repeat(char, 64) }
-	return ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", ManifestDigest: digest("a"), Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}}
+	manifest := ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}}
+	manifest.ManifestDigest, _ = manifest.IdentityDigest()
+	return manifest
 }
 
 func checkStatus(report PreflightReport, name string) string {

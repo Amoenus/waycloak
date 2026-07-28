@@ -30,8 +30,12 @@ waycloakctl install apply --context <context> --plan install-plan.json --confirm
 The release manifest must satisfy
 [`release-manifest-v1.schema.json`](../api/release-manifest-v1.schema.json) and
 name the exact chart, controller, CNI, node-agent, gateway-agent, Gluetun, and
-pause digests. `install plan` repeats preflight and refuses an incompatible
-cluster. The plan lists namespace privilege, host CNI paths, exact Helm values,
+pause digests. Its `manifestDigest` is verified against canonical JSON over
+every identity field except the digest itself; profile order and insignificant
+file formatting do not change that identity, while any artifact or version
+change does. Extra image entries are rejected. `install plan` repeats preflight
+and refuses an incompatible cluster. The plan lists namespace privilege, host
+CNI paths, exact Helm values,
 Secret object names, rollback, and purge boundaries. It never contains Secret
 data. `install apply` accepts only the exact recalculated plan ID, creates the
 observation CA and serving key in memory, stores them directly as Kubernetes
