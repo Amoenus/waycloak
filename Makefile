@@ -4,11 +4,13 @@ SETUP_ENVTEST = $(GO) run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.
 KO = $(GO) run github.com/google/ko@v0.19.1
 ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 NODE_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-node-agent
+WAYCLOAK_CNI_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-cni
 REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-replacement-controller
 GATEWAY_RUNTIME_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-runtime
 GATEWAY_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-agent
 QBITTORRENT_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-qbittorrent-adapter
 NODE_AGENT_OCI_LAYOUT ?= dist/node-agent
+WAYCLOAK_CNI_OCI_LAYOUT ?= dist/waycloak-cni
 REPLACEMENT_CONTROLLER_OCI_LAYOUT ?= dist/replacement-controller
 GATEWAY_RUNTIME_OCI_LAYOUT ?= dist/gateway-runtime
 GATEWAY_AGENT_OCI_LAYOUT ?= dist/gateway-agent
@@ -19,7 +21,7 @@ CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests api-reference test test-race vet envtest e2e node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference test test-race vet envtest e2e waycloak-cni-image-oci node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
 
@@ -50,6 +52,10 @@ envtest:
 
 e2e:
 	$(GO) test -tags=e2e ./test/e2e/... -v -count=1
+
+waycloak-cni-image-oci:
+	mkdir -p $(dir $(WAYCLOAK_CNI_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(WAYCLOAK_CNI_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(WAYCLOAK_CNI_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-cni
 
 node-agent-image-oci:
 	mkdir -p $(dir $(NODE_AGENT_OCI_LAYOUT))

@@ -108,6 +108,26 @@ jobs:
           make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-1" WAYCLOAK_VERSION=v0.0.0-ci
           make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-2" WAYCLOAK_VERSION=v0.0.0-ci
           diff --recursive --no-dereference "$RUNNER_TEMP/waycloakctl-1" "$RUNNER_TEMP/waycloakctl-2"
+      - name: Verify reproducible multi-platform Waycloak CNI image
+        run: |
+          make waycloak-cni-image-oci \
+            WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/waycloak-cni-1" \
+            WAYCLOAK_CNI_IMAGE_REPOSITORY=waycloak.invalid/waycloak-cni
+          make waycloak-cni-image-oci \
+            WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/waycloak-cni-2" \
+            WAYCLOAK_CNI_IMAGE_REPOSITORY=waycloak.invalid/waycloak-cni
+          diff --recursive --no-dereference "$RUNNER_TEMP/waycloak-cni-1" "$RUNNER_TEMP/waycloak-cni-2"
+          test -f "$RUNNER_TEMP/waycloak-cni-1/oci-layout"
+          test -f "$RUNNER_TEMP/waycloak-cni-1/index.json"
+          root_digest="$(jq -er '.manifests | select(length == 1) | .[0].digest' "$RUNNER_TEMP/waycloak-cni-1/index.json")"
+          root_index="$RUNNER_TEMP/waycloak-cni-1/blobs/sha256/${root_digest#sha256:}"
+          jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]' "$root_index"
+          while read -r image_digest; do
+            image_manifest="$RUNNER_TEMP/waycloak-cni-1/blobs/sha256/${image_digest#sha256:}"
+            config_digest="$(jq -er '.config.digest' "$image_manifest")"
+            image_config="$RUNNER_TEMP/waycloak-cni-1/blobs/sha256/${config_digest#sha256:}"
+            jq -e '.config.Entrypoint == ["/ko-app/waycloak-cni"]' "$image_config"
+          done < <(jq -r '.manifests[].digest' "$root_index")
       - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts

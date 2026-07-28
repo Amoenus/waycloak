@@ -56,7 +56,8 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   of the still-unadvertised Extended #137 capability. Do not close until signed
   exact-artifact, clean-install, under-15-minute provider, and disruptive smoke
   evidence pass. Release manifests are now bound to a recomputed canonical
-  version/chart/image/profile identity and reject hidden extra artifacts.
+  version/chart/image/profile identity and reject hidden extra artifacts. The
+  mandatory CNI installer image now has a repeat-built multi-platform OCI gate.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.
