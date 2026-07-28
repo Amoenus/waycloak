@@ -70,6 +70,9 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   path isolates attachment records from the install receipt and runs only the
   privileged infrastructure agent in the host network namespace, avoiding a
   circular dependency on its own CNI authority without exempting applications.
+  Clean installs also wait for a controller-only Helm revision before activating
+  the exact CNI/node-agent runtime; existing releases go directly to the full
+  revision and never withdraw their installed deny path.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.

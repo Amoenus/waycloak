@@ -197,7 +197,7 @@ owned-object cleanup. The fixture uses runtime-generated keys and certificates
 and is not a supported provider. Issue #138 is not complete: a published signed
 CLI artifact and the under-15-minute real-provider journey remain required.
 
-The turnkey gate additionally found and closed three node bootstrap hazards before
+The turnkey gate additionally found and closed four node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
 state, and the privileged node agent uses the host network namespace so its own
 Pod sandbox cannot depend on the not-yet-running local CNI authority. Enrolled
@@ -205,6 +205,11 @@ application Pods remain subject to the chained plugin and are rejected if they
 request a host namespace. The installer and node agent now also render the same
 versioned local socket/key paths, with exact-artifact assertions before any new
 Pod sandbox is admitted.
+Clean installs now commit a controller-only Helm bootstrap revision before
+activating the CNI installer, node agent, and default class. Existing releases
+skip that bootstrap so upgrades never withdraw the deny path. This ordering was
+added after exact-artifact CI proved that simultaneous first activation could
+make the CNI authoritative before the controller Pod sandbox existed.
 
 Issue #139 implementation is in progress. The teardown assistant now creates a
 strictly metadata-only alpha inventory with hashed API-server, trust-root, and

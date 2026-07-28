@@ -41,6 +41,16 @@ data. `install apply` accepts only the exact recalculated plan ID, creates the
 observation CA and serving key in memory, stores them directly as Kubernetes
 Secrets, and never passes private key material through Helm.
 
+On a clean cluster, the reviewed apply is deliberately staged. The first Helm
+revision installs the CRDs and starts the controller while the CNI installer,
+node agent, and default class remain disabled. After that revision is Ready, a
+second revision activates the exact reviewed Core runtime. This prevents the
+new chained CNI from becoming authoritative before the ordinary-networked
+controller exists. New Pod sandboxes may fail closed during Core activation;
+there is no namespace bypass or fail-open interval. An already-deployed Helm
+release goes directly to the full reviewed revision so re-apply and upgrade do
+not temporarily remove its deny path.
+
 Release automation, never the cluster operator, assembles this input with the
 publisher-only `go run ./hack/corerelease` command. The command requires an
 exact OCI chart identity and exactly the replacement controller, CNI, node

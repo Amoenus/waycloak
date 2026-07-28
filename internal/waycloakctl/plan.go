@@ -33,22 +33,25 @@ type ReleaseManifest struct {
 }
 
 type InstallPlan struct {
-	APIVersion    string            `json:"apiVersion"`
-	Kind          string            `json:"kind"`
-	PlanID        string            `json:"planID"`
-	Namespace     string            `json:"namespace"`
-	Release       string            `json:"release"`
-	Manifest      string            `json:"manifestDigest"`
-	Chart         Artifact          `json:"chart"`
-	Values        string            `json:"valuesYAML"`
-	Commands      []string          `json:"commands"`
-	Security      []string          `json:"securityChanges"`
-	CNIChanges    []string          `json:"cniChanges"`
-	Rollback      []string          `json:"rollback"`
-	Purge         []string          `json:"purge"`
-	SecretObjects []string          `json:"secretObjects"`
-	Metadata      map[string]string `json:"metadata"`
+	APIVersion      string            `json:"apiVersion"`
+	Kind            string            `json:"kind"`
+	PlanID          string            `json:"planID"`
+	InstallSequence string            `json:"installSequence"`
+	Namespace       string            `json:"namespace"`
+	Release         string            `json:"release"`
+	Manifest        string            `json:"manifestDigest"`
+	Chart           Artifact          `json:"chart"`
+	Values          string            `json:"valuesYAML"`
+	Commands        []string          `json:"commands"`
+	Security        []string          `json:"securityChanges"`
+	CNIChanges      []string          `json:"cniChanges"`
+	Rollback        []string          `json:"rollback"`
+	Purge           []string          `json:"purge"`
+	SecretObjects   []string          `json:"secretObjects"`
+	Metadata        map[string]string `json:"metadata"`
 }
+
+const controllerFirstInstallSequence = "ControllerFirstCoreActivation-v1"
 
 func LoadReleaseManifest(path string) (ReleaseManifest, string, error) {
 	data, err := os.ReadFile(path)
@@ -197,12 +200,13 @@ defaultGatewayClass:
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
-	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + namespace + "\x00" + release + "\x00" + values))
+	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + namespace + "\x00" + release + "\x00" + controllerFirstInstallSequence + "\x00" + values))
 	return InstallPlan{
-		APIVersion: OutputAPIVersion, Kind: "InstallPlan", PlanID: planID, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Chart: manifest.Chart, Values: values,
+		APIVersion: OutputAPIVersion, Kind: "InstallPlan", PlanID: planID, InstallSequence: controllerFirstInstallSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Chart: manifest.Chart, Values: values,
 		Commands: []string{
 			"waycloakctl install apply --plan <reviewed-plan.json> --confirm " + planID,
-			"helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --create-namespace --values <reviewed-values.yaml>",
+			"on a clean cluster: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <controller-first-bootstrap.yaml> --wait",
+			"helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --wait",
 		},
 		Security:      []string{"create a Pod Security privileged namespace for release-owned node components", "install a privileged root node-agent DaemonSet", "mount exact CNI/netns/state host paths", "install cluster-scoped CRDs, admission policies, and least-privilege RBAC"},
 		CNIChanges:    []string{"atomically append waycloak-cni after the primary plugin in " + report.CNI.ConfigPath, "install the exact CNI binary at " + report.CNI.BinaryPath, "preserve the original chain and write a release-bound receipt"},

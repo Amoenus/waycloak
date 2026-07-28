@@ -25,7 +25,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 )
+
+const controllerFirstBootstrapValues = `cniInstaller:
+  enabled: false
+nodeAgent:
+  enabled: false
+defaultGatewayClass:
+  enabled: false
+`
 
 func LoadInstallPlan(path string) (InstallPlan, error) {
 	data, err := os.ReadFile(path)
@@ -52,11 +61,11 @@ func LoadInstallPlan(path string) (InstallPlan, error) {
 }
 
 func (plan InstallPlan) validate() error {
-	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) ||
+	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || plan.InstallSequence != controllerFirstInstallSequence ||
 		plan.Namespace == "" || plan.Release == "" || plan.Values == "" || plan.Chart.Repository == "" || !validDigest(plan.Chart.Digest) {
 		return errors.New("install plan identity is incomplete")
 	}
-	wanted := digestBytes([]byte(plan.Manifest + "\x00" + plan.Namespace + "\x00" + plan.Release + "\x00" + plan.Values))
+	wanted := digestBytes([]byte(plan.Manifest + "\x00" + plan.Namespace + "\x00" + plan.Release + "\x00" + plan.InstallSequence + "\x00" + plan.Values))
 	if plan.PlanID != wanted {
 		return errors.New("install plan content does not match planID")
 	}
@@ -117,11 +126,34 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return err
 	}
 	chart := plan.Chart.Repository + "@" + plan.Chart.Digest
+	deployed, err := deployedHelmRelease(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return err
+	}
+	if !deployed {
+		bootstrapValuesPath := filepath.Join(directory, "controller-first-bootstrap.yaml")
+		if err := os.WriteFile(bootstrapValuesPath, []byte(controllerFirstBootstrapValues), 0o600); err != nil {
+			return err
+		}
+		output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--values", bootstrapValuesPath, "--wait", "--timeout", "10m")
+		if err != nil {
+			return fmt.Errorf("controller-first Helm bootstrap failed before Core activation: %w: %s", err, bounded(output, 4096))
+		}
+	}
 	output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m")
 	if err != nil {
-		return fmt.Errorf("helm install failed: %w: %s", err, bounded(output, 4096))
+		return fmt.Errorf("Helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
 	}
 	return nil
+}
+
+func deployedHelmRelease(ctx context.Context, clients *Clients, namespace, release string) (bool, error) {
+	selector := labels.Set{"owner": "helm", "name": release, "status": "deployed"}.AsSelector().String()
+	secrets, err := clients.Kubernetes.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return false, fmt.Errorf("detect existing Helm release: %w", err)
+	}
+	return len(secrets.Items) > 0, nil
 }
 
 func createOwnedSecret(ctx context.Context, clients *Clients, namespace, name, planID string, secretType corev1.SecretType, data map[string][]byte) error {
