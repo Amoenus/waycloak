@@ -47,6 +47,9 @@ spec:
       serviceAccountName: {{ include "waycloak.fullname" . }}
       automountServiceAccountToken: true
       securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       containers:

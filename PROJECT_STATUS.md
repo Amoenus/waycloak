@@ -184,10 +184,21 @@ image target instead of remaining only a chart-level digest reference. A
 publisher-only manifest assembler now requires the exact chart plus all six
 Core image identities, rejects missing, extra, duplicate, tagged, or malformed
 inputs, computes the canonical manifest identity, and emits deterministic JSON
-that the installer loader revalidates. Issue #138 is
-not complete: a published signed CLI artifact, clean Kind installation, the
+that the installer loader revalidates. A dedicated disposable Kind/local-OCI
+acceptance now exercises that manifest through CLI preflight, plan, exact
+confirmation and apply; it rejects a wrong confirmation before namespace
+creation, then verifies pinned runtime images, the release-bound CNI receipt and
+chain, authenticated node capability, default-class identity, and healthy
+doctor output. Issue #138 is not complete: a published signed CLI artifact, the
 under-15-minute real-provider journey, and exact-artifact disruptive smoke
 evidence remain required.
+
+The turnkey gate additionally found and closed two node bootstrap hazards before
+acceptance: installation receipts are isolated from enumerated CNI attachment
+state, and the privileged node agent uses the host network namespace so its own
+Pod sandbox cannot depend on the not-yet-running local CNI authority. Enrolled
+application Pods remain subject to the chained plugin and are rejected if they
+request a host namespace.
 
 Issue #139 implementation is in progress. The teardown assistant now creates a
 strictly metadata-only alpha inventory with hashed API-server, trust-root, and

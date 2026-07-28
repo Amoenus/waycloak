@@ -55,11 +55,17 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [ ] #138: turnkey CLI and runtime installation are in progress independently
   of the still-unadvertised Extended #137 capability. Do not close until signed
   exact-artifact, clean-install, under-15-minute provider, and disruptive smoke
-  evidence pass. Release manifests are now bound to a recomputed canonical
+  evidence pass. A disposable Kind/local-OCI gate now exercises preflight,
+  plan, refusal without exact confirmation, full apply, CNI receipt/chain,
+  authenticated node capability, release identity, and doctor. Release
+  manifests are bound to a recomputed canonical
   version/chart/image/profile identity and reject hidden extra artifacts. The
   mandatory CNI installer image now has a repeat-built multi-platform OCI gate,
   and publisher tooling deterministically assembles the complete exact Core
-  inventory without discovering or substituting an artifact.
+  inventory without discovering or substituting an artifact. The node bootstrap
+  path isolates attachment records from the install receipt and runs only the
+  privileged infrastructure agent in the host network namespace, avoiding a
+  circular dependency on its own CNI authority without exempting applications.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.

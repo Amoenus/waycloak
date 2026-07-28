@@ -23,6 +23,7 @@ import (
 )
 
 const MaxObservations = 256
+const ReportPath = "/node-observations/v1/report"
 const kubernetesAudience = "https://kubernetes.default.svc"
 
 type TokenReviewer interface {
@@ -44,7 +45,7 @@ func (r *Relay) Handler() http.Handler {
 }
 
 func (r *Relay) serve(response http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodPost || request.URL.Path != "/node-observations/v1/report" {
+	if request.Method != http.MethodPost || request.URL.Path != ReportPath {
 		http.NotFound(response, request)
 		return
 	}

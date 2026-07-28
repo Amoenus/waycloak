@@ -50,6 +50,14 @@ mutable inputs before emitting deterministic JSON. The resulting manifest is
 then signed and published by the release lifecycle; installation consumes that
 verified file without requiring source or image-digest knowledge.
 
+CI also constructs a disposable Kind cluster with a job-local OCI registry and
+uses the real CLI boundary for preflight, plan, and apply. The acceptance first
+proves that an incorrect confirmation creates no namespace, then verifies the
+exact chart and runtime image identities, release-bound CNI receipt and chain,
+authenticated node capability, default class identity, and healthy doctor
+output. This is clean-install evidence only; it does not substitute for the
+signed published-artifact, real-provider, or disruptive smoke gates.
+
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.
 An alpha API causes `preflight` to fail: stop protected workloads and complete

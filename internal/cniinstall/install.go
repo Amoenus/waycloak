@@ -114,6 +114,13 @@ func (options Options) validate() error {
 		options.ReleaseIdentity.Version == "" || !validDigest(options.ReleaseIdentity.ManifestDigest) {
 		return errors.New("distinct install paths and an exact release identity are required")
 	}
+	receiptDirectory := filepath.ToSlash(filepath.Dir(options.ReceiptPath))
+	if !path.IsAbs(receiptDirectory) {
+		receiptDirectory = "/" + receiptDirectory
+	}
+	if path.Clean(options.StateDirectory) == path.Clean(receiptDirectory) {
+		return errors.New("attachment state directory must be distinct from the installation receipt directory")
+	}
 	return nil
 }
 
