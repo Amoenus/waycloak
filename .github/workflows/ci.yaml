@@ -235,6 +235,8 @@ jobs:
           grep -A4 'securityContext:' "$RUNNER_TEMP/enabled-1.yaml" | grep -q 'fsGroup: 65532'
           test "$(grep -c -- '/var/lib/cni/waycloak/attachments' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c -- '/var/lib/cni/waycloak/install-receipt.json' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
+          test "$(grep -c '^      hostNetwork: true$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
+          test "$(grep -c '^      dnsPolicy: ClusterFirstWithHostNet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

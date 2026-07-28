@@ -49,6 +49,14 @@ Pods receive no Waycloak sidecars, init containers, host mounts, or Linux
 capabilities. Backend technology may evolve behind the same CNI contract; eBPF
 is not itself a public workload API.
 
+The privileged node-agent DaemonSet runs in the host network namespace with
+cluster-aware DNS. This is a bootstrap requirement: the node agent is the local
+CNI authority, so asking the chained plugin to create the agent's own Pod
+network would create an unsatisfiable dependency on that not-yet-running
+authority. This exception applies only to the operator-installed infrastructure
+agent. Application Pods remain outside host namespaces, and admission rejects
+host-network enrollment.
+
 Admission remains useful but is not the packet-security boundary:
 
 - structural and object-local rules use CRD schemas and CEL;
@@ -73,6 +81,8 @@ revocation contract for that boundary.
 - Installation requires CNI configuration and a privileged DaemonSet, so
   managed clusters that forbid chained CNI plugins are explicitly unsupported
   for stable Core rather than receiving a weaker fallback.
+- The node-agent privilege review and support matrix include host networking as
+  part of the accepted node-wide trust boundary.
 - Runtime/CNI compatibility and node upgrade testing become substantial release
   obligations.
 - The existing sidecar backend is removed after cutover, not maintained as a

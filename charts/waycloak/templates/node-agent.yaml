@@ -53,6 +53,11 @@ spec:
     spec:
       serviceAccountName: {{ include "waycloak.fullname" . }}-node-agent
       automountServiceAccountToken: false
+      # The node agent is the local CNI authority. Running it in the host
+      # network namespace avoids a bootstrap cycle in which its own sandbox
+      # would require the not-yet-running agent through the chained plugin.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       priorityClassName: system-node-critical
       tolerations:
         - operator: Exists
