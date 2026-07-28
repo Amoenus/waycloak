@@ -116,9 +116,10 @@ func TestPodLookupFailureMessagesAreSafeAndActionable(t *testing.T) {
 		err     error
 		message string
 	}{
-		"not-found": {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Kubernetes Pod is not yet observable"},
-		"forbidden": {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized"},
-		"timeout":   {context.DeadlineExceeded, "Kubernetes Pod observation timed out"},
+		"not-found":    {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Kubernetes Pod is not yet observable"},
+		"forbidden":    {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized"},
+		"unauthorized": {apierrors.NewUnauthorized("redacted"), "Kubernetes API identity is unauthorized"},
+		"timeout":      {context.DeadlineExceeded, "Kubernetes Pod observation timed out"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()

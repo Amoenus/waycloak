@@ -197,7 +197,7 @@ owned-object cleanup. The fixture uses runtime-generated keys and certificates
 and is not a supported provider. Issue #138 is not complete: a published signed
 CLI artifact and the under-15-minute real-provider journey remain required.
 
-The turnkey gate additionally found and closed five node bootstrap hazards before
+The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
 state, and the privileged node agent uses the host network namespace so its own
 Pod sandbox cannot depend on the not-yet-running local CNI authority. Enrolled
@@ -213,6 +213,9 @@ make the CNI authoritative before the controller Pod sandbox existed.
 The same gate then proved that an eventually consistent node-agent cache is not
 an acceptable CNI identity authority: exact Pod UID and node assignment checks
 now use a direct API-server reader, preserving name-reuse and mismatch denial.
+The direct reader uses a separately projected Kubernetes API token with the API
+server's default audience; the audience-bound observation token remains isolated
+and cannot be substituted for Kubernetes API access.
 
 Issue #139 implementation is in progress. The teardown assistant now creates a
 strictly metadata-only alpha inventory with hashed API-server, trust-root, and

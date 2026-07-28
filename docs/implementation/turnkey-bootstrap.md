@@ -54,7 +54,9 @@ not temporarily remove its deny path.
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
 reconciliation, but it is not authoritative for creation-time identity or Pod
-name reuse.
+name reuse. The direct reader uses a distinct projected token with the API
+server's default audience; the audience-bound observation token is isolated and
+cannot be used as a portable Kubernetes API credential.
 
 Release automation, never the cluster operator, assembles this input with the
 publisher-only `go run ./hack/corerelease` command. The command requires an

@@ -149,7 +149,6 @@ spec:
             sources:
               - serviceAccountToken:
                   path: token
-                  audience: https://kubernetes.default.svc
                   expirationSeconds: 600
               - configMap:
                   name: kube-root-ca.crt

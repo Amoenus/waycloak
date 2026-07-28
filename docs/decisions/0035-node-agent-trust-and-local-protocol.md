@@ -60,7 +60,8 @@ after the resource contract is frozen by #127 and the allocation protocol by
 #132.
 
 The agent's Kubernetes credential is projected only into the privileged agent,
-with a short lifetime and Kubernetes API audience. Initial Core RBAC is read
+with a short lifetime and the API server's default audience. It is separate from
+the explicitly audience-bound observation-relay token. Initial Core RBAC is read
 only: `get/list/watch` Pods and `VPNWorkloadBinding` objects. Kubernetes RBAC
 cannot restrict list/watch to one node, so the informer filters by immutable
 node assignment before reconciliation and this cluster-wide metadata visibility

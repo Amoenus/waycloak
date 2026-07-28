@@ -102,6 +102,8 @@ func writeServiceError(response http.ResponseWriter, err error) {
 			message = "Kubernetes Pod is not yet observable"
 		case apierrors.IsForbidden(err):
 			message = "Kubernetes Pod read is unauthorized"
+		case apierrors.IsUnauthorized(err):
+			message = "Kubernetes API identity is unauthorized"
 		case errors.Is(err, context.DeadlineExceeded):
 			message = "Kubernetes Pod observation timed out"
 		}
