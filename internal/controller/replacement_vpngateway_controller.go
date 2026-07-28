@@ -131,13 +131,13 @@ func (r *ReplacementVPNGatewayReconciler) desiredStatus(ctx context.Context, gat
 			states[wayv1.ConditionProgrammed] = wayconditions.True(wayv1.ReasonProgrammed, "Gateway runtime is programmed")
 		}
 		if observation.TunnelReady {
-			states[wayv1.ConditionTunnelReady] = wayconditions.True(wayv1.ReasonReady, "Gateway tunnel is ready")
+			states[wayv1.ConditionTunnelReady] = wayconditions.True(wayv1.ReasonTunnelReady, "Gateway tunnel is ready")
 		}
 		if observation.DNSReady {
-			states[wayv1.ConditionDNSReady] = wayconditions.True(wayv1.ReasonReady, "Gateway DNS path is ready")
+			states[wayv1.ConditionDNSReady] = wayconditions.True(wayv1.ReasonDNSReady, "Gateway DNS path is ready")
 		}
 		if observation.MembershipApplied {
-			states[wayv1.ConditionMembershipApplied] = wayconditions.True(wayv1.ReasonProgrammed, "Gateway membership data plane is applied")
+			states[wayv1.ConditionMembershipApplied] = wayconditions.True(wayv1.ReasonMembershipApplied, "Gateway membership data plane is applied")
 		}
 		if observation.Ready && observation.Programmed && observation.TunnelReady && observation.DNSReady && observation.MembershipApplied {
 			states[wayv1.ConditionReady] = wayconditions.True(wayv1.ReasonReady, "Gateway live data plane is ready")
