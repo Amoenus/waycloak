@@ -22,6 +22,7 @@ import (
 	pluginsns "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
 	vnetns "github.com/vishvananda/netns"
+	"golang.org/x/sys/unix"
 )
 
 func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
@@ -124,6 +125,20 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 		}
 		if overlay.Attrs().Alias != "waycloak:"+config.GatewayUID {
 			return fmt.Errorf("overlay alias = %q", overlay.Attrs().Alias)
+		}
+		rules, err := netlink.RuleList(netlink.FAMILY_V4)
+		if err != nil {
+			return err
+		}
+		returnRule := false
+		for _, rule := range rules {
+			if rule.Priority == gatewayOverlayReturnPriority && rule.Protocol == uint8(gatewayRouteProtocol) && rule.Table == unix.RT_TABLE_MAIN && rule.Dst != nil && rule.Dst.String() == config.OverlayCIDR.Masked().String() {
+				returnRule = true
+				break
+			}
+		}
+		if !returnRule {
+			return errors.New("owned overlay return-path policy rule is missing")
 		}
 		return nil
 	}); err != nil {

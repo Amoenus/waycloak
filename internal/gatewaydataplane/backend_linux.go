@@ -17,11 +17,17 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 const coreTableName = "waycloak_gateway_core"
 
 const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
+
+const (
+	gatewayRouteProtocol         = netlink.RouteProtocol(99)
+	gatewayOverlayReturnPriority = 9000
+)
 
 type LinuxBackend struct{}
 
@@ -81,10 +87,37 @@ func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
 	if err := netlink.LinkSetUp(link); err != nil {
 		return fmt.Errorf("activate gateway overlay: %w", err)
 	}
+	if err := ensureOverlayReturnRule(config.OverlayCIDR); err != nil {
+		return fmt.Errorf("install gateway overlay return-path rule: %w", err)
+	}
 	if err := requireIPv4Forwarding(ipv4ForwardingPath); err != nil {
 		return err
 	}
 	createdLink = false
+	return nil
+}
+
+func ensureOverlayReturnRule(overlay netip.Prefix) error {
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		return err
+	}
+	for index := range rules {
+		if rules[index].Priority == gatewayOverlayReturnPriority && rules[index].Protocol == uint8(gatewayRouteProtocol) {
+			if err := netlink.RuleDel(&rules[index]); err != nil && !errors.Is(err, unix.ENOENT) {
+				return err
+			}
+		}
+	}
+	rule := netlink.NewRule()
+	rule.Family = netlink.FAMILY_V4
+	rule.Priority = gatewayOverlayReturnPriority
+	rule.Table = unix.RT_TABLE_MAIN
+	rule.Protocol = uint8(gatewayRouteProtocol)
+	rule.Dst = netipPrefix(overlay.Masked().Addr(), overlay.Bits())
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, unix.EEXIST) {
+		return err
+	}
 	return nil
 }
 
