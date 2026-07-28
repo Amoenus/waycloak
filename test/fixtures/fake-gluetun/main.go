@@ -184,7 +184,7 @@ func installGatewayRoute(source netip.Prefix) error {
 	if err != nil {
 		return err
 	}
-	if err := netlink.RouteReplace(&netlink.Route{LinkIndex: link.Attrs().Index, Table: gatewayRouteTab, Protocol: 99}); err != nil {
+	if err := netlink.RouteReplace(&netlink.Route{LinkIndex: link.Attrs().Index, Dst: prefixToIPNet(mustPrefix("0.0.0.0/0")), Table: gatewayRouteTab, Protocol: 99}); err != nil {
 		return fmt.Errorf("install fixture tunnel default: %w", err)
 	}
 	rule := netlink.NewRule()
