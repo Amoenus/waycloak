@@ -8,7 +8,7 @@ package replacementapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -311,7 +311,7 @@ func TestReplacementAPI(t *testing.T) {
 		if !resolved.Enrolled || !resolved.Ready || resolved.RouteUID != route.UID {
 			t.Fatalf("ready exact-UID resolution = %#v", resolved)
 		}
-		if _, err := (enrollment.Resolver{Reader: admin}).Resolve(ctx, pod.Namespace, pod.Name, types.UID("reused-name-uid")); !errors.Is(err, enrollment.ErrPodUIDMismatch) {
+		if _, err := (enrollment.Resolver{Reader: admin}).Resolve(ctx, pod.Namespace, pod.Name, types.UID("reused-name-uid")); !stderrors.Is(err, enrollment.ErrPodUIDMismatch) {
 			t.Fatalf("name-reuse resolution error = %v, want ErrPodUIDMismatch", err)
 		}
 
@@ -491,13 +491,37 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, err)
 		must(t, admin.Delete(ctx, reservation))
 		must(t, admin.Delete(ctx, quarantined))
-		cleanup := &waycontroller.VPNWorkloadBindingReconciler{Client: admin, Now: func() time.Time { return now.Add(11 * time.Minute) }}
-		for range 2 {
-			_, err = cleanup.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(quarantined)})
-			must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(quarantined), quarantined))
+		if quarantined.DeletionTimestamp.IsZero() {
+			t.Fatal("binding deletion timestamp was not persisted")
 		}
+		cleanupNow := quarantined.DeletionTimestamp.Add(11 * time.Minute)
+		cleanup := &waycontroller.VPNWorkloadBindingReconciler{Client: admin, Now: func() time.Time { return cleanupNow }}
 		storedReservation := &coordinationv1.Lease{}
-		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(reservation), storedReservation))
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			_, err = cleanup.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(quarantined)})
+			if err != nil && !stderrors.Is(err, waybinding.ErrReservationDeleting) && !apierrors.IsNotFound(err) {
+				t.Fatal(err)
+			}
+			getErr := admin.Get(ctx, ctrlclient.ObjectKeyFromObject(reservation), storedReservation)
+			if getErr == nil && storedReservation.Annotations[waybinding.ReservationStateAnnotation] == waybinding.ReservationStateQuarantined {
+				break
+			}
+			if getErr != nil && !apierrors.IsNotFound(getErr) {
+				t.Fatal(getErr)
+			}
+			if time.Now().After(deadline) {
+				remaining := &coordinationv1.LeaseList{}
+				listErr := admin.List(ctx, remaining, ctrlclient.InNamespace(reservation.Namespace))
+				currentGateway := &wayv1.VPNGateway{}
+				gatewayErr := admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), currentGateway)
+				currentBinding := &wayv1.VPNWorkloadBinding{}
+				bindingErr := admin.Get(ctx, ctrlclient.ObjectKeyFromObject(quarantined), currentBinding)
+				t.Fatalf("durable quarantine did not converge: reconcile=%v get=%v leases=%d list=%v gateway=%v/%s binding=%v/%v", err, getErr, len(remaining.Items), listErr, gatewayErr, currentGateway.UID, bindingErr, currentBinding.Finalizers)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 		if storedReservation.Annotations[waybinding.ReservationStateAnnotation] != waybinding.ReservationStateQuarantined {
 			t.Fatalf("reservation state = %q, want quarantine", storedReservation.Annotations[waybinding.ReservationStateAnnotation])
 		}

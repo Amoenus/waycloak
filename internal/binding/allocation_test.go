@@ -92,6 +92,35 @@ func TestReserveReportsExhaustionWithoutListOrderIdentity(t *testing.T) {
 	}
 }
 
+func TestQuarantineWaitsForDeletingReservationBeforeReportingDurability(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = wayv1.AddToScheme(scheme)
+	_ = coordinationv1.AddToScheme(scheme)
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: types.UID("gateway-uid")}}
+	binding := &wayv1.VPNWorkloadBinding{Spec: wayv1.VPNWorkloadBindingSpec{
+		PodRef: wayv1.LocalUIDReference{UID: "pod-a"}, GatewayRef: wayv1.NamespacedUIDReference{Namespace: "network", Name: "gateway", UID: "gateway-uid"},
+		Allocation: wayv1.WorkloadAllocation{Identity: allocationIdentity(gateway.UID, types.UID("pod-a")), Address: "192.0.2.2/32"},
+	}}
+	allocator := Allocator{Now: func() time.Time { return time.Unix(100, 0).UTC() }}
+	deleting := allocator.desiredLease(gateway, types.UID("pod-a"), binding.Spec.Allocation.Identity, netip.MustParsePrefix(binding.Spec.Allocation.Address))
+	now := metav1.NewTime(time.Unix(101, 0).UTC())
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = []string{"test.waycloak.io/hold-deletion"}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway, deleting).Build()
+	allocator.Client = kubeClient
+
+	if err := allocator.Quarantine(context.Background(), binding); !errors.Is(err, ErrReservationDeleting) {
+		t.Fatalf("quarantine error = %v, want %v", err, ErrReservationDeleting)
+	}
+	stored := &coordinationv1.Lease{}
+	if err := kubeClient.Get(context.Background(), client.ObjectKeyFromObject(deleting), stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Annotations[ReservationStateAnnotation] != ReservationStateActive {
+		t.Fatalf("deleting reservation was falsely marked durable: %#v", stored.Annotations)
+	}
+}
+
 func TestReserveUsesAuthoritativeReaderNotStaleClientCache(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = wayv1.AddToScheme(scheme)
