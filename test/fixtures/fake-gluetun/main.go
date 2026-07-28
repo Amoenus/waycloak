@@ -34,6 +34,7 @@ const (
 	ownedAlias      = "waycloak:disposable-wireguard-fixture"
 	exitTableName   = "waycloak_test_wg_exit"
 	gatewayRouteTab = 51821
+	fixtureOverlay  = "100.96.0.0/16"
 	ipv4Forwarding  = "/proc/sys/net/ipv4/ip_forward"
 )
 
@@ -94,7 +95,7 @@ func runGateway(ctx context.Context) error {
 	if err != nil || !overlay.Addr().Is4() {
 		return errors.New("parse gateway fixture overlay CIDR")
 	}
-	if err := configureWireGuard("tun0", "10.200.0.2/30", privateKey, peerKey, endpoint, mustPrefix("0.0.0.0/0"), nil); err != nil {
+	if err := configureWireGuard("tun0", "10.200.0.2/30", privateKey, peerKey, endpoint, []netip.Prefix{mustPrefix("0.0.0.0/0")}, nil); err != nil {
 		return err
 	}
 	if err := installGatewayRoute(overlay.Masked()); err != nil {
@@ -113,7 +114,10 @@ func runExit(ctx context.Context) error {
 		return errors.New("parse gateway fixture public key")
 	}
 	port := 51820
-	if err := configureWireGuard("wg0", "10.200.0.1/30", privateKey, peerKey, nil, mustPrefix("10.200.0.2/32"), &port); err != nil {
+	if err := configureWireGuard("wg0", "10.200.0.1/30", privateKey, peerKey, nil, []netip.Prefix{mustPrefix("10.200.0.2/32"), mustPrefix(fixtureOverlay)}, &port); err != nil {
+		return err
+	}
+	if err := installExitRoute(mustPrefix(fixtureOverlay)); err != nil {
 		return err
 	}
 	value, err := os.ReadFile(ipv4Forwarding)
@@ -130,7 +134,7 @@ func runExit(ctx context.Context) error {
 	return nil
 }
 
-func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, endpoint *net.UDPAddr, allowed netip.Prefix, listenPort *int) error {
+func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, endpoint *net.UDPAddr, allowed []netip.Prefix, listenPort *int) error {
 	if existing, err := netlink.LinkByName(name); err == nil {
 		if existing.Attrs().Alias != ownedAlias {
 			return fmt.Errorf("interface %s is foreign state", name)
@@ -164,7 +168,11 @@ func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, e
 		return err
 	}
 	defer client.Close()
-	peer := wgtypes.PeerConfig{PublicKey: peerKey, Endpoint: endpoint, AllowedIPs: []net.IPNet{*prefixToIPNet(allowed)}}
+	allowedIPs := make([]net.IPNet, 0, len(allowed))
+	for _, prefix := range allowed {
+		allowedIPs = append(allowedIPs, *prefixToIPNet(prefix))
+	}
+	peer := wgtypes.PeerConfig{PublicKey: peerKey, Endpoint: endpoint, AllowedIPs: allowedIPs}
 	if endpoint != nil {
 		keepalive := 5 * time.Second
 		peer.PersistentKeepaliveInterval = &keepalive
@@ -176,6 +184,17 @@ func configureWireGuard(name, address string, privateKey, peerKey wgtypes.Key, e
 		return fmt.Errorf("activate %s: %w", name, err)
 	}
 	keep = true
+	return nil
+}
+
+func installExitRoute(destination netip.Prefix) error {
+	link, err := netlink.LinkByName("wg0")
+	if err != nil {
+		return err
+	}
+	if err := netlink.RouteReplace(&netlink.Route{LinkIndex: link.Attrs().Index, Dst: prefixToIPNet(destination), Protocol: 99}); err != nil {
+		return fmt.Errorf("install fixture overlay return route: %w", err)
+	}
 	return nil
 }
 

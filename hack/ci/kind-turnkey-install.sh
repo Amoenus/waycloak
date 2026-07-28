@@ -20,6 +20,10 @@ work_dir="$(mktemp -d)"
 cleanup() {
   status="$?"
   if (( status != 0 )) && kind get clusters 2>/dev/null | grep -qx "$cluster_name"; then
+    if [[ -s "$work_dir/verify.json" ]]; then
+      printf '%s\n' '--- waycloakctl verify report ---' >&2
+      cat "$work_dir/verify.json" >&2
+    fi
     kubectl get pods --all-namespaces -o wide >&2 || true
     kubectl get events --all-namespaces --sort-by=.lastTimestamp >&2 || true
     kubectl describe deployment/waycloak-controller \
