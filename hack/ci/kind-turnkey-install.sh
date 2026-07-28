@@ -36,10 +36,14 @@ cleanup() {
     while IFS= read -r pod; do
       [[ -n "$pod" ]] || continue
       kubectl describe --namespace "$smoke_namespace" "$pod" >&2 || true
-      kubectl logs --namespace "$smoke_namespace" "$pod" \
-        --all-containers --prefix --tail=200 >&2 || true
-      kubectl logs --namespace "$smoke_namespace" "$pod" \
-        --all-containers --prefix --previous --tail=200 >&2 || true
+      containers="$(kubectl get --namespace "$smoke_namespace" "$pod" \
+        -o jsonpath='{.spec.containers[*].name}' 2>/dev/null || true)"
+      for container in $containers; do
+        kubectl logs --namespace "$smoke_namespace" "$pod" \
+          --container "$container" --prefix --tail=200 >&2 || true
+        kubectl logs --namespace "$smoke_namespace" "$pod" \
+          --container "$container" --prefix --previous --tail=200 >&2 || true
+      done
     done < <(kubectl get pods --namespace "$smoke_namespace" -o name 2>/dev/null)
   fi
   kind delete cluster --name "$cluster_name" >/dev/null 2>&1 || true
