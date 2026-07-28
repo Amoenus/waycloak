@@ -19,6 +19,20 @@ readonly release_name="waycloak"
 work_dir="$(mktemp -d)"
 
 cleanup() {
+  status="$?"
+  if (( status != 0 )) && kind get clusters 2>/dev/null | grep -qx "$cluster_name"; then
+    kubectl get pods --all-namespaces -o wide >&2 || true
+    kubectl get events --all-namespaces --sort-by=.lastTimestamp >&2 || true
+    kubectl describe deployment/waycloak-controller \
+      --namespace "$system_namespace" >&2 || true
+    kubectl describe daemonset/waycloak-cni-installer \
+      --namespace "$system_namespace" >&2 || true
+    kubectl describe daemonset/waycloak-node-agent \
+      --namespace "$system_namespace" >&2 || true
+    kubectl logs --namespace "$system_namespace" \
+      --selector app.kubernetes.io/instance="$release_name" \
+      --all-containers --prefix --tail=200 >&2 || true
+  fi
   kind delete cluster --name "$cluster_name" >/dev/null 2>&1 || true
   docker rm --force "$registry_name" >/dev/null 2>&1 || true
   rm -rf -- "$work_dir"
