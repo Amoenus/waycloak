@@ -74,6 +74,9 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	if !strings.Contains(plan.Values, `observationRelayURL: "https://waycloak-controller.waycloak-system.svc:9443/node-observations/v1/report"`) {
 		t.Fatalf("install values do not use the controller observation relay contract: %s", plan.Values)
 	}
+	if plan.InstallSequence != controllerFirstInstallSequence || len(plan.Commands) != 3 {
+		t.Fatalf("install plan does not expose the controller-first sequence: %#v", plan)
+	}
 	encoded, err := EncodePlan(plan)
 	if err != nil {
 		t.Fatal(err)
@@ -160,12 +163,28 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 		if name != "helm" || !containsString(arguments, "@"+plan.Chart.Digest) {
 			t.Fatalf("unexpected Helm command: %s %#v", name, arguments)
 		}
+		values := make([]string, 0, 2)
+		for index, argument := range arguments {
+			if argument == "--values" && index+1 < len(arguments) {
+				data, err := os.ReadFile(arguments[index+1])
+				if err != nil {
+					t.Fatal(err)
+				}
+				values = append(values, string(data))
+			}
+		}
+		if called == 1 && (len(values) != 2 || values[1] != controllerFirstBootstrapValues) {
+			t.Fatalf("clean install did not use exact controller-first overrides: %#v", values)
+		}
+		if called > 1 && len(values) != 1 {
+			t.Fatalf("Core activation or existing-release apply used bootstrap overrides: %#v", values)
+		}
 		return nil, nil
 	}
 	if err := ApplyInstallPlan(context.Background(), clients, runner, plan, plan.PlanID); err != nil {
 		t.Fatal(err)
 	}
-	if called != 1 {
+	if called != 2 {
 		t.Fatalf("Helm was called %d times", called)
 	}
 	namespace, err := clients.Kubernetes.CoreV1().Namespaces().Get(context.Background(), plan.Namespace, metav1.GetOptions{})
@@ -175,6 +194,15 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	tlsSecret, err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Get(context.Background(), plan.Release+"-observation-tls", metav1.GetOptions{})
 	if err != nil || len(tlsSecret.Data["tls.key"]) == 0 {
 		t.Fatalf("in-memory TLS identity missing: %v", err)
+	}
+	if _, err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Create(context.Background(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sh.helm.release.v1.waycloak.v1", Namespace: plan.Namespace, Labels: map[string]string{"owner": "helm", "name": plan.Release, "status": "deployed"}}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyInstallPlan(context.Background(), clients, runner, plan, plan.PlanID); err != nil {
+		t.Fatal(err)
+	}
+	if called != 3 {
+		t.Fatalf("existing release apply called Helm %d total times, want 3", called)
 	}
 	tlsSecret.Data["tls.crt"] = []byte("tampered")
 	if _, err = clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Update(context.Background(), tlsSecret, metav1.UpdateOptions{}); err != nil {
@@ -216,6 +244,35 @@ func TestTunnelLossTargetsOnlyExactOwnedGatewayPod(t *testing.T) {
 	}
 	if _, err := clients.Kubernetes.CoreV1().Pods("media").Get(context.Background(), "foreign", metav1.GetOptions{}); err != nil {
 		t.Fatalf("foreign Pod was touched: %v", err)
+	}
+}
+
+func TestVerifyConfirmationBindsProbeEndpointAndPublicCA(t *testing.T) {
+	base := verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca")
+	for name, value := range map[string]string{
+		"namespace": verifyConfirmation("other", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca"),
+		"gateway":   verifyConfirmation("media", "other", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca"),
+		"image":     verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("b", 64), "https://198.18.0.1:8443/ip", "observer-ca"),
+		"url":       verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.2:8443/ip", "observer-ca"),
+		"ca":        verifyConfirmation("media", "private", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "other-ca"),
+	} {
+		if value == base {
+			t.Fatalf("%s was not bound into the disruptive verification identity", name)
+		}
+	}
+}
+
+func TestProbePodUsesHTTPSObserverAndPublicCAWithoutCredentials(t *testing.T) {
+	pod := probePod("probe", "media", "registry.invalid/probe@sha256:"+strings.Repeat("a", 64), "https://198.18.0.1:8443/ip", "observer-ca", map[string]string{"verify.waycloak.io/run": "test"}, nil)
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken || len(pod.Spec.Containers) != 1 {
+		t.Fatalf("probe received a Kubernetes credential or unexpected containers: %#v", pod.Spec)
+	}
+	container := pod.Spec.Containers[0]
+	if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].ConfigMap == nil || pod.Spec.Volumes[0].ConfigMap.Name != "observer-ca" || len(container.VolumeMounts) != 1 || !container.VolumeMounts[0].ReadOnly {
+		t.Fatalf("probe public CA is not a read-only ConfigMap mount: %#v %#v", pod.Spec.Volumes, container.VolumeMounts)
+	}
+	if container.SecurityContext == nil || container.SecurityContext.RunAsNonRoot == nil || !*container.SecurityContext.RunAsNonRoot || len(container.SecurityContext.Capabilities.Drop) != 1 || container.SecurityContext.Capabilities.Drop[0] != "ALL" {
+		t.Fatalf("probe security context regressed: %#v", container.SecurityContext)
 	}
 }
 

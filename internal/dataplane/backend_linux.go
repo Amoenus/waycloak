@@ -6,6 +6,7 @@
 package dataplane
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -15,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"time"
 
 	"github.com/google/nftables"
@@ -129,21 +131,58 @@ func (*linuxBackend) Verify(ctx context.Context, cfg Config) error {
 	}
 	for _, route := range routes {
 		if route.LinkIndex == link.Attrs().Index && addrEqual(route.Gw, cfg.GatewayAddress) {
-			return probeGatewayReadiness(ctx, netip.AddrPortFrom(cfg.GatewayAddress, cfg.GatewayHealthPort))
+			if err := probeGatewayReadiness(ctx, netip.AddrPortFrom(cfg.GatewayAddress, cfg.GatewayHealthPort)); err != nil {
+				return fmt.Errorf("%w (%s)", err, overlayDiagnostics(link, cfg.GatewayAddress))
+			}
+			return nil
 		}
 	}
 	return errors.New("protected default route is not installed")
 }
 
-func probeGatewayReadiness(ctx context.Context, endpoint netip.AddrPort) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+endpoint.String()+"/readyz", nil)
-	if err != nil {
-		return fmt.Errorf("build gateway readiness probe: %w", err)
+func overlayDiagnostics(link netlink.Link, gateway netip.Addr) string {
+	if observed, err := netlink.LinkByIndex(link.Attrs().Index); err == nil {
+		link = observed
 	}
-	client := http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
-	response, err := client.Do(request)
+	attributes := link.Attrs()
+	rxPackets, txPackets := uint64(0), uint64(0)
+	if attributes.Statistics != nil {
+		rxPackets = attributes.Statistics.RxPackets
+		txPackets = attributes.Statistics.TxPackets
+	}
+	neighborState := "absent"
+	if neighbors, err := netlink.NeighList(attributes.Index, familyFor(gateway)); err == nil {
+		for _, neighbor := range neighbors {
+			if addrEqual(neighbor.IP, gateway) {
+				neighborState = fmt.Sprintf("state-%d", neighbor.State)
+				break
+			}
+		}
+	}
+	fdbEntries := -1
+	if neighbors, err := netlink.NeighList(attributes.Index, unix.AF_BRIDGE); err == nil {
+		fdbEntries = len(neighbors)
+	}
+	return fmt.Sprintf("overlay=%s operstate=%d neighbor=%s fdb=%d rx=%d tx=%d", attributes.Name, attributes.OperState, neighborState, fdbEntries, rxPackets, txPackets)
+}
+
+func probeGatewayReadiness(ctx context.Context, endpoint netip.AddrPort) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	connection, err := dialCurrentNamespace(probeCtx, endpoint)
 	if err != nil {
 		return fmt.Errorf("probe observed gateway readiness endpoint: %w", err)
+	}
+	defer connection.Close()
+	if deadline, ok := probeCtx.Deadline(); ok {
+		_ = connection.SetDeadline(deadline)
+	}
+	if _, err := fmt.Fprintf(connection, "GET /readyz HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", endpoint.String()); err != nil {
+		return fmt.Errorf("write gateway readiness probe: %w", err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(connection), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		return fmt.Errorf("read gateway readiness response: %w", err)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
@@ -151,6 +190,74 @@ func probeGatewayReadiness(ctx context.Context, endpoint netip.AddrPort) error {
 		return fmt.Errorf("gateway readiness endpoint returned HTTP %d", response.StatusCode)
 	}
 	return nil
+}
+
+// dialCurrentNamespace creates and connects the socket synchronously on the
+// OS thread selected by ns.WithNetNSPath. Higher-level Go dialers may move
+// socket creation to another goroutine and therefore the node-agent netns.
+func dialCurrentNamespace(ctx context.Context, endpoint netip.AddrPort) (net.Conn, error) {
+	address := endpoint.Addr().Unmap()
+	domain := unix.AF_INET
+	var socketAddress unix.Sockaddr
+	if address.Is4() {
+		value := address.As4()
+		socketAddress = &unix.SockaddrInet4{Port: int(endpoint.Port()), Addr: value}
+	} else {
+		domain = unix.AF_INET6
+		value := address.As16()
+		socketAddress = &unix.SockaddrInet6{Port: int(endpoint.Port()), Addr: value}
+	}
+	fd, err := unix.Socket(domain, unix.SOCK_STREAM|unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK, unix.IPPROTO_TCP)
+	if err != nil {
+		return nil, err
+	}
+	owned := true
+	defer func() {
+		if owned {
+			_ = unix.Close(fd)
+		}
+	}()
+	if err := unix.Connect(fd, socketAddress); err != nil && !errors.Is(err, unix.EINPROGRESS) {
+		return nil, err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		wait := 100 * time.Millisecond
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return nil, context.DeadlineExceeded
+			}
+			if remaining < wait {
+				wait = remaining
+			}
+		}
+		ready, err := unix.Poll([]unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}, int(wait.Milliseconds()))
+		if err != nil && !errors.Is(err, unix.EINTR) {
+			return nil, err
+		}
+		if ready == 0 {
+			continue
+		}
+		socketErr, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ERROR)
+		if err != nil {
+			return nil, err
+		}
+		if socketErr != 0 {
+			return nil, unix.Errno(socketErr)
+		}
+		break
+	}
+	file := os.NewFile(uintptr(fd), "waycloak-gateway-readiness")
+	connection, err := net.FileConn(file)
+	_ = file.Close()
+	owned = false
+	if err != nil {
+		return nil, err
+	}
+	return connection, nil
 }
 
 func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {

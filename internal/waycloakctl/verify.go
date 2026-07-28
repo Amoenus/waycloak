@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+const defaultVerifyProbeURL = "https://api.ipify.org"
 
 type VerifyReport struct {
 	APIVersion         string `json:"apiVersion"`
@@ -32,12 +35,16 @@ type VerifyReport struct {
 	CleanupComplete    bool   `json:"cleanupComplete"`
 }
 
-func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, confirmation string) (report VerifyReport, err error) {
+func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, probeURL, probeCAConfigMap, confirmation string) (report VerifyReport, err error) {
 	report = VerifyReport{APIVersion: OutputAPIVersion, Kind: "VerifyReport"}
 	if namespace == "" || gateway == "" || !strings.Contains(image, "@sha256:") {
 		return report, errors.New("namespace, gateway, and immutable probe image are required")
 	}
-	wanted := digestBytes([]byte(namespace + "\x00" + gateway + "\x00" + image))
+	parsedProbeURL, parseErr := url.Parse(probeURL)
+	if parseErr != nil || parsedProbeURL.Scheme != "https" || parsedProbeURL.Host == "" || parsedProbeURL.User != nil || parsedProbeURL.Fragment != "" {
+		return report, errors.New("probe URL must be an absolute HTTPS URL without user information or a fragment")
+	}
+	wanted := verifyConfirmation(namespace, gateway, image, probeURL, probeCAConfigMap)
 	if confirmation != wanted {
 		return report, fmt.Errorf("refusing smoke-test mutation: --confirm must exactly equal %s", wanted)
 	}
@@ -86,8 +93,8 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, co
 	if err = waitRouteReady(ctx, clients, routeGVR, namespace, createdRoute.GetName(), 90*time.Second); err != nil {
 		return report, err
 	}
-	ordinary := probePod(prefix+"-ordinary", namespace, image, labels, nil)
-	protected := probePod(prefix+"-protected", namespace, image, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
+	ordinary := probePod(prefix+"-ordinary", namespace, image, probeURL, probeCAConfigMap, labels, nil)
+	protected := probePod(prefix+"-protected", namespace, image, probeURL, probeCAConfigMap, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
 	ordinary, err = clients.Kubernetes.CoreV1().Pods(namespace).Create(ctx, ordinary, metav1.CreateOptions{})
 	if err != nil {
 		return report, err
@@ -113,14 +120,14 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, co
 	if err = waitGatewayReady(ctx, clients, gatewayGVR, namespace, gateway, false, 2*time.Minute); err != nil {
 		return report, err
 	}
-	outageOrdinary := probePod(prefix+"-outage-ordinary", namespace, image, labels, nil)
+	outageOrdinary := probePod(prefix+"-outage-ordinary", namespace, image, probeURL, probeCAConfigMap, labels, nil)
 	outageOrdinary, err = clients.Kubernetes.CoreV1().Pods(namespace).Create(ctx, outageOrdinary, metav1.CreateOptions{})
 	if err != nil {
 		return report, err
 	}
 	ownedPods = append(ownedPods, outageOrdinary)
 	_, outageOrdinaryOK := waitProbe(ctx, clients, namespace, outageOrdinary.Name, 90*time.Second)
-	outageProtected := probePod(prefix+"-outage-protected", namespace, image, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
+	outageProtected := probePod(prefix+"-outage-protected", namespace, image, probeURL, probeCAConfigMap, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
 	outageProtected, createErr := clients.Kubernetes.CoreV1().Pods(namespace).Create(ctx, outageProtected, metav1.CreateOptions{})
 	protectedDenied := false
 	if createErr == nil {
@@ -134,7 +141,7 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, co
 	if err = waitGatewayReady(ctx, clients, gatewayGVR, namespace, gateway, true, 4*time.Minute); err != nil {
 		return report, err
 	}
-	recovered := probePod(prefix+"-recovered", namespace, image, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
+	recovered := probePod(prefix+"-recovered", namespace, image, probeURL, probeCAConfigMap, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
 	recovered, err = clients.Kubernetes.CoreV1().Pods(namespace).Create(ctx, recovered, metav1.CreateOptions{})
 	if err != nil {
 		return report, err
@@ -232,7 +239,11 @@ func podNeverStarted(ctx context.Context, clients *Clients, namespace, name stri
 	return true
 }
 
-func probePod(name, namespace, image string, labels, extra map[string]string) *corev1.Pod {
+func verifyConfirmation(namespace, gateway, image, probeURL, probeCAConfigMap string) string {
+	return digestBytes([]byte(strings.Join([]string{namespace, gateway, image, probeURL, probeCAConfigMap}, "\x00")))
+}
+
+func probePod(name, namespace, image, probeURL, probeCAConfigMap string, labels, extra map[string]string) *corev1.Pod {
 	all := map[string]string{}
 	for k, v := range labels {
 		all[k] = v
@@ -241,7 +252,15 @@ func probePod(name, namespace, image string, labels, extra map[string]string) *c
 		all[k] = v
 	}
 	no := false
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: all}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, RestartPolicy: corev1.RestartPolicyNever, Containers: []corev1.Container{{Name: "probe", Image: image, Command: []string{"sh", "-ec"}, Args: []string{"value=$(curl --fail --silent --show-error --max-time 20 https://api.ipify.org); printf %s \"$value\" > /dev/termination-log"}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &no, RunAsNonRoot: pointer(true), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}}}}}
+	probeCAFile := ""
+	volumes := []corev1.Volume(nil)
+	volumeMounts := []corev1.VolumeMount(nil)
+	if probeCAConfigMap != "" {
+		probeCAFile = "/etc/waycloak-probe-ca/ca.crt"
+		volumes = []corev1.Volume{{Name: "probe-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: probeCAConfigMap}, Items: []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}}}}}}
+		volumeMounts = []corev1.VolumeMount{{Name: "probe-ca", MountPath: "/etc/waycloak-probe-ca", ReadOnly: true}}
+	}
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: all}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, RestartPolicy: corev1.RestartPolicyNever, Volumes: volumes, Containers: []corev1.Container{{Name: "probe", Image: image, Env: []corev1.EnvVar{{Name: "PROBE_URL", Value: probeURL}, {Name: "PROBE_CA_FILE", Value: probeCAFile}}, VolumeMounts: volumeMounts, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &no, RunAsNonRoot: pointer(true), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}, SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}}}}}
 }
 
 func waitRouteReady(ctx context.Context, clients *Clients, gvr schema.GroupVersionResource, namespace, name string, timeout time.Duration) error {
@@ -301,7 +320,9 @@ func runVerify(ctx context.Context, arguments []string, dependencies Dependencie
 	kubeconfig, contextName, output := clusterFlags(flags)
 	namespace := flags.String("namespace", "", "gateway/workload namespace")
 	gateway := flags.String("gateway", "", "dedicated smoke-test gateway")
-	image := flags.String("probe-image", "", "immutable curl probe image")
+	image := flags.String("probe-image", "", "immutable Waycloak probe image")
+	probeURL := flags.String("probe-url", defaultVerifyProbeURL, "HTTPS endpoint that returns the caller's IP address")
+	probeCAConfigMap := flags.String("probe-ca-configmap", "", "same-namespace ConfigMap containing public ca.crt for the probe endpoint")
 	confirm := flags.String("confirm", "", "exact smoke-test identity confirmation")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -310,7 +331,7 @@ func runVerify(ctx context.Context, arguments []string, dependencies Dependencie
 	if err != nil {
 		return err
 	}
-	report, err := Verify(ctx, clients, *namespace, *gateway, *image, *confirm)
+	report, err := Verify(ctx, clients, *namespace, *gateway, *image, *probeURL, *probeCAConfigMap, *confirm)
 	if writeErr := writeOutput(dependencies.Stdout, *output, report); err == nil {
 		err = writeErr
 	}

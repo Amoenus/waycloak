@@ -13,6 +13,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	wayconditions "github.com/Amoenus/waycloak/internal/conditions"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -130,13 +131,13 @@ func (r *ReplacementVPNGatewayReconciler) desiredStatus(ctx context.Context, gat
 			states[wayv1.ConditionProgrammed] = wayconditions.True(wayv1.ReasonProgrammed, "Gateway runtime is programmed")
 		}
 		if observation.TunnelReady {
-			states[wayv1.ConditionTunnelReady] = wayconditions.True(wayv1.ReasonReady, "Gateway tunnel is ready")
+			states[wayv1.ConditionTunnelReady] = wayconditions.True(wayv1.ReasonTunnelReady, "Gateway tunnel is ready")
 		}
 		if observation.DNSReady {
-			states[wayv1.ConditionDNSReady] = wayconditions.True(wayv1.ReasonReady, "Gateway DNS path is ready")
+			states[wayv1.ConditionDNSReady] = wayconditions.True(wayv1.ReasonDNSReady, "Gateway DNS path is ready")
 		}
 		if observation.MembershipApplied {
-			states[wayv1.ConditionMembershipApplied] = wayconditions.True(wayv1.ReasonProgrammed, "Gateway membership data plane is applied")
+			states[wayv1.ConditionMembershipApplied] = wayconditions.True(wayv1.ReasonMembershipApplied, "Gateway membership data plane is applied")
 		}
 		if observation.Ready && observation.Programmed && observation.TunnelReady && observation.DNSReady && observation.MembershipApplied {
 			states[wayv1.ConditionReady] = wayconditions.True(wayv1.ReasonReady, "Gateway live data plane is ready")
@@ -216,6 +217,7 @@ func (r *ReplacementVPNGatewayReconciler) SetupWithManager(manager ctrl.Manager)
 		r.APIReader = manager.GetAPIReader()
 	}
 	return ctrl.NewControllerManagedBy(manager).For(&wayv1.VPNGateway{}).
+		Owns(&appsv1.StatefulSet{}).
 		Watches(&wayv1.VPNGatewayClass{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForClass)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForConfigMap)).Complete(r)
 }

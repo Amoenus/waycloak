@@ -19,6 +19,7 @@ const (
 	DefaultAgentSocket  = "/run/waycloak/cni-agent.sock"
 	DefaultAgentKeyFile = "/run/waycloak/cni-auth.key"
 	DefaultStateDir     = "/var/lib/cni/waycloak/attachments"
+	AgentRequestTimeout = 5 * time.Second
 )
 
 type NetConf struct {
@@ -113,13 +114,12 @@ func Parse(stdin []byte, containerID, netns, ifName, args string, requireIdentit
 }
 
 func NewPlugin(parsed Parsed, enforcer Enforcer) Plugin {
-	requestTimeout := min(parsed.ResolveTimeout, time.Second)
 	keyFile := parsed.Conf.AgentKeyFile
 	if keyFile == "" {
 		keyFile = DefaultAgentKeyFile
 	}
 	return Plugin{
-		Agent:    UnixAgentClient{SocketPath: parsed.Conf.AgentSocket, KeyFile: keyFile, RequestTimeout: requestTimeout},
+		Agent:    UnixAgentClient{SocketPath: parsed.Conf.AgentSocket, KeyFile: keyFile, RequestTimeout: AgentRequestTimeout},
 		Enforcer: enforcer, Store: FileStore{Directory: parsed.Conf.StateDir},
 		ResolveTimeout: parsed.ResolveTimeout, BindingTimeout: parsed.BindingTimeout, RetryInterval: parsed.RetryInterval,
 	}

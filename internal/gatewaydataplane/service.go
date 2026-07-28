@@ -25,10 +25,11 @@ type Engine interface {
 }
 
 type Service struct {
-	Config  Config
-	Backend Backend
-	Engine  Engine
-	healthy atomic.Bool
+	Config             Config
+	Backend            Backend
+	Engine             Engine
+	ReconcileErrorHook func(error)
+	healthy            atomic.Bool
 }
 
 func (service *Service) Reconcile(ctx context.Context) error {
@@ -93,6 +94,7 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	lastReconcileError := ""
 	for {
 		reconcileCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := service.Reconcile(reconcileCtx)
@@ -100,6 +102,7 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		if err != nil && ctx.Err() == nil {
 			service.healthy.Store(false)
 		}
+		lastReconcileError = service.reportReconcileError(err, lastReconcileError)
 		select {
 		case <-ctx.Done():
 			_ = service.Backend.ReplaceRules(context.Background(), service.Config, false)
@@ -107,6 +110,17 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (service *Service) reportReconcileError(err error, previous string) string {
+	if err == nil {
+		return ""
+	}
+	current := err.Error()
+	if current != previous && service.ReconcileErrorHook != nil {
+		service.ReconcileErrorHook(err)
+	}
+	return current
 }
 
 func runDNS(ctx context.Context, config Config) error {

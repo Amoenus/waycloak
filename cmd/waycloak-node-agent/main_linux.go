@@ -99,13 +99,19 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		return err
 	}
 	service := &nodeagent.Service{
-		Reader: manager.GetClient(), Programmer: waycni.LinuxEnforcer{Backend: backend},
+		// CNI ADD is a creation-time security boundary. Resolve the exact Pod UID
+		// and node assignment from the API server, not an eventually consistent
+		// controller-runtime cache that may still hold a prior name/UID pair.
+		Reader: manager.GetAPIReader(), Programmer: waycni.LinuxEnforcer{Backend: backend},
 		Store: waycni.FileStore{Directory: stateDir}, NodeName: nodeName, NodeBootID: bootID, InstanceID: instanceID,
 		RequireRelay: true, Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
 		ReleaseIdentity:    releaseIdentity,
 		ConformanceProfile: wayv1.QualifiedName(conformanceProfile),
 	}
-	if err := reconcileInstalledState(ctx, service, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
+	service.OperationErrorHook = func(operation string, err error) {
+		log.Printf("local %s operation remained fail closed: %v", operation, err)
+	}
+	if err := recoverInstalledState(ctx, service, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
 		log.Printf("initial fail-closed recovery incomplete: %v", err)
 		service.SetBackendHealthy(false)
 	} else {
@@ -152,6 +158,16 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		return nil
 	}
 	return err
+}
+
+func recoverInstalledState(ctx context.Context, service *nodeagent.Service, receiptFile, binaryFile, configFile string, releaseIdentity wayv1.ReleaseIdentity) error {
+	if err := nodeagent.ValidateCNIInstallation(receiptFile, binaryFile, configFile, releaseIdentity); err != nil {
+		return fmt.Errorf("CNI installation invalid: %w", err)
+	}
+	if err := service.LockdownAll(ctx); err != nil {
+		return fmt.Errorf("restore deny-first state before serving CNI: %w", err)
+	}
+	return service.ReconcileAll(ctx)
 }
 
 func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, cniReceiptFile, cniBinaryFile, cniConfigFile string, releaseIdentity wayv1.ReleaseIdentity, interval time.Duration) {

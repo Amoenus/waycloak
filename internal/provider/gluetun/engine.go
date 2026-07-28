@@ -94,13 +94,14 @@ func (engine *Engine) verifyTransport(ctx context.Context, component string, obs
 	}
 	engine.client().CloseIdleConnections()
 	secondErr := observe()
-	engine.logger().Warn("gluetun transport verification completed",
-		"event", "gluetun_transport_verification",
-		"component", component,
-		"recovered", secondErr == nil,
-		"first_error", firstErr.Error(),
-		"second_error", errorString(secondErr),
-	)
+	if secondErr == nil {
+		engine.logger().Warn("gluetun transport verification recovered after a transient failure",
+			"event", "gluetun_transport_verification",
+			"component", component,
+			"recovered", true,
+			"first_error", firstErr.Error(),
+		)
+	}
 	return secondErr
 }
 
@@ -170,11 +171,4 @@ func (engine *Engine) logger() *slog.Logger {
 		return engine.Logger
 	}
 	return slog.Default()
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }

@@ -4,12 +4,14 @@
 package nodeagent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
 	waycni "github.com/Amoenus/waycloak/internal/cni"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func Handler(service *Service) http.Handler {
@@ -40,6 +42,7 @@ func Handler(service *Service) http.Handler {
 			case "resolve":
 				resolution, err := service.Resolve(request.Context(), input.Pod)
 				if err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -47,6 +50,7 @@ func Handler(service *Service) http.Handler {
 			case "binding":
 				binding, err := service.Binding(request.Context(), input.Pod)
 				if err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -57,6 +61,7 @@ func Handler(service *Service) http.Handler {
 					return
 				}
 				if err := service.Prepare(request.Context(), input.Pod, *input.Binding); err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -67,12 +72,14 @@ func Handler(service *Service) http.Handler {
 					return
 				}
 				if err := service.Check(request.Context(), input.Pod, *input.Binding); err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
 				response.WriteHeader(http.StatusNoContent)
 			case "withdraw":
 				if err := service.Withdraw(request.Context(), input.Pod); err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -88,10 +95,41 @@ func Handler(service *Service) http.Handler {
 	return mux
 }
 
+func reportOperationError(service *Service, operation string, err error) {
+	if service != nil && service.OperationErrorHook != nil {
+		service.OperationErrorHook(operation, err)
+	}
+}
+
 func writeServiceError(response http.ResponseWriter, err error) {
 	if errors.Is(err, waycni.ErrBindingNotReady) {
 		writeFailure(response, http.StatusConflict, waycni.AgentErrorBindingNotReady, true, "Binding is not ready")
 		return
+	}
+	if errors.Is(err, ErrPodLookupFailed) {
+		message := "Kubernetes Pod observation failed"
+		switch {
+		case apierrors.IsNotFound(err):
+			message = "Kubernetes Pod is not yet observable"
+		case apierrors.IsForbidden(err):
+			message = "Kubernetes Pod read is unauthorized"
+		case apierrors.IsUnauthorized(err):
+			message = "Kubernetes API identity is unauthorized"
+		case errors.Is(err, context.DeadlineExceeded):
+			message = "Kubernetes Pod observation timed out"
+		}
+		writeFailure(response, http.StatusForbidden, waycni.AgentErrorPodIdentityMismatch, false, message)
+		return
+	}
+	for authorityError, message := range map[error]string{
+		ErrPodIdentityInvalid: "Pod identity is invalid",
+		ErrPodUIDMismatch:     "Pod UID does not match API observation",
+		ErrPodNodeMismatch:    "Pod node does not match local authority",
+	} {
+		if errors.Is(err, authorityError) {
+			writeFailure(response, http.StatusForbidden, waycni.AgentErrorPodIdentityMismatch, false, message)
+			return
+		}
 	}
 	writeFailure(response, http.StatusForbidden, waycni.AgentErrorPodIdentityMismatch, false, "Exact local authority check failed")
 }

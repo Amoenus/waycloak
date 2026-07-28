@@ -54,10 +54,14 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   rolling-replacement evidence passes.
 - [ ] #138: turnkey CLI and runtime installation are in progress independently
   of the still-unadvertised Extended #137 capability. Do not close until signed
-  exact-artifact, clean-install, under-15-minute provider, and disruptive smoke
-  evidence pass. A disposable Kind/local-OCI gate now exercises preflight,
+  exact-artifact, clean-install, and under-15-minute provider evidence pass. A
+  disposable Kind/local-OCI gate now exercises preflight,
   plan, refusal without exact confirmation, full apply, CNI receipt/chain,
-  authenticated node capability, release identity, and doctor. Release
+  authenticated node capability, release identity, doctor, and a
+  confirmation-gated disruptive smoke run through a kernel WireGuard fixture.
+  The smoke run proves same-observer distinct source identity, gateway-loss
+  startup denial, recovery, and owned-object cleanup without treating the
+  fixture as a supported provider. Release
   manifests are bound to a recomputed canonical
   version/chart/image/profile identity and reject hidden extra artifacts. The
   mandatory CNI installer image now has a repeat-built multi-platform OCI gate,
@@ -66,6 +70,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   path isolates attachment records from the install receipt and runs only the
   privileged infrastructure agent in the host network namespace, avoiding a
   circular dependency on its own CNI authority without exempting applications.
+  Clean installs also wait for a controller-only Helm revision before activating
+  the exact CNI/node-agent runtime; existing releases go directly to the full
+  revision and never withdraw their installed deny path.
+  Creation-time Pod UID and node assignment checks use direct API-server reads,
+  never the node agent's eventually consistent reconciliation cache.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.

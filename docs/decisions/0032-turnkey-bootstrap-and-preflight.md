@@ -40,6 +40,14 @@ Mutation requires `--apply` or explicit confirmation. Broad namespace Pod
 Security changes, CRD upgrades, CNI modification, credential creation, and
 destructive cleanup are never implicit.
 
+For a clean install, one confirmation-bound apply uses two Helm revisions. It
+first starts the controller with the CNI installer, node agent, and default
+class disabled, then activates the exact reviewed Core values only after that
+bootstrap revision is Ready. Existing deployed releases skip the bootstrap
+revision. This ordering avoids making the chained CNI authoritative before its
+control plane exists without exempting application namespaces or weakening
+deny-first ADD behavior.
+
 If a minimal dynamic admission webhook remains necessary, its TLS follows ADR
 0010. Static mutation and validation prefer stable declarative admission policy
 on supported Kubernetes versions. Neither admission mechanism is the packet

@@ -189,16 +189,33 @@ acceptance now exercises that manifest through CLI preflight, plan, exact
 confirmation and apply; it rejects a wrong confirmation before namespace
 creation, then verifies pinned runtime images, the release-bound CNI receipt and
 chain, authenticated node capability, default-class identity, and healthy
-doctor output. Issue #138 is not complete: a published signed CLI artifact, the
-under-15-minute real-provider journey, and exact-artifact disruptive smoke
-evidence remain required.
+doctor output. The same exact-artifact gate now creates a disposable kernel
+WireGuard tunnel and HTTPS egress observer, proves wrong-confirmation
+non-mutation, distinct ordinary/protected source identity, exact-UID gateway
+replacement, protected application startup denial during loss, recovery, and
+owned-object cleanup. The fixture uses runtime-generated keys and certificates
+and is not a supported provider. Issue #138 is not complete: a published signed
+CLI artifact and the under-15-minute real-provider journey remain required.
 
-The turnkey gate additionally found and closed two node bootstrap hazards before
+The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
 state, and the privileged node agent uses the host network namespace so its own
 Pod sandbox cannot depend on the not-yet-running local CNI authority. Enrolled
 application Pods remain subject to the chained plugin and are rejected if they
-request a host namespace.
+request a host namespace. The installer and node agent now also render the same
+versioned local socket/key paths, with exact-artifact assertions before any new
+Pod sandbox is admitted.
+Clean installs now commit a controller-only Helm bootstrap revision before
+activating the CNI installer, node agent, and default class. Existing releases
+skip that bootstrap so upgrades never withdraw the deny path. This ordering was
+added after exact-artifact CI proved that simultaneous first activation could
+make the CNI authoritative before the controller Pod sandbox existed.
+The same gate then proved that an eventually consistent node-agent cache is not
+an acceptable CNI identity authority: exact Pod UID and node assignment checks
+now use a direct API-server reader, preserving name-reuse and mismatch denial.
+The direct reader uses a separately projected Kubernetes API token with the API
+server's default audience; the audience-bound observation token remains isolated
+and cannot be substituted for Kubernetes API access.
 
 Issue #139 implementation is in progress. The teardown assistant now creates a
 strictly metadata-only alpha inventory with hashed API-server, trust-root, and

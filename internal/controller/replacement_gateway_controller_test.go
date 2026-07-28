@@ -130,7 +130,7 @@ func TestGatewayReadyRequiresCompleteLiveRuntimeObservation(t *testing.T) {
 	reconciler.Runtime = staticGatewayRuntime{observation: GatewayRuntimeObservation{Programmed: true, Ready: true, TunnelReady: true, DNSReady: true, MembershipApplied: true, Addresses: []wayv1.GatewayAddress{{Type: wayv1.GatewayAddressTypeOverlayCIDR, Value: "100.96.0.0/24"}}}}
 	status := reconciler.desiredStatus(context.Background(), gateway)
 	for _, conditionType := range []string{wayv1.ConditionProgrammed, wayv1.ConditionTunnelReady, wayv1.ConditionDNSReady, wayv1.ConditionMembershipApplied, wayv1.ConditionReady} {
-		assertReplacementCondition(t, status.Conditions, conditionType, metav1.ConditionTrue, map[string]string{wayv1.ConditionProgrammed: wayv1.ReasonProgrammed, wayv1.ConditionTunnelReady: wayv1.ReasonReady, wayv1.ConditionDNSReady: wayv1.ReasonReady, wayv1.ConditionMembershipApplied: wayv1.ReasonProgrammed, wayv1.ConditionReady: wayv1.ReasonReady}[conditionType])
+		assertReplacementCondition(t, status.Conditions, conditionType, metav1.ConditionTrue, map[string]string{wayv1.ConditionProgrammed: wayv1.ReasonProgrammed, wayv1.ConditionTunnelReady: wayv1.ReasonTunnelReady, wayv1.ConditionDNSReady: wayv1.ReasonDNSReady, wayv1.ConditionMembershipApplied: wayv1.ReasonMembershipApplied, wayv1.ConditionReady: wayv1.ReasonReady}[conditionType])
 	}
 	if len(status.Addresses) != 1 || status.Addresses[0].Value != "100.96.0.0/24" {
 		t.Fatalf("runtime addresses not published: %#v", status.Addresses)

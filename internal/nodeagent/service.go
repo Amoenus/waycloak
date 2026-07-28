@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,12 @@ import (
 
 const routeLabel = "networking.waycloak.io/egress-route"
 
+// A CNI ADD can spend at most 5s resolving the Pod, 30s waiting for its
+// binding, and 5s in one local programming request. During that transaction
+// the durable record intentionally remains LockedDown. Drift reconciliation
+// must not race the CNI-owned transition to Ready.
+const lockedDownReconcileDelay = 45 * time.Second
+
 // Programmer is the narrow privileged network-namespace boundary. Production
 // uses the native nftables/netlink backend; tests use an in-memory recorder.
 type Programmer interface {
@@ -37,6 +44,7 @@ type Programmer interface {
 type AttachmentStore interface {
 	ListAll() ([]waycni.Attachment, error)
 	Save(waycni.Attachment) error
+	Delete(waycni.Key) error
 }
 
 type Observation struct {
@@ -54,6 +62,13 @@ type Observation struct {
 }
 
 const ReportAPIVersion = "node-observations.waycloak.io/v1"
+
+var (
+	ErrPodIdentityInvalid = errors.New("pod identity is invalid")
+	ErrPodLookupFailed    = errors.New("kubernetes Pod observation failed")
+	ErrPodUIDMismatch     = errors.New("pod UID does not match API observation")
+	ErrPodNodeMismatch    = errors.New("pod node does not match local authority")
+)
 
 type NodeReport struct {
 	NodeName           string                `json:"nodeName"`
@@ -87,6 +102,7 @@ type Service struct {
 	Capabilities       []string
 	ReleaseIdentity    wayv1.ReleaseIdentity
 	ConformanceProfile wayv1.QualifiedName
+	OperationErrorHook func(string, error)
 
 	mu             sync.RWMutex
 	observations   map[string]Observation
@@ -204,6 +220,14 @@ func (s *Service) LockdownAll(ctx context.Context) error {
 	}
 	var errs []error
 	for _, attachment := range attachments {
+		stale, err := s.discardStaleAttachment(attachment)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if stale {
+			continue
+		}
 		if err := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
 			errs = append(errs, err)
 			continue
@@ -252,12 +276,34 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		if attachment.Pod.UID == "" || attachment.Pod.NetNS == "" {
 			continue
 		}
+		stale, staleErr := s.discardStaleAttachment(attachment)
+		if staleErr != nil {
+			errs = append(errs, staleErr)
+			continue
+		}
+		if stale {
+			continue
+		}
 		pod, err := s.pod(ctx, attachment.Pod)
 		if apierrors.IsNotFound(err) {
-			errs = append(errs, s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+			if cleanupErr := s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID); cleanupErr != nil {
+				errs = append(errs, cleanupErr)
+				continue
+			}
+			if deleteErr := s.Store.Delete(attachment.Key()); deleteErr != nil {
+				errs = append(errs, fmt.Errorf("delete absent Pod attachment: %w", deleteErr))
+			}
 			continue
 		}
 		if err != nil || !pod.DeletionTimestamp.IsZero() {
+			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+			continue
+		}
+		if attachment.Phase == waycni.PhaseLockedDown {
+			age := s.now().Sub(attachment.UpdatedAt)
+			if !attachment.UpdatedAt.IsZero() && age >= 0 && age < lockedDownReconcileDelay {
+				continue
+			}
 			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
 			continue
 		}
@@ -278,6 +324,16 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 			reconcileErr = s.Check(ctx, attachment.Pod, requested)
 		}
 		if reconcileErr != nil {
+			if errors.Is(reconcileErr, fs.ErrNotExist) {
+				stale, discardErr := s.discardStaleAttachment(attachment)
+				if discardErr != nil {
+					errs = append(errs, discardErr)
+					continue
+				}
+				if stale {
+					continue
+				}
+			}
 			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
 				s.observe(binding, false)
 			}
@@ -294,6 +350,26 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// discardStaleAttachment removes durable state only when its exact network
+// namespace no longer exists or its path has been reused. It deliberately
+// performs no network operation against a reused path.
+func (s *Service) discardStaleAttachment(attachment waycni.Attachment) (bool, error) {
+	identity, err := s.Programmer.Identity(attachment.Pod.NetNS)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("observe durable attachment namespace: %w", err)
+	}
+	if err == nil && identity == attachment.NamespaceIdentity {
+		return false, nil
+	}
+	if err := s.Store.Delete(attachment.Key()); err != nil {
+		return false, fmt.Errorf("delete stale attachment: %w", err)
+	}
+	s.mu.Lock()
+	delete(s.observations, attachment.Pod.UID)
+	s.mu.Unlock()
+	return true, nil
 }
 
 func (s *Service) Observations() []Observation {
@@ -330,17 +406,20 @@ func (s *Service) authority(ctx context.Context, identity waycni.PodIdentity, re
 
 func (s *Service) pod(ctx context.Context, identity waycni.PodIdentity) (*corev1.Pod, error) {
 	if err := identity.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrPodIdentityInvalid, err)
 	}
 	if s.Reader == nil || s.Programmer == nil || s.NodeName == "" {
-		return nil, errors.New("node agent reader, programmer, and node name are required")
+		return nil, fmt.Errorf("%w: node agent dependencies are incomplete", ErrPodIdentityInvalid)
 	}
 	pod := &corev1.Pod{}
 	if err := s.Reader.Get(ctx, client.ObjectKey{Namespace: identity.Namespace, Name: identity.Name}, pod); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrPodLookupFailed, err)
 	}
-	if string(pod.UID) != identity.UID || pod.Spec.NodeName != s.NodeName {
-		return nil, errors.New("pod UID or node assignment does not match local authority")
+	if string(pod.UID) != identity.UID {
+		return nil, ErrPodUIDMismatch
+	}
+	if pod.Spec.NodeName != s.NodeName {
+		return nil, ErrPodNodeMismatch
 	}
 	return pod, nil
 }
