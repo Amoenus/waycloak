@@ -191,6 +191,24 @@ errors. Recovery tests also assert stable gateway and workload Pod UIDs, stable
 overlay and lease identities, and an increased VPN-engine container restart
 count before readiness returns.
 
+## Turnkey CLI and installation
+
+Treat every `waycloakctl` output schema and mutation boundary as an API. Unit
+tests require strict JSON decoding, exact plan recomputation and confirmation,
+unsupported-cluster refusal before mutation, in-memory observation-key creation,
+no private key in Helm values, exact UID-scoped disruption, and deterministic
+support-bundle redaction with credential and endpoint canaries. CI builds every
+CLI target twice, compares it byte-for-byte, generates an SPDX SBOM, signs exact
+checksums using GitHub OIDC, and records build provenance.
+
+A clean supported Kind or k3d row must exercise preflight, plan, apply, CNI
+receipt verification, controller/node capability readiness, and Helm rollback.
+The credentialed gate then measures the clean Proton/OpenVPN path from preflight
+to verified protected curl, requires completion within 15 minutes, deletes the
+exact gateway Pod, and proves ordinary egress continues while newly enrolled
+application containers cannot start until the protected path recovers. Alpha
+presence is a preflight refusal, never an automatic migration.
+
 ## Credentialed tests
 
 Provider tests run only in protected CI environments or operator-owned clusters with short-lived credentials. Pull requests from forks never receive credentials. Logs and artifacts are redacted, retained minimally, and must not publish residential/provider-linked public IP history.

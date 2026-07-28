@@ -15,6 +15,85 @@
         }
       }
     },
+    "releaseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "manifestDigest"],
+      "properties": {
+        "version": {"type": "string", "maxLength": 128},
+        "manifestDigest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "replicas", "observationTLSSecret", "observationPort", "conformanceProfile", "gateway"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "digest"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "replicas": {"type": "integer", "minimum": 1, "maximum": 3},
+        "observationTLSSecret": {"type": "string"},
+        "observationPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "conformanceProfile": {"type": "string", "minLength": 1},
+        "gateway": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engineImage", "agentImage", "overlayCIDR", "vni", "mtu", "vxlanPort", "healthPort"],
+          "properties": {
+            "engineImage": {
+              "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
+              "properties": {"repository": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}}
+            },
+            "agentImage": {
+              "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
+              "properties": {"repository": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}}
+            },
+            "overlayCIDR": {"type": "string"},
+            "vni": {"type": "integer", "minimum": 1, "maximum": 16777215},
+            "mtu": {"type": "integer", "minimum": 576, "maximum": 9000},
+            "vxlanPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "healthPort": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        }
+      }
+    },
+    "cniInstaller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "pauseImage", "configHostPath", "binaryHostPath", "receiptHostPath"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "digest"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "pauseImage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "digest"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "configHostPath": {"type": "string"},
+        "binaryHostPath": {"type": "string"},
+        "receiptHostPath": {"type": "string"}
+      }
+    },
     "defaultGatewayClass": {
       "type": "object",
       "additionalProperties": false,

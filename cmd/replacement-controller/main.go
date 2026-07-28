@@ -8,11 +8,13 @@ import (
 	"crypto/tls"
 	"flag"
 	"net/http"
+	"net/netip"
 	"os"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/gatewayruntime"
 	"github.com/Amoenus/waycloak/internal/observationrelay"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/scheduling"
@@ -33,6 +35,9 @@ func main() {
 	var portForwardRuntimePort uint
 	var adapterCA, adapterCert, adapterKey string
 	var adapterPort uint
+	var gatewayEngineImage, gatewayAgentImage, gatewayOverlayCIDR string
+	var gatewayVNI, gatewayVXLANPort, gatewayHealthPort uint
+	var gatewayMTU int
 	var leaderElection bool
 	flag.StringVar(&metricsAddress, "metrics-bind-address", ":8080", "metrics listener")
 	flag.StringVar(&probeAddress, "health-probe-bind-address", ":8081", "health listener")
@@ -54,6 +59,13 @@ func main() {
 	flag.StringVar(&adapterCert, "adapter-client-cert", "", "controller mTLS certificate for adapter health")
 	flag.StringVar(&adapterKey, "adapter-client-key", "", "controller mTLS private key for adapter health")
 	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic WorkloadAdapter Service HTTPS port")
+	flag.StringVar(&gatewayEngineImage, "gateway-engine-image", "", "exact default gateway engine image by digest")
+	flag.StringVar(&gatewayAgentImage, "gateway-agent-image", "", "exact default gateway agent image by digest")
+	flag.StringVar(&gatewayOverlayCIDR, "gateway-overlay-cidr", "", "reviewed default gateway overlay CIDR")
+	flag.UintVar(&gatewayVNI, "gateway-vni", 7999, "reviewed default gateway VNI")
+	flag.IntVar(&gatewayMTU, "gateway-mtu", 1320, "reviewed default gateway overlay MTU")
+	flag.UintVar(&gatewayVXLANPort, "gateway-vxlan-port", 4789, "default gateway VXLAN port")
+	flag.UintVar(&gatewayHealthPort, "gateway-health-port", 18080, "default gateway overlay health port")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -107,6 +119,15 @@ func main() {
 		ctrl.Log.Error(err, "create replacement manager")
 		os.Exit(1)
 	}
+	var gatewayRuntime waycontroller.GatewayRuntimeProvisioner
+	if gatewayEngineImage != "" || gatewayAgentImage != "" || gatewayOverlayCIDR != "" {
+		overlay, overlayErr := netip.ParsePrefix(gatewayOverlayCIDR)
+		if overlayErr != nil || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 {
+			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
+			os.Exit(1)
+		}
+		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, OverlayCIDR: overlay.Masked(), VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+	}
 	classController := &waycontroller.VPNGatewayClassReconciler{
 		Client: manager.GetClient(), ControllerName: wayv1.ControllerName(gatewayControllerName),
 		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
@@ -120,7 +141,7 @@ func main() {
 		Client: manager.GetClient(), APIReader: manager.GetAPIReader(), ControllerName: wayv1.ControllerName(gatewayControllerName),
 		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
 		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: supportedFeatures,
-		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
+		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole}, Runtime: gatewayRuntime,
 	}).SetupWithManager(manager); err != nil {
 		ctrl.Log.Error(err, "setup VPNGateway controller")
 		os.Exit(1)

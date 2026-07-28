@@ -167,6 +167,19 @@ restart, and privileged TCP/UDP namespace handoff tests pass locally. Kind and
 real-provider rolling-replacement evidence are still required before the
 Extended capability can be advertised or #137 can close.
 
+Issue #138 is in progress on the turnkey bootstrap slice. `waycloakctl` now
+implements read-only cluster preflight, exact release-manifest install planning,
+confirmation-gated Helm apply, a reviewed Proton/OpenVPN gateway recipe,
+condition-safe doctor output, exact-UID disruptive verification, and a
+deterministic redacted support bundle. The chart can install the replacement
+controller, deny-first chained CNI, node agent, gateway runtime, and exact
+default class only from immutable release identities. A privileged namespace
+test proves the gateway deny-first TCP/UDP and tunnel-loss path. Read-only
+homelab preflight correctly refuses the still-served alpha API. Issue #138 is
+not complete: a published signed CLI artifact, clean Kind installation, the
+under-15-minute real-provider journey, and exact-artifact disruptive smoke
+evidence remain required.
+
 ## Alpha as-built history
 
 The `v0.3.4` sidecar recovery candidate for #121 fixes a fail-closed startup

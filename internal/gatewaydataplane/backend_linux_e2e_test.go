@@ -1,0 +1,280 @@
+// Copyright 2026 The Waycloak Authors.
+// SPDX-License-Identifier: MIT
+
+//go:build linux && e2e
+
+package gatewaydataplane
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"testing"
+	"time"
+
+	pluginsns "github.com/containernetworking/plugins/pkg/ns"
+	"github.com/vishvananda/netlink"
+	vnetns "github.com/vishvananda/netns"
+)
+
+func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
+	if os.Getenv("WAYCLOAK_E2E_GATEWAY_NETNS") != "1" {
+		t.Skip("set WAYCLOAK_E2E_GATEWAY_NETNS=1 in an authorized privileged environment")
+	}
+	app, gateway, vpn, direct := newGatewayNS(t), newGatewayNS(t), newGatewayNS(t), newGatewayNS(t)
+	setupGatewayVeth(t, app, gateway, "app0", "waycloak0")
+	setupGatewayVeth(t, vpn, gateway, "vpn0", "tun0")
+	setupGatewayVeth(t, direct, gateway, "wan0", "eth0")
+	configureGatewayInterface(t, app, "app0", "100.96.0.2/24", "100.96.0.1")
+	configureGatewayInterface(t, gateway, "waycloak0", "100.96.0.1/24", "")
+	configureGatewayInterface(t, vpn, "vpn0", "10.10.0.2/24", "10.10.0.1")
+	configureGatewayInterface(t, gateway, "tun0", "10.10.0.1/24", "")
+	configureGatewayInterface(t, direct, "wan0", "192.0.2.2/24", "192.0.2.1")
+	configureGatewayInterface(t, gateway, "eth0", "192.0.2.1/24", "192.0.2.2")
+	if err := gateway.Do(func(pluginsns.NetNS) error {
+		return os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0o644)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	vpnTCP := listenGatewayTCP(t, vpn, "10.10.0.2:18081")
+	defer vpnTCP.Close()
+	serveGatewayTCP(vpnTCP, "vpn")
+	vpnUDP := listenGatewayUDP(t, vpn, "10.10.0.2:18082")
+	defer vpnUDP.Close()
+	serveGatewayUDP(vpnUDP, "vpn")
+	directTCP := listenGatewayTCP(t, direct, "192.0.2.2:18081")
+	defer directTCP.Close()
+	serveGatewayTCP(directTCP, "direct")
+	// The connected ordinary path is intentionally reachable before Waycloak
+	// installs its owned chain, proving that later failures are real denial and
+	// not an inert topology.
+	assertGatewayTCP(t, app, "192.0.2.2:18081", "direct")
+	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	backend := LinuxBackend{}
+	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, false) }); err != nil {
+		t.Fatal(err)
+	}
+	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, true) }); err != nil {
+		t.Fatal(err)
+	}
+	assertGatewayTCP(t, app, "10.10.0.2:18081", "vpn")
+	assertGatewayUDP(t, app, "10.10.0.2:18082", "vpn")
+	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+	if err := gateway.Do(func(pluginsns.NetNS) error {
+		link, err := netlink.LinkByName("tun0")
+		if err != nil {
+			return err
+		}
+		return netlink.LinkSetDown(link)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, false) }); err != nil {
+		t.Fatal(err)
+	}
+	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+}
+
+func newGatewayNS(t *testing.T) pluginsns.NetNS {
+	t.Helper()
+	name := fmt.Sprintf("waycloak-gw-%d-%d", os.Getpid(), time.Now().UnixNano())
+	var createErr error
+	var group sync.WaitGroup
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		runtime.LockOSThread()
+		original, err := vnetns.Get()
+		if err != nil {
+			createErr = err
+			return
+		}
+		defer original.Close()
+		created, err := vnetns.NewNamed(name)
+		if err != nil {
+			createErr = err
+			return
+		}
+		created.Close()
+		createErr = vnetns.Set(original)
+	}()
+	group.Wait()
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	networkNS, err := pluginsns.GetNS(filepath.Join("/var/run/netns", name))
+	if err != nil {
+		_ = vnetns.DeleteNamed(name)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = networkNS.Close(); _ = vnetns.DeleteNamed(name) })
+	return networkNS
+}
+func setupGatewayVeth(t *testing.T, endpoint, gateway pluginsns.NetNS, endpointName, gatewayName string) {
+	t.Helper()
+	if err := endpoint.Do(func(pluginsns.NetNS) error {
+		return netlink.LinkAdd(&netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: endpointName, MTU: 1500}, PeerName: gatewayName, PeerNamespace: netlink.NsFd(int(gateway.Fd()))})
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func configureGatewayInterface(t *testing.T, networkNS pluginsns.NetNS, name, cidr, gateway string) {
+	t.Helper()
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		loopback, err := netlink.LinkByName("lo")
+		if err != nil {
+			return err
+		}
+		if err = netlink.LinkSetUp(loopback); err != nil {
+			return err
+		}
+		link, err := netlink.LinkByName(name)
+		if err != nil {
+			return err
+		}
+		address, err := netlink.ParseAddr(cidr)
+		if err != nil {
+			return err
+		}
+		if err = netlink.AddrAdd(link, address); err != nil {
+			return err
+		}
+		if err = netlink.LinkSetUp(link); err != nil {
+			return err
+		}
+		if gateway != "" {
+			return netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: net.ParseIP(gateway)})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func listenGatewayTCP(t *testing.T, networkNS pluginsns.NetNS, address string) net.Listener {
+	t.Helper()
+	var listener net.Listener
+	if err := networkNS.Do(func(pluginsns.NetNS) error { var err error; listener, err = net.Listen("tcp4", address); return err }); err != nil {
+		t.Fatal(err)
+	}
+	return listener
+}
+func listenGatewayUDP(t *testing.T, networkNS pluginsns.NetNS, address string) *net.UDPConn {
+	t.Helper()
+	var listener *net.UDPConn
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		peer, err := net.ResolveUDPAddr("udp4", address)
+		if err != nil {
+			return err
+		}
+		listener, err = net.ListenUDP("udp4", peer)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return listener
+}
+func serveGatewayTCP(listener net.Listener, identity string) {
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				request := make([]byte, 32)
+				count, err := connection.Read(request)
+				if err == nil {
+					_, _ = connection.Write([]byte(identity + ":" + string(request[:count])))
+				}
+			}()
+		}
+	}()
+}
+func serveGatewayUDP(listener *net.UDPConn, identity string) {
+	go func() {
+		buffer := make([]byte, 256)
+		for {
+			count, peer, err := listener.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			_, _ = listener.WriteToUDP([]byte(identity+":"+string(buffer[:count])), peer)
+		}
+	}()
+}
+func assertGatewayTCP(t *testing.T, networkNS pluginsns.NetNS, address, identity string) {
+	t.Helper()
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		connection, err := net.DialTimeout("tcp4", address, 2*time.Second)
+		if err != nil {
+			return err
+		}
+		defer connection.Close()
+		_ = connection.SetDeadline(time.Now().Add(2 * time.Second))
+		if _, err = connection.Write([]byte("probe")); err != nil {
+			return err
+		}
+		response := make([]byte, len(identity)+6)
+		if _, err = io.ReadFull(connection, response); err != nil {
+			return err
+		}
+		if string(response) != identity+":probe" {
+			return errors.New("response used the wrong path")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func assertGatewayUDP(t *testing.T, networkNS pluginsns.NetNS, address, identity string) {
+	t.Helper()
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		peer, err := net.ResolveUDPAddr("udp4", address)
+		if err != nil {
+			return err
+		}
+		connection, err := net.DialUDP("udp4", nil, peer)
+		if err != nil {
+			return err
+		}
+		defer connection.Close()
+		_ = connection.SetDeadline(time.Now().Add(2 * time.Second))
+		if _, err = connection.Write([]byte("probe")); err != nil {
+			return err
+		}
+		response := make([]byte, 64)
+		count, err := connection.Read(response)
+		if err != nil {
+			return err
+		}
+		if string(response[:count]) != identity+":probe" {
+			return errors.New("UDP response used the wrong path")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func assertGatewayUnavailable(t *testing.T, networkNS pluginsns.NetNS, address string) {
+	t.Helper()
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		connection, err := net.DialTimeout("tcp4", address, 400*time.Millisecond)
+		if err == nil {
+			connection.Close()
+			return errors.New("ordinary path remained reachable")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

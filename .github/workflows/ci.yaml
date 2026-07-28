@@ -97,6 +97,17 @@ jobs:
             go test -tags=e2e ./internal/portforward \
               -run '^TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal$' \
               -v -count=1 -timeout=2m
+      - name: Prove Core gateway fail-closed packet path
+        run: |
+          sudo env "PATH=$PATH" WAYCLOAK_E2E_GATEWAY_NETNS=1 \
+            go test -tags=e2e ./internal/gatewaydataplane \
+              -run '^TestGatewayCoreFailClosedTCPUDPAndTunnelLoss$' \
+              -v -count=1 -timeout=2m
+      - name: Verify reproducible cross-platform waycloakctl artifacts
+        run: |
+          make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-1" WAYCLOAK_VERSION=v0.0.0-ci
+          make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-2" WAYCLOAK_VERSION=v0.0.0-ci
+          diff --recursive --no-dereference "$RUNNER_TEMP/waycloakctl-1" "$RUNNER_TEMP/waycloakctl-2"
       - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts
@@ -125,6 +136,41 @@ jobs:
             echo "rendered chart contains a removed alpha runtime contract" >&2
             exit 1
           fi
+          digest="sha256:$(printf 'a%.0s' {1..64})"
+          enabled_args=(waycloak charts/waycloak --namespace waycloak-system --include-crds
+            --set-string releaseIdentity.version=v0.0.0-ci
+            --set-string releaseIdentity.manifestDigest="$digest"
+            --set controller.enabled=true
+            --set-string controller.image.digest="$digest"
+            --set-string controller.observationTLSSecret=waycloak-observation-tls
+            --set-string controller.gateway.engineImage.digest="$digest"
+            --set-string controller.gateway.agentImage.digest="$digest"
+            --set-string controller.gateway.overlayCIDR=100.96.0.0/16
+            --set cniInstaller.enabled=true
+            --set-string cniInstaller.image.digest="$digest"
+            --set-string cniInstaller.pauseImage.digest="$digest"
+            --set-string cniInstaller.configHostPath=/etc/cni/net.d/10-kindnet.conflist
+            --set-string cniInstaller.binaryHostPath=/opt/cni/bin/waycloak-cni
+            --set nodeAgent.enabled=true
+            --set-string nodeAgent.image.digest="$digest"
+            --set-string nodeAgent.observationRelayURL=https://waycloak-controller.waycloak-system.svc:9443/v1/observations
+            --set-string nodeAgent.observationCASecret=waycloak-observation-ca
+            --set-string nodeAgent.cniReceiptHostPath=/var/lib/cni/waycloak/install-receipt.json
+            --set-string nodeAgent.cniBinaryHostPath=/opt/cni/bin/waycloak-cni
+            --set-string nodeAgent.cniConfigHostPath=/etc/cni/net.d/10-kindnet.conflist
+            --set-string nodeAgent.releaseIdentity.version=v0.0.0-ci
+            --set-string nodeAgent.releaseIdentity.manifestDigest="$digest"
+            --set defaultGatewayClass.enabled=true
+            --set-string defaultGatewayClass.releaseIdentity.version=v0.0.0-ci
+            --set-string defaultGatewayClass.releaseIdentity.manifestDigest="$digest")
+          helm template "${enabled_args[@]}" >"$RUNNER_TEMP/enabled-1.yaml"
+          helm template "${enabled_args[@]}" >"$RUNNER_TEMP/enabled-2.yaml"
+          cmp "$RUNNER_TEMP/enabled-1.yaml" "$RUNNER_TEMP/enabled-2.yaml"
+          test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
+          test "$(grep -c '^kind: DaemonSet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
+          test "$(grep -c '^kind: VPNGatewayClass$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
+          test "$(grep -c '^kind: Secret$' "$RUNNER_TEMP/enabled-1.yaml" || true)" -eq 0
+          test "$(grep -c '@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RUNNER_TEMP/enabled-1.yaml")" -ge 5
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

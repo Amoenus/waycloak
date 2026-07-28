@@ -1,0 +1,110 @@
+{{- if .Values.controller.enabled }}
+{{- $digest := required "controller.image.digest is required when controller.enabled=true" .Values.controller.image.digest }}
+{{- $version := required "releaseIdentity.version is required when controller.enabled=true" .Values.releaseIdentity.version }}
+{{- $manifest := required "releaseIdentity.manifestDigest is required when controller.enabled=true" .Values.releaseIdentity.manifestDigest }}
+{{- $tlsSecret := required "controller.observationTLSSecret is required when controller.enabled=true" .Values.controller.observationTLSSecret }}
+{{- $engineDigest := required "controller.gateway.engineImage.digest is required when controller.enabled=true" .Values.controller.gateway.engineImage.digest }}
+{{- $agentDigest := required "controller.gateway.agentImage.digest is required when controller.enabled=true" .Values.controller.gateway.agentImage.digest }}
+{{- $overlayCIDR := required "controller.gateway.overlayCIDR is required when controller.enabled=true" .Values.controller.gateway.overlayCIDR }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "waycloak.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  selector:
+    {{- include "waycloak.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+  ports:
+    - name: observations
+      port: {{ .Values.controller.observationPort }}
+      targetPort: observations
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "waycloak.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "waycloak.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        {{- include "waycloak.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: {{ include "waycloak.fullname" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}@{{ $digest }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --release-version={{ $version }}
+            - --release-manifest-digest={{ $manifest }}
+            - --conformance-profile={{ .Values.controller.conformanceProfile }}
+            - --observation-bind-address=:{{ .Values.controller.observationPort }}
+            - --observation-tls-cert=/var/run/secrets/waycloak-observation/tls.crt
+            - --observation-tls-key=/var/run/secrets/waycloak-observation/tls.key
+            - --observation-agent-namespace={{ .Release.Namespace }}
+            - --observation-agent-service-account={{ include "waycloak.fullname" . }}-node-agent
+            - --gateway-engine-image={{ .Values.controller.gateway.engineImage.repository }}@{{ $engineDigest }}
+            - --gateway-agent-image={{ .Values.controller.gateway.agentImage.repository }}@{{ $agentDigest }}
+            - --gateway-overlay-cidr={{ $overlayCIDR }}
+            - --gateway-vni={{ .Values.controller.gateway.vni }}
+            - --gateway-mtu={{ .Values.controller.gateway.mtu }}
+            - --gateway-vxlan-port={{ .Values.controller.gateway.vxlanPort }}
+            - --gateway-health-port={{ .Values.controller.gateway.healthPort }}
+          ports:
+            - name: observations
+              containerPort: {{ .Values.controller.observationPort }}
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: observation-tls
+              mountPath: /var/run/secrets/waycloak-observation
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: observation-tls
+          secret:
+            secretName: {{ $tlsSecret }}
+            defaultMode: 0400
+{{- end }}

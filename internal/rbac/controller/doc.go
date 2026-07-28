@@ -17,7 +17,8 @@
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=portforwardleases/finalizers,verbs=update
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=workloadadapters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.waycloak.io,resources=workloadadapters/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=pods;namespaces;services;configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods;namespaces;configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch

@@ -1,7 +1,7 @@
 # Stable and turnkey product implementation plan
 
-Status: proposed clean-rewrite dependency graph
-Last updated: 2026-07-26
+Status: accepted clean-rewrite dependency graph; implementation in progress
+Last updated: 2026-07-28
 Product requirements: [stable-turnkey-product.md](../product/stable-turnkey-product.md)
 
 ## Delivery rule
@@ -87,8 +87,10 @@ of port forwarding and adapters.
 
 ## Phase 4 — clean cutover and turnkey workflow
 
-1. Implement signed stateless `waycloakctl preflight`, `plan`, `install`,
-   `doctor`, `smoke-test` and `support-bundle` commands.
+1. Implement signed stateless `waycloakctl preflight`, `install plan`,
+   `install apply`, `gateway init`, `doctor`, `verify` and `support-bundle`
+   commands. The command contract and current evidence are recorded in
+   [turnkey-bootstrap.md](turnkey-bootstrap.md).
 2. Detect Kubernetes/CNI/runtime/kernel/architecture, cluster CIDRs, DNS,
    privilege/Pod Security, overlay conflicts and CNI chain support.
 3. Generate reviewable Helm values, default-class gateway recipe, Secret refs,
