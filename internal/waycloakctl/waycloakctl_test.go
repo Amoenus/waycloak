@@ -71,6 +71,9 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	if count := strings.Count(plan.Values, nestedIdentity); count != 2 {
 		t.Fatalf("install values contain %d nested runtime release identities, want node agent and default class", count)
 	}
+	if !strings.Contains(plan.Values, `observationRelayURL: "https://waycloak-controller.waycloak-system.svc:9443/node-observations/v1/report"`) {
+		t.Fatalf("install values do not use the controller observation relay contract: %s", plan.Values)
+	}
 	encoded, err := EncodePlan(plan)
 	if err != nil {
 		t.Fatal(err)

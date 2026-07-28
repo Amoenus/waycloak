@@ -214,7 +214,7 @@ jobs:
             --set-string cniInstaller.binaryHostPath=/opt/cni/bin/waycloak-cni
             --set nodeAgent.enabled=true
             --set-string nodeAgent.image.digest="$digest"
-            --set-string nodeAgent.observationRelayURL=https://waycloak-controller.waycloak-system.svc:9443/v1/observations
+            --set-string nodeAgent.observationRelayURL=https://waycloak-controller.waycloak-system.svc:9443/node-observations/v1/report
             --set-string nodeAgent.observationCASecret=waycloak-observation-ca
             --set-string nodeAgent.cniReceiptHostPath=/var/lib/cni/waycloak/install-receipt.json
             --set-string nodeAgent.cniBinaryHostPath=/opt/cni/bin/waycloak-cni

@@ -14,6 +14,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/Amoenus/waycloak/internal/observationrelay"
 )
 
 type Artifact struct {
@@ -192,7 +194,7 @@ defaultGatewayClass:
     manifestDigest: %q
 `, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
 		report.CNI.ConfigPath, report.CNI.BinaryPath, agent.Repository, agent.Digest,
-		"https://"+controllerService+"."+namespace+".svc:9443/v1/observations", release+"-observation-ca",
+		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
 	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + namespace + "\x00" + release + "\x00" + values))

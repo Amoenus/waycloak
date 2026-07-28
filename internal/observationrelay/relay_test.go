@@ -120,7 +120,7 @@ func report(t *testing.T, relay *Relay, observation nodeagent.Observation) *http
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/node-observations/v1/report", bytes.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, ReportPath, bytes.NewReader(body))
 	request.Header.Set("Authorization", "Bearer pod-bound-token")
 	response := httptest.NewRecorder()
 	relay.Handler().ServeHTTP(response, request)
