@@ -108,26 +108,67 @@ jobs:
           make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-1" WAYCLOAK_VERSION=v0.0.0-ci
           make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-2" WAYCLOAK_VERSION=v0.0.0-ci
           diff --recursive --no-dereference "$RUNNER_TEMP/waycloakctl-1" "$RUNNER_TEMP/waycloakctl-2"
-      - name: Verify reproducible multi-platform Waycloak CNI image
+      - name: Verify reproducible multi-platform Core runtime images
         run: |
-          make waycloak-cni-image-oci \
-            WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/waycloak-cni-1" \
-            WAYCLOAK_CNI_IMAGE_REPOSITORY=waycloak.invalid/waycloak-cni
-          make waycloak-cni-image-oci \
-            WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/waycloak-cni-2" \
-            WAYCLOAK_CNI_IMAGE_REPOSITORY=waycloak.invalid/waycloak-cni
-          diff --recursive --no-dereference "$RUNNER_TEMP/waycloak-cni-1" "$RUNNER_TEMP/waycloak-cni-2"
-          test -f "$RUNNER_TEMP/waycloak-cni-1/oci-layout"
-          test -f "$RUNNER_TEMP/waycloak-cni-1/index.json"
-          root_digest="$(jq -er '.manifests | select(length == 1) | .[0].digest' "$RUNNER_TEMP/waycloak-cni-1/index.json")"
-          root_index="$RUNNER_TEMP/waycloak-cni-1/blobs/sha256/${root_digest#sha256:}"
-          jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]' "$root_index"
-          while read -r image_digest; do
-            image_manifest="$RUNNER_TEMP/waycloak-cni-1/blobs/sha256/${image_digest#sha256:}"
-            config_digest="$(jq -er '.config.digest' "$image_manifest")"
-            image_config="$RUNNER_TEMP/waycloak-cni-1/blobs/sha256/${config_digest#sha256:}"
-            jq -e '.config.Entrypoint == ["/ko-app/waycloak-cni"]' "$image_config"
-          done < <(jq -r '.manifests[].digest' "$root_index")
+          for build in 1 2; do
+            make core-runtime-images-oci \
+              REPLACEMENT_CONTROLLER_OCI_LAYOUT="$RUNNER_TEMP/core-$build/controller" \
+              WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/core-$build/cni" \
+              NODE_AGENT_OCI_LAYOUT="$RUNNER_TEMP/core-$build/node-agent" \
+              GATEWAY_AGENT_OCI_LAYOUT="$RUNNER_TEMP/core-$build/gateway-agent" \
+              REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY=waycloak.invalid/replacement-controller \
+              WAYCLOAK_CNI_IMAGE_REPOSITORY=waycloak.invalid/waycloak-cni \
+              NODE_AGENT_IMAGE_REPOSITORY=waycloak.invalid/waycloak-node-agent \
+              GATEWAY_AGENT_IMAGE_REPOSITORY=waycloak.invalid/waycloak-gateway-agent
+          done
+          diff --recursive --no-dereference "$RUNNER_TEMP/core-1" "$RUNNER_TEMP/core-2"
+          for name in controller cni node-agent gateway-agent; do
+            layout="$RUNNER_TEMP/core-1/$name"
+            test -f "$layout/oci-layout"
+            test -f "$layout/index.json"
+            root_digest="$(jq -er '.manifests | select(length == 1) | .[0].digest' "$layout/index.json")"
+            root_index="$layout/blobs/sha256/${root_digest#sha256:}"
+            jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]' "$root_index"
+            case "$name" in
+              controller) entrypoint=/ko-app/replacement-controller ;;
+              cni) entrypoint=/ko-app/waycloak-cni ;;
+              node-agent) entrypoint=/ko-app/waycloak-node-agent ;;
+              gateway-agent) entrypoint=/ko-app/waycloak-gateway-agent ;;
+            esac
+            while read -r image_digest; do
+              image_manifest="$layout/blobs/sha256/${image_digest#sha256:}"
+              config_digest="$(jq -er '.config.digest' "$image_manifest")"
+              image_config="$layout/blobs/sha256/${config_digest#sha256:}"
+              jq -e --arg entrypoint "$entrypoint" '.config.Entrypoint == [$entrypoint]' "$image_config"
+            done < <(jq -r '.manifests[].digest' "$root_index")
+          done
+      - name: Verify deterministic Core release-manifest assembly
+        run: |
+          digest_a="sha256:$(printf 'a%.0s' {1..64})"
+          digest_b="sha256:$(printf 'b%.0s' {1..64})"
+          digest_c="sha256:$(printf 'c%.0s' {1..64})"
+          digest_d="sha256:$(printf 'd%.0s' {1..64})"
+          digest_e="sha256:$(printf 'e%.0s' {1..64})"
+          digest_f="sha256:$(printf 'f%.0s' {1..64})"
+          manifest_args=(
+            --version v0.0.0-ci
+            --chart "oci://registry.invalid/charts/waycloak@$digest_a"
+            --image "replacement-controller=registry.invalid/replacement-controller@$digest_b"
+            --image "waycloak-cni=registry.invalid/waycloak-cni@$digest_c"
+            --image "waycloak-node-agent=registry.invalid/waycloak-node-agent@$digest_d"
+            --image "waycloak-gateway-agent=registry.invalid/waycloak-gateway-agent@$digest_e"
+            --image "gluetun=docker.io/qmcgaw/gluetun@$digest_f"
+            --image "pause=registry.k8s.io/pause@$digest_a"
+          )
+          go run ./hack/corerelease "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-1.json"
+          go run ./hack/corerelease "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-2.json"
+          cmp "$RUNNER_TEMP/release-manifest-1.json" "$RUNNER_TEMP/release-manifest-2.json"
+          jq -e '
+            .apiVersion == "release.waycloak.io/v1" and
+            .version == "v0.0.0-ci" and
+            (.manifestDigest | test("^sha256:[a-f0-9]{64}$")) and
+            (.images | keys | sort == ["gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-node-agent"])
+          ' "$RUNNER_TEMP/release-manifest-1.json"
       - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts

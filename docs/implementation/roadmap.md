@@ -57,7 +57,9 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   exact-artifact, clean-install, under-15-minute provider, and disruptive smoke
   evidence pass. Release manifests are now bound to a recomputed canonical
   version/chart/image/profile identity and reject hidden extra artifacts. The
-  mandatory CNI installer image now has a repeat-built multi-platform OCI gate.
+  mandatory CNI installer image now has a repeat-built multi-platform OCI gate,
+  and publisher tooling deterministically assembles the complete exact Core
+  inventory without discovering or substituting an artifact.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.
