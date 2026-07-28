@@ -196,6 +196,12 @@ replacement, protected application startup denial during loss, recovery, and
 owned-object cleanup. The fixture uses runtime-generated keys and certificates
 and is not a supported provider. Issue #138 is not complete: a published signed
 CLI artifact and the under-15-minute real-provider journey remain required.
+The CLI release workflow now marks prerelease tags correctly and gates a
+successful run on a separate hosted runner redownloading the exact asset set and
+verifying checksums, both keyless Sigstore bundles, the signing workflow
+identity and issuer, exact tag/source commit, SPDX SBOM, and GitHub build
+provenance. This is implementation only until an exact tag run publishes and
+passes that verification.
 
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment

@@ -58,9 +58,74 @@ jobs:
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
           fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/waycloakctl/waycloakctl-*
             dist/waycloakctl/SHA256SUMS
             dist/waycloakctl/SHA256SUMS.sigstore.json
             dist/waycloakctl/waycloakctl.spdx.json
             dist/waycloakctl/waycloakctl.spdx.sigstore.json
+
+  verify-published-assets:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: read
+      contents: read
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download the exact published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/published"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/published"
+      - name: Verify checksums, signatures, and provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        working-directory: ${{ runner.temp }}/published
+        run: |
+          expected=(
+            SHA256SUMS
+            SHA256SUMS.sigstore.json
+            waycloakctl.spdx.json
+            waycloakctl.spdx.sigstore.json
+            waycloakctl-darwin-amd64
+            waycloakctl-darwin-arm64
+            waycloakctl-linux-amd64
+            waycloakctl-linux-arm64
+            waycloakctl-windows-amd64.exe
+          )
+          for asset in "${expected[@]}"; do
+            test -f "$asset"
+          done
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
+          sha256sum --check SHA256SUMS
+
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/waycloakctl-release.yaml@refs/tags/${RELEASE_TAG}"
+          issuer="https://token.actions.githubusercontent.com"
+          cosign verify-blob \
+            --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer "$issuer" \
+            SHA256SUMS
+          cosign verify-blob \
+            --bundle waycloakctl.spdx.sigstore.json \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer "$issuer" \
+            waycloakctl.spdx.json
+
+          for artifact in waycloakctl-* SHA256SUMS waycloakctl.spdx.json; do
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/waycloakctl-release.yaml" \
+              --source-ref "refs/tags/${RELEASE_TAG}" \
+              --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done

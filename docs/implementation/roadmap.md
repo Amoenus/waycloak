@@ -72,7 +72,12 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   circular dependency on its own CNI authority without exempting applications.
   Clean installs also wait for a controller-only Helm revision before activating
   the exact CNI/node-agent runtime; existing releases go directly to the full
-  revision and never withdraw their installed deny path.
+  revision and never withdraw their installed deny path. The CLI tag workflow
+  publishes prerelease suffixes as GitHub prereleases and uses a separate runner
+  to redownload and verify the exact asset inventory, checksums, keyless
+  workflow identity, issuer, source ref/commit, hosted-runner provenance, and
+  SPDX signature. Publication evidence and the real-provider journey are still
+  required before closure.
   Creation-time Pod UID and node assignment checks use direct API-server reads,
   never the node agent's eventually consistent reconciliation cache.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
