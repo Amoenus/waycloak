@@ -142,7 +142,7 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	}
 	output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m")
 	if err != nil {
-		return fmt.Errorf("Helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
+		return fmt.Errorf("helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
 	}
 	return nil
 }
