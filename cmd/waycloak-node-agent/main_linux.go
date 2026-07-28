@@ -108,6 +108,9 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		ReleaseIdentity:    releaseIdentity,
 		ConformanceProfile: wayv1.QualifiedName(conformanceProfile),
 	}
+	service.OperationErrorHook = func(operation string, err error) {
+		log.Printf("local %s operation remained fail closed: %v", operation, err)
+	}
 	if err := reconcileInstalledState(ctx, service, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
 		log.Printf("initial fail-closed recovery incomplete: %v", err)
 		service.SetBackendHealthy(false)

@@ -96,6 +96,7 @@ type Service struct {
 	Capabilities       []string
 	ReleaseIdentity    wayv1.ReleaseIdentity
 	ConformanceProfile wayv1.QualifiedName
+	OperationErrorHook func(string, error)
 
 	mu             sync.RWMutex
 	observations   map[string]Observation
@@ -309,6 +310,16 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 			reconcileErr = s.Check(ctx, attachment.Pod, requested)
 		}
 		if reconcileErr != nil {
+			if errors.Is(reconcileErr, fs.ErrNotExist) {
+				stale, discardErr := s.discardStaleAttachment(attachment)
+				if discardErr != nil {
+					errs = append(errs, discardErr)
+					continue
+				}
+				if stale {
+					continue
+				}
+			}
 			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
 				s.observe(binding, false)
 			}

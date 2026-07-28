@@ -42,6 +42,7 @@ func Handler(service *Service) http.Handler {
 			case "resolve":
 				resolution, err := service.Resolve(request.Context(), input.Pod)
 				if err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -49,6 +50,7 @@ func Handler(service *Service) http.Handler {
 			case "binding":
 				binding, err := service.Binding(request.Context(), input.Pod)
 				if err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -59,6 +61,7 @@ func Handler(service *Service) http.Handler {
 					return
 				}
 				if err := service.Prepare(request.Context(), input.Pod, *input.Binding); err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -69,12 +72,14 @@ func Handler(service *Service) http.Handler {
 					return
 				}
 				if err := service.Check(request.Context(), input.Pod, *input.Binding); err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
 				response.WriteHeader(http.StatusNoContent)
 			case "withdraw":
 				if err := service.Withdraw(request.Context(), input.Pod); err != nil {
+					reportOperationError(service, kind, err)
 					writeServiceError(response, err)
 					return
 				}
@@ -88,6 +93,12 @@ func Handler(service *Service) http.Handler {
 	mux.HandleFunc("POST /cni-node/v1/check", operation("check"))
 	mux.HandleFunc("POST /cni-node/v1/withdraw", operation("withdraw"))
 	return mux
+}
+
+func reportOperationError(service *Service, operation string, err error) {
+	if service != nil && service.OperationErrorHook != nil {
+		service.OperationErrorHook(operation, err)
+	}
 }
 
 func writeServiceError(response http.ResponseWriter, err error) {

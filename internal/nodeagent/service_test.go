@@ -33,17 +33,24 @@ type fakeProgrammer struct {
 	verifyErrs   []error
 	identity     string
 	identityErr  error
+	identityErrs []error
+	lockdownErr  error
 }
 
 func (p *fakeProgrammer) Identity(string) (string, error) {
 	if p.identity == "" {
 		p.identity = "1:2"
 	}
+	if len(p.identityErrs) > 0 {
+		err := p.identityErrs[0]
+		p.identityErrs = p.identityErrs[1:]
+		return p.identity, err
+	}
 	return p.identity, p.identityErr
 }
 func (p *fakeProgrammer) InstallLockdown(context.Context, string, string) error {
 	p.events = append(p.events, "lockdown")
-	return nil
+	return p.lockdownErr
 }
 func (p *fakeProgrammer) Configure(_ context.Context, _ string, cfg dataplane.Config) error {
 	p.events = append(p.events, "configure")
@@ -286,6 +293,28 @@ func TestRestartRecoveryKeepsBackendUnhealthyWhenStaleStateCannotBeDeleted(t *te
 	}
 	if len(programmer.events) != 0 {
 		t.Fatalf("missing namespace was programmed after delete failure: %v", programmer.events)
+	}
+}
+
+func TestRestartRecoveryAbsorbsNamespaceDisappearanceDuringRepair(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	store := &recordingAttachments{staticAttachments: staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}}
+	service.Store = store
+	programmer.verifyErrs = []error{errors.New("drift")}
+	programmer.lockdownErr = fs.ErrNotExist
+	programmer.identityErrs = []error{nil, fs.ErrNotExist}
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"verify", "lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("repair race operations = %v, want %v", programmer.events, want)
+	}
+	if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) {
+		t.Fatalf("deleted keys = %#v", store.deleted)
 	}
 }
 
