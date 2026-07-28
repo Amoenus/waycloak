@@ -127,14 +127,30 @@ release version and exact manifest digest are supplied. Unit, race, Kubernetes
 foreign-controller and unsupported-feature gates passed in exact CI run
 30199319231.
 
-Issue #135 is in implementation. The replacement build no longer contains or
-links the served alpha API, mutation webhook, Pod injection runtime, allocation
-ConfigMap handshake, alpha gateway manager, adapter protocol, alpha release
-workflow, or their executable tests and examples. The controller, CNI, and node
-agent dependency graphs are replacement-only. Static admission rejects old
-Waycloak annotations, and the removal audit rejects legacy runtime paths or
-markers. Final CI, rendered-chart, envtest, and Kind evidence is still required
-before #135 is complete.
+Issue #135 is complete and merged in PR #154. The replacement build no longer
+contains or links the served alpha API, mutation webhook, Pod injection runtime,
+allocation ConfigMap handshake, alpha gateway manager, adapter protocol, alpha
+release workflow, or their executable tests and examples. The controller, CNI,
+and node-agent dependency graphs are replacement-only. Exact-head CI run
+30316164065 passed unit, race, static, Kubernetes 1.36 envtest, deterministic
+Helm/KCL/generated output, security, Kind/kindnet, k3d/Flannel, and privileged
+packet gates before merge commit 6f5e4b47d76945d43c685609e4d4ba68745359b5.
+
+Issue #136 implementation and acceptance are complete in PR #155. Kubernetes
+1.36 stable declarative mutation
+adds one hard Core-ready selector to enrolled Pods, while validation rejects
+host-namespace and direct-node CNI bypass. An authenticated exact-release node
+report lets only the controller publish NodeRestriction-protected scheduling
+readiness; stale, unsupported, unready, foreign-node, and release-skewed reports
+withdraw it. Positive reports additionally require a root-owned release-bound
+receipt matching the exact CNI binary and active conflist; the agent mounts all
+three files read-only and restores lockdown on mismatch. Admission remains
+outside the packet boundary and no admission webhook or admission TLS is
+introduced. Exact implementation commit
+aaad5b40f73e3abcba656e0ce55bf7f9a3e569c4 passed Linux race/static analysis,
+Kubernetes 1.36 envtest, deterministic generated/Helm/KCL output, security
+scans, Kind/kindnet, k3d/Flannel, fresh-install admission, and privileged
+packet/gateway-loss gates in CI run 30318076473.
 
 ## Alpha as-built history
 

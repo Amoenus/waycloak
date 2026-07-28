@@ -1,4 +1,45 @@
 apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: {{ include "waycloak.fullname" . }}-pod-scheduling
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  reinvocationPolicy: IfNeeded
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+        scope: Namespaced
+  matchConditions:
+    - name: explicitly-enrolled
+      expression: >-
+        has(object.metadata.labels) &&
+        "networking.waycloak.io/egress-route" in object.metadata.labels
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: >-
+          has(object.spec.nodeSelector) ?
+          [JSONPatch{op: "add", path: "/spec/nodeSelector/" +
+          jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/core-ready"),
+          value: "true"}] :
+          [JSONPatch{op: "add", path: "/spec/nodeSelector",
+          value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "waycloak.fullname" . }}-pod-scheduling
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "waycloak.fullname" . }}-pod-scheduling
+---
+apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ include "waycloak.fullname" . }}-pod-enrollment
@@ -33,6 +74,23 @@ spec:
         (has(oldObject.metadata.labels) && "networking.waycloak.io/egress-route" in oldObject.metadata.labels ?
         oldObject.metadata.labels["networking.waycloak.io/egress-route"] : "")
       message: enrollment on an existing Pod is immutable; update the Pod template and create a new Pod
+      reason: Forbidden
+    - expression: >-
+        !has(object.metadata.labels) ||
+        !("networking.waycloak.io/egress-route" in object.metadata.labels) ||
+        ((!has(object.spec.hostNetwork) || !object.spec.hostNetwork) &&
+        (!has(object.spec.hostPID) || !object.spec.hostPID) &&
+        (!has(object.spec.hostIPC) || !object.spec.hostIPC) &&
+        (!has(object.spec.nodeName) || object.spec.nodeName == ""))
+      message: enrolled Pods cannot bypass CNI or scheduler placement with host namespaces or spec.nodeName
+      reason: Forbidden
+    - expression: >-
+        !has(object.metadata.labels) ||
+        !("networking.waycloak.io/egress-route" in object.metadata.labels) ||
+        (has(object.spec.nodeSelector) &&
+        "networking.waycloak.io.node-restriction.kubernetes.io/core-ready" in object.spec.nodeSelector &&
+        object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true")
+      message: enrolled Pods require the Waycloak Core-ready scheduling constraint
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

@@ -52,6 +52,19 @@ Use envtest for:
 
 ### Cluster end-to-end tests
 
+Stable admission and scheduling acceptance additionally requires Kubernetes
+1.36 policy compilation, mutation that preserves user selectors, no mutation
+for unlabeled Pods, rejection of host-namespace and direct-node bypass,
+`Unschedulable` status on nodes without authenticated Core readiness,
+foreign-node and release-skew report rejection, 20-second label expiry, and CNI
+refusal when admission or a readiness label is bypassed. Tests must assert that
+these paths start no application container and observe no ordinary-egress
+packet.
+
+The node agent must also reject missing, writable, symlinked, release-skewed,
+tampered, or incorrectly chained installation receipts/artifacts, restore
+lockdown, and withhold its positive capability report.
+
 Use Kind for every pull request where practical and k3d/k3s in scheduled/release validation. Tests should deploy an isolated fake egress gateway before requiring external VPN credentials.
 
 Mandatory scenarios:

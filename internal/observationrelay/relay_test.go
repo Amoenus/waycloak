@@ -14,6 +14,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	"github.com/Amoenus/waycloak/internal/nodeagent"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +43,13 @@ func TestRelayBindsPodTokenToExactNodeAndBinding(t *testing.T) {
 	}
 	if binding.Status.AppliedGeneration != 3 || binding.Status.Agent == nil || binding.Status.Agent.NodeName != "node-a" || !binding.Status.Agent.ObservedAt.Time.Equal(time.Unix(2000, 0)) {
 		t.Fatalf("relayed status = %#v", binding.Status)
+	}
+	node := &corev1.Node{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
+		t.Fatal(err)
+	}
+	if node.Labels[scheduling.CoreReadyLabel] != "true" {
+		t.Fatalf("authenticated node readiness was not published: %#v", node.Labels)
 	}
 }
 
@@ -85,10 +93,11 @@ func fixture(t *testing.T) (*Relay, client.Client, nodeagent.Observation) {
 		t.Fatal(err)
 	}
 	agentPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "agent-node-a", Namespace: "waycloak-system", UID: "agent-pod-uid", Labels: map[string]string{"app.kubernetes.io/component": "node-agent"}}, Spec: corev1.PodSpec{NodeName: "node-a", ServiceAccountName: "waycloak-node-agent"}}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
 	binding := &wayv1.VPNWorkloadBinding{ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "apps", UID: "binding-uid", Generation: 3}, Spec: wayv1.VPNWorkloadBindingSpec{
 		PodRef: wayv1.LocalUIDReference{Name: "protected", UID: "pod-uid"}, GatewayRef: wayv1.NamespacedUIDReference{Namespace: "network", Name: "gateway", UID: "gateway-uid"}, NodeName: "node-a",
 	}}
-	kube := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(binding).WithObjects(agentPod, binding).Build()
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(binding).WithObjects(agentPod, node, binding).Build()
 	reviewer := fakeReviewer{status: authenticationv1.TokenReviewStatus{Authenticated: true, Audiences: []string{kubernetesAudience}, User: authenticationv1.UserInfo{
 		Username: "system:serviceaccount:waycloak-system:waycloak-node-agent",
 		Extra: map[string]authenticationv1.ExtraValue{
@@ -96,14 +105,18 @@ func fixture(t *testing.T) (*Relay, client.Client, nodeagent.Observation) {
 			"authentication.kubernetes.io/pod-uid":  {"agent-pod-uid"},
 		},
 	}}}
-	relay := &Relay{Reviewer: reviewer, Reader: kube, Writer: kube, AgentNamespace: "waycloak-system", AgentServiceAccount: "waycloak-node-agent", Now: func() time.Time { return time.Unix(2000, 0).UTC() }}
+	release := wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
+	relay := &Relay{Reviewer: reviewer, Reader: kube, Writer: kube, AgentNamespace: "waycloak-system", AgentServiceAccount: "waycloak-node-agent", Now: func() time.Time { return time.Unix(2000, 0).UTC() }, NodePublisher: &scheduling.Publisher{Client: kube, ReleaseIdentity: release, ConformanceProfile: "networking.waycloak.io/Core-v1", Now: func() time.Time { return time.Unix(2000, 0).UTC() }}}
 	observation := nodeagent.Observation{BindingNamespace: "apps", BindingName: "binding", BindingUID: "binding-uid", Generation: 3, PodUID: "pod-uid", GatewayUID: "gateway-uid", NodeName: "node-a", NodeBootID: "boot", InstanceID: "instance", Ready: true}
 	return relay, kube, observation
 }
 
 func report(t *testing.T, relay *Relay, observation nodeagent.Observation) *httptest.ResponseRecorder {
 	t.Helper()
-	body, err := json.Marshal([]nodeagent.Observation{observation})
+	body, err := json.Marshal(nodeagent.Report{APIVersion: nodeagent.ReportAPIVersion, Node: nodeagent.NodeReport{
+		NodeName: "node-a", NodeBootID: "boot", InstanceID: "instance", ObservedAt: time.Unix(2000, 0).UTC(), Ready: true,
+		Capabilities: scheduling.CoreCapabilities, ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}, ConformanceProfile: "networking.waycloak.io/Core-v1",
+	}, Observations: []nodeagent.Observation{observation}})
 	if err != nil {
 		t.Fatal(err)
 	}

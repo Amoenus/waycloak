@@ -15,6 +15,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	"github.com/Amoenus/waycloak/internal/nodeagent"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,7 @@ type Relay struct {
 	Writer              client.Client
 	AgentNamespace      string
 	AgentServiceAccount string
+	NodePublisher       *scheduling.Publisher
 	Now                 func() time.Time
 }
 
@@ -56,10 +58,10 @@ func (r *Relay) serve(response http.ResponseWriter, request *http.Request) {
 		http.Error(response, "authentication failed", http.StatusUnauthorized)
 		return
 	}
-	var observations []nodeagent.Observation
+	var report nodeagent.Report
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 1<<20))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&observations); err != nil || len(observations) > MaxObservations {
+	if err := decoder.Decode(&report); err != nil || report.APIVersion != nodeagent.ReportAPIVersion || len(report.Observations) > MaxObservations {
 		http.Error(response, "invalid observation report", http.StatusBadRequest)
 		return
 	}
@@ -68,7 +70,15 @@ func (r *Relay) serve(response http.ResponseWriter, request *http.Request) {
 		http.Error(response, "invalid observation report", http.StatusBadRequest)
 		return
 	}
-	for _, observation := range observations {
+	if r.NodePublisher == nil {
+		http.Error(response, "node capability publisher unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.NodePublisher.Apply(request.Context(), agentPod, report.Node); err != nil {
+		http.Error(response, "node capability rejected", http.StatusForbidden)
+		return
+	}
+	for _, observation := range report.Observations {
 		if err := r.apply(request.Context(), agentPod, observation); err != nil {
 			http.Error(response, "observation rejected", http.StatusForbidden)
 			return

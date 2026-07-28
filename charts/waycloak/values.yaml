@@ -24,4 +24,13 @@ nodeAgent:
     digest: ""
   observationRelayURL: ""
   observationCASecret: ""
+  # Exact root-owned files produced from the signed #138 install plan. The
+  # runtime agent mounts them read-only and never installs or rewrites CNI.
+  cniReceiptHostPath: ""
+  cniBinaryHostPath: ""
+  cniConfigHostPath: ""
   reconcileInterval: 5s
+  conformanceProfile: networking.waycloak.io/Core-v1
+  releaseIdentity:
+    version: ""
+    manifestDigest: ""

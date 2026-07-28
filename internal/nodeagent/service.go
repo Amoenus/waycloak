@@ -53,23 +53,45 @@ type Observation struct {
 	Ready            bool      `json:"ready"`
 }
 
+const ReportAPIVersion = "node-observations.waycloak.io/v1"
+
+type NodeReport struct {
+	NodeName           string                `json:"nodeName"`
+	NodeBootID         string                `json:"nodeBootID"`
+	InstanceID         string                `json:"instanceID"`
+	ObservedAt         time.Time             `json:"observedAt"`
+	Ready              bool                  `json:"ready"`
+	Capabilities       []string              `json:"capabilities"`
+	ReleaseIdentity    wayv1.ReleaseIdentity `json:"releaseIdentity"`
+	ConformanceProfile wayv1.QualifiedName   `json:"conformanceProfile"`
+}
+
+type Report struct {
+	APIVersion   string        `json:"apiVersion"`
+	Node         NodeReport    `json:"node"`
+	Observations []Observation `json:"observations"`
+}
+
 // Service independently resolves caller identities from Kubernetes state and
 // owns programming, verification, withdrawal, restart recovery, and drift
 // repair for one node.
 type Service struct {
-	Reader       client.Reader
-	Programmer   Programmer
-	Store        AttachmentStore
-	NodeName     string
-	NodeBootID   string
-	InstanceID   string
-	Now          func() time.Time
-	RequireRelay bool
-	Capabilities []string
+	Reader             client.Reader
+	Programmer         Programmer
+	Store              AttachmentStore
+	NodeName           string
+	NodeBootID         string
+	InstanceID         string
+	Now                func() time.Time
+	RequireRelay       bool
+	Capabilities       []string
+	ReleaseIdentity    wayv1.ReleaseIdentity
+	ConformanceProfile wayv1.QualifiedName
 
-	mu           sync.RWMutex
-	observations map[string]Observation
-	relayHealthy atomic.Bool
+	mu             sync.RWMutex
+	observations   map[string]Observation
+	relayHealthy   atomic.Bool
+	backendHealthy atomic.Bool
 }
 
 func (s *Service) Resolve(ctx context.Context, identity waycni.PodIdentity) (waycni.Resolution, error) {
@@ -96,8 +118,8 @@ func (s *Service) Binding(ctx context.Context, identity waycni.PodIdentity) (way
 }
 
 func (s *Service) Prepare(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
-	if s.RequireRelay && !s.relayHealthy.Load() {
-		return errors.New("controller observation relay is unavailable")
+	if !s.Ready() {
+		return errors.New("node backend or controller observation relay is unavailable")
 	}
 	pod, binding, cfg, err := s.authority(ctx, identity, requested)
 	if err != nil {
@@ -122,9 +144,9 @@ func (s *Service) Prepare(ctx context.Context, identity waycni.PodIdentity, requ
 }
 
 func (s *Service) Check(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
-	if s.RequireRelay && !s.relayHealthy.Load() {
+	if !s.Ready() {
 		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
-		return errors.New("controller observation relay is unavailable")
+		return errors.New("node backend or controller observation relay is unavailable")
 	}
 	_, binding, cfg, err := s.authority(ctx, identity, requested)
 	if err != nil {
@@ -154,10 +176,22 @@ func (s *Service) Check(ctx context.Context, identity waycni.PodIdentity, reques
 
 func (s *Service) SetRelayHealthy(healthy bool) { s.relayHealthy.Store(healthy) }
 
-func (s *Service) Ready() bool { return !s.RequireRelay || s.relayHealthy.Load() }
+func (s *Service) SetBackendHealthy(healthy bool) { s.backendHealthy.Store(healthy) }
+
+func (s *Service) Ready() bool {
+	return s.backendHealthy.Load() && (!s.RequireRelay || s.relayHealthy.Load())
+}
 
 func (s *Service) Status() waycni.AgentStatus {
 	return waycni.AgentStatus{NodeName: s.NodeName, NodeBootID: s.NodeBootID, InstanceID: s.InstanceID, Capabilities: append([]string(nil), s.Capabilities...), Ready: s.Ready()}
+}
+
+func (s *Service) Report() Report {
+	return Report{APIVersion: ReportAPIVersion, Node: NodeReport{
+		NodeName: s.NodeName, NodeBootID: s.NodeBootID, InstanceID: s.InstanceID,
+		ObservedAt: s.now(), Ready: s.Ready(), Capabilities: append([]string(nil), s.Capabilities...),
+		ReleaseIdentity: s.ReleaseIdentity, ConformanceProfile: s.ConformanceProfile,
+	}, Observations: s.Observations()}
 }
 
 // LockdownAll withdraws every durable attachment without removing exact state.

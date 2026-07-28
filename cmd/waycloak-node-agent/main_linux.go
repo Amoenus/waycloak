@@ -34,7 +34,8 @@ import (
 )
 
 func main() {
-	var socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA string
+	var socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile string
+	var cniReceiptFile, cniBinaryFile, cniConfigFile string
 	var interval time.Duration
 	flag.StringVar(&socketPath, "socket", waycni.DefaultAgentSocket, "root-only local CNI socket")
 	flag.StringVar(&keyFile, "auth-key-file", waycni.DefaultAgentKeyFile, "per-start local protocol key")
@@ -43,16 +44,29 @@ func main() {
 	flag.StringVar(&relayURL, "observation-relay-url", "", "HTTPS controller observation endpoint")
 	flag.StringVar(&relayToken, "observation-token-file", "/var/run/secrets/waycloak-observation/token", "Pod-bound Kubernetes token")
 	flag.StringVar(&relayCA, "observation-ca-file", "/var/run/secrets/waycloak-observation/ca.crt", "observation relay CA")
+	flag.StringVar(&releaseVersion, "release-version", "", "immutable signed release version")
+	flag.StringVar(&releaseManifestDigest, "release-manifest-digest", "", "immutable signed release manifest digest")
+	flag.StringVar(&conformanceProfile, "conformance-profile", "networking.waycloak.io/Core-v1", "immutable conformance profile identity")
+	flag.StringVar(&cniReceiptFile, "cni-receipt-file", "/var/lib/cni/waycloak/install-receipt.json", "root-protected exact CNI installation receipt")
+	flag.StringVar(&cniBinaryFile, "cni-binary-file", "/var/run/waycloak-cni-install/waycloak-cni", "read-only installed CNI binary")
+	flag.StringVar(&cniConfigFile, "cni-config-file", "/var/run/waycloak-cni-install/waycloak.conflist", "read-only active CNI conflist")
 	flag.DurationVar(&interval, "reconcile-interval", 5*time.Second, "drift and observation interval")
 	flag.Parse()
-	if err := run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, interval); err != nil {
+	if err := run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, interval); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA string, interval time.Duration) error {
+func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile string, interval time.Duration) error {
 	if nodeName == "" || relayURL == "" || interval < time.Second || filepath.Dir(socketPath) != filepath.Dir(keyFile) {
 		return errors.New("node name, observation relay, bounded reconcile interval, and one protected local protocol directory are required")
+	}
+	if !validReleaseIdentity(releaseVersion, releaseManifestDigest) || conformanceProfile == "" {
+		return errors.New("exact release identity and conformance profile are required")
+	}
+	releaseIdentity := wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}
+	if err := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
+		return fmt.Errorf("CNI installation is not eligible for Core readiness: %w", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -88,9 +102,14 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA 
 		Reader: manager.GetClient(), Programmer: waycni.LinuxEnforcer{Backend: backend},
 		Store: waycni.FileStore{Directory: stateDir}, NodeName: nodeName, NodeBootID: bootID, InstanceID: instanceID,
 		RequireRelay: true, Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
+		ReleaseIdentity:    releaseIdentity,
+		ConformanceProfile: wayv1.QualifiedName(conformanceProfile),
 	}
-	if err := service.ReconcileAll(ctx); err != nil {
+	if err := reconcileInstalledState(ctx, service, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
 		log.Printf("initial fail-closed recovery incomplete: %v", err)
+		service.SetBackendHealthy(false)
+	} else {
+		service.SetBackendHealthy(true)
 	}
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		return err
@@ -127,7 +146,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA 
 		_ = server.Shutdown(shutdown)
 	}()
 	reporter := nodeagent.Reporter{URL: relayURL, TokenFile: relayToken, CAFile: relayCA}
-	go reconcileLoop(ctx, service, reporter, interval)
+	go reconcileLoop(ctx, service, reporter, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity, interval)
 	err = server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -135,15 +154,17 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA 
 	return err
 }
 
-func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, interval time.Duration) {
+func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, cniReceiptFile, cniBinaryFile, cniConfigFile string, releaseIdentity wayv1.ReleaseIdentity, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := service.ReconcileAll(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("fail-closed drift reconciliation incomplete: %v", err)
+		reconcileErr := reconcileInstalledState(ctx, service, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity)
+		service.SetBackendHealthy(reconcileErr == nil)
+		if reconcileErr != nil && ctx.Err() == nil {
+			log.Printf("fail-closed drift reconciliation incomplete: %v", reconcileErr)
 		}
 		reportCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := reporter.Report(reportCtx, service.Observations())
+		err := reporter.Report(reportCtx, service.Report())
 		cancel()
 		if err != nil {
 			service.SetRelayHealthy(false)
@@ -164,6 +185,16 @@ func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nod
 	}
 }
 
+func reconcileInstalledState(ctx context.Context, service *nodeagent.Service, receiptFile, binaryFile, configFile string, releaseIdentity wayv1.ReleaseIdentity) error {
+	if err := nodeagent.ValidateCNIInstallation(receiptFile, binaryFile, configFile, releaseIdentity); err != nil {
+		if lockdownErr := service.LockdownAll(ctx); lockdownErr != nil {
+			return fmt.Errorf("CNI installation invalid (%v) and lockdown incomplete: %w", err, lockdownErr)
+		}
+		return fmt.Errorf("CNI installation invalid: %w", err)
+	}
+	return service.ReconcileAll(ctx)
+}
+
 func readOpaqueID(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -182,4 +213,12 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(value), nil
+}
+
+func validReleaseIdentity(version, digest string) bool {
+	if version == "" || len(version) > 128 || !strings.HasPrefix(digest, "sha256:") || len(digest) != len("sha256:")+64 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimPrefix(digest, "sha256:"))
+	return err == nil
 }

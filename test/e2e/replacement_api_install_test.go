@@ -21,6 +21,7 @@ import (
 	waybinding "github.com/Amoenus/waycloak/internal/binding"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/enrollment"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -91,6 +92,9 @@ func TestReplacementAPIFreshInstall(t *testing.T) {
 		for _, suffix := range []string{"binding-guard", "pod-enrollment"} {
 			command(t, nil, "kubectl", "get", resource, release+"-"+suffix)
 		}
+	}
+	for _, resource := range []string{"mutatingadmissionpolicy", "mutatingadmissionpolicybinding"} {
+		command(t, nil, "kubectl", "get", resource, release+"-pod-scheduling")
 	}
 	command(t, nil, "kubectl", "get", "clusterrole", release)
 	command(t, nil, "kubectl", "get", "vpngatewayclass", "gluetun.waycloak.io")
@@ -199,6 +203,43 @@ spec:
       image: registry.k8s.io/pause:3.10.1
 `, namespace)
 	assertApplyFails(t, "API server accepted a non-DNS-label route lookup key", nil, invalidEnrollment)
+	unsafeEnrollment := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: unsafe-enrollment
+  namespace: %s
+  labels:
+    networking.waycloak.io/egress-route: private
+spec:
+  hostNetwork: true
+  nodeName: bypassed-scheduler
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+`, namespace)
+	assertApplyFails(t, "API server accepted CNI or scheduler bypass for an enrolled Pod", nil, unsafeEnrollment)
+
+	command(t, nil, "kubectl", "label", "nodes", "--all", scheduling.CoreReadyLabel+"-", scheduling.CapabilityEpochLabel+"-", "--overwrite")
+	nodeName := strings.TrimSpace(command(t, nil, "kubectl", "get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"))
+	assertCommandFails(t, "kubelet identity spoofed the protected Waycloak readiness label", nil, "kubectl", "label", "node", nodeName,
+		scheduling.CoreReadyLabel+"=true", "--overwrite", "--as=system:node:"+nodeName, "--as-group=system:nodes")
+	unsupported := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: unsupported-node
+  namespace: %s
+  labels:
+    networking.waycloak.io/egress-route: private
+spec:
+  automountServiceAccountToken: false
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10.1
+`, namespace)
+	applyInput(t, nil, unsupported)
+	waitForPodUnschedulable(t, namespace, "unsupported-node")
+	command(t, nil, "kubectl", "delete", "pod", "unsupported-node", "-n", namespace, "--wait=true", "--timeout=30s")
+	command(t, nil, "kubectl", "label", "node", nodeName, scheduling.CoreReadyLabel+"=true", fmt.Sprintf("%s=%d", scheduling.CapabilityEpochLabel, time.Now().Unix()), "--overwrite")
 	pods := fmt.Sprintf(`apiVersion: v1
 kind: Pod
 metadata:
@@ -218,6 +259,8 @@ metadata:
     networking.waycloak.io/egress-route: private
 spec:
   automountServiceAccountToken: false
+  nodeSelector:
+    kubernetes.io/os: linux
   containers:
     - name: app
       image: registry.k8s.io/pause:3.10.1
@@ -907,6 +950,42 @@ func assertApplicationPodUnmodified(t *testing.T, namespace, name, route string)
 		pod.Spec.HostNetwork || pod.Spec.HostPID || pod.Spec.HostIPC {
 		t.Fatalf("application Pod received credential, volume, capability, or host wiring: %#v", pod.Spec)
 	}
+	if len(pod.Spec.NodeSelector) != 2 || pod.Spec.NodeSelector["kubernetes.io/os"] != "linux" || pod.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" {
+		t.Fatalf("application Pod scheduling mutation = %#v", pod.Spec.NodeSelector)
+	}
+}
+
+func waitForPodUnschedulable(t *testing.T, namespace, name string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		var pod corev1.Pod
+		output := command(t, nil, "kubectl", "get", "pod", name, "-n", namespace, "-o", "json")
+		if err := json.Unmarshal([]byte(output), &pod); err != nil {
+			t.Fatal(err)
+		}
+		if pod.Spec.NodeName != "" {
+			t.Fatalf("unsupported enrolled Pod reached node %q", pod.Spec.NodeName)
+		}
+		if pod.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" {
+			t.Fatalf("enrolled Pod lacks Core-ready selector: %#v", pod.Spec.NodeSelector)
+		}
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse && condition.Reason == corev1.PodReasonUnschedulable {
+				var events corev1.EventList
+				eventOutput := command(t, nil, "kubectl", "get", "events", "-n", namespace,
+					"--field-selector", "involvedObject.kind=Pod,involvedObject.name="+name+",reason=FailedScheduling", "-o", "json")
+				if err := json.Unmarshal([]byte(eventOutput), &events); err != nil {
+					t.Fatal(err)
+				}
+				if len(events.Items) != 0 {
+					return
+				}
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatal("enrolled Pod did not report actionable unsupported-node scheduling status")
 }
 
 func hasInjectedPodSecurityContext(securityContext *corev1.PodSecurityContext) bool {

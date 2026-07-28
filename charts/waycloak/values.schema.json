@@ -36,7 +36,7 @@
     "nodeAgent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "observationRelayURL", "observationCASecret", "reconcileInterval"],
+      "required": ["enabled", "image", "observationRelayURL", "observationCASecret", "cniReceiptHostPath", "cniBinaryHostPath", "cniConfigHostPath", "reconcileInterval", "conformanceProfile", "releaseIdentity"],
       "properties": {
         "enabled": {"type": "boolean"},
         "image": {
@@ -50,7 +50,20 @@
         },
         "observationRelayURL": {"type": "string"},
         "observationCASecret": {"type": "string"},
-        "reconcileInterval": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s|m)$"}
+        "cniReceiptHostPath": {"type": "string"},
+        "cniBinaryHostPath": {"type": "string"},
+        "cniConfigHostPath": {"type": "string"},
+        "reconcileInterval": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s|m)$"},
+        "conformanceProfile": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*(/[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?)?$"},
+        "releaseIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "manifestDigest"],
+          "properties": {
+            "version": {"type": "string", "maxLength": 128},
+            "manifestDigest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}
+          }
+        }
       }
     }
   }

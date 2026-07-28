@@ -143,6 +143,10 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 		t.Fatalf("packet capture positive control did not observe every direct probe class: before=%#v after=%#v", before, afterControl)
 	}
 
+	// This privileged proof deliberately installs no admission policy and
+	// direct-assigns the enrolled Pod to a Node. It is the stale/bypassed
+	// admission case: chained CNI must still prevent a runnable sandbox and all
+	// application packets without relying on the scheduling label.
 	failing := cniTrafficPod("protected-missing-binding", namespace, nodeName, map[string]string{cniRouteLabel: "missing"})
 	must(t, direct.Create(ctx, failing))
 	waitFor(t, 20*time.Second, func() bool {

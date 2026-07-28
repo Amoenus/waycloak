@@ -2,6 +2,11 @@
 {{- $digest := required "nodeAgent.image.digest is required when nodeAgent.enabled=true" .Values.nodeAgent.image.digest }}
 {{- $relayURL := required "nodeAgent.observationRelayURL is required when nodeAgent.enabled=true" .Values.nodeAgent.observationRelayURL }}
 {{- $caSecret := required "nodeAgent.observationCASecret is required when nodeAgent.enabled=true" .Values.nodeAgent.observationCASecret }}
+{{- $releaseVersion := required "nodeAgent.releaseIdentity.version is required when nodeAgent.enabled=true" .Values.nodeAgent.releaseIdentity.version }}
+{{- $releaseDigest := required "nodeAgent.releaseIdentity.manifestDigest is required when nodeAgent.enabled=true" .Values.nodeAgent.releaseIdentity.manifestDigest }}
+{{- $cniReceipt := required "nodeAgent.cniReceiptHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniReceiptHostPath }}
+{{- $cniBinary := required "nodeAgent.cniBinaryHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniBinaryHostPath }}
+{{- $cniConfig := required "nodeAgent.cniConfigHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniConfigHostPath }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -59,6 +64,12 @@ spec:
             - --node-name=$(WAYCLOAK_NODE_NAME)
             - --observation-relay-url={{ $relayURL }}
             - --reconcile-interval={{ .Values.nodeAgent.reconcileInterval }}
+            - --release-version={{ $releaseVersion }}
+            - --release-manifest-digest={{ $releaseDigest }}
+            - --conformance-profile={{ .Values.nodeAgent.conformanceProfile }}
+            - --cni-receipt-file=/var/run/waycloak-cni-install/install-receipt.json
+            - --cni-binary-file=/var/run/waycloak-cni-install/waycloak-cni
+            - --cni-config-file=/var/run/waycloak-cni-install/waycloak.conflist
           env:
             - name: WAYCLOAK_NODE_NAME
               valueFrom:
@@ -84,6 +95,15 @@ spec:
               readOnly: true
             - name: api-identity
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            - name: cni-receipt
+              mountPath: /var/run/waycloak-cni-install/install-receipt.json
+              readOnly: true
+            - name: cni-binary
+              mountPath: /var/run/waycloak-cni-install/waycloak-cni
+              readOnly: true
+            - name: cni-config
+              mountPath: /var/run/waycloak-cni-install/waycloak.conflist
               readOnly: true
           resources:
             requests:
@@ -130,4 +150,16 @@ spec:
                   items:
                     - key: ca.crt
                       path: ca.crt
+        - name: cni-receipt
+          hostPath:
+            path: {{ $cniReceipt }}
+            type: File
+        - name: cni-binary
+          hostPath:
+            path: {{ $cniBinary }}
+            type: File
+        - name: cni-config
+          hostPath:
+            path: {{ $cniConfig }}
+            type: File
 {{- end }}

@@ -14,6 +14,7 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/observationrelay"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -90,6 +91,10 @@ func main() {
 		ctrl.Log.Error(err, "setup VPNWorkloadBinding controller")
 		os.Exit(1)
 	}
+	if err = (&scheduling.NodeCapabilityReconciler{Client: manager.GetClient()}).SetupWithManager(manager); err != nil {
+		ctrl.Log.Error(err, "setup node capability controller")
+		os.Exit(1)
+	}
 	if err = manager.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		ctrl.Log.Error(err, "add health check")
 		os.Exit(1)
@@ -112,6 +117,9 @@ func main() {
 		relay := (&observationrelay.Relay{
 			Reviewer: clientset.AuthenticationV1().TokenReviews(), Reader: manager.GetAPIReader(), Writer: manager.GetClient(),
 			AgentNamespace: observationAgentNamespace, AgentServiceAccount: observationAgentServiceAccount,
+			NodePublisher: &scheduling.Publisher{Client: manager.GetClient(),
+				ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
+				ConformanceProfile: wayv1.QualifiedName(conformanceProfile)},
 		}).Handler()
 		server := &http.Server{Addr: observationAddress, Handler: relay, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13}}
 		go serveObservations(ctx, server, observationCert, observationKey)

@@ -100,7 +100,7 @@ capability resolution. It never receives a sidecar or ordinary-egress fallback.
 
 | Action/resource | Owner | Least privilege | Observable failure | Revocation/recovery | Required test |
 | --- | --- | --- | --- | --- | --- |
-| Install CNI binary/conflist | explicit installer, never runtime agent | exact binary and one observed compatible conflist; byte preimage retained | node capability false; protected scheduling disabled | drain protected Pods, restore exact preimage, remove exact binary | install/rollback and unrelated-chain preservation |
+| Install CNI binary/conflist | explicit installer, never runtime agent | exact root-owned binary, conflist, and release-bound SHA-256 receipt; runtime mounts all three exact files read-only | node capability false; protected scheduling disabled; local lockdown restored | drain protected Pods, restore exact preimage and receipt, remove exact binary | install/rollback, tamper detection, and unrelated-chain preservation |
 | Install first deny | root chained CNI | exact new Pod netns and UID-owned nftables only | `ADD` fails; sandbox not runnable | retained through later failure; unrecorded state rolls back | primary-CNI success then failed Waycloak ADD, zero packets |
 | Authenticate local call | CNI and node agent | Linux root peer credentials, 0700 directory, 0600 socket/key, per-start 256-bit key, bounded HMAC envelope | generic authentication failure; `ADD/CHECK` fail | agent restart rotates key; bounded retry rereads key | non-root peer, wrong key/mode, tamper, replay, stale time, signed response |
 | Allocate/resolve binding | controller + node agent | atomic gateway-owned Lease reservation; read-only Pod and binding cache; exact UID, generation and assigned node | conflict, exhaustion, missing/rejected/unobserved remains denied | authoritative reservation recovery; timeout creates durable quarantine | simultaneous allocation, stale informer, restart, UID/name reuse, missing reservation, hostile binding |
@@ -207,6 +207,18 @@ cause unprotected startup or reveal another tenant's objects.
 boundary. The CNI treats any enrolled Pod with missing/rejected/unprogrammed
 route or binding as protected and denied. Cross-namespace references require
 target-side consent and use privacy-preserving `RefNotPermitted` status.
+
+The stable declarative mutation adds a hard selector for the controller-owned
+`networking.waycloak.io.node-restriction.kubernetes.io/core-ready` Node label.
+The authenticated relay accepts capability reports only from the exact
+Pod-bound agent identity on that Node and rejects release/profile skew. The
+agent additionally verifies the root-owned install receipt, exact binary and
+active conflist hashes, and mandatory chain position before every positive
+report; mismatch restores lockdown. The label expires after 20 seconds without
+a report. Supported clusters must enable
+NodeRestriction so kubelets cannot spoof the protected label. Even a missing or
+stale admission policy, stale label, or unsupported-node assignment still
+reaches the independent chained-CNI refusal before application startup.
 
 ### Agent, controller, gateway, tunnel, or DNS loss
 
