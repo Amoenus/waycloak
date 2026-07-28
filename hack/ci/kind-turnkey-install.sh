@@ -231,6 +231,10 @@ node="$(kind get nodes --name "$cluster_name" | head -n1)"
 docker exec "$node" test -x /opt/cni/bin/waycloak-cni
 docker exec "$node" test -f /var/lib/cni/waycloak/install-receipt.json
 docker exec "$node" grep -q '"type": "waycloak-cni"' /etc/cni/net.d/10-kindnet.conflist
+docker exec "$node" grep -q '"agentSocket": "/run/waycloak/cni-agent.sock"' /etc/cni/net.d/10-kindnet.conflist
+docker exec "$node" grep -q '"agentKeyFile": "/run/waycloak/cni-auth.key"' /etc/cni/net.d/10-kindnet.conflist
+docker exec "$node" test -S /run/waycloak/cni-agent.sock
+docker exec "$node" test -f /run/waycloak/cni-auth.key
 docker exec "$node" cat /var/lib/cni/waycloak/install-receipt.json \
   | jq -e --arg version "$release_version" --arg digest "$manifest_digest" \
       '.releaseIdentity.version == $version and .releaseIdentity.manifestDigest == $digest' >/dev/null

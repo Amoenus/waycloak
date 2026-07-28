@@ -40,8 +40,10 @@ spec:
             - /host-config/{{ base $configPath }}
             - /host-state/install-receipt.json
             - /host-config/{{ base $configPath }}.waycloak-original
-            - /run/waycloak/agent.sock
-            - /run/waycloak/agent.key
+            # These are the versioned local-protocol defaults owned by the
+            # node-agent binary. Keep the rendered CNI contract exact.
+            - /run/waycloak/cni-agent.sock
+            - /run/waycloak/cni-auth.key
             - /var/lib/cni/waycloak/attachments
             - {{ $version | quote }}
             - {{ $manifest | quote }}
