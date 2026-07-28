@@ -6,12 +6,48 @@
 package dataplane
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/vishvananda/netlink"
 )
+
+func TestDialCurrentNamespaceUsesBoundedConnectedSocket(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan error, 1)
+	go func() {
+		connection, err := listener.Accept()
+		if err == nil {
+			_ = connection.Close()
+		}
+		accepted <- err
+	}()
+	endpoint := netip.MustParseAddrPort(listener.Addr().String())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	connection, err := dialCurrentNamespace(ctx, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.Close()
+	if err := <-accepted; err != nil {
+		t.Fatal(err)
+	}
+
+	unreachable, cancelUnreachable := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancelUnreachable()
+	if connection, err := dialCurrentNamespace(unreachable, netip.MustParseAddrPort("192.0.2.1:9")); err == nil {
+		_ = connection.Close()
+		t.Fatal("unreachable endpoint ignored the bounded context")
+	}
+}
 
 func TestVXLANMatchesObservedGatewayEndpoint(t *testing.T) {
 	underlay := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Index: 7, Name: "eth0"}}
