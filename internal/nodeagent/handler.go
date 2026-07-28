@@ -4,12 +4,14 @@
 package nodeagent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
 	waycni "github.com/Amoenus/waycloak/internal/cni"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func Handler(service *Service) http.Handler {
@@ -93,9 +95,21 @@ func writeServiceError(response http.ResponseWriter, err error) {
 		writeFailure(response, http.StatusConflict, waycni.AgentErrorBindingNotReady, true, "Binding is not ready")
 		return
 	}
+	if errors.Is(err, ErrPodLookupFailed) {
+		message := "Kubernetes Pod observation failed"
+		switch {
+		case apierrors.IsNotFound(err):
+			message = "Kubernetes Pod is not yet observable"
+		case apierrors.IsForbidden(err):
+			message = "Kubernetes Pod read is unauthorized"
+		case errors.Is(err, context.DeadlineExceeded):
+			message = "Kubernetes Pod observation timed out"
+		}
+		writeFailure(response, http.StatusForbidden, waycni.AgentErrorPodIdentityMismatch, false, message)
+		return
+	}
 	for authorityError, message := range map[error]string{
 		ErrPodIdentityInvalid: "Pod identity is invalid",
-		ErrPodLookupFailed:    "Kubernetes Pod observation failed",
 		ErrPodUIDMismatch:     "Pod UID does not match API observation",
 		ErrPodNodeMismatch:    "Pod node does not match local authority",
 	} {

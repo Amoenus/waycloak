@@ -6,7 +6,10 @@ package nodeagent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,8 +18,10 @@ import (
 	waycni "github.com/Amoenus/waycloak/internal/cni"
 	"github.com/Amoenus/waycloak/internal/dataplane"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -103,6 +108,25 @@ func TestPodAuthorityFailuresRemainDistinctAndFailClosed(t *testing.T) {
 	missing.Name = "missing"
 	if _, err := service.Resolve(context.Background(), missing); !errors.Is(err, ErrPodLookupFailed) {
 		t.Fatalf("Pod lookup failure = %v", err)
+	}
+}
+
+func TestPodLookupFailureMessagesAreSafeAndActionable(t *testing.T) {
+	for name, test := range map[string]struct {
+		err     error
+		message string
+	}{
+		"not-found": {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Kubernetes Pod is not yet observable"},
+		"forbidden": {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized"},
+		"timeout":   {context.DeadlineExceeded, "Kubernetes Pod observation timed out"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			writeServiceError(response, fmt.Errorf("%w: %w", ErrPodLookupFailed, test.err))
+			if response.Code != 403 || !strings.Contains(response.Body.String(), test.message) || strings.Contains(response.Body.String(), "redacted") {
+				t.Fatalf("unsafe lookup response: %d %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
