@@ -1,13 +1,14 @@
 # Waycloak Helm chart
 
-This chart currently represents the #128 API installation plus the #129–#134
+This chart currently represents the #128 API installation plus the #129–#136
 route enrollment, static admission, cross-namespace, stable status, UID-bound
 allocation, node-agent, and gateway-class contract surfaces. It
 installs only the six `networking.waycloak.io/v1beta1` CRDs, generated persona,
 controller, and unbound read-only node-agent RBAC, the future controller
 ServiceAccount identity, controller-only `VPNWorkloadBinding` defense, and
 declarative rejection of alpha Pod annotations, malformed route lookup labels,
-and live-Pod enrollment mutation.
+live-Pod enrollment mutation, host-namespace/direct-node bypass, and a stable
+declarative scheduling mutation for authenticated Core-ready nodes.
 
 When `defaultGatewayClass.enabled=true`, the chart renders the tested Gluetun
 class only from an exact release version and `sha256` manifest digest supplied
@@ -18,14 +19,26 @@ It does not render the alpha controller, mutation webhooks, sidecars, init
 containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render
 the replacement controller Deployment or CNI installer. The digest-only
 node-agent DaemonSet surface remains disabled until the signed install plan
-supplies its TLS and artifact identity. Do not enroll workloads from this
-intermediate chart; the stable turnkey journey is not complete at #134.
+supplies its TLS and artifact identity plus root-owned paths for the install
+receipt, CNI binary, and active conflist. Those three exact files are mounted
+read-only and hash-checked before Core readiness; the runtime agent never
+writes the host CNI directories. Do not enroll workloads from this
+intermediate chart; the stable turnkey journey is not complete at #136.
 
 The only replacement enrollment key is the Pod-template label
 `networking.waycloak.io/egress-route: <same-namespace-route-name>`. A present
 label is fail-closed intent even when the route is not yet accepted or ready.
 Removing or changing enrollment requires changing the workload template and
 creating a new Pod; the admission policy rejects edits to an existing Pod.
+
+On Kubernetes 1.36, a stable `MutatingAdmissionPolicy` adds the hard
+`networking.waycloak.io.node-restriction.kubernetes.io/core-ready=true` node
+selector to enrolled Pods while preserving all user scheduling constraints.
+The authenticated controller publishes that protected label only for an exact
+release and Core capability report and expires it after agent loss. Stable
+support requires the NodeRestriction admission plugin; the CNI independently
+fails closed if admission or a scheduling label is missing, stale, or bypassed.
+The chart installs no mutating/validating webhook or admission TLS resources.
 
 Cross-namespace gateway references use `VPNGateway.spec.allowedRoutes`; Core
 does not install Gateway API `ReferenceGrant`. Namespace labels selected for

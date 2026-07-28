@@ -177,6 +177,7 @@ func fixture(t *testing.T) (*Service, waycni.PodIdentity, waycni.Binding, *fakeP
 	reader := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(pod, binding).Build()
 	programmer := &fakeProgrammer{}
 	service := &Service{Reader: reader, Programmer: programmer, Store: staticAttachments{}, NodeName: "node-a", NodeBootID: "boot-a", InstanceID: "agent-a", Now: func() time.Time { return time.Unix(1000, 0).UTC() }}
+	service.SetBackendHealthy(true)
 	identity := waycni.PodIdentity{Namespace: pod.Namespace, Name: pod.Name, UID: string(pod.UID), ContainerID: "sandbox", IfName: "eth0", NetNS: "/proc/1/ns/net"}
 	reference := bindingReference(binding)
 	return service, identity, reference, programmer

@@ -21,6 +21,8 @@ import (
 	waybinding "github.com/Amoenus/waycloak/internal/binding"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/enrollment"
+	"github.com/Amoenus/waycloak/internal/nodeagent"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -54,7 +56,7 @@ func TestReplacementAPI(t *testing.T) {
 		BinaryAssetsDirectory: os.Getenv("KUBEBUILDER_ASSETS"),
 	}
 	environment.ControlPlane.GetAPIServer().Configure().Set("authorization-mode", "RBAC")
-	environment.ControlPlane.GetAPIServer().Configure().Append("enable-admission-plugins", "ValidatingAdmissionPolicy")
+	environment.ControlPlane.GetAPIServer().Configure().Append("enable-admission-plugins", "ValidatingAdmissionPolicy,MutatingAdmissionPolicy")
 	config, err := environment.Start()
 	if err != nil {
 		t.Fatal(err)
@@ -585,19 +587,72 @@ func TestReplacementAPI(t *testing.T) {
 	t.Run("Pod enrollment admission rejects alpha and live mutation", func(t *testing.T) {
 		installPodEnrollmentPolicy(t, ctx, admin)
 		waitForPodEnrollmentPolicy(t, ctx, admin)
+		waitForPodSchedulingPolicy(t, ctx, admin)
 		alpha := testPod("alpha-annotation", map[string]string{"networking.waycloak.io/gateway": "old"}, nil)
 		mustRejectForbidden(t, admin.Create(ctx, alpha))
 		invalid := testPod("invalid-enrollment", nil, map[string]string{enrollment.RouteLabel: "route.with.dot"})
 		mustReject(t, admin.Create(ctx, invalid), "same-namespace DNS label")
 		unlabeled := testPod("unlabeled", nil, nil)
 		must(t, admin.Create(ctx, unlabeled))
+		if unlabeled.Spec.NodeSelector[scheduling.CoreReadyLabel] != "" {
+			t.Fatalf("unlabeled Pod received Waycloak scheduling: %#v", unlabeled.Spec.NodeSelector)
+		}
 		valid := testPod("valid-enrollment", nil, map[string]string{enrollment.RouteLabel: "route-may-arrive-later"})
+		valid.Spec.NodeSelector = map[string]string{"kubernetes.io/os": "linux"}
 		must(t, admin.Create(ctx, valid))
+		if valid.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" || valid.Spec.NodeSelector["kubernetes.io/os"] != "linux" {
+			t.Fatalf("enrolled Pod scheduling mutation = %#v", valid.Spec.NodeSelector)
+		}
+		unsafe := testPod("unsafe-enrollment", nil, map[string]string{enrollment.RouteLabel: "private"})
+		unsafe.Spec.HostNetwork = true
+		mustRejectForbidden(t, admin.Create(ctx, unsafe))
 		valid.Labels[enrollment.RouteLabel] = "other-route"
 		mustRejectForbidden(t, admin.Update(ctx, valid))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(unlabeled), unlabeled))
 		unlabeled.Labels = map[string]string{enrollment.RouteLabel: "late-enrollment"}
 		mustRejectForbidden(t, admin.Update(ctx, unlabeled))
+	})
+
+	t.Run("authenticated node capability gates scheduling and expires", func(t *testing.T) {
+		now := time.Date(2026, 7, 26, 16, 0, 0, 0, time.UTC)
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "capability-node", Labels: map[string]string{"topology.kubernetes.io/zone": "test"}}}
+		must(t, admin.Create(ctx, node))
+		agentPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "capability-agent", Namespace: testNamespace, UID: "capability-agent-uid"}, Spec: corev1.PodSpec{NodeName: node.Name}}
+		release := wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
+		publisher := scheduling.Publisher{Client: admin, ReleaseIdentity: release, ConformanceProfile: "networking.waycloak.io/Core-v1", Now: func() time.Time { return now }}
+		report := nodeagent.NodeReport{NodeName: node.Name, NodeBootID: "boot", InstanceID: "instance", ObservedAt: now, Ready: true, Capabilities: append([]string(nil), scheduling.CoreCapabilities...), ReleaseIdentity: release, ConformanceProfile: "networking.waycloak.io/Core-v1"}
+		must(t, publisher.Apply(ctx, agentPod, report))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(node), node))
+		if node.Labels[scheduling.CoreReadyLabel] != "true" || node.Labels["topology.kubernetes.io/zone"] != "test" {
+			t.Fatalf("published Node labels = %#v", node.Labels)
+		}
+		owned := false
+		for _, fields := range node.ManagedFields {
+			if fields.Manager == scheduling.FieldManager && fields.Operation == metav1.ManagedFieldsOperationApply {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			t.Fatalf("Node capability labels lack server-side apply ownership: %#v", node.ManagedFields)
+		}
+		report.ReleaseIdentity.Version = "v2.0.0"
+		if err := publisher.Apply(ctx, agentPod, report); err == nil {
+			t.Fatal("release-skewed node capability was accepted")
+		}
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(node), node))
+		if node.Labels[scheduling.CoreReadyLabel] != "" {
+			t.Fatal("release skew retained scheduling readiness")
+		}
+		report.ReleaseIdentity = release
+		must(t, publisher.Apply(ctx, agentPod, report))
+		reconciler := &scheduling.NodeCapabilityReconciler{Client: admin, Now: func() time.Time { return now.Add(scheduling.DefaultFreshness + time.Second) }}
+		_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(node)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(node), node))
+		if node.Labels[scheduling.CoreReadyLabel] != "" {
+			t.Fatal("stale capability retained scheduling readiness")
+		}
 	})
 
 	t.Run("persona RBAC and binding admission deny users", func(t *testing.T) {
@@ -887,6 +942,16 @@ func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 	exact := admissionv1.Exact
 	forbidden := metav1.StatusReasonForbidden
 	invalid := metav1.StatusReasonInvalid
+	mutation := &admissionv1.MutatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-pod-scheduling-test"}, Spec: admissionv1.MutatingAdmissionPolicySpec{
+		FailurePolicy: &failure, ReinvocationPolicy: admissionv1.IfNeededReinvocationPolicy,
+		MatchConstraints: &admissionv1.MatchResources{MatchPolicy: &exact, ResourceRules: []admissionv1.NamedRuleWithOperations{{RuleWithOperations: admissionv1.RuleWithOperations{
+			Operations: []admissionv1.OperationType{admissionv1.Create}, Rule: admissionv1.Rule{APIGroups: []string{""}, APIVersions: []string{"v1"}, Resources: []string{"pods"}, Scope: scope(admissionv1.NamespacedScope)},
+		}}}},
+		MatchConditions: []admissionv1.MatchCondition{{Name: "explicitly-enrolled", Expression: `has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels`}},
+		Mutations:       []admissionv1.Mutation{{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `has(object.spec.nodeSelector) ? [JSONPatch{op: "add", path: "/spec/nodeSelector/" + jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/core-ready"), value: "true"}] : [JSONPatch{op: "add", path: "/spec/nodeSelector", value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]`}}},
+	}}
+	must(t, client.Create(ctx, mutation))
+	must(t, client.Create(ctx, &admissionv1.MutatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: mutation.Name}, Spec: admissionv1.MutatingAdmissionPolicyBindingSpec{PolicyName: mutation.Name}}))
 	policy := &admissionv1.ValidatingAdmissionPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "waycloak-pod-enrollment-test"},
 		Spec: admissionv1.ValidatingAdmissionPolicySpec{
@@ -909,6 +974,8 @@ func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 				{Expression: `!has(object.metadata.annotations) || object.metadata.annotations.all(key, !key.startsWith("networking.waycloak.io/") && !key.startsWith("internal.networking.waycloak.io/"))`, Message: "alpha Waycloak annotations are not accepted by the replacement API", Reason: &forbidden},
 				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || object.metadata.labels["networking.waycloak.io/egress-route"].matches("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")`, Message: "the Waycloak egress-route label must contain one same-namespace DNS label", Reason: &invalid},
 				{Expression: `request.operation != "UPDATE" || (has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels ? object.metadata.labels["networking.waycloak.io/egress-route"] : "") == (has(oldObject.metadata.labels) && "networking.waycloak.io/egress-route" in oldObject.metadata.labels ? oldObject.metadata.labels["networking.waycloak.io/egress-route"] : "")`, Message: "enrollment on an existing Pod is immutable; update the Pod template and create a new Pod", Reason: &forbidden},
+				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || ((!has(object.spec.hostNetwork) || !object.spec.hostNetwork) && (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.nodeName) || object.spec.nodeName == ""))`, Message: "enrolled Pods cannot bypass CNI or scheduler placement with host namespaces or spec.nodeName", Reason: &forbidden},
+				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || (has(object.spec.nodeSelector) && "networking.waycloak.io.node-restriction.kubernetes.io/core-ready" in object.spec.nodeSelector && object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true")`, Message: "enrolled Pods require the Waycloak Core-ready scheduling constraint", Reason: &forbidden},
 			},
 		},
 	}
@@ -929,6 +996,22 @@ func waitForPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("Pod enrollment admission policy did not become active")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func waitForPodSchedulingPolicy(t *testing.T, ctx context.Context, client ctrlclient.Client) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		probe := testPod("scheduling-policy-probe", nil, map[string]string{enrollment.RouteLabel: "private"})
+		err := client.Create(ctx, probe, &ctrlclient.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+		if err == nil && probe.Spec.NodeSelector[scheduling.CoreReadyLabel] == "true" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Pod scheduling policy did not become active: selector=%#v error=%v", probe.Spec.NodeSelector, err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

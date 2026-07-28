@@ -25,7 +25,7 @@ type Reporter struct {
 	Client    *http.Client
 }
 
-func (r Reporter) Report(ctx context.Context, observations []Observation) error {
+func (r Reporter) Report(ctx context.Context, report Report) error {
 	if r.URL == "" || r.TokenFile == "" {
 		return errors.New("observation relay URL and token file are required")
 	}
@@ -33,7 +33,7 @@ func (r Reporter) Report(ctx context.Context, observations []Observation) error 
 	if err != nil {
 		return fmt.Errorf("read projected observation token: %w", err)
 	}
-	body, err := json.Marshal(observations)
+	body, err := json.Marshal(report)
 	if err != nil {
 		return err
 	}

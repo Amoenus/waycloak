@@ -42,10 +42,14 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   controller/release claim, class/gateway status, unsupported-feature and
   reference rejection, credential redaction, verified-manifest default-class
   rendering, envtest, Kind, k3d, race, and generated-artifact gates passed.
-- [ ] #135 alpha runtime removal: implementation in progress; the served API,
-  webhook injection, projected handshake, legacy executables, release workflow,
-  examples, and tests are removed locally pending full CI and Kind evidence.
-- [ ] #136–#141: proceed only in declared dependency order.
+- [x] #135 alpha runtime removal: completed in PR #154 after replacement-only
+  dependency/audit proof and exact-head unit, race, envtest, generated,
+  reproducibility, security, Kind/kindnet, k3d/Flannel, and packet gates passed.
+- [ ] #136 minimal admission and CNI-capable scheduling: implementation in
+  progress with stable declarative mutation, protected capability labels, exact
+  authenticated release reports, CNI installation receipt verification,
+  expiry, and independent CNI refusal.
+- [ ] #137–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 
