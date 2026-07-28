@@ -172,10 +172,3 @@ func (engine *Engine) logger() *slog.Logger {
 	}
 	return slog.Default()
 }
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
