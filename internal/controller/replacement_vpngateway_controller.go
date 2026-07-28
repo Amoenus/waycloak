@@ -40,6 +40,20 @@ type ReplacementVPNGatewayReconciler struct {
 	CredentialRoles        []wayv1.QualifiedName
 	ReferenceCheckInterval time.Duration
 	Now                    func() time.Time
+	Runtime                GatewayRuntimeProvisioner
+}
+
+type GatewayRuntimeObservation struct {
+	Programmed        bool
+	Ready             bool
+	TunnelReady       bool
+	DNSReady          bool
+	MembershipApplied bool
+	Addresses         []wayv1.GatewayAddress
+}
+
+type GatewayRuntimeProvisioner interface {
+	Reconcile(context.Context, *wayv1.VPNGateway) (GatewayRuntimeObservation, error)
 }
 
 func (r *ReplacementVPNGatewayReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
@@ -104,6 +118,30 @@ func (r *ReplacementVPNGatewayReconciler) desiredStatus(ctx context.Context, gat
 		return r.finishStatus(gateway, status, states)
 	}
 	states[wayv1.ConditionResolvedRefs] = wayconditions.True(wayv1.ReasonResolvedRefs, "Gateway references are resolved")
+	if r.Runtime != nil {
+		observation, err := r.Runtime.Reconcile(ctx, gateway)
+		if err != nil {
+			states[wayv1.ConditionProgrammed] = wayconditions.False(wayv1.ReasonPending, "Gateway runtime reconciliation is pending")
+			states[wayv1.ConditionReady] = wayconditions.False(wayv1.ReasonNotReady, "Gateway data plane is not ready")
+			return r.finishStatus(gateway, status, states)
+		}
+		status.Addresses = append([]wayv1.GatewayAddress(nil), observation.Addresses...)
+		if observation.Programmed {
+			states[wayv1.ConditionProgrammed] = wayconditions.True(wayv1.ReasonProgrammed, "Gateway runtime is programmed")
+		}
+		if observation.TunnelReady {
+			states[wayv1.ConditionTunnelReady] = wayconditions.True(wayv1.ReasonReady, "Gateway tunnel is ready")
+		}
+		if observation.DNSReady {
+			states[wayv1.ConditionDNSReady] = wayconditions.True(wayv1.ReasonReady, "Gateway DNS path is ready")
+		}
+		if observation.MembershipApplied {
+			states[wayv1.ConditionMembershipApplied] = wayconditions.True(wayv1.ReasonProgrammed, "Gateway membership data plane is applied")
+		}
+		if observation.Ready && observation.Programmed && observation.TunnelReady && observation.DNSReady && observation.MembershipApplied {
+			states[wayv1.ConditionReady] = wayconditions.True(wayv1.ReasonReady, "Gateway live data plane is ready")
+		}
+	}
 	return r.finishStatus(gateway, status, states)
 }
 

@@ -1,0 +1,91 @@
+{{- if .Values.cniInstaller.enabled }}
+{{- $digest := required "cniInstaller.image.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.image.digest }}
+{{- $pauseDigest := required "cniInstaller.pauseImage.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.pauseImage.digest }}
+{{- $configPath := required "cniInstaller.configHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.configHostPath }}
+{{- $binaryPath := required "cniInstaller.binaryHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.binaryHostPath }}
+{{- $version := required "releaseIdentity.version is required when cniInstaller.enabled=true" .Values.releaseIdentity.version }}
+{{- $manifest := required "releaseIdentity.manifestDigest is required when cniInstaller.enabled=true" .Values.releaseIdentity.manifestDigest }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "waycloak.fullname" . }}-cni-installer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cni-installer
+spec:
+  selector:
+    matchLabels:
+      {{- include "waycloak.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cni-installer
+  template:
+    metadata:
+      labels:
+        {{- include "waycloak.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cni-installer
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: install
+          image: "{{ .Values.cniInstaller.image.repository }}@{{ $digest }}"
+          imagePullPolicy: IfNotPresent
+          command: ["/ko-app/waycloak-cni"]
+          args:
+            - install
+            - /ko-app/waycloak-cni
+            - /host-bin/{{ base $binaryPath }}
+            - /host-config/{{ base $configPath }}
+            - /host-state/install-receipt.json
+            - /host-config/{{ base $configPath }}.waycloak-original
+            - /run/waycloak/agent.sock
+            - /run/waycloak/agent.key
+            - /var/lib/cni/waycloak
+            - {{ $version | quote }}
+            - {{ $manifest | quote }}
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: host-bin
+              mountPath: /host-bin
+            - name: host-config
+              mountPath: /host-config
+            - name: host-state
+              mountPath: /host-state
+      containers:
+        - name: receipt-holder
+          image: "{{ .Values.cniInstaller.pauseImage.repository }}@{{ $pauseDigest }}"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 1m
+              memory: 2Mi
+            limits:
+              memory: 16Mi
+      volumes:
+        - name: host-bin
+          hostPath:
+            path: {{ dir $binaryPath }}
+            type: Directory
+        - name: host-config
+          hostPath:
+            path: {{ dir $configPath }}
+            type: Directory
+        - name: host-state
+          hostPath:
+            path: {{ dir .Values.cniInstaller.receiptHostPath }}
+            type: DirectoryOrCreate
+{{- end }}

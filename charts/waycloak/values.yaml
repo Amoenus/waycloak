@@ -4,6 +4,44 @@ fullnameOverride: ""
 serviceAccount:
   annotations: {}
 
+releaseIdentity:
+  version: ""
+  manifestDigest: ""
+
+controller:
+  enabled: false
+  image:
+    repository: ghcr.io/amoenus/waycloak-replacement-controller
+    digest: ""
+  replicas: 1
+  observationTLSSecret: ""
+  observationPort: 9443
+  conformanceProfile: networking.waycloak.io/Core-v1
+  gateway:
+    engineImage:
+      repository: docker.io/qmcgaw/gluetun
+      digest: ""
+    agentImage:
+      repository: ghcr.io/amoenus/waycloak-gateway-agent
+      digest: ""
+    overlayCIDR: ""
+    vni: 7999
+    mtu: 1320
+    vxlanPort: 4789
+    healthPort: 18080
+
+cniInstaller:
+  enabled: false
+  image:
+    repository: ghcr.io/amoenus/waycloak-cni
+    digest: ""
+  pauseImage:
+    repository: registry.k8s.io/pause
+    digest: ""
+  configHostPath: ""
+  binaryHostPath: ""
+  receiptHostPath: /var/lib/cni/waycloak/install-receipt.json
+
 # The signed install plan in #138 enables this surface and supplies the exact
 # verified release-manifest identity. The API-only development chart does not
 # invent or silently substitute a release digest.

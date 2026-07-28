@@ -52,8 +52,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [ ] #137 Service-backed SingleActive PortForwardLease: implementation is in
   progress; keep the capability unadvertised until Kind and real-provider
   rolling-replacement evidence passes.
-- [ ] #138–#141: proceed only after #137 acceptance and in declared dependency
-  order.
+- [ ] #138: turnkey CLI and runtime installation are in progress independently
+  of the still-unadvertised Extended #137 capability. Do not close until signed
+  exact-artifact, clean-install, under-15-minute provider, and disruptive smoke
+  evidence pass.
+- [ ] #139–#141: proceed in their declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

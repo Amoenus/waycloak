@@ -6,16 +6,20 @@ ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 NODE_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-node-agent
 REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-replacement-controller
 GATEWAY_RUNTIME_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-runtime
+GATEWAY_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-agent
 QBITTORRENT_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-qbittorrent-adapter
 NODE_AGENT_OCI_LAYOUT ?= dist/node-agent
 REPLACEMENT_CONTROLLER_OCI_LAYOUT ?= dist/replacement-controller
 GATEWAY_RUNTIME_OCI_LAYOUT ?= dist/gateway-runtime
+GATEWAY_AGENT_OCI_LAYOUT ?= dist/gateway-agent
 QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
+WAYCLOAKCTL_DIST ?= dist/waycloakctl
+WAYCLOAK_VERSION ?= development
 CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests api-reference test test-race vet envtest e2e node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci qbittorrent-adapter-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference test test-race vet envtest e2e node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
 
@@ -59,9 +63,22 @@ gateway-runtime-image-oci:
 	mkdir -p $(dir $(GATEWAY_RUNTIME_OCI_LAYOUT))
 	KO_DOCKER_REPO=$(GATEWAY_RUNTIME_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(GATEWAY_RUNTIME_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-gateway-runtime
 
+gateway-agent-image-oci:
+	mkdir -p $(dir $(GATEWAY_AGENT_OCI_LAYOUT))
+	KO_DOCKER_REPO=$(GATEWAY_AGENT_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(GATEWAY_AGENT_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-gateway-agent
+
 qbittorrent-adapter-image-oci:
 	mkdir -p $(dir $(QBITTORRENT_ADAPTER_OCI_LAYOUT))
 	KO_DOCKER_REPO=$(QBITTORRENT_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(QBITTORRENT_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-qbittorrent-adapter
+
+waycloakctl-release:
+	mkdir -p $(WAYCLOAKCTL_DIST)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(WAYCLOAK_VERSION)" -o $(WAYCLOAKCTL_DIST)/waycloakctl-linux-amd64 ./cmd/waycloakctl
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(WAYCLOAK_VERSION)" -o $(WAYCLOAKCTL_DIST)/waycloakctl-linux-arm64 ./cmd/waycloakctl
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GO) build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(WAYCLOAK_VERSION)" -o $(WAYCLOAKCTL_DIST)/waycloakctl-darwin-amd64 ./cmd/waycloakctl
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GO) build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(WAYCLOAK_VERSION)" -o $(WAYCLOAKCTL_DIST)/waycloakctl-darwin-arm64 ./cmd/waycloakctl
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(WAYCLOAK_VERSION)" -o $(WAYCLOAKCTL_DIST)/waycloakctl-windows-amd64.exe ./cmd/waycloakctl
+	cd $(WAYCLOAKCTL_DIST) && sha256sum waycloakctl-* > SHA256SUMS
 
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)
