@@ -18,7 +18,7 @@ import (
 const (
 	DefaultAgentSocket  = "/run/waycloak/cni-agent.sock"
 	DefaultAgentKeyFile = "/run/waycloak/cni-auth.key"
-	DefaultStateDir     = "/var/lib/cni/waycloak"
+	DefaultStateDir     = "/var/lib/cni/waycloak/attachments"
 )
 
 type NetConf struct {

@@ -42,7 +42,7 @@ spec:
             - /host-config/{{ base $configPath }}.waycloak-original
             - /run/waycloak/agent.sock
             - /run/waycloak/agent.key
-            - /var/lib/cni/waycloak
+            - /var/lib/cni/waycloak/attachments
             - {{ $version | quote }}
             - {{ $manifest | quote }}
           securityContext:

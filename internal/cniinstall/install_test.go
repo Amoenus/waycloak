@@ -60,9 +60,25 @@ func TestInstallRefusesAdoptionWithoutOriginalBackup(t *testing.T) {
 	source := filepath.Join(directory, "source")
 	config := filepath.Join(directory, "10-primary.conflist")
 	write(t, source, "binary", 0o755)
-	write(t, config, `{"cniVersion":"1.1.0","name":"primary","plugins":[{"type":"bridge"},{"type":"waycloak-cni","agentSocket":"/run/waycloak/agent.sock","agentKeyFile":"/run/waycloak/agent.key","stateDir":"/var/lib/cni/waycloak"}]}`, 0o644)
+	write(t, config, `{"cniVersion":"1.1.0","name":"primary","plugins":[{"type":"bridge"},{"type":"waycloak-cni","agentSocket":"/run/waycloak/agent.sock","agentKeyFile":"/run/waycloak/agent.key","stateDir":"/var/lib/cni/waycloak/attachments"}]}`, 0o644)
 	if err := Install(fixture(directory, source, config)); err == nil || !strings.Contains(err.Error(), "preserved") {
 		t.Fatalf("unrecoverable pre-existing chain was adopted: %v", err)
+	}
+}
+
+func TestInstallRefusesReceiptInAttachmentStateDirectory(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	config := filepath.Join(directory, "10-primary.conflist")
+	write(t, source, "binary", 0o755)
+	write(t, config, `{"cniVersion":"1.1.0","name":"primary","plugins":[{"type":"bridge"}]}`, 0o644)
+	options := fixture(directory, source, config)
+	options.StateDirectory = filepath.ToSlash(filepath.Dir(options.ReceiptPath))
+	if !strings.HasPrefix(options.StateDirectory, "/") {
+		options.StateDirectory = "/" + options.StateDirectory
+	}
+	if err := Install(options); err == nil || !strings.Contains(err.Error(), "distinct from the installation receipt") {
+		t.Fatalf("colliding receipt and attachment state directories were not rejected: %v", err)
 	}
 }
 
@@ -70,7 +86,7 @@ func fixture(directory, source, config string) Options {
 	return Options{
 		SourceBinary: source, BinaryPath: filepath.Join(directory, "bin", "waycloak-cni"), ConfigPath: config,
 		ReceiptPath: filepath.Join(directory, "state", "install-receipt.json"), BackupPath: config + ".waycloak-original",
-		AgentSocket: "/run/waycloak/agent.sock", AgentKeyFile: "/run/waycloak/agent.key", StateDirectory: "/var/lib/cni/waycloak",
+		AgentSocket: "/run/waycloak/agent.sock", AgentKeyFile: "/run/waycloak/agent.key", StateDirectory: "/var/lib/cni/waycloak/attachments",
 		ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:" + strings.Repeat("a", 64)},
 	}
 }

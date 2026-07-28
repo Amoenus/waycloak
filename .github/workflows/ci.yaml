@@ -233,6 +233,8 @@ jobs:
           test "$(grep -c '^kind: Secret$' "$RUNNER_TEMP/enabled-1.yaml" || true)" -eq 0
           test "$(grep -c '@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RUNNER_TEMP/enabled-1.yaml")" -ge 5
           grep -A4 'securityContext:' "$RUNNER_TEMP/enabled-1.yaml" | grep -q 'fsGroup: 65532'
+          test "$(grep -c -- '/var/lib/cni/waycloak/attachments' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
+          test "$(grep -c -- '/var/lib/cni/waycloak/install-receipt.json' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

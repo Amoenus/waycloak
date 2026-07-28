@@ -67,6 +67,7 @@ spec:
             - --release-version={{ $releaseVersion }}
             - --release-manifest-digest={{ $releaseDigest }}
             - --conformance-profile={{ .Values.nodeAgent.conformanceProfile }}
+            - --state-dir=/var/lib/cni/waycloak/attachments
             - --cni-receipt-file=/var/run/waycloak-cni-install/install-receipt.json
             - --cni-binary-file=/var/run/waycloak-cni-install/waycloak-cni
             - --cni-config-file=/var/run/waycloak-cni-install/waycloak.conflist
