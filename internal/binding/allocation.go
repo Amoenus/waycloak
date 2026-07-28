@@ -41,6 +41,7 @@ var (
 	ErrPoolExhausted       = errors.New("gateway workload address pool is exhausted")
 	ErrUnsafePool          = errors.New("gateway workload address pool is not safely allocatable")
 	ErrReservationConflict = errors.New("address reservation belongs to another allocation")
+	ErrReservationDeleting = errors.New("address reservation deletion is still in progress")
 	ErrIdentityQuarantined = errors.New("allocation identity has a quarantined address")
 )
 
@@ -145,6 +146,9 @@ func (a Allocator) Quarantine(ctx context.Context, binding *wayv1.VPNWorkloadBin
 	current := &coordinationv1.Lease{}
 	if err := a.reader().Get(ctx, client.ObjectKeyFromObject(desired), current); err != nil {
 		return fmt.Errorf("read address reservation for quarantine: %w", err)
+	}
+	if !current.DeletionTimestamp.IsZero() {
+		return ErrReservationDeleting
 	}
 	if current.Annotations[ReservationStateAnnotation] == ReservationStateQuarantined {
 		if quarantineMatches(current, gateway.UID, types.UID(binding.Spec.PodRef.UID), binding.Spec.Allocation.Identity, address) {

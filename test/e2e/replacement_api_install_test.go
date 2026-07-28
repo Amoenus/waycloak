@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -216,6 +217,7 @@ metadata:
   labels:
     networking.waycloak.io/egress-route: private
 spec:
+  automountServiceAccountToken: false
   containers:
     - name: app
       image: registry.k8s.io/pause:3.10.1
@@ -233,6 +235,7 @@ spec:
       image: registry.k8s.io/pause:3.10.1
 `, namespace, namespace, namespace)
 	applyInput(t, nil, pods)
+	assertApplicationPodUnmodified(t, namespace, "protected", "private")
 	assertCommandFails(t, "live Pod enrollment label was mutable", nil, "kubectl", "label", "pod", "protected", "-n", namespace, "networking.waycloak.io/egress-route=other", "--overwrite")
 	assertCommandFails(t, "unlabeled live Pod could be enrolled in place", nil, "kubectl", "label", "pod", "unprotected", "-n", namespace, "networking.waycloak.io/egress-route=private")
 	verifyRouteControllerAndEnrollment(t, namespace)
@@ -870,4 +873,53 @@ func assertCommandFails(t *testing.T, failureMessage string, env []string, name 
 	if output, err := cmd.CombinedOutput(); err == nil {
 		t.Fatalf("%s: %s", failureMessage, output)
 	}
+}
+
+func assertApplicationPodUnmodified(t *testing.T, namespace, name, route string) {
+	t.Helper()
+	var pod corev1.Pod
+	if err := json.Unmarshal([]byte(command(t, nil, "kubectl", "get", "pod", name, "-n", namespace, "-o", "json")), &pod); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Labels["networking.waycloak.io/egress-route"] != route {
+		t.Fatalf("enrollment label = %q, want %q", pod.Labels["networking.waycloak.io/egress-route"], route)
+	}
+	for key := range pod.Annotations {
+		if strings.HasPrefix(key, "networking.waycloak.io/") || strings.HasPrefix(key, "internal.networking.waycloak.io/") {
+			t.Fatalf("application Pod received Waycloak annotation %q", key)
+		}
+	}
+	if len(pod.Spec.InitContainers) != 0 || len(pod.Spec.EphemeralContainers) != 0 || len(pod.Spec.Containers) != 1 {
+		t.Fatalf("application Pod was injected: init=%d ephemeral=%d containers=%d", len(pod.Spec.InitContainers), len(pod.Spec.EphemeralContainers), len(pod.Spec.Containers))
+	}
+	container := pod.Spec.Containers[0]
+	if container.Name != "app" || container.Image != "registry.k8s.io/pause:3.10.1" ||
+		len(container.Command) != 0 || len(container.Args) != 0 ||
+		len(container.Ports) != 0 || len(container.EnvFrom) != 0 || len(container.Env) != 0 ||
+		len(container.VolumeMounts) != 0 || len(container.VolumeDevices) != 0 ||
+		container.WorkingDir != "" || container.LivenessProbe != nil || container.ReadinessProbe != nil ||
+		container.StartupProbe != nil || container.Lifecycle != nil || container.SecurityContext != nil ||
+		len(container.Resources.Limits) != 0 || len(container.Resources.Requests) != 0 || len(container.Resources.Claims) != 0 {
+		t.Fatalf("application container received Waycloak wiring: %#v", container)
+	}
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken ||
+		len(pod.Spec.Volumes) != 0 || hasInjectedPodSecurityContext(pod.Spec.SecurityContext) ||
+		pod.Spec.HostNetwork || pod.Spec.HostPID || pod.Spec.HostIPC {
+		t.Fatalf("application Pod received credential, volume, capability, or host wiring: %#v", pod.Spec)
+	}
+}
+
+func hasInjectedPodSecurityContext(securityContext *corev1.PodSecurityContext) bool {
+	if securityContext == nil {
+		return false
+	}
+	defaultSupplementalGroupsPolicy := securityContext.SupplementalGroupsPolicy == nil ||
+		*securityContext.SupplementalGroupsPolicy == corev1.SupplementalGroupsPolicyMerge
+	return securityContext.SELinuxOptions != nil || securityContext.WindowsOptions != nil ||
+		securityContext.RunAsUser != nil || securityContext.RunAsGroup != nil ||
+		securityContext.RunAsNonRoot != nil || len(securityContext.SupplementalGroups) != 0 ||
+		!defaultSupplementalGroupsPolicy || securityContext.FSGroup != nil ||
+		len(securityContext.Sysctls) != 0 || securityContext.FSGroupChangePolicy != nil ||
+		securityContext.SeccompProfile != nil || securityContext.AppArmorProfile != nil ||
+		securityContext.SELinuxChangePolicy != nil
 }

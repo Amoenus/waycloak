@@ -10,90 +10,69 @@ import (
 	"testing"
 )
 
-func TestAuditRejectsUnknownAlphaArtifact(t *testing.T) {
+func TestAuditRejectsRemovedPath(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "known.go", "const version = \"v1alpha1\"")
-	writeTestFile(t, root, "unknown.yaml", "apiVersion: networking.waycloak.io/v1alpha9")
-	inv := testInventory()
-	if err := audit(root, inv, []string{"known.go", "unknown.yaml"}); err == nil || !strings.Contains(err.Error(), "unknown.yaml") {
-		t.Fatalf("audit() error = %v, want unknown artifact failure", err)
+	writeTestFile(t, root, "api/v1alpha1/types.go", "package v1alpha1")
+	err := audit(root, testPolicy(), []string{"api/v1alpha1/types.go"})
+	if err == nil || !strings.Contains(err.Error(), "removed alpha path exists") {
+		t.Fatalf("audit error = %v", err)
 	}
 }
 
-func TestAuditRejectsUnknownAlphaArtifactInsideListedRoot(t *testing.T) {
+func TestAuditRejectsMarkerOnShippedSurface(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "alpha/known.go", "const version = \"v1alpha1\"")
-	writeTestFile(t, root, "alpha/unknown.go", "const version = \"v1alpha2\"")
-	inv := testInventory()
-	inv.KnownAlphaPaths = []string{"alpha/known.go"}
-	inv.Entries[0].Artifacts["code"] = []string{"alpha/**"}
-	if err := audit(root, inv, []string{"alpha/known.go", "alpha/unknown.go"}); err == nil || !strings.Contains(err.Error(), "alpha/unknown.go") {
-		t.Fatalf("audit() error = %v, want unknown artifact in listed root failure", err)
+	writeTestFile(t, root, "cmd/controller/main.go", "const old = \"networking.waycloak.io/gateway\"")
+	value := testPolicy()
+	value.ForbiddenPaths = []string{"api/v1alpha1/**"}
+	err := audit(root, value, []string{"cmd/controller/main.go"})
+	if err == nil || !strings.Contains(err.Error(), "forbidden marker") {
+		t.Fatalf("audit error = %v", err)
 	}
 }
 
-func TestAuditDistinguishesExactAlphaKeyFromStableQualifiedNames(t *testing.T) {
+func TestAuditRejectsUnknownAlphaTest(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "known.go", `const annotation = "networking.waycloak.io/gateway"`)
-	writeTestFile(t, root, "stable.go", `const controller = "networking.waycloak.io/gateway-controller"`)
-	inv := testInventory()
-	inv.Markers = []string{`networking\.waycloak\.io/(gateway)(?:[^A-Za-z0-9._~-]|$)`}
-	if err := audit(root, inv, []string{"known.go", "stable.go"}); err != nil {
-		t.Fatalf("audit() error = %v, want stable qualified suffix ignored", err)
+	writeTestFile(t, root, "internal/new/runtime_test.go", "const old = \"networking.waycloak.io/gateway\"")
+	err := audit(root, testPolicy(), []string{"internal/new/runtime_test.go"})
+	if err == nil || !strings.Contains(err.Error(), "forbidden marker") {
+		t.Fatalf("audit error = %v", err)
 	}
 }
 
-func TestAuditAcceptsCompleteInventory(t *testing.T) {
+func TestAuditAllowsHistoricalDocsAndNegativeTests(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "known.go", "const version = \"v1alpha1\"")
-	if err := audit(root, testInventory(), []string{"known.go"}); err != nil {
-		t.Fatalf("audit() error = %v", err)
+	paths := []string{"docs/api/api-contract.md", "internal/enrollment/resolver_test.go"}
+	for _, path := range paths {
+		writeTestFile(t, root, path, "networking.waycloak.io/gateway")
 	}
-}
-
-func TestAuditRejectsStaleKnownAlphaPath(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "known.go", "package known")
-	if err := audit(root, testInventory(), []string{"known.go"}); err == nil || !strings.Contains(err.Error(), "no longer contains an alpha marker") {
-		t.Fatalf("audit() error = %v, want stale known path failure", err)
-	}
-}
-
-func TestAuditRejectsUnapprovedClassification(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "known.go", "const version = \"v1alpha1\"")
-	inv := testInventory()
-	inv.Entries[0].Classification = "compatibility"
-	if err := audit(root, inv, []string{"known.go"}); err == nil || !strings.Contains(err.Error(), "unsupported classification") {
-		t.Fatalf("audit() error = %v, want classification failure", err)
-	}
-}
-
-func testInventory() inventory {
-	return inventory{
-		SchemaVersion:   1,
-		BlockedIssue:    127,
-		Markers:         []string{`v1alpha[0-9]+`},
-		KnownAlphaPaths: []string{"known.go"},
-		Entries: []entry{{
-			ID:             "known",
-			Classification: "implementation_delete",
-			RemovalIssue:   135,
-			Contracts:      []string{"test marker"},
-			Artifacts: map[string][]string{
-				"code": {"known.go"}, "chart": {}, "generated": {}, "tests": {}, "docs": {},
-			},
-		}},
-	}
-}
-
-func writeTestFile(t *testing.T, root, path, contents string) {
-	t.Helper()
-	fullPath := filepath.Join(root, filepath.FromSlash(path))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+	if err := audit(root, testPolicy(), paths); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fullPath, []byte(contents), 0o600); err != nil {
+}
+
+func TestAuditRejectsInvalidPolicy(t *testing.T) {
+	if err := audit(t.TempDir(), policy{}, nil); err == nil {
+		t.Fatal("empty policy passed")
+	}
+}
+
+func testPolicy() policy {
+	return policy{
+		SchemaVersion:    1,
+		AuditedPaths:     []string{"api/**", "cmd/**", "internal/**"},
+		ExemptPaths:      []string{"internal/enrollment/resolver_test.go"},
+		ForbiddenPaths:   []string{"api/v1alpha1/**", "cmd/agent/**"},
+		ForbiddenMarkers: []string{`networking\.waycloak\.io/gateway(?:["'[:space:]]|$)`},
+	}
+}
+
+func writeTestFile(t *testing.T, root, name, contents string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

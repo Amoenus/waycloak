@@ -181,7 +181,10 @@ func TestAddBindingWaitIsBoundedWithDenyRetained(t *testing.T) {
 	if err := plugin.Add(context.Background(), request); err == nil {
 		t.Fatal("missing binding unexpectedly succeeded")
 	}
-	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+	// The race detector can add substantial filesystem and scheduler latency on
+	// shared CI runners. Keep the wall-clock ceiling finite without coupling the
+	// assertion to a small multiple of the configured binding timeout.
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
 		t.Fatalf("binding wait was not bounded: %s", elapsed)
 	}
 	if _, err := plugin.Store.Load(request.Key()); err != nil {

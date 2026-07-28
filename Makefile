@@ -3,27 +3,17 @@ CONTROLLER_GEN = $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.21
 SETUP_ENVTEST = $(GO) run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0
 KO = $(GO) run github.com/google/ko@v0.19.1
 ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-agent
-GATEWAY_MANAGER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-gateway-manager
-CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-controller
-QBITTORRENT_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-qbittorrent-adapter
-BITMAGNET_ADAPTER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-bitmagnet-adapter
 NODE_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-node-agent
 REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-replacement-controller
-OCI_LAYOUT ?= dist/agent
-GATEWAY_MANAGER_OCI_LAYOUT ?= dist/gateway-manager
-CONTROLLER_OCI_LAYOUT ?= dist/controller
-QBITTORRENT_ADAPTER_OCI_LAYOUT ?= dist/qbittorrent-adapter
-BITMAGNET_ADAPTER_OCI_LAYOUT ?= dist/bitmagnet-adapter
 NODE_AGENT_OCI_LAYOUT ?= dist/node-agent
 REPLACEMENT_CONTROLLER_OCI_LAYOUT ?= dist/replacement-controller
 CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests api-reference webhook-manifests test test-race vet envtest e2e e2e-real-port-forward image-oci gateway-manager-image-oci controller-image-oci node-agent-image-oci replacement-controller-image-oci qbittorrent-adapter-image-oci bitmagnet-adapter-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference test test-race vet envtest e2e node-agent-image-oci replacement-controller-image-oci chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1alpha1;./api/v1beta1"
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
 
 manifests:
 	$(CONTROLLER_GEN) crd paths="./api/v1beta1" output:crd:artifacts:config=config/crd/bases
@@ -34,13 +24,9 @@ manifests:
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-adapter-operator,fileName=adapter-operator-role.yaml paths="./internal/rbac/adapteroperator" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-node-agent,fileName=node-agent-role.yaml paths="./internal/rbac/nodeagent" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-gateway-secret-reader,fileName=gateway-secret-reader-role.yaml paths="./internal/rbac/gatewaysecretreader" output:rbac:artifacts:config=config/rbac
-	$(CONTROLLER_GEN) webhook paths="./cmd/controller" output:webhook:artifacts:config=config/webhook
 
 api-reference: manifests
 	$(GO) run ./hack/apireference --output docs/api/v1beta1.md
-
-webhook-manifests:
-	kubectl kustomize config/webhook
 
 test:
 	$(GO) test ./...
@@ -57,21 +43,6 @@ envtest:
 e2e:
 	$(GO) test -tags=e2e ./test/e2e/... -v -count=1
 
-e2e-real-port-forward:
-	$(GO) test -tags=e2e ./test/e2e/... -run '^TestRealProviderQBittorrentPortForward$$' -v -count=1 -timeout=2h
-
-image-oci:
-	mkdir -p $(dir $(OCI_LAYOUT))
-	KO_DOCKER_REPO=$(IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/agent
-
-gateway-manager-image-oci:
-	mkdir -p $(dir $(GATEWAY_MANAGER_OCI_LAYOUT))
-	KO_DOCKER_REPO=$(GATEWAY_MANAGER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(GATEWAY_MANAGER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/gateway-manager
-
-controller-image-oci:
-	mkdir -p $(dir $(CONTROLLER_OCI_LAYOUT))
-	KO_DOCKER_REPO=$(CONTROLLER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(CONTROLLER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/controller
-
 node-agent-image-oci:
 	mkdir -p $(dir $(NODE_AGENT_OCI_LAYOUT))
 	KO_DOCKER_REPO=$(NODE_AGENT_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(NODE_AGENT_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/waycloak-node-agent
@@ -79,22 +50,6 @@ node-agent-image-oci:
 replacement-controller-image-oci:
 	mkdir -p $(dir $(REPLACEMENT_CONTROLLER_OCI_LAYOUT))
 	KO_DOCKER_REPO=$(REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(REPLACEMENT_CONTROLLER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 ./cmd/replacement-controller
-
-qbittorrent-adapter-image-oci:
-	mkdir -p $(dir $(QBITTORRENT_ADAPTER_OCI_LAYOUT))
-	KO_DOCKER_REPO=$(QBITTORRENT_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(QBITTORRENT_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 \
-		--image-label=io.waycloak.adapter.protocol=networking.waycloak.io/adapter/v1alpha1 \
-		--image-label=io.waycloak.adapter.application=qbittorrent \
-		--image-label=io.waycloak.adapter.application.version='>=5.2.3 <6.0.0' \
-		./cmd/qbittorrent-adapter
-
-bitmagnet-adapter-image-oci:
-	mkdir -p $(dir $(BITMAGNET_ADAPTER_OCI_LAYOUT))
-	KO_DOCKER_REPO=$(BITMAGNET_ADAPTER_IMAGE_REPOSITORY) $(KO) build --push=false --oci-layout-path=$(BITMAGNET_ADAPTER_OCI_LAYOUT) --sbom=spdx --platform=linux/amd64,linux/arm64 \
-		--image-label=io.waycloak.adapter.protocol=networking.waycloak.io/adapter/v1alpha1 \
-		--image-label=io.waycloak.adapter.application=bitmagnet \
-		--image-label=io.waycloak.adapter.application.version='>=0.10.1-beta.1 <1.0.0' \
-		./cmd/bitmagnet-adapter
 
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)

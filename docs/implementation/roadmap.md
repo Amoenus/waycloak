@@ -42,7 +42,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   controller/release claim, class/gateway status, unsupported-feature and
   reference rejection, credential redaction, verified-manifest default-class
   rendering, envtest, Kind, k3d, race, and generated-artifact gates passed.
-- [ ] #135–#141: proceed only in declared dependency order.
+- [ ] #135 alpha runtime removal: implementation in progress; the served API,
+  webhook injection, projected handshake, legacy executables, release workflow,
+  examples, and tests are removed locally pending full CI and Kind evidence.
+- [ ] #136–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
 

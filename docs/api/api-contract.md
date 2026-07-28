@@ -4,6 +4,8 @@
 > `v1alpha1` API. It is not a compatibility input to the replacement. See
 > [replacement-api-proposal.md](replacement-api-proposal.md). The replacement
 > will not serve, convert, translate, or alias these objects and annotations.
+> The alpha Gluetun-native operator guide was removed; every `v1alpha1`
+> manifest below is historical evidence, not replacement installation guidance.
 
 This document proposes the `v1alpha1` API. Field names may change before the first release, but implementations must preserve the product invariants.
 
@@ -77,8 +79,8 @@ Mount paths are limited to nested `/gluetun/...` paths required by Gluetun or
 the dedicated `/run/engine-native` tree.
 Provider, protocol, server selection, custom-provider files, non-conflicting
 DNS options, and updater settings otherwise remain Gluetun-native.
-See the [Gluetun-native configuration guide](../guides/gluetun-native-configuration.md)
-for Proton/OpenVPN, Mullvad/WireGuard, and custom-provider examples.
+The removed Gluetun-native operator guide was part of this alpha surface and is
+not replacement installation guidance.
 
 `clusterTraffic.cidrs` is required when `mode` is explicitly `Preserve` and is
 invalid for `Gateway` or `Deny`. It is the operator-owned Pod, Service, and

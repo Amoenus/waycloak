@@ -17,7 +17,6 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/Amoenus/waycloak/internal/contract"
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
@@ -34,6 +33,7 @@ const (
 	dnsTCPRulePriority    = 11051
 	clusterRulePriority   = 11100
 	protectedRulePriority = 12000
+	gatewayDNSPort        = 1053
 )
 
 type linuxBackend struct{}
@@ -316,7 +316,7 @@ func addDNSRedirect(conn *nftables.Conn, table *nftables.Table, gateway netip.Ad
 	queryPort := make([]byte, 2)
 	binary.BigEndian.PutUint16(queryPort, 53)
 	gatewayPort := make([]byte, 2)
-	binary.BigEndian.PutUint16(gatewayPort, contract.GatewayDNSPort)
+	binary.BigEndian.PutUint16(gatewayPort, gatewayDNSPort)
 	for _, transport := range []byte{unix.IPPROTO_UDP, unix.IPPROTO_TCP} {
 		conn.AddRule(&nftables.Rule{Table: table, Chain: chain, UserData: marker, Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
