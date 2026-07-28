@@ -13,6 +13,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	wayconditions "github.com/Amoenus/waycloak/internal/conditions"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -216,6 +217,7 @@ func (r *ReplacementVPNGatewayReconciler) SetupWithManager(manager ctrl.Manager)
 		r.APIReader = manager.GetAPIReader()
 	}
 	return ctrl.NewControllerManagedBy(manager).For(&wayv1.VPNGateway{}).
+		Owns(&appsv1.StatefulSet{}).
 		Watches(&wayv1.VPNGatewayClass{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForClass)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForConfigMap)).Complete(r)
 }

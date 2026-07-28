@@ -141,8 +141,9 @@ func TestObserveDoesNotRetryAuthoritativeHTTPFailure(t *testing.T) {
 }
 
 func TestObserveWithdrawsReadinessAfterSecondTransportFailure(t *testing.T) {
+	var output bytes.Buffer
 	healthCalls := 0
-	engine := &Engine{HealthURL: "http://127.0.0.1/health", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+	engine := &Engine{HealthURL: "http://127.0.0.1/health", Logger: slog.New(slog.NewTextHandler(&output, nil)), Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		healthCalls++
 		return nil, io.ErrUnexpectedEOF
 	})}}
@@ -150,6 +151,9 @@ func TestObserveWithdrawsReadinessAfterSecondTransportFailure(t *testing.T) {
 	observation, err := engine.Observe(context.Background())
 	if !errors.Is(err, ErrTunnelUnhealthy) || healthCalls != 2 || observation.TunnelReady {
 		t.Fatalf("observation=%#v healthCalls=%d error=%v", observation, healthCalls, err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("persistent transport failure must be reported by the transition-aware caller, got logs: %s", output.String())
 	}
 }
 
