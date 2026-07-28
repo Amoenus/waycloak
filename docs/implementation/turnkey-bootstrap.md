@@ -15,6 +15,27 @@ Download one immutable `waycloakctl-<os>-<arch>` binary together with
 same release. Verify the checksum and keyless Sigstore bundle before running
 the binary. The release workflow builds each supported binary twice, compares
 the outputs, publishes an SPDX SBOM, and records GitHub build provenance.
+Tags containing a SemVer prerelease suffix are published as GitHub
+prereleases. A separate hosted-runner job downloads the published asset set and
+rejects a missing or extra asset, checksum mismatch, unexpected Sigstore
+workflow identity or issuer, non-tag source reference, wrong source commit, or
+self-hosted provenance before the release run can pass.
+
+An operator can independently repeat the important checks after downloading
+one release into an empty directory:
+
+```text
+sha256sum --check SHA256SUMS
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity https://github.com/Amoenus/waycloak/.github/workflows/waycloakctl-release.yaml@refs/tags/<tag> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+cosign verify-blob --bundle waycloakctl.spdx.sigstore.json \
+  --certificate-identity https://github.com/Amoenus/waycloak/.github/workflows/waycloakctl-release.yaml@refs/tags/<tag> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com waycloakctl.spdx.json
+gh attestation verify waycloakctl-<os>-<arch> --repo Amoenus/waycloak \
+  --signer-workflow Amoenus/waycloak/.github/workflows/waycloakctl-release.yaml \
+  --source-ref refs/tags/<tag> --deny-self-hosted-runners
+```
 
 ## Clean-install sequence
 
@@ -150,8 +171,9 @@ and deterministic manifest assembly is exercised as a command-line boundary in
 CI. Read-only homelab preflight correctly refuses the currently served alpha API
 without mutating the cluster.
 
-Issue #138 must remain open until a published signed CLI artifact completes the
-supported clean-cluster Proton/OpenVPN journey in under 15 minutes. The
+Issue #138 must remain open until the signed CLI workflow is executed for a
+published artifact and that artifact completes the supported clean-cluster
+Proton/OpenVPN journey in under 15 minutes. The
 exact-artifact Kind installation and disruptive fixture coverage do not replace
 that provider proof. The release signature/SBOM/provenance run is also required
 evidence; implementation alone is not certification.
