@@ -136,7 +136,8 @@ and node-agent dependency graphs are replacement-only. Exact-head CI run
 Helm/KCL/generated output, security, Kind/kindnet, k3d/Flannel, and privileged
 packet gates before merge commit 6f5e4b47d76945d43c685609e4d4ba68745359b5.
 
-Issue #136 is in implementation. Kubernetes 1.36 stable declarative mutation
+Issue #136 implementation and acceptance are complete in PR #155. Kubernetes
+1.36 stable declarative mutation
 adds one hard Core-ready selector to enrolled Pods, while validation rejects
 host-namespace and direct-node CNI bypass. An authenticated exact-release node
 report lets only the controller publish NodeRestriction-protected scheduling
@@ -145,7 +146,11 @@ withdraw it. Positive reports additionally require a root-owned release-bound
 receipt matching the exact CNI binary and active conflist; the agent mounts all
 three files read-only and restores lockdown on mismatch. Admission remains
 outside the packet boundary and no admission webhook or admission TLS is
-introduced.
+introduced. Exact implementation commit
+aaad5b40f73e3abcba656e0ce55bf7f9a3e569c4 passed Linux race/static analysis,
+Kubernetes 1.36 envtest, deterministic generated/Helm/KCL output, security
+scans, Kind/kindnet, k3d/Flannel, fresh-install admission, and privileged
+packet/gateway-loss gates in CI run 30318076473.
 
 ## Alpha as-built history
 

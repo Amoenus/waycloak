@@ -45,10 +45,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] #135 alpha runtime removal: completed in PR #154 after replacement-only
   dependency/audit proof and exact-head unit, race, envtest, generated,
   reproducibility, security, Kind/kindnet, k3d/Flannel, and packet gates passed.
-- [ ] #136 minimal admission and CNI-capable scheduling: implementation in
-  progress with stable declarative mutation, protected capability labels, exact
+- [x] #136 minimal admission and CNI-capable scheduling: completed in PR #155
+  with stable declarative mutation, protected capability labels, exact
   authenticated release reports, CNI installation receipt verification,
-  expiry, and independent CNI refusal.
+  expiry, independent CNI refusal, and exact-head CI/Kind/k3d evidence.
 - [ ] #137–#141: proceed only in declared dependency order.
 
 ## Phase 0 — repository and design baseline
