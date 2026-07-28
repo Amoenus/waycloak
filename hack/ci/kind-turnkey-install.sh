@@ -7,6 +7,7 @@ set -euo pipefail
 readonly cluster_name="waycloak-turnkey-ci"
 readonly registry_name="waycloak-turnkey-registry"
 readonly registry_port="5001"
+readonly registry_host="waycloak-registry.invalid"
 readonly registry_image="registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 readonly kind_node_image="kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
 readonly gluetun_ref="docker.io/qmcgaw/gluetun@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045"
@@ -24,9 +25,50 @@ cleanup() {
 }
 trap cleanup EXIT
 
+mkdir -p "$work_dir/registry-tls"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -keyout "$work_dir/registry-tls/ca.key" \
+  -out "$work_dir/registry-tls/ca.crt" \
+  -subj "/CN=Waycloak turnkey CI registry CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
+cat >"$work_dir/registry-tls/server.conf" <<EOF
+[req]
+distinguished_name = subject
+req_extensions = extensions
+prompt = no
+[subject]
+CN = ${registry_host}
+[extensions]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:${registry_host},DNS:${registry_name}
+EOF
+openssl req -newkey rsa:2048 -nodes \
+  -keyout "$work_dir/registry-tls/tls.key" \
+  -out "$work_dir/registry-tls/tls.csr" \
+  -config "$work_dir/registry-tls/server.conf" >/dev/null 2>&1
+openssl x509 -req -days 1 -sha256 \
+  -in "$work_dir/registry-tls/tls.csr" \
+  -CA "$work_dir/registry-tls/ca.crt" \
+  -CAkey "$work_dir/registry-tls/ca.key" \
+  -CAcreateserial \
+  -out "$work_dir/registry-tls/tls.crt" \
+  -extfile "$work_dir/registry-tls/server.conf" \
+  -extensions extensions >/dev/null 2>&1
+cat /etc/ssl/certs/ca-certificates.crt "$work_dir/registry-tls/ca.crt" \
+  >"$work_dir/registry-tls/ca-bundle.crt"
+export SSL_CERT_FILE="$work_dir/registry-tls/ca-bundle.crt"
+printf '127.0.0.1 %s\n' "$registry_host" | sudo tee -a /etc/hosts >/dev/null
+
 docker run --detach --restart=always \
   --publish "127.0.0.1:${registry_port}:5000" \
   --name "$registry_name" \
+  --env REGISTRY_HTTP_TLS_CERTIFICATE=/certs/tls.crt \
+  --env REGISTRY_HTTP_TLS_KEY=/certs/tls.key \
+  --volume "$work_dir/registry-tls/tls.crt:/certs/tls.crt:ro" \
+  --volume "$work_dir/registry-tls/tls.key:/certs/tls.key:ro" \
   "$registry_image"
 
 cat >"$work_dir/kind.yaml" <<EOF
@@ -43,18 +85,22 @@ kind create cluster \
   --wait 120s
 
 docker network connect kind "$registry_name"
-registry_dir="/etc/containerd/certs.d/localhost:${registry_port}"
+registry_dir="/etc/containerd/certs.d/${registry_host}:${registry_port}"
 for node in $(kind get nodes --name "$cluster_name"); do
   docker exec "$node" mkdir -p "$registry_dir"
+  docker cp "$work_dir/registry-tls/ca.crt" "$node:$registry_dir/ca.crt"
   cat <<EOF | docker exec --interactive "$node" cp /dev/stdin "$registry_dir/hosts.toml"
-[host."http://${registry_name}:5000"]
+server = "https://${registry_host}:${registry_port}"
+[host."https://${registry_name}:5000"]
+  capabilities = ["pull", "resolve"]
+  ca = "${registry_dir}/ca.crt"
 EOF
 done
 
 publish_image() {
   local name="$1"
   local package="$2"
-  local repository="localhost:${registry_port}/waycloak/${name}"
+  local repository="${registry_host}:${registry_port}/waycloak/${name}"
   local reference
   reference="$(
     KO_DOCKER_REPO="$repository" \
@@ -84,13 +130,13 @@ if [[ ! "$chart_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][a-zA-Z0-9.]+)?$ ]]; the
 fi
 helm package charts/waycloak --destination "$work_dir/chart" >/dev/null
 helm push "$work_dir/chart/waycloak-${chart_version}.tgz" \
-  "oci://localhost:${registry_port}/charts" >"$work_dir/chart-push.txt"
+  "oci://${registry_host}:${registry_port}/charts" >"$work_dir/chart-push.txt"
 chart_digest="$(awk '$1 == "Digest:" {print $2}' "$work_dir/chart-push.txt")"
 if [[ ! "$chart_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   printf 'Helm did not report an exact chart digest\n' >&2
   exit 1
 fi
-chart_ref="oci://localhost:${registry_port}/charts/waycloak@${chart_digest}"
+chart_ref="oci://${registry_host}:${registry_port}/charts/waycloak@${chart_digest}"
 
 go run ./hack/corerelease \
   --version "$release_version" \
