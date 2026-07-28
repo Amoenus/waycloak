@@ -19,7 +19,8 @@
     "internal/waycloakctl/purge_test.go",
     "internal/enrollment/resolver_test.go",
     "test/replacementapi/envtest_test.go",
-    "test/e2e/replacement_api_install_test.go"
+    "test/e2e/replacement_api_install_test.go",
+    "test/e2e/alpha_purge_test.go"
   ],
   "forbiddenPaths": [
     "api/v1alpha1/**",

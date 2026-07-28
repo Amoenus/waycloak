@@ -233,6 +233,9 @@ jobs:
         env:
           WAYCLOAK_E2E_REPLACEMENT_API: "1"
         run: |
+          WAYCLOAK_E2E_ALPHA_PURGE=1 go test -tags=e2e ./test/e2e/... \
+            -run '^TestAlphaPurgeInterruptedDrillBeforeFreshReplacement$' \
+            -v -count=1 -timeout=10m
           go test -tags=e2e ./test/e2e/... \
             -run '^TestReplacementAPIFreshInstall$' \
             -v -count=1 -timeout=10m
