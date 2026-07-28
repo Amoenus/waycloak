@@ -93,6 +93,17 @@ func writeServiceError(response http.ResponseWriter, err error) {
 		writeFailure(response, http.StatusConflict, waycni.AgentErrorBindingNotReady, true, "Binding is not ready")
 		return
 	}
+	for authorityError, message := range map[error]string{
+		ErrPodIdentityInvalid: "Pod identity is invalid",
+		ErrPodLookupFailed:    "Kubernetes Pod observation failed",
+		ErrPodUIDMismatch:     "Pod UID does not match API observation",
+		ErrPodNodeMismatch:    "Pod node does not match local authority",
+	} {
+		if errors.Is(err, authorityError) {
+			writeFailure(response, http.StatusForbidden, waycni.AgentErrorPodIdentityMismatch, false, message)
+			return
+		}
+	}
 	writeFailure(response, http.StatusForbidden, waycni.AgentErrorPodIdentityMismatch, false, "Exact local authority check failed")
 }
 

@@ -84,6 +84,28 @@ func TestPrepareRejectsCallerBindingSubstitutionBeforeProgramming(t *testing.T) 
 	}
 }
 
+func TestPodAuthorityFailuresRemainDistinctAndFailClosed(t *testing.T) {
+	service, identity, _, _ := fixture(t)
+
+	wrongUID := identity
+	wrongUID.UID = "other-uid"
+	if _, err := service.Resolve(context.Background(), wrongUID); !errors.Is(err, ErrPodUIDMismatch) {
+		t.Fatalf("UID mismatch = %v", err)
+	}
+
+	service.NodeName = "other-node"
+	if _, err := service.Resolve(context.Background(), identity); !errors.Is(err, ErrPodNodeMismatch) {
+		t.Fatalf("node mismatch = %v", err)
+	}
+
+	service.NodeName = "node-a"
+	missing := identity
+	missing.Name = "missing"
+	if _, err := service.Resolve(context.Background(), missing); !errors.Is(err, ErrPodLookupFailed) {
+		t.Fatalf("Pod lookup failure = %v", err)
+	}
+}
+
 func TestPrepareFailureRestoresLockdownAndNeverReportsReady(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
 	programmer.verifyErrs = []error{errors.New("gateway unhealthy")}

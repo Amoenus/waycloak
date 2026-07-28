@@ -55,6 +55,13 @@ type Observation struct {
 
 const ReportAPIVersion = "node-observations.waycloak.io/v1"
 
+var (
+	ErrPodIdentityInvalid = errors.New("pod identity is invalid")
+	ErrPodLookupFailed    = errors.New("kubernetes Pod observation failed")
+	ErrPodUIDMismatch     = errors.New("pod UID does not match API observation")
+	ErrPodNodeMismatch    = errors.New("pod node does not match local authority")
+)
+
 type NodeReport struct {
 	NodeName           string                `json:"nodeName"`
 	NodeBootID         string                `json:"nodeBootID"`
@@ -330,17 +337,20 @@ func (s *Service) authority(ctx context.Context, identity waycni.PodIdentity, re
 
 func (s *Service) pod(ctx context.Context, identity waycni.PodIdentity) (*corev1.Pod, error) {
 	if err := identity.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrPodIdentityInvalid, err)
 	}
 	if s.Reader == nil || s.Programmer == nil || s.NodeName == "" {
-		return nil, errors.New("node agent reader, programmer, and node name are required")
+		return nil, fmt.Errorf("%w: node agent dependencies are incomplete", ErrPodIdentityInvalid)
 	}
 	pod := &corev1.Pod{}
 	if err := s.Reader.Get(ctx, client.ObjectKey{Namespace: identity.Namespace, Name: identity.Name}, pod); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrPodLookupFailed, err)
 	}
-	if string(pod.UID) != identity.UID || pod.Spec.NodeName != s.NodeName {
-		return nil, errors.New("pod UID or node assignment does not match local authority")
+	if string(pod.UID) != identity.UID {
+		return nil, ErrPodUIDMismatch
+	}
+	if pod.Spec.NodeName != s.NodeName {
+		return nil, ErrPodNodeMismatch
 	}
 	return pod, nil
 }
