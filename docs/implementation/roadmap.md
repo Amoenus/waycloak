@@ -76,8 +76,9 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   publishes prerelease suffixes as GitHub prereleases and uses a separate runner
   to redownload and verify the exact asset inventory, checksums, keyless
   workflow identity, issuer, source ref/commit, hosted-runner provenance, and
-  SPDX signature. Publication evidence and the real-provider journey are still
-  required before closure.
+  SPDX signature. The `v0.0.0-turnkey.1` prerelease passed that exact publish
+  and independent verification flow from main commit `21ffebea` in release run
+  `30360505871`. The real-provider journey is still required before closure.
   Creation-time Pod UID and node assignment checks use direct API-server reads,
   never the node agent's eventually consistent reconciliation cache.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are

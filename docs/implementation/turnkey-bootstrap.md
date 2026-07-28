@@ -171,9 +171,11 @@ and deterministic manifest assembly is exercised as a command-line boundary in
 CI. Read-only homelab preflight correctly refuses the currently served alpha API
 without mutating the cluster.
 
-Issue #138 must remain open until the signed CLI workflow is executed for a
-published artifact and that artifact completes the supported clean-cluster
-Proton/OpenVPN journey in under 15 minutes. The
+The `v0.0.0-turnkey.1` prerelease executed the signed CLI workflow from exact
+main commit `21ffebea3444f830ec2c9b29acebd9b36a2fd878`. Release run
+`30360505871` passed publication and the separate hosted-runner verification of
+the complete downloaded asset set. Issue #138 must remain open until that
+artifact completes the supported clean-cluster Proton/OpenVPN journey in under
+15 minutes. The
 exact-artifact Kind installation and disruptive fixture coverage do not replace
-that provider proof. The release signature/SBOM/provenance run is also required
-evidence; implementation alone is not certification.
+that provider proof.

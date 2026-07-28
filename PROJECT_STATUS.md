@@ -200,8 +200,14 @@ The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and
 verifying checksums, both keyless Sigstore bundles, the signing workflow
 identity and issuer, exact tag/source commit, SPDX SBOM, and GitHub build
-provenance. This is implementation only until an exact tag run publishes and
-passes that verification.
+provenance. This remained implementation-only until an exact tag run published
+and passed that verification. The `v0.0.0-turnkey.1` prerelease now supplies that
+evidence from exact main commit `21ffebea3444f830ec2c9b29acebd9b36a2fd878`:
+release run `30360505871` rebuilt every supported CLI twice, published the
+signed checksum and SPDX asset set, and passed the separate hosted-runner
+download, identity, issuer, tag/source, checksum, SBOM, and provenance checks.
+Issue #138 therefore remains open only for its supported clean-cluster
+Proton/OpenVPN journey within 15 minutes.
 
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
