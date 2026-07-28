@@ -129,10 +129,39 @@ func (*linuxBackend) Verify(ctx context.Context, cfg Config) error {
 	}
 	for _, route := range routes {
 		if route.LinkIndex == link.Attrs().Index && addrEqual(route.Gw, cfg.GatewayAddress) {
-			return probeGatewayReadiness(ctx, netip.AddrPortFrom(cfg.GatewayAddress, cfg.GatewayHealthPort))
+			if err := probeGatewayReadiness(ctx, netip.AddrPortFrom(cfg.GatewayAddress, cfg.GatewayHealthPort)); err != nil {
+				return fmt.Errorf("%w (%s)", err, overlayDiagnostics(link, cfg.GatewayAddress))
+			}
+			return nil
 		}
 	}
 	return errors.New("protected default route is not installed")
+}
+
+func overlayDiagnostics(link netlink.Link, gateway netip.Addr) string {
+	if observed, err := netlink.LinkByIndex(link.Attrs().Index); err == nil {
+		link = observed
+	}
+	attributes := link.Attrs()
+	rxPackets, txPackets := uint64(0), uint64(0)
+	if attributes.Statistics != nil {
+		rxPackets = attributes.Statistics.RxPackets
+		txPackets = attributes.Statistics.TxPackets
+	}
+	neighborState := "absent"
+	if neighbors, err := netlink.NeighList(attributes.Index, familyFor(gateway)); err == nil {
+		for _, neighbor := range neighbors {
+			if addrEqual(neighbor.IP, gateway) {
+				neighborState = fmt.Sprintf("state-%d", neighbor.State)
+				break
+			}
+		}
+	}
+	fdbEntries := -1
+	if neighbors, err := netlink.NeighList(attributes.Index, unix.AF_BRIDGE); err == nil {
+		fdbEntries = len(neighbors)
+	}
+	return fmt.Sprintf("overlay=%s operstate=%d neighbor=%s fdb=%d rx=%d tx=%d", attributes.Name, attributes.OperState, neighborState, fdbEntries, rxPackets, txPackets)
 }
 
 func probeGatewayReadiness(ctx context.Context, endpoint netip.AddrPort) error {
