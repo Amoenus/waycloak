@@ -41,6 +41,15 @@ data. `install apply` accepts only the exact recalculated plan ID, creates the
 observation CA and serving key in memory, stores them directly as Kubernetes
 Secrets, and never passes private key material through Helm.
 
+Release automation, never the cluster operator, assembles this input with the
+publisher-only `go run ./hack/corerelease` command. The command requires an
+exact OCI chart identity and exactly the replacement controller, CNI, node
+agent, gateway agent, Gluetun, and pause image identities. It performs no tag
+resolution or registry discovery and rejects missing, extra, duplicate, or
+mutable inputs before emitting deterministic JSON. The resulting manifest is
+then signed and published by the release lifecycle; installation consumes that
+verified file without requiring source or image-digest knowledge.
+
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.
 An alpha API causes `preflight` to fail: stop protected workloads and complete
@@ -102,8 +111,10 @@ redaction, deterministic bundles, and exact UID-scoped gateway disruption. A
 privileged network-namespace test proves the gateway deny-first path, healthy
 TCP/UDP forwarding, and tunnel-loss denial. The mandatory chained-CNI installer
 is built twice as a Linux amd64/arm64 OCI layout and compared byte-for-byte in
-CI. Read-only homelab preflight correctly
-refuses the currently served alpha API without mutating the cluster.
+CI. All four source-owned Core images also share one composite OCI build target,
+and deterministic manifest assembly is exercised as a command-line boundary in
+CI. Read-only homelab preflight correctly refuses the currently served alpha API
+without mutating the cluster.
 
 Issue #138 must remain open until a published signed CLI artifact completes the
 supported clean-cluster Proton/OpenVPN journey in under 15 minutes and the

@@ -34,3 +34,12 @@ builds:
       - -s
       - -w
       - -buildid=
+  - id: waycloak-gateway-agent
+    dir: .
+    main: ./cmd/waycloak-gateway-agent
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -buildid=

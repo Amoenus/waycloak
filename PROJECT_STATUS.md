@@ -180,7 +180,11 @@ validation now recomputes a canonical identity across the exact version, chart,
 required images, and profiles, rejecting a changed artifact, hidden extra image,
 or stale declared digest before an install plan can be built. The mandatory
 chained-CNI installer now has an explicit reproducible Linux amd64/arm64 OCI
-image target instead of remaining only a chart-level digest reference. Issue #138 is
+image target instead of remaining only a chart-level digest reference. A
+publisher-only manifest assembler now requires the exact chart plus all six
+Core image identities, rejects missing, extra, duplicate, tagged, or malformed
+inputs, computes the canonical manifest identity, and emits deterministic JSON
+that the installer loader revalidates. Issue #138 is
 not complete: a published signed CLI artifact, clean Kind installation, the
 under-15-minute real-provider journey, and exact-artifact disruptive smoke
 evidence remain required.
