@@ -84,6 +84,53 @@ func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
 	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
 }
 
+func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
+	if os.Getenv("WAYCLOAK_E2E_GATEWAY_NETNS") != "1" {
+		t.Skip("set WAYCLOAK_E2E_GATEWAY_NETNS=1 in an authorized privileged environment")
+	}
+	gateway := newGatewayNS(t)
+	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	if err := gateway.Do(func(pluginsns.NetNS) error {
+		if err := netlink.LinkAdd(&netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "eth0"}}); err != nil {
+			return err
+		}
+		link, err := netlink.LinkByName("eth0")
+		if err != nil {
+			return err
+		}
+		address, err := netlink.ParseAddr("192.0.2.1/24")
+		if err != nil {
+			return err
+		}
+		if err = netlink.AddrAdd(link, address); err != nil {
+			return err
+		}
+		if err = netlink.LinkSetUp(link); err != nil {
+			return err
+		}
+		if err = os.WriteFile(ipv4ForwardingPath, []byte("1\n"), 0o644); err != nil {
+			return err
+		}
+		backend := LinuxBackend{}
+		if err = backend.EnsureOverlay(context.Background(), config); err != nil {
+			return err
+		}
+		if err = backend.EnsureOverlay(context.Background(), config); err != nil {
+			return fmt.Errorf("second ensure: %w", err)
+		}
+		overlay, err := netlink.LinkByName(config.OverlayInterface)
+		if err != nil {
+			return err
+		}
+		if overlay.Attrs().Alias != "waycloak:"+config.GatewayUID {
+			return fmt.Errorf("overlay alias = %q", overlay.Attrs().Alias)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newGatewayNS(t *testing.T) pluginsns.NetNS {
 	t.Helper()
 	name := fmt.Sprintf("waycloak-gw-%d-%d", os.Getpid(), time.Now().UnixNano())

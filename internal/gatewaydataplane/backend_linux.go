@@ -52,6 +52,7 @@ func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
 	} else if !isLinkNotFound(err) {
 		return err
 	}
+	createdLink := false
 	if link == nil {
 		attributes := netlink.NewLinkAttrs()
 		attributes.Name = config.OverlayInterface
@@ -62,6 +63,15 @@ func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
 			return fmt.Errorf("create gateway VXLAN: %w", err)
 		}
 		link = vxlan
+		createdLink = true
+		defer func() {
+			if createdLink {
+				_ = netlink.LinkDel(link)
+			}
+		}()
+		if err := netlink.LinkSetAlias(link, "waycloak:"+config.GatewayUID); err != nil {
+			return fmt.Errorf("mark gateway VXLAN ownership: %w", err)
+		}
 	}
 	prefix := netipPrefix(config.GatewayAddress, config.OverlayCIDR.Bits())
 	address := &netlink.Addr{IPNet: prefix}
@@ -74,6 +84,7 @@ func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
 	if err := requireIPv4Forwarding(ipv4ForwardingPath); err != nil {
 		return err
 	}
+	createdLink = false
 	return nil
 }
 
