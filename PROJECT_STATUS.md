@@ -184,8 +184,12 @@ image target instead of remaining only a chart-level digest reference. A
 publisher-only manifest assembler now requires the exact chart plus all six
 Core image identities, rejects missing, extra, duplicate, tagged, or malformed
 inputs, computes the canonical manifest identity, and emits deterministic JSON
-that the installer loader revalidates. Issue #138 is
-not complete: a published signed CLI artifact, clean Kind installation, the
+that the installer loader revalidates. A dedicated disposable Kind/local-OCI
+acceptance now exercises that manifest through CLI preflight, plan, exact
+confirmation and apply; it rejects a wrong confirmation before namespace
+creation, then verifies pinned runtime images, the release-bound CNI receipt and
+chain, authenticated node capability, default-class identity, and healthy
+doctor output. Issue #138 is not complete: a published signed CLI artifact, the
 under-15-minute real-provider journey, and exact-artifact disruptive smoke
 evidence remain required.
 
