@@ -21,6 +21,8 @@ import (
 
 const coreTableName = "waycloak_gateway_core"
 
+const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
+
 type LinuxBackend struct{}
 
 func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
@@ -69,8 +71,19 @@ func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
 	if err := netlink.LinkSetUp(link); err != nil {
 		return fmt.Errorf("activate gateway overlay: %w", err)
 	}
-	if err := os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0o644); err != nil {
-		return fmt.Errorf("enable namespaced forwarding: %w", err)
+	if err := requireIPv4Forwarding(ipv4ForwardingPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func requireIPv4Forwarding(path string) error {
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("observe namespaced IPv4 forwarding: %w", err)
+	}
+	if strings.TrimSpace(string(value)) != "1" {
+		return errors.New("namespaced IPv4 forwarding is disabled")
 	}
 	return nil
 }

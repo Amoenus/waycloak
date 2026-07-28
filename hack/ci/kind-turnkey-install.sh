@@ -31,6 +31,16 @@ cleanup() {
     kubectl logs --namespace "$system_namespace" \
       --selector app.kubernetes.io/instance="$release_name" \
       --all-containers --prefix --tail=200 >&2 || true
+    kubectl get vpngateway/disposable --namespace "$smoke_namespace" \
+      -o yaml >&2 || true
+    while IFS= read -r pod; do
+      [[ -n "$pod" ]] || continue
+      kubectl describe --namespace "$smoke_namespace" "$pod" >&2 || true
+      kubectl logs --namespace "$smoke_namespace" "$pod" \
+        --all-containers --prefix --tail=200 >&2 || true
+      kubectl logs --namespace "$smoke_namespace" "$pod" \
+        --all-containers --prefix --previous --tail=200 >&2 || true
+    done < <(kubectl get pods --namespace "$smoke_namespace" -o name 2>/dev/null)
   fi
   kind delete cluster --name "$cluster_name" >/dev/null 2>&1 || true
   docker rm --force "$registry_name" >/dev/null 2>&1 || true

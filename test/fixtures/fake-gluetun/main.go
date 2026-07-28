@@ -34,6 +34,7 @@ const (
 	ownedAlias      = "waycloak:disposable-wireguard-fixture"
 	exitTableName   = "waycloak_test_wg_exit"
 	gatewayRouteTab = 51821
+	ipv4Forwarding  = "/proc/sys/net/ipv4/ip_forward"
 )
 
 func main() {
@@ -115,8 +116,12 @@ func runExit(ctx context.Context) error {
 	if err := configureWireGuard("wg0", "10.200.0.1/30", privateKey, peerKey, nil, mustPrefix("10.200.0.2/32"), &port); err != nil {
 		return err
 	}
-	if err := os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0o644); err != nil {
-		return fmt.Errorf("enable exit forwarding: %w", err)
+	value, err := os.ReadFile(ipv4Forwarding)
+	if err != nil {
+		return fmt.Errorf("observe exit forwarding: %w", err)
+	}
+	if strings.TrimSpace(string(value)) != "1" {
+		return errors.New("exit IPv4 forwarding is disabled")
 	}
 	if err := installExitRules(); err != nil {
 		return err
