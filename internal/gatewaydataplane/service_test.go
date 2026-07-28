@@ -52,6 +52,18 @@ func TestReconcileReportsUnreadyObservation(t *testing.T) {
 	}
 }
 
+func TestReconcileErrorReportingOnlyReportsTransitions(t *testing.T) {
+	var reported []string
+	service := &Service{ReconcileErrorHook: func(err error) { reported = append(reported, err.Error()) }}
+	previous := service.reportReconcileError(errors.New("tunnel down"), "")
+	previous = service.reportReconcileError(errors.New("tunnel down"), previous)
+	previous = service.reportReconcileError(nil, previous)
+	_ = service.reportReconcileError(errors.New("tunnel down"), previous)
+	if len(reported) != 2 || reported[0] != "tunnel down" || reported[1] != "tunnel down" {
+		t.Fatalf("reported transitions = %#v", reported)
+	}
+}
+
 type recordingBackend struct{ health []bool }
 
 func (*recordingBackend) EnsureOverlay(context.Context, Config) error { return nil }
