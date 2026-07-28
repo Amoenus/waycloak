@@ -100,7 +100,9 @@ Unit tests cover unsupported clusters, alpha refusal, overlapping networks,
 plan tampering, exact confirmation, certificate isolation, credential canary
 redaction, deterministic bundles, and exact UID-scoped gateway disruption. A
 privileged network-namespace test proves the gateway deny-first path, healthy
-TCP/UDP forwarding, and tunnel-loss denial. Read-only homelab preflight correctly
+TCP/UDP forwarding, and tunnel-loss denial. The mandatory chained-CNI installer
+is built twice as a Linux amd64/arm64 OCI layout and compared byte-for-byte in
+CI. Read-only homelab preflight correctly
 refuses the currently served alpha API without mutating the cluster.
 
 Issue #138 must remain open until a published signed CLI artifact completes the
