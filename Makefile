@@ -119,6 +119,7 @@ verify-kcl-generated:
 
 verify-workflows:
 	$(ACTIONLINT)
+	bash -n hack/verify-core-release.sh
 
 alpha-audit:
 	$(GO) run ./hack/alphaaudit
