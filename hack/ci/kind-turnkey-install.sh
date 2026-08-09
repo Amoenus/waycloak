@@ -617,7 +617,8 @@ kubectl wait vpngateway/disposable --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=3m
 kubectl wait vpnegressroute/recovery --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=2m
-restored_gateway_json="$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" -o json)"
+restored_gateway_json="$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" \
+  --show-managed-fields -o json)"
 new_gateway_uid="$(jq -r '.metadata.uid' <<<"$restored_gateway_json")"
 if [[ -z "$old_gateway_uid" || -z "$new_gateway_uid" || "$old_gateway_uid" == "$new_gateway_uid" ]]; then
   printf 'portable restore did not reacquire a fresh gateway UID\n' >&2
