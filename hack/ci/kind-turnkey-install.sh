@@ -617,15 +617,25 @@ kubectl wait vpngateway/disposable --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=3m
 kubectl wait vpnegressroute/recovery --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=2m
-new_gateway_uid="$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+restored_gateway_json="$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" -o json)"
+new_gateway_uid="$(jq -r '.metadata.uid' <<<"$restored_gateway_json")"
 if [[ -z "$old_gateway_uid" || -z "$new_gateway_uid" || "$old_gateway_uid" == "$new_gateway_uid" ]]; then
   printf 'portable restore did not reacquire a fresh gateway UID\n' >&2
   exit 1
 fi
-test "$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" -o json | \
-  jq -r '.metadata.annotations["state.waycloak.io/restore-plan-id"]')" = "$restore_plan_id"
-kubectl get vpngateway/disposable --namespace "$smoke_namespace" -o json | \
-  jq -e '.metadata.managedFields[] | select(.manager == "waycloakctl-state-restore")' >/dev/null
+actual_restore_plan_id="$(jq -r '.metadata.annotations["state.waycloak.io/restore-plan-id"] // ""' <<<"$restored_gateway_json")"
+if [[ "$actual_restore_plan_id" != "$restore_plan_id" ]]; then
+  printf 'restored gateway is not bound to the exact reviewed plan: expected=%s actual=%s\n' \
+    "$restore_plan_id" "$actual_restore_plan_id" >&2
+  exit 1
+fi
+if ! jq -e 'any(.metadata.managedFields[]?; .manager == "waycloakctl-state-restore" and .operation == "Apply")' \
+  <<<"$restored_gateway_json" >/dev/null; then
+  printf 'restored gateway lacks server-side apply ownership by waycloakctl-state-restore\n' >&2
+  jq '{annotations: .metadata.annotations, managedFields: .metadata.managedFields}' \
+    <<<"$restored_gateway_json" >&2
+  exit 1
+fi
 
 kubectl wait pod/recovery-probe --namespace "$smoke_namespace" \
   --for=jsonpath='{.status.phase}'=Succeeded --timeout=3m

@@ -18,7 +18,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/dynamic"
 )
 
 const (
@@ -237,9 +239,13 @@ func ApplyStateRestorePlan(ctx context.Context, clients *Clients, plan StateRest
 	for _, portable := range plan.Resources {
 		resourceType, _ := stateResourceFor(portable.Kind)
 		client := clients.Dynamic.Resource(resourceType.GVR).Namespace(portable.Metadata.Namespace)
+		object := stateRestoreObject(portable, plan.PlanID)
 		existing, getErr := client.Get(ctx, portable.Metadata.Name, metav1.GetOptions{})
 		if getErr == nil {
 			if stateObjectMatchesPlan(existing, portable, plan.PlanID) {
+				if err := applyStateRestoreOwnership(ctx, client, object, existing.GetUID()); err != nil {
+					return fmt.Errorf("restore ownership for %s %s/%s: %w", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name, err)
+				}
 				continue
 			}
 			return fmt.Errorf("refusing restore conflict: %s %s/%s is not owned by this exact plan", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name)
@@ -247,26 +253,52 @@ func ApplyStateRestorePlan(ctx context.Context, clients *Clients, plan StateRest
 		if !apierrors.IsNotFound(getErr) {
 			return getErr
 		}
-		object := &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": portable.APIVersion,
-			"kind":       portable.Kind,
-			"metadata": map[string]any{
-				"namespace":   portable.Metadata.Namespace,
-				"name":        portable.Metadata.Name,
-				"annotations": map[string]any{stateRestorePlanKey: plan.PlanID},
-			},
-			"spec": portable.Spec,
-		}}
-		if _, err = client.Create(ctx, object, metav1.CreateOptions{FieldManager: stateRestoreFieldManager}); err != nil {
-			if apierrors.IsAlreadyExists(err) {
+		created, createErr := client.Create(ctx, object, metav1.CreateOptions{})
+		if createErr != nil {
+			if apierrors.IsAlreadyExists(createErr) {
 				raced, getErr := client.Get(ctx, portable.Metadata.Name, metav1.GetOptions{})
 				if getErr == nil && stateObjectMatchesPlan(raced, portable, plan.PlanID) {
+					if err := applyStateRestoreOwnership(ctx, client, object, raced.GetUID()); err != nil {
+						return fmt.Errorf("restore ownership for raced %s %s/%s: %w", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name, err)
+					}
 					continue
 				}
 				return fmt.Errorf("refusing restore race: %s %s/%s appeared before create", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name)
 			}
-			return fmt.Errorf("restore %s %s/%s: %w", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name, err)
+			return fmt.Errorf("restore %s %s/%s: %w", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name, createErr)
 		}
+		if err := applyStateRestoreOwnership(ctx, client, object, created.GetUID()); err != nil {
+			return fmt.Errorf("restore ownership for new %s %s/%s: %w", portable.Kind, portable.Metadata.Namespace, portable.Metadata.Name, err)
+		}
+	}
+	return nil
+}
+
+func stateRestoreObject(portable PortableStateResource, planID string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": portable.APIVersion,
+		"kind":       portable.Kind,
+		"metadata": map[string]any{
+			"namespace":   portable.Metadata.Namespace,
+			"name":        portable.Metadata.Name,
+			"annotations": map[string]any{stateRestorePlanKey: planID},
+		},
+		"spec": portable.Spec,
+	}}
+}
+
+func applyStateRestoreOwnership(ctx context.Context, client dynamic.ResourceInterface, desired *unstructured.Unstructured, uid types.UID) error {
+	if uid == "" {
+		return errors.New("API server returned an empty UID")
+	}
+	apply := desired.DeepCopy()
+	apply.SetUID(uid)
+	payload, err := json.Marshal(apply.Object)
+	if err != nil {
+		return fmt.Errorf("encode UID-bound server-side apply: %w", err)
+	}
+	if _, err = client.Patch(ctx, apply.GetName(), types.ApplyPatchType, payload, metav1.PatchOptions{FieldManager: stateRestoreFieldManager}); err != nil {
+		return fmt.Errorf("UID-bound server-side apply: %w", err)
 	}
 	return nil
 }

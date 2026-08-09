@@ -116,6 +116,31 @@ func TestStateRestoreIsTargetBoundConfirmationGatedAndIdempotent(t *testing.T) {
 	if gateway.GetAnnotations()[stateRestorePlanKey] != plan.PlanID {
 		t.Fatalf("restored object lacks exact plan ownership: %#v", gateway.GetAnnotations())
 	}
+	patches := 0
+	for _, action := range target.Dynamic.(*dynamicfake.FakeDynamicClient).Actions() {
+		if action.GetVerb() != "patch" {
+			continue
+		}
+		patch := action.(clienttesting.PatchAction)
+		if patch.GetPatchType() != k8stypes.ApplyPatchType {
+			t.Fatalf("restore ownership used %q rather than server-side apply", patch.GetPatchType())
+		}
+		withOptions := action.(interface{ GetPatchOptions() metav1.PatchOptions })
+		if withOptions.GetPatchOptions().FieldManager != stateRestoreFieldManager {
+			t.Fatalf("restore ownership used unexpected field manager: %#v", withOptions.GetPatchOptions())
+		}
+		var applied unstructured.Unstructured
+		if err := json.Unmarshal(patch.GetPatch(), &applied.Object); err != nil {
+			t.Fatal(err)
+		}
+		if applied.GetUID() == "" {
+			t.Fatal("restore ownership apply was not bound to the created object UID")
+		}
+		patches++
+	}
+	if patches != 8 {
+		t.Fatalf("expected one UID-bound ownership apply per resource and retry, got %d", patches)
+	}
 	if _, found, _ := unstructured.NestedMap(gateway.Object, "status"); found {
 		t.Fatal("restore imported status")
 	}
@@ -263,6 +288,20 @@ func TestStateRestoreRequiresExactCRDsClassesAndNamespaces(t *testing.T) {
 func stateTestClients(t *testing.T, identity string) *Clients {
 	t.Helper()
 	clients := supportedClients(t)
+	dynamicClient := clients.Dynamic.(*dynamicfake.FakeDynamicClient)
+	dynamicClient.PrependReactor("create", "*", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		create := action.(clienttesting.CreateAction)
+		object := create.GetObject().(metav1.Object)
+		if object.GetUID() == "" {
+			object.SetUID(k8stypes.UID("test-" + identity + "-" + action.GetResource().Resource + "-" + object.GetName()))
+		}
+		return false, nil, nil
+	})
+	dynamicClient.PrependReactor("patch", "*", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		patch := action.(clienttesting.PatchAction)
+		current, err := dynamicClient.Tracker().Get(action.GetResource(), action.GetNamespace(), patch.GetName())
+		return true, current, err
+	})
 	clients.ClusterServerFingerprint = fingerprintText("server-" + identity)
 	clients.ClusterTrustFingerprint = fingerprintText("trust-" + identity)
 	system, err := clients.Kubernetes.CoreV1().Namespaces().Get(context.Background(), "kube-system", metav1.GetOptions{})
