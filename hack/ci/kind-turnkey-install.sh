@@ -507,4 +507,153 @@ jq -e '.verified == true and .distinctEgress == true and
 test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
   --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
 
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNEgressRoute
+metadata:
+  name: recovery
+  namespace: ${smoke_namespace}
+spec:
+  parentRefs:
+    - group: networking.waycloak.io
+      kind: VPNGateway
+      namespace: ${smoke_namespace}
+      name: disposable
+  requiredFeatures:
+    - networking.waycloak.io/TCP
+EOF
+kubectl wait vpnegressroute/recovery --namespace "$smoke_namespace" \
+  --for=condition=Ready --timeout=2m
+
+old_gateway_uid="$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+"$work_dir/waycloakctl" state backup --output json >"$work_dir/state-backup.json"
+jq -e '
+  .kind == "StateBackup" and
+  (.backupID | test("^sha256:[a-f0-9]{64}$")) and
+  [.resources[].kind] == ["VPNGateway", "VPNEgressRoute"] and
+  ([.resources[] | has("status")] | all(. == false)) and
+  ([.resources[] | .kind == "VPNWorkloadBinding"] | any) == false
+' "$work_dir/state-backup.json" >/dev/null
+
+kubectl delete vpnegressroute/recovery vpngateway/disposable \
+  --namespace "$smoke_namespace" --wait=true --timeout=2m
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: recovery-probe
+  namespace: ${smoke_namespace}
+  labels:
+    networking.waycloak.io/egress-route: recovery
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: ${probe_ref}
+      env:
+        - name: PROBE_URL
+          value: ${probe_url}
+        - name: PROBE_CA_FILE
+          value: /observer-ca/ca.crt
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        - name: observer-ca
+          mountPath: /observer-ca
+          readOnly: true
+  volumes:
+    - name: observer-ca
+      configMap:
+        name: observer-ca
+EOF
+
+failed_sandbox_observed=false
+for _ in $(seq 1 30); do
+  if [[ "$(kubectl get pod/recovery-probe --namespace "$smoke_namespace" -o json | \
+    jq '[.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length')" != "0" ]]; then
+    printf 'recovery probe application container started before portable intent restore\n' >&2
+    exit 1
+  fi
+  if kubectl get events --namespace "$smoke_namespace" \
+    --field-selector involvedObject.kind=Pod,involvedObject.name=recovery-probe -o json | \
+    jq -e '.items[] | select(.reason == "FailedCreatePodSandBox") | .message | test("waycloak|egress route|binding"; "i")' >/dev/null; then
+    failed_sandbox_observed=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$failed_sandbox_observed" != true ]]; then
+  kubectl describe pod/recovery-probe --namespace "$smoke_namespace" >&2
+  printf 'missing-route recovery window did not produce a Waycloak sandbox failure\n' >&2
+  exit 1
+fi
+
+"$work_dir/waycloakctl" state restore plan \
+  --backup "$work_dir/state-backup.json" \
+  --overlay-cidr 100.96.0.0/16 \
+  --output json >"$work_dir/state-restore-plan.json"
+restore_plan_id="$(jq -r '.planID' "$work_dir/state-restore-plan.json")"
+if "$work_dir/waycloakctl" state restore apply \
+  --plan "$work_dir/state-restore-plan.json" \
+  --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; then
+  printf 'wrong state-restore confirmation unexpectedly mutated the cluster\n' >&2
+  exit 1
+fi
+test "$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" --ignore-not-found -o name)" = ""
+"$work_dir/waycloakctl" state restore apply \
+  --plan "$work_dir/state-restore-plan.json" \
+  --confirm "$restore_plan_id"
+"$work_dir/waycloakctl" state restore apply \
+  --plan "$work_dir/state-restore-plan.json" \
+  --confirm "$restore_plan_id"
+
+kubectl wait vpngateway/disposable --namespace "$smoke_namespace" \
+  --for=condition=Ready --timeout=3m
+kubectl wait vpnegressroute/recovery --namespace "$smoke_namespace" \
+  --for=condition=Ready --timeout=2m
+restored_gateway_json="$(kubectl get vpngateway/disposable --namespace "$smoke_namespace" \
+  --show-managed-fields -o json)"
+new_gateway_uid="$(jq -r '.metadata.uid' <<<"$restored_gateway_json")"
+if [[ -z "$old_gateway_uid" || -z "$new_gateway_uid" || "$old_gateway_uid" == "$new_gateway_uid" ]]; then
+  printf 'portable restore did not reacquire a fresh gateway UID\n' >&2
+  exit 1
+fi
+actual_restore_plan_id="$(jq -r '.metadata.annotations["state.waycloak.io/restore-plan-id"] // ""' <<<"$restored_gateway_json")"
+if [[ "$actual_restore_plan_id" != "$restore_plan_id" ]]; then
+  printf 'restored gateway is not bound to the exact reviewed plan: expected=%s actual=%s\n' \
+    "$restore_plan_id" "$actual_restore_plan_id" >&2
+  exit 1
+fi
+if ! jq -e 'any(.metadata.managedFields[]?; .manager == "waycloakctl-state-restore" and .operation == "Apply")' \
+  <<<"$restored_gateway_json" >/dev/null; then
+  printf 'restored gateway lacks server-side apply ownership by waycloakctl-state-restore\n' >&2
+  jq '{annotations: .metadata.annotations, managedFields: .metadata.managedFields}' \
+    <<<"$restored_gateway_json" >&2
+  exit 1
+fi
+
+kubectl wait pod/recovery-probe --namespace "$smoke_namespace" \
+  --for=jsonpath='{.status.phase}'=Succeeded --timeout=3m
+recovery_pod_uid="$(kubectl get pod/recovery-probe --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+binding_uid=""
+for _ in $(seq 1 60); do
+  binding_uid="$(kubectl get vpnworkloadbindings --namespace "$smoke_namespace" -o json | \
+    jq -r --arg uid "$recovery_pod_uid" '.items[] | select(.spec.podRef.uid == $uid) | .metadata.uid' | head -n1)"
+  [[ -n "$binding_uid" ]] && break
+  sleep 1
+done
+if [[ -z "$binding_uid" ]]; then
+  printf 'portable restore did not reacquire a fresh UID-bound allocation\n' >&2
+  exit 1
+fi
+
+kubectl delete pod/recovery-probe vpnegressroute/recovery --namespace "$smoke_namespace" \
+  --wait=true --timeout=2m
+
 printf 'exact-artifact Kind install apply completed in %ss\n' "$apply_elapsed"

@@ -41,6 +41,8 @@ func Run(ctx context.Context, arguments []string, dependencies Dependencies) err
 		return runSupportBundle(ctx, arguments[1:], dependencies)
 	case "alpha-purge":
 		return runAlphaPurge(ctx, arguments[1:], dependencies)
+	case "state":
+		return runState(ctx, arguments[1:], dependencies)
 	case "version":
 		_, err := fmt.Fprintln(dependencies.Stdout, Version)
 		return err
@@ -160,6 +162,86 @@ func runGateway(arguments []string, dependencies Dependencies) error {
 	return err
 }
 
+func runState(ctx context.Context, arguments []string, dependencies Dependencies) error {
+	if len(arguments) == 0 {
+		return errors.New("state requires backup or restore")
+	}
+	switch arguments[0] {
+	case "backup":
+		flags := flag.NewFlagSet("state backup", flag.ContinueOnError)
+		flags.SetOutput(dependencies.Stderr)
+		kubeconfig, contextName, output := clusterFlags(flags)
+		if err := flags.Parse(arguments[1:]); err != nil {
+			return err
+		}
+		if *output != "json" {
+			return errors.New("state backup output must be json")
+		}
+		clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+		if err != nil {
+			return err
+		}
+		backup, err := BuildStateBackup(ctx, clients)
+		if err != nil {
+			return err
+		}
+		return writeOutput(dependencies.Stdout, "json", backup)
+	case "restore":
+		if len(arguments) < 2 {
+			return errors.New("state restore requires plan or apply")
+		}
+		switch arguments[1] {
+		case "plan":
+			flags := flag.NewFlagSet("state restore plan", flag.ContinueOnError)
+			flags.SetOutput(dependencies.Stderr)
+			kubeconfig, contextName, output := clusterFlags(flags)
+			backupPath := flags.String("backup", "", "reviewed portable state backup JSON")
+			overlay := flags.String("overlay-cidr", "100.96.0.0/16", "reviewed protected overlay CIDR")
+			if err := flags.Parse(arguments[2:]); err != nil {
+				return err
+			}
+			if *output != "json" {
+				return errors.New("state restore plan output must be json")
+			}
+			backup, err := LoadStateBackup(*backupPath)
+			if err != nil {
+				return err
+			}
+			clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+			if err != nil {
+				return err
+			}
+			plan, err := BuildStateRestorePlan(ctx, clients, backup, *overlay)
+			if err != nil {
+				return err
+			}
+			return writeOutput(dependencies.Stdout, "json", plan)
+		case "apply":
+			flags := flag.NewFlagSet("state restore apply", flag.ContinueOnError)
+			flags.SetOutput(dependencies.Stderr)
+			kubeconfig, contextName, _ := clusterFlags(flags)
+			planPath := flags.String("plan", "", "reviewed state restore plan JSON")
+			confirmation := flags.String("confirm", "", "exact planID confirmation")
+			if err := flags.Parse(arguments[2:]); err != nil {
+				return err
+			}
+			plan, err := LoadStateRestorePlan(*planPath)
+			if err != nil {
+				return err
+			}
+			clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+			if err != nil {
+				return err
+			}
+			return ApplyStateRestorePlan(ctx, clients, plan, *confirmation)
+		default:
+			return errors.New("state restore requires plan or apply")
+		}
+	default:
+		return errors.New("state requires backup or restore")
+	}
+}
+
 func clusterFlags(flags *flag.FlagSet) (*string, *string, *string) {
 	kubeconfig := flags.String("kubeconfig", os.Getenv("KUBECONFIG"), "Kubernetes client configuration")
 	contextName := flags.String("context", "", "Kubernetes context")
@@ -192,7 +274,7 @@ func writeOutput(writer io.Writer, format string, value any) error {
 }
 
 func usage(writer io.Writer) error {
-	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|version>")
+	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|state backup|state restore plan|state restore apply|version>")
 	return errors.New("invalid command")
 }
 

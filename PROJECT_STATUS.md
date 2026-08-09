@@ -221,17 +221,34 @@ second runner redownloads the release and verifies checksums, identities, SBOM
 attestations, provenance, platforms, chart contents, and manifest-to-registry
 digest equality through the reusable registry-native verifier.
 
-The immutable `v0.0.0-core.5` candidate was published from exact main commit
-`b3937057dcad6d491a75e27e51dd8ed39bd48dda`. Its publisher and separate CLI
-verification passed. The original Core verifier was cancelled after its
-Docker-dependent monolithic step emitted unbounded successful SPDX payloads and
-GitHub exposed contradictory queued/running state. The replacement verifier
-uses pinned Crane without a Docker daemon, bounds every external operation and
-successful log volume, and independently re-verified the published candidate in
-3m19s. A post-merge tag must still pass this verifier on a fresh hosted runner;
-the local result does not substitute for the supported real-provider journey,
-destructive reinstall drill, support-row conformance, or soak required by
+The immutable `v0.0.0-core.6` candidate was published from exact main commit
+`f9c38f77675f7798a603888bc3842fd84bf49761`. Core release run `31333890655`
+passed publication and a separate fresh-hosted-runner registry-native verifier.
+The verifier redownloaded the release and checked the canonical inventory,
+checksums, blob and OCI signatures, SPDX attestations, GitHub provenance,
+amd64/arm64 indexes, Gluetun source labels and binary checksums, exact chart
+layer bytes, and all six replacement CRDs in 3m36s. The companion waycloakctl
+release run `31333890656` also passed publication and independent asset
+verification. This closes the missing exact hosted-artifact evidence; it does
+not substitute for the supported real-provider journey, destructive reinstall
+drill, support-row conformance, lifecycle/DR matrix, or soak required by
 #137–#141.
+
+Issue #32 is now implementing its first portable recovery slice. ADR 0041
+separates coherent distribution datastore snapshots from a portable logical
+backup. The new `waycloakctl state backup` format contains only user-authored
+gateway, route, lease, and adapter specs plus hashed cluster, CRD, and required
+class identities. It structurally excludes credentials, arbitrary metadata,
+status, bindings, allocations, provider mappings, and live observations.
+Target-bound `state restore plan/apply` repeats preflight, requires exact CRD
+and class identity plus namespace prerequisites, refuses every unowned conflict
+before mutation, and creates with one explicit field manager without adopting
+pre-existing objects. Portable
+restore always creates new UIDs and reacquires the live data plane. Unit tests
+cover deterministic identity, tampering, confirmation, target drift, conflicts,
+and idempotent retry; the exact-artifact Kind recovery extension remains the
+required merge evidence for missing-route startup denial and fresh binding
+reacquisition.
 
 Fresh homelab preparation is paused before mutation: its recorded Kubernetes
 API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed
