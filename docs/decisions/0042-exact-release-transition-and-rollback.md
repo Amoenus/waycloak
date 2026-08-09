@@ -51,12 +51,20 @@ the retained serving identity. A CA without its serving private key is not
 silently regenerated; it requires the explicit certificate-rotation recovery
 procedure.
 
+`VPNGatewayClass.spec`, including its release identity, is immutable. A release
+transition therefore deletes only the exact reviewed class UID with a
+Kubernetes UID precondition immediately before Helm, waits for that object to
+be absent, and requires Helm to create the same class name with a new UID and
+the exact target identity. During this bounded class gap, gateways and enrolled
+workloads remain unavailable behind the installed CNI deny path. The lifecycle
+must never weaken class immutability or edit the old object in place.
+
 Forward transition and rollback use the same confirmation-gated plan/apply
 boundary with different independently verified target manifests. An existing
 release never executes the controller-only bootstrap revision. Helm must
 advance to a new deployed revision, and apply then observes the exact target
-CRDs, runtime images, class identity, and preserved certificate identity before
-reporting success.
+CRDs, runtime images, newly created immutable class identity, and preserved
+certificate identity before reporting success.
 
 Gateway activation remains explicit. After the controller, CNI installer, and
 node agent report the target release, the operator activates each singleton
@@ -71,6 +79,8 @@ ordinary-egress fallback.
   opaque Helm history entry.
 - The CNI chain and deny state stay installed throughout ordinary transitions;
   existing releases never temporarily disable the node components.
+- Every changed release receives a new immutable gateway-class UID at the same
+  stable class name; attachment recovers only after the target class is live.
 - CRD evolution remains unavailable until its storage migration is designed
   and tested explicitly.
 - Interrupted Helm transitions and distribution datastore snapshots remain

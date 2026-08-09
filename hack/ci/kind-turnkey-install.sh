@@ -549,7 +549,7 @@ apply_exact_transition() {
   local expected_version="$3"
   local plan_path="$work_dir/install-plan-${label}.json"
   local expected_digest current_version before_revision after_revision plan_id
-  local before_ca before_tls after_ca after_tls receipt_ready
+  local before_ca before_tls after_ca after_tls before_class_uid after_class_uid receipt_ready
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
   current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -561,6 +561,7 @@ apply_exact_transition() {
     jq -r '[.metadata.uid, .data["ca.crt"]] | join("|")')"
   before_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o json | \
     jq -r '[.metadata.uid, .data["ca.crt"], .data["tls.crt"]] | join("|")')"
+  before_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
 
   "$work_dir/waycloakctl" install plan \
     --release-manifest "$manifest_path" \
@@ -609,8 +610,10 @@ apply_exact_transition() {
     jq -r '[.metadata.uid, .data["ca.crt"]] | join("|")')"
   after_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o json | \
     jq -r '[.metadata.uid, .data["ca.crt"], .data["tls.crt"]] | join("|")')"
+  after_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
   test "$after_ca" = "$before_ca"
   test "$after_tls" = "$before_tls"
+  test "$after_class_uid" != "$before_class_uid"
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io \
     -o jsonpath='{.spec.releaseIdentity.version}')" = "$expected_version"
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io \

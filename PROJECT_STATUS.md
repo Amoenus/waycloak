@@ -254,10 +254,11 @@ both forward transition and rollback. Plans bind the live Helm revision,
 release and six image identities, exact six-CRD specifications, gateway-class
 UID/generation, and stable observation-certificate identities. Apply refuses
 source or target-chart drift before mutation, permits only an identical beta
-CRD contract, preserves release-owned trust identity, and verifies the exact
-post-Helm target. Unit/race and a two-immutable-release Kind lifecycle are the
-merge gates. Interrupted transition recovery, explicit certificate rotation,
-and supported distribution datastore-snapshot drills remain open #32 work.
+CRD contract, replaces the exact immutable gateway-class UID at its stable name,
+preserves release-owned trust identity, and verifies the exact post-Helm target.
+Unit/race and a two-immutable-release Kind lifecycle are the merge gates.
+Interrupted transition recovery, explicit certificate rotation, and supported
+distribution datastore-snapshot drills remain open #32 work.
 
 Fresh homelab preparation is paused before mutation: its recorded Kubernetes
 API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed

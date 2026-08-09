@@ -95,9 +95,10 @@ identical served/storage CRD contract; any schema or storage change requires a
 separately reviewed storage-migration procedure. Forward transition and
 rollback use the same target-bound plan/apply path. A rollback therefore names
 a separately verified prior release manifest and never delegates identity to
-an opaque Helm revision number. Ordinary transitions preserve the gateway
-class and observation trust identities and verify the exact target runtime
-after Helm completes.
+an opaque Helm revision number. Ordinary transitions replace the exact old
+immutable gateway-class UID at its stable name, preserve observation trust
+identity, and verify the exact target runtime after Helm completes. The class
+replacement window remains fail closed behind the installed CNI deny path.
 
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
@@ -142,8 +143,9 @@ The Kind lifecycle gate builds two immutable chart/release identities with an
 identical CRD contract. It installs the baseline, performs a source-bound
 forward transition, and then applies a separately planned rollback to the
 baseline. Both directions require a newer Helm revision, unchanged observation
-certificate UIDs and public bytes, unchanged gateway-class UID, exact runtime
-arguments and CNI receipt, healthy capability observation, and the complete
+certificate UIDs and public bytes, a new immutable gateway-class UID with the
+exact target release identity, exact runtime arguments and CNI receipt, healthy
+capability observation, and the complete
 gateway-replacement fail-closed exercise. This proves the supported identical-
 schema beta row; interrupted transitions, explicit certificate rotation, and
 distribution snapshots remain separate issue #32 evidence.

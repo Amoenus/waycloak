@@ -170,8 +170,9 @@ or storage change until an explicit storage-migration procedure exists.
 Kind acceptance uses two immutable chart and release identities. It performs a
 clean baseline install, source-bound forward transition, and separately planned
 rollback. Both transitions require a newer Helm revision, exact target runtime
-and CNI receipt, preserved gateway-class/certificate identity, live node
-capability, and the full gateway-replacement startup-denial and packet exercise.
+and CNI receipt, a new UID for the immutable target gateway class, preserved
+certificate identity, live node capability, and the full gateway-replacement
+startup-denial and packet exercise.
 Interrupted Helm transitions, controller/node restart during transition,
 explicit certificate rotation, and each distribution snapshot row remain
 independent required evidence.

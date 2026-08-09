@@ -97,9 +97,9 @@ prior target used for rollback.
    mutation and refuses drift. The initial beta lifecycle refuses every CRD
    schema/storage change; those require a dedicated storage-migration plan.
 5. Require a newer Helm revision, the exact target release/runtime/CNI receipt,
-   preserved gateway-class and observation-certificate identities, healthy
-   node capability and gateway activation, and protected packet/startup checks
-   before resuming workloads.
+   a new immutable gateway-class UID at the stable class name, preserved
+   observation-certificate identity, healthy node capability and gateway
+   activation, and protected packet/startup checks before resuming workloads.
 
 Use the same procedure for forward transition and rollback. A missing or
 tampered observation identity is not repaired by silently rotating trust. If

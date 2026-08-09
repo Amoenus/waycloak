@@ -279,6 +279,10 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 		t.Fatalf("in-memory TLS identity missing: %v", err)
 	}
 	initialTLSUID := tlsSecret.UID
+	initialClass, err := clients.Dynamic.Resource(gatewayClassGVR).Get(context.Background(), "gluetun.waycloak.io", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	forward := manifest
 	forward.Version = "v1.0.0-beta.2"
 	forward.ManifestDigest, err = forward.IdentityDigest()
@@ -304,6 +308,10 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil || tlsSecret.UID != initialTLSUID {
 		t.Fatalf("ordinary transition replaced serving identity: %#v %v", tlsSecret, err)
 	}
+	forwardClass, err := clients.Dynamic.Resource(gatewayClassGVR).Get(context.Background(), "gluetun.waycloak.io", metav1.GetOptions{})
+	if err != nil || forwardClass.GetUID() == initialClass.GetUID() {
+		t.Fatalf("forward transition did not replace immutable class identity: %#v %v", forwardClass, err)
+	}
 	rollbackSource, err := ObserveInstalledRelease(context.Background(), clients, plan.Namespace, plan.Release)
 	if err != nil {
 		t.Fatal(err)
@@ -318,6 +326,10 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	}
 	if upgradeCalls != 4 {
 		t.Fatalf("exact rollback called Helm %d total times, want 4", upgradeCalls)
+	}
+	rollbackClass, err := clients.Dynamic.Resource(gatewayClassGVR).Get(context.Background(), "gluetun.waycloak.io", metav1.GetOptions{})
+	if err != nil || rollbackClass.GetUID() == forwardClass.GetUID() {
+		t.Fatalf("rollback did not replace immutable class identity: %#v %v", rollbackClass, err)
 	}
 	tamperSource, err := ObserveInstalledRelease(context.Background(), clients, plan.Namespace, plan.Release)
 	if err != nil {
@@ -660,7 +672,7 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 			t.Fatal(err)
 		}
 	} else if apierrors.IsNotFound(getErr) {
-		class.SetUID("test-gateway-class-uid")
+		class.SetUID(k8stypes.UID("test-gateway-class-" + strconv.FormatInt(revision, 10)))
 		class.SetGeneration(1)
 		if _, err = clients.Dynamic.Resource(gatewayClassGVR).Create(ctx, class, metav1.CreateOptions{}); err != nil {
 			t.Fatal(err)

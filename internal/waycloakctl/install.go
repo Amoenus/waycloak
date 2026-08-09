@@ -26,6 +26,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const controllerFirstBootstrapValues = `cniInstaller:
@@ -151,6 +153,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	}
 	chart := plan.Chart.Repository + "@" + plan.Chart.Digest
 	deployed := source.State == installStateDeployed
+	if err := replaceGatewayClassForTransition(ctx, clients, source, plan.Target); err != nil {
+		return err
+	}
 	if !deployed {
 		bootstrapValuesPath := filepath.Join(directory, "controller-first-bootstrap.yaml")
 		if err := os.WriteFile(bootstrapValuesPath, []byte(controllerFirstBootstrapValues), 0o600); err != nil {
@@ -170,6 +175,26 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return fmt.Errorf("observe exact target release after Helm: %w", err)
 	}
 	return validateInstallTarget(source, target, plan.Target, targetCRDs)
+}
+
+func replaceGatewayClassForTransition(ctx context.Context, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest) error {
+	if source.State != installStateDeployed || source.ManifestDigest == target.ManifestDigest {
+		return nil
+	}
+	uid := types.UID(source.GatewayClassUID)
+	if err := clients.Dynamic.Resource(gatewayClassGVR).Delete(ctx, "gluetun.waycloak.io", metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
+		return fmt.Errorf("replace exact immutable gateway class for release transition: %w", err)
+	}
+	if err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := clients.Dynamic.Resource(gatewayClassGVR).Get(ctx, "gluetun.waycloak.io", metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}); err != nil {
+		return fmt.Errorf("wait for exact immutable gateway class replacement boundary: %w", err)
+	}
+	return nil
 }
 
 func ensureObservationSecrets(ctx context.Context, clients *Clients, namespace, release, planID string) (*corev1.Secret, *corev1.Secret, error) {

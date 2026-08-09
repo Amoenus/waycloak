@@ -263,8 +263,15 @@ func validateInstallTarget(source, target InstalledReleaseObservation, manifest 
 		return errors.New("helm completed without advancing the deployed revision")
 	}
 	if source.State == installStateDeployed {
-		if target.GatewayClassUID != source.GatewayClassUID || target.ObservationCAUID != source.ObservationCAUID || target.ObservationTLSUID != source.ObservationTLSUID || target.ObservationCADigest != source.ObservationCADigest || target.ObservationServingDigest != source.ObservationServingDigest {
-			return errors.New("ordinary release transition replaced stable class or observation certificate identity")
+		classChanged := source.ManifestDigest != manifest.ManifestDigest
+		if classChanged && target.GatewayClassUID == source.GatewayClassUID {
+			return errors.New("release transition did not replace the immutable gateway class identity")
+		}
+		if !classChanged && target.GatewayClassUID != source.GatewayClassUID {
+			return errors.New("same-release apply unexpectedly replaced the gateway class identity")
+		}
+		if target.ObservationCAUID != source.ObservationCAUID || target.ObservationTLSUID != source.ObservationTLSUID || target.ObservationCADigest != source.ObservationCADigest || target.ObservationServingDigest != source.ObservationServingDigest {
+			return errors.New("ordinary release transition replaced stable observation certificate identity")
 		}
 	}
 	return nil
