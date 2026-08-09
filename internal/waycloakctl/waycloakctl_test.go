@@ -213,6 +213,18 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	encodedPlan, err := EncodePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planPath := filepath.Join(t.TempDir(), "install-plan.json")
+	if err = os.WriteFile(planPath, encodedPlan, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = LoadInstallPlan(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	upgradeCalls := 0
 	activeManifest := manifest
 	revision := int64(0)

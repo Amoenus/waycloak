@@ -114,7 +114,7 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(source, plan.Source) {
+	if source.ObservationDigest != plan.Source.ObservationDigest {
 		return errors.New("refusing mutation: installed release state changed after plan review")
 	}
 	if err := validateInstallCRDTransition(source, targetCRDs); err != nil {

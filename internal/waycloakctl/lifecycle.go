@@ -251,16 +251,16 @@ func validateInstallCRDTransition(source InstalledReleaseObservation, target map
 
 func validateInstallTarget(source, target InstalledReleaseObservation, manifest ReleaseManifest, targetCRDs map[string]string) error {
 	if target.State != installStateDeployed || target.Version != manifest.Version || target.ManifestDigest != manifest.ManifestDigest || !reflect.DeepEqual(target.CRDIdentities, targetCRDs) {
-		return errors.New("Helm completed without the exact target release and CRD identity")
+		return errors.New("helm completed without the exact target release and CRD identity")
 	}
 	for _, name := range installRuntimeImageNames {
 		wanted := manifest.Images[name].Repository + "@" + manifest.Images[name].Digest
 		if target.Images[name] != wanted {
-			return fmt.Errorf("Helm completed with unexpected %s image", name)
+			return fmt.Errorf("helm completed with unexpected %s image", name)
 		}
 	}
 	if target.HelmRevision <= source.HelmRevision {
-		return errors.New("Helm completed without advancing the deployed revision")
+		return errors.New("helm completed without advancing the deployed revision")
 	}
 	if source.State == installStateDeployed {
 		if target.GatewayClassUID != source.GatewayClassUID || target.ObservationCAUID != source.ObservationCAUID || target.ObservationTLSUID != source.ObservationTLSUID || target.ObservationCADigest != source.ObservationCADigest || target.ObservationServingDigest != source.ObservationServingDigest {
