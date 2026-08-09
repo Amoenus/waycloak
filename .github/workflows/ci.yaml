@@ -292,6 +292,11 @@ jobs:
           cache: true
       - name: Install checksummed security tools
         run: bash hack/install-security-tools.sh
+      - name: Install upstream privileged test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends iptables
+          find /usr/lib -path '*/xtables/libxt_mark.so' -print -quit | grep -q .
       - name: Rebuild and test the exact patched Gluetun source twice
         run: |
           upstream_commit=7eed6eaf160440724a93ca66f66055068cebe4ac
