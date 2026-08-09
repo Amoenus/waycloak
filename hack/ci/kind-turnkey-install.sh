@@ -530,7 +530,7 @@ old_gateway_uid="$(kubectl get vpngateway/disposable --namespace "$smoke_namespa
 jq -e '
   .kind == "StateBackup" and
   (.backupID | test("^sha256:[a-f0-9]{64}$")) and
-  ([.resources[].kind] | sort) == ["VPNGateway", "VPNEgressRoute"] and
+  [.resources[].kind] == ["VPNGateway", "VPNEgressRoute"] and
   ([.resources[] | has("status")] | all(. == false)) and
   ([.resources[] | .kind == "VPNWorkloadBinding"] | any) == false
 ' "$work_dir/state-backup.json" >/dev/null
