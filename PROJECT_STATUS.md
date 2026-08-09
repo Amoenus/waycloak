@@ -195,7 +195,8 @@ non-mutation, distinct ordinary/protected source identity, exact-UID gateway
 replacement, protected application startup denial during loss, recovery, and
 owned-object cleanup. The fixture uses runtime-generated keys and certificates
 and is not a supported provider. Issue #138 is not complete: a published signed
-CLI artifact and the under-15-minute real-provider journey remain required.
+Core runtime candidate and the under-15-minute real-provider journey remain
+required.
 The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and
 verifying checksums, both keyless Sigstore bundles, the signing workflow
@@ -206,8 +207,22 @@ evidence from exact main commit `21ffebea3444f830ec2c9b29acebd9b36a2fd878`:
 release run `30360505871` rebuilt every supported CLI twice, published the
 signed checksum and SPDX asset set, and passed the separate hosted-runner
 download, identity, issuer, tag/source, checksum, SBOM, and provenance checks.
-Issue #138 therefore remains open only for its supported clean-cluster
-Proton/OpenVPN journey within 15 minutes.
+The Core tag workflow now prepares the missing exact deployment candidate from
+`vMAJOR.MINOR.PATCH-core.NUMBER` tags. It repeat-builds and publishes the four
+Waycloak Linux amd64/arm64 binaries, a vulnerability-gated Gluetun derivative,
+and a tag-versioned Helm chart. Gluetun is rebuilt from exact upstream commit
+`7eed6eaf160440724a93ca66f66055068cebe4ac` and exact upstream image digest
+`sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461`
+with only the reachable fixed Go dependencies advanced; the upstream MIT
+license and exact dependency patch ship with the artifact. The workflow gates
+source, every published image, and the pinned pause image on the vulnerability
+policy, attaches SPDX and keyless signatures, records GitHub provenance, and
+publishes one canonical manifest containing only the six required images. A second hosted
+runner redownloads the release, verifies checksums, identities, SBOM
+attestations, provenance, platforms, chart contents, and manifest-to-registry
+digest equality. This is implementation evidence only until an exact tag run
+passes. Issue #138 remains open for that publication and the supported
+clean-cluster Proton/OpenVPN journey within 15 minutes.
 
 The deployment preparation after the first live alpha churn review found that a
 plan could outlive its cluster observation and that mixed-architecture clusters

@@ -131,6 +131,14 @@ programming false and clear addresses. The installer refuses a duplicate
 controller claim and supplies the default class only from a verified release
 manifest digest. No credential field exists on the class.
 
+The bundled provider engine is derived only from an exact upstream source commit
+and exact multi-platform base-image digest. Publication preserves the upstream
+license, records a dependency-only patch, repeat-builds both supported
+architectures, runs call-graph vulnerability analysis and the upstream privileged
+test suite, and binds the resulting image digest into the signed release
+manifest. A reachable vulnerability is fixed and rebuilt; it is not suppressed
+with a VEX statement merely to satisfy the release gate.
+
 ### Silent direct-egress fallback
 
 **Threat:** setup, reconfiguration, tunnel/DNS/gateway loss, or component restart
@@ -345,6 +353,9 @@ operator-owned because Kubernetes object absence cannot prove process absence.
 - logs/events/status/metrics/support bundles pass canary redaction tests;
 - signed exact artifacts, SBOM, provenance, reproducibility, and vulnerability
   policy pass before release;
+- the derived provider engine's source commit, base-image digest, dependency
+  patch, upstream license, architecture binaries, image SBOM, signature and
+  provenance are independently verifiable;
 - multi-day exact-artifact soak records no direct leak, stale Ready, identity
   collision, silent fallback, unbounded write loop, or unexplained recurring
   outage.
