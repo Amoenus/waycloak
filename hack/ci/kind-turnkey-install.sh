@@ -575,7 +575,8 @@ EOF
 
 failed_sandbox_observed=false
 for _ in $(seq 1 30); do
-  if [[ "$(kubectl get pod/recovery-probe --namespace "$smoke_namespace" -o json | jq '.status.containerStatuses // [] | length')" != "0" ]]; then
+  if [[ "$(kubectl get pod/recovery-probe --namespace "$smoke_namespace" -o json | \
+    jq '[.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length')" != "0" ]]; then
     printf 'recovery probe application container started before portable intent restore\n' >&2
     exit 1
   fi
