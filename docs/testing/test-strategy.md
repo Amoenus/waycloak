@@ -259,6 +259,10 @@ The row must include at least one durable Ready attachment across agent
 replacement and prove lockdown, authenticated relay handshake, internal drift
 reconciliation, capability republication, and continued rejection of public
 CNI operations before readiness.
+The disruptive verifier must delete Pods before route intent, observe each exact
+Pod and UID-derived binding as absent, then observe route deletion before it may
+emit `cleanupComplete=true`. A terminating binding is a failed cleanup result,
+not a healthy resource to ignore during lifecycle certification.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled

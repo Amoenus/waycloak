@@ -266,6 +266,11 @@ reconciles durable state through an internal-only path, and republishes
 capability while public CNI calls remain gated. Apply verifies the exact
 post-Helm target. Unit/race and a two-immutable-release Kind lifecycle are the
 merge gates.
+That run also proved `waycloakctl verify` incorrectly reported cleanup complete
+after merely accepting route/Pod deletion while three bindings still terminated.
+Verification now deletes exact Pods first, waits for Pod and UID-derived binding
+absence, then deletes and observes the route; lifecycle health is no longer
+allowed to race finalizer-backed withdrawal.
 Interrupted transition recovery, explicit certificate rotation, and supported
 distribution datastore-snapshot drills remain open #32 work.
 

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -489,6 +490,26 @@ func TestVerifyConfirmationBindsProbeEndpointAndPublicCA(t *testing.T) {
 		if value == base {
 			t.Fatalf("%s was not bound into the disruptive verification identity", name)
 		}
+	}
+}
+
+func TestWaitForAbsenceRequiresObservedDeletion(t *testing.T) {
+	calls := 0
+	err := waitForAbsence(context.Background(), "test object", func(context.Context) error {
+		calls++
+		if calls < 2 {
+			return nil
+		}
+		return apierrors.NewNotFound(schema.GroupResource{Resource: "tests"}, "object")
+	})
+	if err != nil || calls != 2 {
+		t.Fatalf("observed deletion wait = %d calls, %v", calls, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	err = waitForAbsence(ctx, "stuck object", func(context.Context) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "cleanup did not complete") {
+		t.Fatalf("unobserved cleanup reported complete: %v", err)
 	}
 }
 

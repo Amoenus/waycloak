@@ -96,6 +96,12 @@ state, and only then republishes node capability. Public CNI operations remain
 gated throughout; the recovery reconciler alone bypasses that readiness gate to
 avoid a backend-readiness dependency cycle.
 
+Disruptive verification deletes its exact probe Pods before its route, waits for
+each Pod and UID-derived binding to be absent, and only then removes and observes
+the route. `cleanupComplete=true` therefore means finalizer-backed data-plane
+withdrawal finished; accepted deletion requests or terminating bindings are not
+reported as complete.
+
 Every plan also binds the exact currently deployed Helm revision, release
 manifest, six runtime images, six CRD specifications, default gateway-class
 UID/generation, and observation-certificate UIDs and public digests. Apply
