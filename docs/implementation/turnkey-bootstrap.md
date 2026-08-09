@@ -86,6 +86,19 @@ there is no namespace bypass or fail-open interval. An already-deployed Helm
 release goes directly to the full reviewed revision so re-apply and upgrade do
 not temporarily remove its deny path.
 
+Every plan also binds the exact currently deployed Helm revision, release
+manifest, six runtime images, six CRD specifications, default gateway-class
+UID/generation, and observation-certificate UIDs and public digests. Apply
+re-observes that source and re-reads the target chart before mutation. The
+initial beta lifecycle permits a transition only when the target has the
+identical served/storage CRD contract; any schema or storage change requires a
+separately reviewed storage-migration procedure. Forward transition and
+rollback use the same target-bound plan/apply path. A rollback therefore names
+a separately verified prior release manifest and never delegates identity to
+an opaque Helm revision number. Ordinary transitions preserve the gateway
+class and observation trust identities and verify the exact target runtime
+after Helm completes.
+
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
 reconciliation, but it is not authoritative for creation-time identity or Pod
@@ -124,6 +137,16 @@ restores with the exact plan. Recovery must create a new gateway UID, reacquire
 a new exact Pod-UID binding, and succeed without importing old status or runtime
 state. This logical drill complements, but does not replace, coherent
 distribution datastore-snapshot certification.
+
+The Kind lifecycle gate builds two immutable chart/release identities with an
+identical CRD contract. It installs the baseline, performs a source-bound
+forward transition, and then applies a separately planned rollback to the
+baseline. Both directions require a newer Helm revision, unchanged observation
+certificate UIDs and public bytes, unchanged gateway-class UID, exact runtime
+arguments and CNI receipt, healthy capability observation, and the complete
+gateway-replacement fail-closed exercise. This proves the supported identical-
+schema beta row; interrupted transitions, explicit certificate rotation, and
+distribution snapshots remain separate issue #32 evidence.
 
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.

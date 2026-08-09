@@ -43,5 +43,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0039: Declarative admission and authenticated capability scheduling](0039-declarative-admission-and-capability-scheduling.md)
 - [0040: Service-backed SingleActive port forwarding](0040-service-backed-single-active-port-forwarding.md)
 - [0041: Portable intent backup reacquires runtime identity](0041-portable-state-backup-and-disaster-restore.md)
+- [0042: Exact release transitions bind source state and preserve denial](0042-exact-release-transition-and-rollback.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

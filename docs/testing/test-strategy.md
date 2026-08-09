@@ -156,6 +156,26 @@ installed. Positive-control capture followed by zero direct TCP, UDP, DNS
 UDP/TCP, and fragmented-UDP packets is mandatory. Authentication failure is an
 availability failure and never permits fallback.
 
+### Exact release lifecycle conformance
+
+Install plans bind the complete observed source: deployed Helm revision,
+release manifest and six runtime images, six CRD specifications, default
+gateway-class UID/generation, and observation-certificate UIDs and public
+digests. Negative tests require no mutation after changed source state, target
+chart/CRD drift, wrong confirmation, partial CRD inventory, ambiguous Helm
+state, mutable images, or certificate tampering. The initial beta transition
+row permits only an identical served/storage CRD contract and rejects a schema
+or storage change until an explicit storage-migration procedure exists.
+
+Kind acceptance uses two immutable chart and release identities. It performs a
+clean baseline install, source-bound forward transition, and separately planned
+rollback. Both transitions require a newer Helm revision, exact target runtime
+and CNI receipt, preserved gateway-class/certificate identity, live node
+capability, and the full gateway-replacement startup-denial and packet exercise.
+Interrupted Helm transitions, controller/node restart during transition,
+explicit certificate rotation, and each distribution snapshot row remain
+independent required evidence.
+
 ### Backup, restore, and disaster-recovery conformance
 
 Portable backup tests require deterministic canonical identity and exact source

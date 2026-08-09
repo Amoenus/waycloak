@@ -20,12 +20,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const controllerFirstBootstrapValues = `cniInstaller:
@@ -65,8 +65,19 @@ func (plan InstallPlan) validate() error {
 		plan.Namespace == "" || plan.Release == "" || plan.Values == "" || plan.OverlayCIDR == "" || plan.NodeArchitecture != "amd64" && plan.NodeArchitecture != "arm64" || plan.Chart.Repository == "" || !validDigest(plan.Chart.Digest) {
 		return errors.New("install plan identity is incomplete")
 	}
-	wanted := digestBytes([]byte(plan.Manifest + "\x00" + plan.PreflightDigest + "\x00" + plan.OverlayCIDR + "\x00" + plan.NodeArchitecture + "\x00" + plan.Namespace + "\x00" + plan.Release + "\x00" + plan.InstallSequence + "\x00" + plan.Values))
-	if plan.PlanID != wanted {
+	if err := plan.Target.Validate(); err != nil || plan.Target.ManifestDigest != plan.Manifest || plan.Target.Chart != plan.Chart {
+		return errors.New("install plan target release identity is inconsistent")
+	}
+	if err := plan.Source.validate(); err != nil {
+		return err
+	}
+	if err := validateInstallCRDTransition(plan.Source, plan.TargetCRDs); err != nil {
+		return err
+	}
+	if plan.Operation != installOperationClean && plan.Operation != installOperationTransition || plan.Operation == installOperationClean && plan.Source.State != installStateAbsent || plan.Operation == installOperationTransition && plan.Source.State != installStateDeployed {
+		return errors.New("install plan operation does not match its reviewed source state")
+	}
+	if plan.PlanID != installPlanIdentity(plan) {
 		return errors.New("install plan content does not match planID")
 	}
 	return nil
@@ -92,6 +103,23 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if runner == nil {
 		runner = defaultRunner
 	}
+	targetCRDs, err := ChartCRDIdentities(ctx, runner, plan.Chart)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(targetCRDs, plan.TargetCRDs) {
+		return errors.New("refusing mutation: exact target chart CRD identity changed after plan review")
+	}
+	source, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(source, plan.Source) {
+		return errors.New("refusing mutation: installed release state changed after plan review")
+	}
+	if err := validateInstallCRDTransition(source, targetCRDs); err != nil {
+		return err
+	}
 	namespace, err := clients.Kubernetes.CoreV1().Namespaces().Get(ctx, plan.Namespace, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		namespace = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: plan.Namespace, Labels: map[string]string{
@@ -105,23 +133,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	} else if namespace.Labels["pod-security.kubernetes.io/enforce"] != "privileged" {
 		return errors.New("existing system namespace is not explicitly privileged; review and label it separately before applying the plan")
 	}
-	caPEM, certPEM, keyPEM, err := observationIdentity(plan.Release, plan.Namespace)
+	caSecret, tlsSecret, err := ensureObservationSecrets(ctx, clients, plan.Namespace, plan.Release, plan.PlanID)
 	if err != nil {
 		return err
-	}
-	if err := createOwnedSecret(ctx, clients, plan.Namespace, plan.Release+"-observation-ca", plan.PlanID, corev1.SecretTypeOpaque, map[string][]byte{"ca.crt": caPEM}); err != nil {
-		return err
-	}
-	if err := createOwnedSecret(ctx, clients, plan.Namespace, plan.Release+"-observation-tls", plan.PlanID, corev1.SecretTypeTLS, map[string][]byte{"ca.crt": caPEM, "tls.crt": certPEM, "tls.key": keyPEM}); err != nil {
-		return err
-	}
-	caSecret, err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Get(ctx, plan.Release+"-observation-ca", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("read observation CA Secret after creation: %w", err)
-	}
-	tlsSecret, err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Get(ctx, plan.Release+"-observation-tls", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("read observation TLS Secret after creation: %w", err)
 	}
 	if !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
 		return errors.New("observation CA and serving identity do not share exact trust material")
@@ -136,10 +150,7 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return err
 	}
 	chart := plan.Chart.Repository + "@" + plan.Chart.Digest
-	deployed, err := deployedHelmRelease(ctx, clients, plan.Namespace, plan.Release)
-	if err != nil {
-		return err
-	}
+	deployed := source.State == installStateDeployed
 	if !deployed {
 		bootstrapValuesPath := filepath.Join(directory, "controller-first-bootstrap.yaml")
 		if err := os.WriteFile(bootstrapValuesPath, []byte(controllerFirstBootstrapValues), 0o600); err != nil {
@@ -154,32 +165,76 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if err != nil {
 		return fmt.Errorf("helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
 	}
-	return nil
-}
-
-func deployedHelmRelease(ctx context.Context, clients *Clients, namespace, release string) (bool, error) {
-	selector := labels.Set{"owner": "helm", "name": release, "status": "deployed"}.AsSelector().String()
-	secrets, err := clients.Kubernetes.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	target, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
 	if err != nil {
-		return false, fmt.Errorf("detect existing Helm release: %w", err)
+		return fmt.Errorf("observe exact target release after Helm: %w", err)
 	}
-	return len(secrets.Items) > 0, nil
+	return validateInstallTarget(source, target, plan.Target, targetCRDs)
 }
 
-func createOwnedSecret(ctx context.Context, clients *Clients, namespace, name, planID string, secretType corev1.SecretType, data map[string][]byte) error {
+func ensureObservationSecrets(ctx context.Context, clients *Clients, namespace, release, planID string) (*corev1.Secret, *corev1.Secret, error) {
 	secrets := clients.Kubernetes.CoreV1().Secrets(namespace)
-	existing, err := secrets.Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		if existing.Annotations["install.waycloak.io/plan-id"] != planID {
-			return fmt.Errorf("secret %s/%s exists and is not owned by this exact plan", namespace, name)
+	caName := release + "-observation-ca"
+	tlsName := release + "-observation-tls"
+	caSecret, caErr := secrets.Get(ctx, caName, metav1.GetOptions{})
+	tlsSecret, tlsErr := secrets.Get(ctx, tlsName, metav1.GetOptions{})
+	if caErr != nil && !apierrors.IsNotFound(caErr) {
+		return nil, nil, caErr
+	}
+	if tlsErr != nil && !apierrors.IsNotFound(tlsErr) {
+		return nil, nil, tlsErr
+	}
+	caFound := caErr == nil
+	tlsFound := tlsErr == nil
+	if caFound {
+		if err := validateReleaseOwnedInstallSecret(caSecret, release, corev1.SecretTypeOpaque); err != nil {
+			return nil, nil, err
 		}
-		return validateInstallSecret(existing, secretType)
 	}
-	if !apierrors.IsNotFound(err) {
-		return err
+	if tlsFound {
+		if err := validateReleaseOwnedInstallSecret(tlsSecret, release, corev1.SecretTypeTLS); err != nil {
+			return nil, nil, err
+		}
 	}
-	_, err = secrets.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: map[string]string{"install.waycloak.io/plan-id": planID}}, Type: secretType, Data: data}, metav1.CreateOptions{})
-	return err
+	if caFound && !tlsFound {
+		return nil, nil, errors.New("installation CA exists without its serving identity; use the explicit certificate-rotation recovery procedure")
+	}
+	if !tlsFound {
+		caPEM, certPEM, keyPEM, err := observationIdentity(release, namespace)
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsSecret, err = createReleaseOwnedSecret(ctx, clients, namespace, tlsName, release, planID, corev1.SecretTypeTLS, map[string][]byte{"ca.crt": caPEM, "tls.crt": certPEM, "tls.key": keyPEM})
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsFound = true
+	}
+	if !caFound {
+		var err error
+		caSecret, err = createReleaseOwnedSecret(ctx, clients, namespace, caName, release, planID, corev1.SecretTypeOpaque, map[string][]byte{"ca.crt": tlsSecret.Data["ca.crt"]})
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if !tlsFound || !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
+		return nil, nil, errors.New("observation CA and serving identity do not share exact trust material")
+	}
+	return caSecret, tlsSecret, nil
+}
+
+func createReleaseOwnedSecret(ctx context.Context, clients *Clients, namespace, name, release, planID string, secretType corev1.SecretType, data map[string][]byte) (*corev1.Secret, error) {
+	created, err := clients.Kubernetes.CoreV1().Secrets(namespace).Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: map[string]string{installReleaseOwnerKey: release, installInitialPlanKey: planID}}, Type: secretType, Data: data}, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		created, err = clients.Kubernetes.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := validateReleaseOwnedInstallSecret(created, release, secretType); err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 func validateInstallSecret(secret *corev1.Secret, secretType corev1.SecretType) error {

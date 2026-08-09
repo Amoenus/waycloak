@@ -234,21 +234,30 @@ not substitute for the supported real-provider journey, destructive reinstall
 drill, support-row conformance, lifecycle/DR matrix, or soak required by
 #137–#141.
 
-Issue #32 is now implementing its first portable recovery slice. ADR 0041
-separates coherent distribution datastore snapshots from a portable logical
-backup. The new `waycloakctl state backup` format contains only user-authored
-gateway, route, lease, and adapter specs plus hashed cluster, CRD, and required
-class identities. It structurally excludes credentials, arbitrary metadata,
-status, bindings, allocations, provider mappings, and live observations.
+Issue #32's first portable recovery slice merged in PR #174 with exact green CI
+run `31337381340`. ADR 0041 separates coherent distribution datastore snapshots
+from a portable logical backup. The `waycloakctl state backup` format contains
+only user-authored gateway, route, lease, and adapter specs plus hashed cluster,
+CRD, and required class identities. It structurally excludes credentials,
+arbitrary metadata, status, bindings, allocations, provider mappings, and live
+observations.
 Target-bound `state restore plan/apply` repeats preflight, requires exact CRD
 and class identity plus namespace prerequisites, refuses every unowned conflict
 before mutation, and creates with one explicit field manager without adopting
-pre-existing objects. Portable
-restore always creates new UIDs and reacquires the live data plane. Unit tests
-cover deterministic identity, tampering, confirmation, target drift, conflicts,
-and idempotent retry; the exact-artifact Kind recovery extension remains the
-required merge evidence for missing-route startup denial and fresh binding
-reacquisition.
+pre-existing objects. Portable restore always creates new UIDs and reacquires
+the live data plane. The merged Kind recovery drill proves missing-route
+startup denial, wrong-confirmation non-mutation, new gateway and binding UIDs,
+and live protected recovery without imported runtime state.
+
+ADR 0042 and the next #32 slice now define one exact plan/apply boundary for
+both forward transition and rollback. Plans bind the live Helm revision,
+release and six image identities, exact six-CRD specifications, gateway-class
+UID/generation, and stable observation-certificate identities. Apply refuses
+source or target-chart drift before mutation, permits only an identical beta
+CRD contract, preserves release-owned trust identity, and verifies the exact
+post-Helm target. Unit/race and a two-immutable-release Kind lifecycle are the
+merge gates. Interrupted transition recovery, explicit certificate rotation,
+and supported distribution datastore-snapshot drills remain open #32 work.
 
 Fresh homelab preparation is paused before mutation: its recorded Kubernetes
 API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed
