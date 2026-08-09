@@ -472,7 +472,7 @@ jobs:
             shift
             for attempt in 1 2; do
               echo "${description}: attempt ${attempt}/2" >&2
-              if timeout --foreground --kill-after=15s 2m "$@"; then
+              if timeout --kill-after=15s 2m "$@"; then
                 return 0
               fi
             done
