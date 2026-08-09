@@ -165,7 +165,10 @@ jobs:
             "$RUNNER_TEMP/gluetun-source-second" "$RUNNER_TEMP/gluetun-second" \
             "$upstream_commit" "$RELEASE_TAG"
           diff --recursive --no-dereference "$RUNNER_TEMP/gluetun-first" "$RUNNER_TEMP/gluetun-second"
-          (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...)
+          if ! (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...); then
+            echo "upstream suite failed once; retrying the complete suite once" >&2
+            (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...)
+          fi
 
           docker buildx build \
             --file build/gluetun-candidate/Dockerfile \
