@@ -156,6 +156,27 @@ installed. Positive-control capture followed by zero direct TCP, UDP, DNS
 UDP/TCP, and fragmented-UDP packets is mandatory. Authentication failure is an
 availability failure and never permits fallback.
 
+### Backup, restore, and disaster-recovery conformance
+
+Portable backup tests require deterministic canonical identity and exact source
+cluster, CRD, and gateway-class fingerprints. Canary credentials in Secrets,
+ConfigMaps, metadata, status, bindings, allocations, provider mappings, and
+runtime observations must be absent. Unknown fields, changed specs, reordered
+inventories, missing CRDs/classes/namespaces, target drift, wrong confirmation,
+and unowned name conflicts are negative gates.
+
+Restore uses an explicit Kubernetes field manager and atomic create-only
+semantics; it must refuse all conflicts before its first mutation and must not
+adopt an object created during the final race window. Exact partial retry is
+idempotent. Kind acceptance
+deletes backed-up gateway/route intent, creates an enrolled Pod during the
+missing-route window, and requires a Waycloak `FailedCreatePodSandBox` event
+with no application container. Exact-plan restore then requires new gateway and
+binding UIDs, current live readiness, protected probe success, and no imported
+status or controller-owned binding. Distribution datastore-snapshot rows add
+coherent UID/state recovery, restart, stale-observation withdrawal, and zero
+direct-packet capture; a logical export never substitutes for that proof.
+
 The production agent suite additionally proves that the CNI cannot supply a
 data-plane configuration, stale binding UID/generation is rejected before
 programming, partial configure or verify restores lockdown, drift repair occurs

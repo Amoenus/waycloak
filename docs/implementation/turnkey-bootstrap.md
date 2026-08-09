@@ -116,6 +116,15 @@ loss window, ordinary-network continuity, recovery, and exact cleanup. The
 fixture is CI evidence for the Core mechanics, not a supported VPN provider and
 not a substitute for the signed published-artifact or real-provider gates.
 
+The same exact-artifact journey exercises the first disaster-recovery slice.
+It exports deterministic portable gateway/route intent, deletes both live
+objects, proves an enrolled Pod receives no application container while its
+route is missing, rejects a wrong restore confirmation without mutation, then
+restores with the exact plan. Recovery must create a new gateway UID, reacquire
+a new exact Pod-UID binding, and succeed without importing old status or runtime
+state. This logical drill complements, but does not replace, coherent
+distribution datastore-snapshot certification.
+
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.
 An alpha API causes `preflight` to fail: stop protected workloads and complete
@@ -127,6 +136,11 @@ For an existing alpha installation, use the separately reviewed
 `waycloakctl alpha-purge plan` is read-only; `alpha-purge apply` binds deletion
 to exact cluster/CR/CRD UID fingerprints and requires explicit runtime-empty and
 separate-uninstall attestations.
+
+Portable backup and restore use the separately documented
+[disaster-recovery procedure](../operations/backup-restore-and-disaster-recovery.md).
+They do not back up Secrets, ConfigMaps, workloads, bindings, allocations,
+provider mappings, or live observations, and they never perform API conversion.
 
 ## Gateway and workload verification
 

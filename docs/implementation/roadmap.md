@@ -97,7 +97,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.
-- [ ] #140–#141: proceed in their declared dependency order.
+- [ ] #140: `v0.0.0-core.6` passed exact publication and independent hosted
+  verification. Continue with beta CRD lifecycle, upgrade/rollback, #32 DR,
+  #33 observability, uninstall/purge, and support-row evidence.
+- [ ] #32: portable logical backup/restore is in progress. It exports only
+  user-authored replacement intent and requires new UID-bound runtime state;
+  coherent UID preservation remains distribution-snapshot-only.
+- [ ] #33 and #141: proceed after their declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline
 
