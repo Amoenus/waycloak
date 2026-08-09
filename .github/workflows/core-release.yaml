@@ -370,6 +370,7 @@ jobs:
   verify-published-core:
     needs: publish
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       attestations: read
       contents: read
@@ -466,15 +467,34 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         working-directory: ${{ runner.temp }}/published
         run: |
+          retry_bounded() {
+            local description="$1"
+            shift
+            for attempt in 1 2; do
+              echo "${description}: attempt ${attempt}/2" >&2
+              if timeout --foreground --kill-after=15s 2m "$@"; then
+                return 0
+              fi
+            done
+            echo "${description}: failed after two bounded attempts" >&2
+            return 1
+          }
+
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml@refs/tags/${RELEASE_TAG}"
           issuer="https://token.actions.githubusercontent.com"
+          platform_index=0
           for ref_file in gluetun.ref replacement-controller.ref waycloak-cni.ref waycloak-node-agent.ref waycloak-gateway-agent.ref; do
             reference="$(cat "$ref_file")"
-            cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$reference"
-            cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$reference"
-            docker buildx imagetools inspect "$reference" --raw | jq -e \
-              '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
-            gh attestation verify "oci://$reference" \
+            echo "verifying ${ref_file}: ${reference}" >&2
+            retry_bounded "${ref_file} signature" cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$reference"
+            retry_bounded "${ref_file} SPDX attestation" cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$reference"
+            platform_index=$((platform_index + 1))
+            retry_bounded "${ref_file} platform index" docker buildx imagetools inspect "$reference" --raw \
+              >"$RUNNER_TEMP/platform-${platform_index}.json"
+            jq -e \
+              '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]' \
+              "$RUNNER_TEMP/platform-${platform_index}.json"
+            retry_bounded "${ref_file} GitHub provenance" gh attestation verify "oci://$reference" \
               --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml" \
               --source-ref "refs/tags/${RELEASE_TAG}" \
@@ -488,7 +508,7 @@ jobs:
               '$2 == "bin/gluetun-entrypoint-linux-" architecture {print $1}' \
               gluetun-binaries.SHA256SUMS)"
             [[ "$expected_checksum" =~ ^[a-f0-9]{64}$ ]]
-            docker pull --platform "linux/$architecture" "$gluetun_reference"
+            retry_bounded "Gluetun linux/${architecture} pull" docker pull --platform "linux/$architecture" "$gluetun_reference"
             test "$(docker image inspect "$gluetun_reference" --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 7eed6eaf160440724a93ca66f66055068cebe4ac
             test "$(docker image inspect "$gluetun_reference" --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
             container_id="$(docker create --platform "linux/$architecture" "$gluetun_reference")"
@@ -498,9 +518,9 @@ jobs:
           done
 
           chart_reference="$(sed 's|^oci://||' waycloak-chart.ref)"
-          cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$chart_reference"
-          cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$chart_reference"
-          gh attestation verify "oci://$chart_reference" \
+          retry_bounded "chart signature" cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$chart_reference"
+          retry_bounded "chart SPDX attestation" cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$chart_reference"
+          retry_bounded "chart GitHub provenance" gh attestation verify "oci://$chart_reference" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml" \
             --source-ref "refs/tags/${RELEASE_TAG}" \
