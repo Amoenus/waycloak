@@ -1,6 +1,6 @@
 module github.com/Amoenus/waycloak
 
-go 1.26.0
+go 1.26.5
 
 require (
 	github.com/containernetworking/cni v1.3.0
