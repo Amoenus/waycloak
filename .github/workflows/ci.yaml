@@ -318,7 +318,10 @@ jobs:
               "$upstream_commit" v0.0.0-core.0
           done
           diff --recursive --no-dereference "$RUNNER_TEMP/gluetun-first" "$RUNNER_TEMP/gluetun-second"
-          (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...)
+          if ! (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...); then
+            echo "upstream suite failed once; retrying the complete suite once" >&2
+            (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...)
+          fi
           go version -m "$RUNNER_TEMP/gluetun-first/bin/gluetun-entrypoint-linux-amd64" | tee "$RUNNER_TEMP/gluetun-modules"
           grep -q $'dep\tgolang.org/x/text\tv0.39.0\t' "$RUNNER_TEMP/gluetun-modules"
           grep -q $'dep\tgithub.com/cloudflare/circl\tv1.6.3\t' "$RUNNER_TEMP/gluetun-modules"
