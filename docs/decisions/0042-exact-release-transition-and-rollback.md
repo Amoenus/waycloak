@@ -61,10 +61,16 @@ must never weaken class immutability or edit the old object in place.
 
 Forward transition and rollback use the same confirmation-gated plan/apply
 boundary with different independently verified target manifests. An existing
-release never executes the controller-only bootstrap revision. Helm must
-advance to a new deployed revision, and apply then observes the exact target
-CRDs, runtime images, newly created immutable class identity, and preserved
-certificate identity before reporting success.
+release never executes the controller-only clean-install bootstrap revision.
+A changed release instead advances through two fail-closed Helm revisions. The
+first deploys the target controller, CNI installer, and immutable class while
+retaining the exact reviewed source node-agent image and release identity. Once
+that revision is Ready, the target CNI binary and receipt exist while the old
+agent socket is still authoritative. The second revision activates the target
+node agent. This breaks the installer/agent restart dependency without a CNI
+bypass, disabled deny path, or ordinary-egress interval. Apply then observes the
+exact target CRDs, runtime images, newly created immutable class identity, and
+preserved certificate identity before reporting success.
 
 Gateway activation remains explicit. After the controller, CNI installer, and
 node agent report the target release, the operator activates each singleton
@@ -78,7 +84,8 @@ ordinary-egress fallback.
 - Rollback means applying a reviewed prior exact manifest, not trusting an
   opaque Helm history entry.
 - The CNI chain and deny state stay installed throughout ordinary transitions;
-  existing releases never temporarily disable the node components.
+  the staging revision retains the exact source agent until the target CNI is
+  installed, and existing releases never temporarily disable node enforcement.
 - Every changed release receives a new immutable gateway-class UID at the same
   stable class name; attachment recovers only after the target class is live.
 - CRD evolution remains unavailable until its storage migration is designed

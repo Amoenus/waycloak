@@ -250,7 +250,11 @@ architecture fixture must refuse an implicit selection and prove that both
 privileged DaemonSets target only the explicitly reviewed row.
 
 A clean supported Kind or k3d row must exercise preflight, plan, apply, CNI
-receipt verification, controller/node capability readiness, and Helm rollback.
+receipt verification, controller/node capability readiness, and exact rollback.
+The lifecycle row must use two immutable releases in both directions and prove
+that each changed-release staging revision retains the exact source node agent
+until the target CNI receipt exists, then activates the target agent without a
+missing-socket restart deadlock or any observed direct-egress packet.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled

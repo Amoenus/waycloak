@@ -58,7 +58,7 @@ type InstallPlan struct {
 	Metadata         map[string]string           `json:"metadata"`
 }
 
-const controllerFirstInstallSequence = "ControllerFirstCoreActivation-v1"
+const failClosedLifecycleSequence = "FailClosedCoreLifecycle-v2"
 
 func LoadReleaseManifest(path string) (ReleaseManifest, string, error) {
 	data, err := os.ReadFile(path)
@@ -226,10 +226,11 @@ defaultGatewayClass:
 		operation = installOperationClean
 	}
 	plan := InstallPlan{
-		APIVersion: OutputAPIVersion, Kind: "InstallPlan", Operation: operation, Source: source, TargetCRDs: copyStringMap(targetCRDs), PreflightDigest: report.ObservationDigest, OverlayCIDR: report.Networking.OverlayCIDR, NodeArchitecture: architecture, InstallSequence: controllerFirstInstallSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Target: manifest, Chart: manifest.Chart, Values: values,
+		APIVersion: OutputAPIVersion, Kind: "InstallPlan", Operation: operation, Source: source, TargetCRDs: copyStringMap(targetCRDs), PreflightDigest: report.ObservationDigest, OverlayCIDR: report.Networking.OverlayCIDR, NodeArchitecture: architecture, InstallSequence: failClosedLifecycleSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Target: manifest, Chart: manifest.Chart, Values: values,
 		Commands: []string{
 			"waycloakctl install apply --plan <reviewed-plan.json> --confirm <exact-planID>",
 			"on a clean cluster: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <controller-first-bootstrap.yaml> --wait",
+			"on a changed deployed release: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <node-agent-transition-hold.yaml> --wait",
 			"helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --wait",
 		},
 		Security:      []string{"create a Pod Security privileged namespace for release-owned node components", "install a privileged root node-agent DaemonSet", "mount exact CNI/netns/state host paths", "install cluster-scoped CRDs, admission policies, and least-privilege RBAC"},

@@ -107,6 +107,14 @@ only the public CA Secret is missing, apply may reconstruct it from the intact,
 release-owned TLS Secret; if the serving identity is missing, stop and use the
 explicit certificate-rotation recovery procedure.
 
+A changed deployed release uses two Helm revisions while the deny path remains
+installed. The first applies the target controller, CNI installer, and class but
+pins the node agent to the exact reviewed source image and release identity. The
+second activates the target node agent only after the target CNI receipt is
+Ready. Do not collapse these revisions: simultaneous CNI-installer and agent
+replacement can strand both behind a missing local agent socket. This staging
+is not a bypass or fallback; protected sandboxes continue to fail closed.
+
 ## Failure and degraded-state handling
 
 - Missing route, gateway, class, Secret, ConfigMap, CNI, node agent, tunnel, or

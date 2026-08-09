@@ -255,8 +255,12 @@ release and six image identities, exact six-CRD specifications, gateway-class
 UID/generation, and stable observation-certificate identities. Apply refuses
 source or target-chart drift before mutation, permits only an identical beta
 CRD contract, replaces the exact immutable gateway-class UID at its stable name,
-preserves release-owned trust identity, and verifies the exact post-Helm target.
-Unit/race and a two-immutable-release Kind lifecycle are the merge gates.
+preserves release-owned trust identity, and uses a two-revision transition: the
+target controller/CNI/class first become Ready with the exact source node agent
+retained, then the target agent is activated. This avoids the fail-closed
+missing-socket deadlock found by hosted Kind without disabling or bypassing the
+CNI deny path. Apply verifies the exact post-Helm target. Unit/race and a
+two-immutable-release Kind lifecycle are the merge gates.
 Interrupted transition recovery, explicit certificate rotation, and supported
 distribution datastore-snapshot drills remain open #32 work.
 
@@ -287,7 +291,9 @@ versioned local socket/key paths, with exact-artifact assertions before any new
 Pod sandbox is admitted.
 Clean installs now commit a controller-only Helm bootstrap revision before
 activating the CNI installer, node agent, and default class. Existing releases
-skip that bootstrap so upgrades never withdraw the deny path. This ordering was
+skip that bootstrap; changed releases stage the target controller, CNI, and
+class while retaining the exact source agent, then activate the target agent
+after the target CNI receipt exists. This ordering was
 added after exact-artifact CI proved that simultaneous first activation could
 make the CNI authoritative before the controller Pod sandbox existed.
 The same gate then proved that an eventually consistent node-agent cache is not

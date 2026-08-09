@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -63,7 +64,7 @@ func LoadInstallPlan(path string) (InstallPlan, error) {
 }
 
 func (plan InstallPlan) validate() error {
-	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || !validDigest(plan.PreflightDigest) || plan.InstallSequence != controllerFirstInstallSequence ||
+	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || !validDigest(plan.PreflightDigest) || plan.InstallSequence != failClosedLifecycleSequence ||
 		plan.Namespace == "" || plan.Release == "" || plan.Values == "" || plan.OverlayCIDR == "" || plan.NodeArchitecture != "amd64" && plan.NodeArchitecture != "arm64" || plan.Chart.Repository == "" || !validDigest(plan.Chart.Digest) {
 		return errors.New("install plan identity is incomplete")
 	}
@@ -165,6 +166,19 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		if err != nil {
 			return fmt.Errorf("controller-first Helm bootstrap failed before Core activation: %w: %s", err, bounded(output, 4096))
 		}
+	} else if source.ManifestDigest != plan.Target.ManifestDigest {
+		holdValues, err := nodeAgentTransitionHoldValues(source)
+		if err != nil {
+			return err
+		}
+		holdValuesPath := filepath.Join(directory, "node-agent-transition-hold.yaml")
+		if err := os.WriteFile(holdValuesPath, []byte(holdValues), 0o600); err != nil {
+			return err
+		}
+		output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--values", holdValuesPath, "--wait", "--timeout", "10m")
+		if err != nil {
+			return fmt.Errorf("helm transition staging failed with the prior node agent retained: %w: %s", err, bounded(output, 4096))
+		}
 	}
 	output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m")
 	if err != nil {
@@ -175,6 +189,22 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return fmt.Errorf("observe exact target release after Helm: %w", err)
 	}
 	return validateInstallTarget(source, target, plan.Target, targetCRDs)
+}
+
+func nodeAgentTransitionHoldValues(source InstalledReleaseObservation) (string, error) {
+	reference := source.Images["waycloak-node-agent"]
+	separator := strings.LastIndex(reference, "@")
+	if separator < 1 || !validDigest(reference[separator+1:]) {
+		return "", errors.New("reviewed source lacks an exact node-agent image for transition staging")
+	}
+	return fmt.Sprintf(`nodeAgent:
+  image:
+    repository: %q
+    digest: %q
+  releaseIdentity:
+    version: %q
+    manifestDigest: %q
+`, reference[:separator], reference[separator+1:], source.Version, source.ManifestDigest), nil
 }
 
 func replaceGatewayClassForTransition(ctx context.Context, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest) error {

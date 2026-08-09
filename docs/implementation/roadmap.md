@@ -102,9 +102,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   #33 observability, uninstall/purge, and support-row evidence.
 - [ ] #32: portable logical backup/restore merged with exact Kind recovery
   evidence. Exact source-bound forward transition and rollback are in progress
-  with identical-beta-CRD enforcement and stable trust identity. Interrupted
-  transition/certificate rotation and supported distribution snapshots remain;
-  coherent UID preservation is distribution-snapshot-only.
+  with identical-beta-CRD enforcement, stable trust identity, and a staged
+  CNI/agent handoff that retains the exact source agent until the target CNI is
+  installed. Interrupted transition/certificate rotation and supported
+  distribution snapshots remain; coherent UID preservation is
+  distribution-snapshot-only.
 - [ ] #33 and #141: proceed after their declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline

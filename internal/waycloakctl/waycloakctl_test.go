@@ -125,8 +125,8 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	if !strings.Contains(plan.Values, `observationRelayURL: "https://waycloak-controller.waycloak-system.svc:9443/node-observations/v1/report"`) {
 		t.Fatalf("install values do not use the controller observation relay contract: %s", plan.Values)
 	}
-	if plan.InstallSequence != controllerFirstInstallSequence || len(plan.Commands) != 3 {
-		t.Fatalf("install plan does not expose the controller-first sequence: %#v", plan)
+	if plan.InstallSequence != failClosedLifecycleSequence || len(plan.Commands) != 4 {
+		t.Fatalf("install plan does not expose the fail-closed lifecycle sequence: %#v", plan)
 	}
 	encoded, err := EncodePlan(plan)
 	if err != nil {
@@ -227,6 +227,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	}
 	upgradeCalls := 0
 	activeManifest := manifest
+	stageSource := source
 	revision := int64(0)
 	runner := func(_ context.Context, name string, arguments ...string) ([]byte, error) {
 		if name != "helm" {
@@ -252,8 +253,16 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 		if upgradeCalls == 1 && (len(values) != 2 || values[1] != controllerFirstBootstrapValues) {
 			t.Fatalf("clean install did not use exact controller-first overrides: %#v", values)
 		}
-		if upgradeCalls > 1 && len(values) != 1 {
-			t.Fatalf("Core activation or existing-release apply used bootstrap overrides: %#v", values)
+		if upgradeCalls == 2 || upgradeCalls == 4 || upgradeCalls == 6 {
+			if len(values) != 1 {
+				t.Fatalf("final Core activation used staging overrides: %#v", values)
+			}
+		}
+		if upgradeCalls == 3 || upgradeCalls == 5 {
+			holdValues, err := nodeAgentTransitionHoldValues(stageSource)
+			if err != nil || len(values) != 2 || values[1] != holdValues {
+				t.Fatalf("release transition did not retain the exact prior node agent: %#v %v", values, err)
+			}
 		}
 		if upgradeCalls >= 2 {
 			revision++
@@ -297,12 +306,13 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stageSource = forwardSource
 	activeManifest = forward
 	if err := ApplyInstallPlan(context.Background(), clients, runner, forwardPlan, forwardPlan.PlanID); err != nil {
 		t.Fatal(err)
 	}
-	if upgradeCalls != 3 {
-		t.Fatalf("exact transition called Helm %d total times, want 3", upgradeCalls)
+	if upgradeCalls != 4 {
+		t.Fatalf("exact transition called Helm %d total times, want 4", upgradeCalls)
 	}
 	tlsSecret, err = clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Get(context.Background(), plan.Release+"-observation-tls", metav1.GetOptions{})
 	if err != nil || tlsSecret.UID != initialTLSUID {
@@ -320,12 +330,13 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stageSource = rollbackSource
 	activeManifest = manifest
 	if err := ApplyInstallPlan(context.Background(), clients, runner, rollbackPlan, rollbackPlan.PlanID); err != nil {
 		t.Fatal(err)
 	}
-	if upgradeCalls != 4 {
-		t.Fatalf("exact rollback called Helm %d total times, want 4", upgradeCalls)
+	if upgradeCalls != 6 {
+		t.Fatalf("exact rollback called Helm %d total times, want 6", upgradeCalls)
 	}
 	rollbackClass, err := clients.Dynamic.Resource(gatewayClassGVR).Get(context.Background(), "gluetun.waycloak.io", metav1.GetOptions{})
 	if err != nil || rollbackClass.GetUID() == forwardClass.GetUID() {
@@ -346,7 +357,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err := ApplyInstallPlan(context.Background(), clients, runner, tamperPlan, tamperPlan.PlanID); err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Fatalf("tampered install identity accepted: %v", err)
 	}
-	if upgradeCalls != 4 {
+	if upgradeCalls != 6 {
 		t.Fatal("tampered source reached Helm mutation")
 	}
 }

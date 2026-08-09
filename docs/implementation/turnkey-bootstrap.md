@@ -82,9 +82,14 @@ node agent, and default class remain disabled. After that revision is Ready, a
 second revision activates the exact reviewed Core runtime. This prevents the
 new chained CNI from becoming authoritative before the ordinary-networked
 controller exists. New Pod sandboxes may fail closed during Core activation;
-there is no namespace bypass or fail-open interval. An already-deployed Helm
-release goes directly to the full reviewed revision so re-apply and upgrade do
-not temporarily remove its deny path.
+there is no namespace bypass or fail-open interval. A same-manifest re-apply
+goes directly to the full reviewed revision. A changed deployed release never
+uses the clean-install bootstrap: its first transition revision deploys the
+target controller, CNI installer, and class while retaining the exact reviewed
+source node-agent image and release identity. After that revision is Ready and
+the target CNI receipt exists, a second revision activates the target node
+agent. The old agent socket therefore remains available while the installer
+changes, and the installed deny path is never removed or bypassed.
 
 Every plan also binds the exact currently deployed Helm revision, release
 manifest, six runtime images, six CRD specifications, default gateway-class
@@ -97,8 +102,9 @@ rollback use the same target-bound plan/apply path. A rollback therefore names
 a separately verified prior release manifest and never delegates identity to
 an opaque Helm revision number. Ordinary transitions replace the exact old
 immutable gateway-class UID at its stable name, preserve observation trust
-identity, and verify the exact target runtime after Helm completes. The class
-replacement window remains fail closed behind the installed CNI deny path.
+identity, execute the two-revision CNI/agent transition, and verify the exact
+target runtime after Helm completes. The class replacement and transition
+windows remain fail closed behind the installed CNI deny path.
 
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
