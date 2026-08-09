@@ -59,6 +59,10 @@ spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       priorityClassName: system-node-critical
+      {{- with .Values.nodeAgent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       tolerations:
         - operator: Exists
       containers:

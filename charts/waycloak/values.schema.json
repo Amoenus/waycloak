@@ -68,9 +68,10 @@
     "cniInstaller": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "pauseImage", "configHostPath", "binaryHostPath", "receiptHostPath"],
+      "required": ["enabled", "nodeSelector", "image", "pauseImage", "configHostPath", "binaryHostPath", "receiptHostPath"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}},
         "image": {
           "type": "object",
           "additionalProperties": false,
@@ -115,9 +116,10 @@
     "nodeAgent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "observationRelayURL", "observationCASecret", "cniReceiptHostPath", "cniBinaryHostPath", "cniConfigHostPath", "reconcileInterval", "conformanceProfile", "releaseIdentity"],
+      "required": ["enabled", "nodeSelector", "image", "observationRelayURL", "observationCASecret", "cniReceiptHostPath", "cniBinaryHostPath", "cniConfigHostPath", "reconcileInterval", "conformanceProfile", "releaseIdentity"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}},
         "image": {
           "type": "object",
           "additionalProperties": false,

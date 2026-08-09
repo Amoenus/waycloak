@@ -201,6 +201,12 @@ support-bundle redaction with credential and endpoint canaries. CI builds every
 CLI target twice, compares it byte-for-byte, generates an SPDX SBOM, signs exact
 checksums using GitHub OIDC, and records build provenance.
 
+Plan/apply tests also bind hashed cluster identity, exact node/runtime/kernel and
+primary-CNI observations, overlay, and selected architecture. Any observation
+drift must fail before Namespace, Secret, Helm, or CNI mutation. A mixed-
+architecture fixture must refuse an implicit selection and prove that both
+privileged DaemonSets target only the explicitly reviewed row.
+
 A clean supported Kind or k3d row must exercise preflight, plan, apply, CNI
 receipt verification, controller/node capability readiness, and Helm rollback.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight

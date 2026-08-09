@@ -48,6 +48,14 @@ revision. This ordering avoids making the chained CNI authoritative before its
 control plane exists without exempting application namespaces or weakening
 deny-first ADD behavior.
 
+The review record is bound to one canonical preflight observation. That digest
+includes hashed cluster identity plus exact Kubernetes/runtime/kernel,
+architecture, CNI, and network facts. Apply re-runs preflight and refuses drift
+before creating any object. Mixed-architecture clusters require the operator to
+select one explicit `amd64` or `arm64` row; the CNI installer and node agent are
+scheduled only there, so an unproved architecture cannot advertise Core
+capability merely because its image was built.
+
 If a minimal dynamic admission webhook remains necessary, its TLS follows ADR
 0010. Static mutation and validation prefer stable declarative admission policy
 on supported Kubernetes versions. Neither admission mechanism is the packet

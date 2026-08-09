@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-28
+Last updated: 2026-08-09
 
 ## Replacement architecture decision set
 
@@ -208,6 +208,17 @@ signed checksum and SPDX asset set, and passed the separate hosted-runner
 download, identity, issuer, tag/source, checksum, SBOM, and provenance checks.
 Issue #138 therefore remains open only for its supported clean-cluster
 Proton/OpenVPN journey within 15 minutes.
+
+The deployment preparation after the first live alpha churn review found that a
+plan could outlive its cluster observation and that mixed-architecture clusters
+implicitly activated every eligible node. The current #138 safety slice binds a
+canonical hashed cluster/Kubernetes/runtime/kernel/CNI/network observation,
+overlay, and explicit architecture into the plan ID; apply re-runs preflight and
+refuses drift before creating a Namespace or Secret. Mixed clusters now require
+`--node-architecture`, and both the CNI installer and node agent are constrained
+to that reviewed row. This lets the homelab begin on its already-proved amd64
+row without falsely treating multi-platform image construction as arm64
+conformance.
 
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment

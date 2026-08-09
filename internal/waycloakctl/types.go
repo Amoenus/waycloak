@@ -41,14 +41,22 @@ type Check struct {
 }
 
 type PreflightReport struct {
-	APIVersion string         `json:"apiVersion"`
-	Kind       string         `json:"kind"`
-	Compatible bool           `json:"compatible"`
-	Profile    string         `json:"profile,omitempty"`
-	Cluster    ClusterSummary `json:"cluster"`
-	CNI        CNISummary     `json:"cni"`
-	Networking NetworkSummary `json:"networking"`
-	Checks     []Check        `json:"checks"`
+	APIVersion        string          `json:"apiVersion"`
+	Kind              string          `json:"kind"`
+	ObservationDigest string          `json:"observationDigest"`
+	Compatible        bool            `json:"compatible"`
+	Profile           string          `json:"profile,omitempty"`
+	Identity          ClusterIdentity `json:"identity"`
+	Cluster           ClusterSummary  `json:"cluster"`
+	CNI               CNISummary      `json:"cni"`
+	Networking        NetworkSummary  `json:"networking"`
+	Checks            []Check         `json:"checks"`
+}
+
+type ClusterIdentity struct {
+	ServerFingerprint     string `json:"serverFingerprint"`
+	TrustFingerprint      string `json:"trustFingerprint"`
+	ClusterUIDFingerprint string `json:"clusterUIDFingerprint"`
 }
 
 type ClusterSummary struct {
@@ -56,12 +64,16 @@ type ClusterSummary struct {
 	NodeCount         int            `json:"nodeCount"`
 	Architectures     map[string]int `json:"architectures"`
 	Runtimes          map[string]int `json:"runtimes"`
+	RuntimeVersions   map[string]int `json:"runtimeVersions"`
+	Kernels           map[string]int `json:"kernels"`
+	OperatingSystems  map[string]int `json:"operatingSystems"`
 }
 
 type CNISummary struct {
-	Name       string `json:"name,omitempty"`
-	ConfigPath string `json:"configPath,omitempty"`
-	BinaryPath string `json:"binaryPath,omitempty"`
+	Name           string `json:"name,omitempty"`
+	ConfigPath     string `json:"configPath,omitempty"`
+	BinaryPath     string `json:"binaryPath,omitempty"`
+	IdentityDigest string `json:"identityDigest,omitempty"`
 }
 
 type NetworkSummary struct {

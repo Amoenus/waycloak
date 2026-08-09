@@ -33,22 +33,25 @@ type ReleaseManifest struct {
 }
 
 type InstallPlan struct {
-	APIVersion      string            `json:"apiVersion"`
-	Kind            string            `json:"kind"`
-	PlanID          string            `json:"planID"`
-	InstallSequence string            `json:"installSequence"`
-	Namespace       string            `json:"namespace"`
-	Release         string            `json:"release"`
-	Manifest        string            `json:"manifestDigest"`
-	Chart           Artifact          `json:"chart"`
-	Values          string            `json:"valuesYAML"`
-	Commands        []string          `json:"commands"`
-	Security        []string          `json:"securityChanges"`
-	CNIChanges      []string          `json:"cniChanges"`
-	Rollback        []string          `json:"rollback"`
-	Purge           []string          `json:"purge"`
-	SecretObjects   []string          `json:"secretObjects"`
-	Metadata        map[string]string `json:"metadata"`
+	APIVersion       string            `json:"apiVersion"`
+	Kind             string            `json:"kind"`
+	PlanID           string            `json:"planID"`
+	PreflightDigest  string            `json:"preflightDigest"`
+	OverlayCIDR      string            `json:"overlayCIDR"`
+	NodeArchitecture string            `json:"nodeArchitecture"`
+	InstallSequence  string            `json:"installSequence"`
+	Namespace        string            `json:"namespace"`
+	Release          string            `json:"release"`
+	Manifest         string            `json:"manifestDigest"`
+	Chart            Artifact          `json:"chart"`
+	Values           string            `json:"valuesYAML"`
+	Commands         []string          `json:"commands"`
+	Security         []string          `json:"securityChanges"`
+	CNIChanges       []string          `json:"cniChanges"`
+	Rollback         []string          `json:"rollback"`
+	Purge            []string          `json:"purge"`
+	SecretObjects    []string          `json:"secretObjects"`
+	Metadata         map[string]string `json:"metadata"`
 }
 
 const controllerFirstInstallSequence = "ControllerFirstCoreActivation-v1"
@@ -136,12 +139,16 @@ func (manifest ReleaseManifest) IdentityDigest() (string, error) {
 	return digestBytes(data), nil
 }
 
-func BuildInstallPlan(manifest ReleaseManifest, namespace, release string, report PreflightReport) (InstallPlan, error) {
+func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport) (InstallPlan, error) {
 	if err := manifest.Validate(); err != nil {
 		return InstallPlan{}, err
 	}
-	if !report.Compatible || report.CNI.ConfigPath == "" || namespace == "" || release == "" {
+	if !report.Compatible || !validDigest(report.ObservationDigest) || report.CNI.ConfigPath == "" || namespace == "" || release == "" {
 		return InstallPlan{}, errors.New("a compatible preflight report and explicit namespace/release are required")
+	}
+	architecture, err := selectedArchitecture(report.Cluster.Architectures, nodeArchitecture)
+	if err != nil {
+		return InstallPlan{}, err
 	}
 	controller := manifest.Images["replacement-controller"]
 	cni := manifest.Images["waycloak-cni"]
@@ -169,6 +176,8 @@ controller:
     overlayCIDR: %q
 cniInstaller:
   enabled: true
+  nodeSelector:
+    kubernetes.io/arch: %q
   image:
     repository: %q
     digest: %q
@@ -179,6 +188,8 @@ cniInstaller:
   binaryHostPath: %q
 nodeAgent:
   enabled: true
+  nodeSelector:
+    kubernetes.io/arch: %q
   image:
     repository: %q
     digest: %q
@@ -195,14 +206,14 @@ defaultGatewayClass:
   releaseIdentity:
     version: %q
     manifestDigest: %q
-`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
-		report.CNI.ConfigPath, report.CNI.BinaryPath, agent.Repository, agent.Digest,
+`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
+		report.CNI.ConfigPath, report.CNI.BinaryPath, architecture, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
-	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + namespace + "\x00" + release + "\x00" + controllerFirstInstallSequence + "\x00" + values))
+	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + report.ObservationDigest + "\x00" + report.Networking.OverlayCIDR + "\x00" + architecture + "\x00" + namespace + "\x00" + release + "\x00" + controllerFirstInstallSequence + "\x00" + values))
 	return InstallPlan{
-		APIVersion: OutputAPIVersion, Kind: "InstallPlan", PlanID: planID, InstallSequence: controllerFirstInstallSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Chart: manifest.Chart, Values: values,
+		APIVersion: OutputAPIVersion, Kind: "InstallPlan", PlanID: planID, PreflightDigest: report.ObservationDigest, OverlayCIDR: report.Networking.OverlayCIDR, NodeArchitecture: architecture, InstallSequence: controllerFirstInstallSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Chart: manifest.Chart, Values: values,
 		Commands: []string{
 			"waycloakctl install apply --plan <reviewed-plan.json> --confirm " + planID,
 			"on a clean cluster: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <controller-first-bootstrap.yaml> --wait",
@@ -213,8 +224,27 @@ defaultGatewayClass:
 		Rollback:      []string{"stop newly enrolled workloads while the deny path remains", "helm rollback " + release + " <reviewed-revision>", "verify node receipts and protected packet denial before restarting workloads"},
 		Purge:         []string{"normal Helm uninstall does not delete CRDs or restore the CNI chain", "destructive CRD purge and CNI restoration are separate confirmation-gated operations"},
 		SecretObjects: []string{release + "-observation-ca", release + "-observation-tls"},
-		Metadata:      map[string]string{"cni": report.CNI.Name, "profile": report.Profile},
+		Metadata:      map[string]string{"cni": report.CNI.Name, "profile": report.Profile, "nodeArchitecture": architecture},
 	}, nil
+}
+
+func selectedArchitecture(architectures map[string]int, requested string) (string, error) {
+	if requested != "" {
+		if requested != "amd64" && requested != "arm64" {
+			return "", errors.New("node architecture must be amd64 or arm64")
+		}
+		if architectures[requested] == 0 {
+			return "", fmt.Errorf("requested node architecture %s is not present", requested)
+		}
+		return requested, nil
+	}
+	if len(architectures) != 1 {
+		return "", errors.New("mixed-architecture clusters require an explicit --node-architecture support row")
+	}
+	for architecture := range architectures {
+		return selectedArchitecture(architectures, architecture)
+	}
+	return "", errors.New("preflight observed no node architecture")
 }
 
 func chartFullname(release string) string {
