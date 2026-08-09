@@ -78,7 +78,16 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   workflow identity, issuer, source ref/commit, hosted-runner provenance, and
   SPDX signature. The `v0.0.0-turnkey.1` prerelease passed that exact publish
   and independent verification flow from main commit `21ffebea` in release run
-  `30360505871`. The real-provider journey is still required before closure.
+  `30360505871`. A separate Core-candidate tag workflow now publishes the four
+  Waycloak multi-platform binaries, a vulnerability-gated Gluetun derivative,
+  a tag-versioned chart, per-artifact SPDX, keyless OCI signatures and
+  attestations, hosted-runner provenance, and the canonical six-image manifest;
+  its independent job verifies the downloaded and registry-resolved identities.
+  The Gluetun artifact preserves the exact upstream commit/image identity, MIT
+  license, and dependency-only patch instead of accepting reachable fixed
+  vulnerabilities in the current upstream image. This remains implementation-only until an
+  exact `vMAJOR.MINOR.PATCH-core.NUMBER` tag passes. The real-provider journey
+  is still required before closure.
   Creation-time Pod UID and node assignment checks use direct API-server reads,
   never the node agent's eventually consistent reconciliation cache.
   Deployment plans now also bind a canonical hashed cluster observation and

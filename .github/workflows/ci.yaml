@@ -275,6 +275,62 @@ jobs:
           gitleaks git --redact --no-banner
           trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
 
+  gluetun-candidate:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install checksummed security tools
+        run: bash hack/install-security-tools.sh
+      - name: Rebuild and test the exact patched Gluetun source twice
+        run: |
+          upstream_commit=7eed6eaf160440724a93ca66f66055068cebe4ac
+          for build in first second; do
+            source_dir="$RUNNER_TEMP/gluetun-source-$build"
+            git init "$source_dir"
+            git -C "$source_dir" remote add origin https://github.com/passteque/gluetun.git
+            git -C "$source_dir" fetch --depth=1 origin "$upstream_commit"
+            git -C "$source_dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "$upstream_commit"
+            GO=go bash hack/build-gluetun-candidate.sh \
+              "$source_dir" "$RUNNER_TEMP/gluetun-$build" \
+              "$upstream_commit" v0.0.0-core.0
+          done
+          diff --recursive --no-dereference "$RUNNER_TEMP/gluetun-first" "$RUNNER_TEMP/gluetun-second"
+          (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...)
+          go version -m "$RUNNER_TEMP/gluetun-first/bin/gluetun-entrypoint-linux-amd64" | tee "$RUNNER_TEMP/gluetun-modules"
+          grep -q $'dep\tgolang.org/x/text\tv0.39.0\t' "$RUNNER_TEMP/gluetun-modules"
+          grep -q $'dep\tgithub.com/cloudflare/circl\tv1.6.3\t' "$RUNNER_TEMP/gluetun-modules"
+      - name: Build and scan the derived image
+        run: |
+          docker buildx build \
+            --file build/gluetun-candidate/Dockerfile \
+            --platform=linux/amd64 \
+            --build-arg UPSTREAM_IMAGE=docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461 \
+            --build-arg GLUETUN_UPSTREAM_COMMIT=7eed6eaf160440724a93ca66f66055068cebe4ac \
+            --build-arg WAYCLOAK_RELEASE=v0.0.0-core.0 \
+            --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
+            --provenance=false \
+            --sbom=false \
+            --tag waycloak-gluetun:test \
+            --load \
+            "$RUNNER_TEMP/gluetun-first"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 waycloak-gluetun:test
+          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 7eed6eaf160440724a93ca66f66055068cebe4ac
+          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
+          docker run --rm --entrypoint /bin/sh waycloak-gluetun:test -c \
+            'test -x /gluetun-entrypoint && test -f /licenses/gluetun/LICENSE && test -s /licenses/gluetun/gluetun-dependency.patch'
+
   kind-e2e:
     needs: classify
     if: needs.classify.outputs.full == 'true'

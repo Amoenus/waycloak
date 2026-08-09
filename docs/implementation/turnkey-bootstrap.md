@@ -188,8 +188,27 @@ without mutating the cluster.
 The `v0.0.0-turnkey.1` prerelease executed the signed CLI workflow from exact
 main commit `21ffebea3444f830ec2c9b29acebd9b36a2fd878`. Release run
 `30360505871` passed publication and the separate hosted-runner verification of
-the complete downloaded asset set. Issue #138 must remain open until that
-artifact completes the supported clean-cluster Proton/OpenVPN journey in under
-15 minutes. The
+the complete downloaded asset set.
+
+Core deployment candidates use `vMAJOR.MINOR.PATCH-core.NUMBER` tags. The Core
+workflow repeat-builds the four Waycloak amd64/arm64 binaries, packages the
+chart with the tag-derived immutable version, publishes only digest-resolved
+identities, and assembles `core-release-manifest.json` with the derived Gluetun
+and pinned pause identities. The Gluetun image is built from upstream commit
+`7eed6eaf160440724a93ca66f66055068cebe4ac` on upstream multi-platform image
+digest `sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461`.
+Only the reachable fixed Go dependencies are advanced; the release includes
+the exact patch, binary checksums, and preserved upstream MIT license.
+Call-graph analysis, upstream privileged tests, and the image vulnerability
+scan must pass. Publication is refused on HIGH/CRITICAL fixed vulnerabilities.
+Every published OCI artifact receives an SPDX attestation, keyless signature,
+and GitHub provenance; release files receive signed checksums and provenance. A
+separate hosted runner redownloads the release and
+verifies the exact workflow identity, issuer, source tag/commit, platform
+indexes, chart bytes/CRDs, manifest-to-registry equality, and all signatures and
+attestations. The workflow is not evidence until an exact tag run passes.
+
+Issue #138 must remain open until the published Core candidate completes the
+supported clean-cluster Proton/OpenVPN journey in under 15 minutes. The
 exact-artifact Kind installation and disruptive fixture coverage do not replace
 that provider proof.

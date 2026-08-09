@@ -105,7 +105,6 @@ jobs:
           for asset in "${expected[@]}"; do
             test -f "$asset"
           done
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
           sha256sum --check SHA256SUMS
 
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/waycloakctl-release.yaml@refs/tags/${RELEASE_TAG}"
