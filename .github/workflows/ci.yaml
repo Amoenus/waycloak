@@ -296,7 +296,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends iptables
-          find /usr/lib -path '*/xtables/libxt_mark.so' -print -quit | grep -q .
+          xt_mark="$(find /usr/lib -path '*/xtables/libxt_mark.so' -print -quit)"
+          test -f "$xt_mark"
+          sudo install -d /usr/lib/xtables
+          if [[ ! -e /usr/lib/xtables/libxt_mark.so ]]; then
+            sudo ln --symbolic "$xt_mark" /usr/lib/xtables/libxt_mark.so
+          fi
+          test -f /usr/lib/xtables/libxt_mark.so
       - name: Rebuild and test the exact patched Gluetun source twice
         run: |
           upstream_commit=7eed6eaf160440724a93ca66f66055068cebe4ac
