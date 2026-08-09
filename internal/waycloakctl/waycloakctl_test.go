@@ -57,13 +57,59 @@ func TestPreflightRejectsOverlayOverlapAndUnsupportedNode(t *testing.T) {
 	}
 }
 
+func TestPreflightObservationBindsClusterIdentityAndNodeFacts(t *testing.T) {
+	clients := supportedClients(t)
+	first, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil || !validDigest(first.ObservationDigest) || !validDigest(first.Identity.ClusterUIDFingerprint) {
+		t.Fatalf("preflight lacks canonical cluster identity: %#v %v", first, err)
+	}
+	second, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil || second.ObservationDigest != first.ObservationDigest {
+		t.Fatalf("unchanged preflight identity drifted: %s != %s: %v", first.ObservationDigest, second.ObservationDigest, err)
+	}
+	node, err := clients.Kubernetes.CoreV1().Nodes().Get(context.Background(), "node", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.Status.NodeInfo.KernelVersion = "6.9.0"
+	if _, err = clients.Kubernetes.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil || changed.ObservationDigest == first.ObservationDigest {
+		t.Fatalf("node fact change retained preflight identity: %#v %v", changed, err)
+	}
+}
+
+func TestInstallPlanRequiresExplicitArchitectureOnMixedCluster(t *testing.T) {
+	clients := supportedClients(t)
+	arm := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "arm"}, Spec: corev1.NodeSpec{PodCIDRs: []string{"10.42.1.0/24"}}, Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{Architecture: "arm64", OperatingSystem: "linux", KernelVersion: "6.8.0", ContainerRuntimeVersion: "containerd://2.1.0"}}}
+	if _, err := clients.Kubernetes.CoreV1().Nodes().Create(context.Background(), arm, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "", report); err == nil || !strings.Contains(err.Error(), "explicit --node-architecture") {
+		t.Fatalf("mixed cluster did not require an explicit row: %v", err)
+	}
+	plan, err := BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "amd64", report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.NodeArchitecture != "amd64" || strings.Count(plan.Values, "kubernetes.io/arch: \"amd64\"") != 2 {
+		t.Fatalf("plan did not constrain both node components: %#v\n%s", plan, plan.Values)
+	}
+}
+
 func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing.T) {
 	manifest := releaseManifest()
 	report, err := Preflight(context.Background(), supportedClients(t), "100.96.0.0/16")
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", report)
+	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +198,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", report)
+	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +256,35 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	}
 	if err := ApplyInstallPlan(context.Background(), clients, runner, plan, plan.PlanID); err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Fatalf("tampered install identity accepted: %v", err)
+	}
+}
+
+func TestInstallApplyRejectsPreflightDriftBeforeMutation(t *testing.T) {
+	clients := supportedClients(t)
+	report, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "", report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := clients.Kubernetes.CoreV1().Nodes().Get(context.Background(), "node", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.Status.NodeInfo.KernelVersion = "6.9.0"
+	if _, err = clients.Kubernetes.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	runner := func(context.Context, string, ...string) ([]byte, error) { called = true; return nil, nil }
+	err = ApplyInstallPlan(context.Background(), clients, runner, plan, plan.PlanID)
+	if err == nil || !strings.Contains(err.Error(), "preflight observation changed") || called {
+		t.Fatalf("drift did not fail before Helm: called=%t err=%v", called, err)
+	}
+	if _, err = clients.Kubernetes.CoreV1().Namespaces().Get(context.Background(), plan.Namespace, metav1.GetOptions{}); !errorsIsNotFound(err) {
+		t.Fatalf("drift refusal mutated the cluster: %v", err)
 	}
 }
 
@@ -307,13 +382,20 @@ func supportedClients(t *testing.T) *Clients {
 	t.Helper()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node"}, Spec: corev1.NodeSpec{PodCIDRs: []string{"10.42.0.0/24"}}, Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{Architecture: "amd64", OperatingSystem: "linux", KernelVersion: "6.8.0", ContainerRuntimeVersion: "containerd://2.1.0"}}}
 	dns := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "kube-dns", Namespace: "kube-system", Labels: map[string]string{"k8s-app": "kube-dns"}}, Spec: corev1.ServiceSpec{ClusterIP: "10.43.0.10"}}
-	kube := kubernetesfake.NewSimpleClientset(node, dns, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}, &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "kube-system"}})
+	kube := kubernetesfake.NewSimpleClientset(node, dns,
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: "test-cluster-uid"}},
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "kube-system"}})
 	discovery := &fake.FakeDiscovery{Fake: &clienttesting.Fake{Resources: []*metav1.APIResourceList{{GroupVersion: "admissionregistration.k8s.io/v1", APIResources: []metav1.APIResource{{Name: "validatingadmissionpolicies"}, {Name: "mutatingadmissionpolicies"}}}}}, FakedServerVersion: &version.Info{Major: "1", Minor: "36", GitVersion: "v1.36.1+k3s1"}}
 	listKinds := map[schema.GroupVersionResource]string{}
 	for _, resource := range doctorResources {
 		listKinds[resource.GVR] = resource.Kind + "List"
 	}
-	return &Clients{Kubernetes: kube, APIExtensions: apiextensionsfake.NewSimpleClientset(), Dynamic: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds), Discovery: discovery}
+	return &Clients{
+		Kubernetes: kube, APIExtensions: apiextensionsfake.NewSimpleClientset(),
+		Dynamic: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds), Discovery: discovery,
+		ClusterServerFingerprint: "sha256:" + strings.Repeat("a", 64), ClusterTrustFingerprint: "sha256:" + strings.Repeat("b", 64),
+	}
 }
 
 func releaseManifest() ReleaseManifest {

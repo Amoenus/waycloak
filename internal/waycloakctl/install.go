@@ -61,11 +61,11 @@ func LoadInstallPlan(path string) (InstallPlan, error) {
 }
 
 func (plan InstallPlan) validate() error {
-	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || plan.InstallSequence != controllerFirstInstallSequence ||
-		plan.Namespace == "" || plan.Release == "" || plan.Values == "" || plan.Chart.Repository == "" || !validDigest(plan.Chart.Digest) {
+	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || !validDigest(plan.PreflightDigest) || plan.InstallSequence != controllerFirstInstallSequence ||
+		plan.Namespace == "" || plan.Release == "" || plan.Values == "" || plan.OverlayCIDR == "" || plan.NodeArchitecture != "amd64" && plan.NodeArchitecture != "arm64" || plan.Chart.Repository == "" || !validDigest(plan.Chart.Digest) {
 		return errors.New("install plan identity is incomplete")
 	}
-	wanted := digestBytes([]byte(plan.Manifest + "\x00" + plan.Namespace + "\x00" + plan.Release + "\x00" + plan.InstallSequence + "\x00" + plan.Values))
+	wanted := digestBytes([]byte(plan.Manifest + "\x00" + plan.PreflightDigest + "\x00" + plan.OverlayCIDR + "\x00" + plan.NodeArchitecture + "\x00" + plan.Namespace + "\x00" + plan.Release + "\x00" + plan.InstallSequence + "\x00" + plan.Values))
 	if plan.PlanID != wanted {
 		return errors.New("install plan content does not match planID")
 	}
@@ -78,6 +78,16 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	}
 	if confirmation != plan.PlanID {
 		return fmt.Errorf("refusing mutation: --confirm must exactly equal %s", plan.PlanID)
+	}
+	current, err := Preflight(ctx, clients, plan.OverlayCIDR)
+	if err != nil {
+		return fmt.Errorf("re-run preflight before mutation: %w", err)
+	}
+	if !current.Compatible || current.ObservationDigest != plan.PreflightDigest {
+		return errors.New("refusing mutation: cluster preflight observation changed after plan review")
+	}
+	if current.Cluster.Architectures[plan.NodeArchitecture] == 0 {
+		return errors.New("refusing mutation: reviewed node architecture is no longer present")
 	}
 	if runner == nil {
 		runner = defaultRunner

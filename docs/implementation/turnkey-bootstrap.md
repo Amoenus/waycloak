@@ -1,7 +1,7 @@
 # Turnkey bootstrap and verification
 
 Status: implementation slice for issue #138; stable acceptance remains pending
-Last updated: 2026-07-28
+Last updated: 2026-08-09
 
 `waycloakctl` is a stateless assistant around the Helm and Kubernetes APIs. It
 does not become a controller, store VPN credentials, translate alpha objects,
@@ -44,9 +44,17 @@ change record.
 
 ```text
 waycloakctl preflight --context <context> --overlay-cidr <reviewed-cidr> --output human
-waycloakctl install plan --context <context> --release-manifest <verified-release.json> >install-plan.json
+waycloakctl install plan --context <context> --release-manifest <verified-release.json> \
+  --node-architecture <amd64-or-arm64> >install-plan.json
 waycloakctl install apply --context <context> --plan install-plan.json --confirm <planID>
 ```
+
+The architecture flag is optional only when preflight observes exactly one
+architecture. A mixed-architecture cluster requires an explicit reviewed row.
+The generated values constrain both the CNI installer and node agent to that
+architecture; only those nodes can publish the exact `core-ready` capability
+that enrolled workloads select. Building a multi-platform image is not treated
+as conformance evidence for an otherwise unproved node row.
 
 The release manifest must satisfy
 [`release-manifest-v1.schema.json`](../api/release-manifest-v1.schema.json) and
@@ -58,7 +66,13 @@ change does. Extra image entries are rejected. `install plan` repeats preflight
 and refuses an incompatible cluster. The plan lists namespace privilege, host
 CNI paths, exact Helm values,
 Secret object names, rollback, and purge boundaries. It never contains Secret
-data. `install apply` accepts only the exact recalculated plan ID, creates the
+data. Preflight hashes the trusted server/CA/cluster identity, Kubernetes and
+exact runtime versions, architectures, kernels, operating systems, primary-CNI
+identity, network observations, and check results. The install plan binds that
+observation digest, overlay, and selected architecture into its identity.
+`install apply` accepts only the exact recalculated plan ID, re-runs the same
+preflight before any Namespace or Secret creation, and refuses changed or
+incompatible observations. It then creates the
 observation CA and serving key in memory, stores them directly as Kubernetes
 Secrets, and never passes private key material through Helm.
 

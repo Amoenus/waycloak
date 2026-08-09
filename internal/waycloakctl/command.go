@@ -87,6 +87,7 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		namespace := flags.String("namespace", "waycloak-system", "system namespace")
 		release := flags.String("release", "waycloak", "Helm release name")
 		overlay := flags.String("overlay-cidr", "100.96.0.0/16", "reviewed overlay CIDR")
+		nodeArchitecture := flags.String("node-architecture", "", "reviewed amd64 or arm64 support row; required on mixed-architecture clusters")
 		if err := flags.Parse(arguments[1:]); err != nil {
 			return err
 		}
@@ -105,7 +106,7 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		if err != nil {
 			return err
 		}
-		plan, err := BuildInstallPlan(manifest, *namespace, *release, report)
+		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report)
 		if err != nil {
 			return err
 		}

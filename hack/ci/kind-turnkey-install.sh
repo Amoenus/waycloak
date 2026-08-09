@@ -202,6 +202,12 @@ if [[ ! "$plan_id" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   printf 'install plan lacks an exact identity\n' >&2
   exit 1
 fi
+jq -e '
+  (.preflightDigest | test("^sha256:[a-f0-9]{64}$")) and
+  .nodeArchitecture == "amd64" and
+  .metadata.nodeArchitecture == "amd64" and
+  (.valuesYAML | contains("kubernetes.io/arch:"))
+' "$work_dir/install-plan.json" >/dev/null
 if grep -Eqi 'password|privateKey|username|latest' "$work_dir/install-plan.json"; then
   printf 'install plan contains a forbidden mutable or credential field\n' >&2
   exit 1
@@ -244,6 +250,8 @@ test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.rele
 test "$(kubectl get deployment waycloak-controller -n "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$controller_ref"
 test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[0].image}')" = "$cni_ref"
 test "$(kubectl get daemonset waycloak-node-agent -n "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$node_agent_ref"
+test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/arch}')" = amd64
+test "$(kubectl get daemonset waycloak-node-agent -n "$system_namespace" -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/arch}')" = amd64
 
 node="$(kind get nodes --name "$cluster_name" | head -n1)"
 docker exec "$node" test -x /opt/cni/bin/waycloak-cni

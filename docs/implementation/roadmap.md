@@ -81,6 +81,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   `30360505871`. The real-provider journey is still required before closure.
   Creation-time Pod UID and node assignment checks use direct API-server reads,
   never the node agent's eventually consistent reconciliation cache.
+  Deployment plans now also bind a canonical hashed cluster observation and
+  re-run it immediately before mutation. Mixed-architecture clusters require
+  an explicit reviewed row, and the CNI installer/node agent run only on that
+  architecture so an unproved node cannot publish Core capability.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.

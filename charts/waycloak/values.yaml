@@ -32,6 +32,7 @@ controller:
 
 cniInstaller:
   enabled: false
+  nodeSelector: {}
   image:
     repository: ghcr.io/amoenus/waycloak-cni
     digest: ""
@@ -57,6 +58,7 @@ defaultGatewayClass:
 # the API-only chart stage avoids publishing a mutable or placeholder image.
 nodeAgent:
   enabled: false
+  nodeSelector: {}
   image:
     repository: ghcr.io/amoenus/waycloak-node-agent
     digest: ""
