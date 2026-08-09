@@ -95,4 +95,3 @@ The declared portable objective is RPO at the last retained state export and
 RTO within 30 minutes after the compatible cluster, exact release, namespaces,
 ConfigMaps, and Secrets are available. This target is not stable-certified until
 the complete support matrix and real-provider disaster drills pass.
-
