@@ -247,3 +247,12 @@ Measure gateway CPU/memory, per-agent RSS, throughput, UDP packet loss, DNS late
 ## Release gate
 
 A release cannot rely on manual observation alone. Required suites, artifact verification, supported-platform results, and any accepted failures are attached to the release manifest.
+
+Post-publication Core verification runs through
+`hack/verify-core-release.sh` on a separate runner. It redownloads the exact
+release inventory and uses pinned registry-native tooling rather than a Docker
+daemon to verify blob and OCI signatures, SPDX attestations, GitHub provenance,
+manifest-to-registry identity, exact amd64/arm64 indexes, Gluetun labels and
+binary checksums, and byte-identical chart contents. Every external operation
+has two bounded attempts; successful attestation payloads are suppressed while
+bounded failure diagnostics and the exact artifact name remain visible.

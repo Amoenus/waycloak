@@ -194,9 +194,8 @@ WireGuard tunnel and HTTPS egress observer, proves wrong-confirmation
 non-mutation, distinct ordinary/protected source identity, exact-UID gateway
 replacement, protected application startup denial during loss, recovery, and
 owned-object cleanup. The fixture uses runtime-generated keys and certificates
-and is not a supported provider. Issue #138 is not complete: a published signed
-Core runtime candidate and the under-15-minute real-provider journey remain
-required.
+and is not a supported provider. Issue #138 remains open for the under-15-minute
+supported real-provider journey.
 The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and
 verifying checksums, both keyless Sigstore bundles, the signing workflow
@@ -217,12 +216,28 @@ with only the reachable fixed Go dependencies advanced; the upstream MIT
 license and exact dependency patch ship with the artifact. The workflow gates
 source, every published image, and the pinned pause image on the vulnerability
 policy, attaches SPDX and keyless signatures, records GitHub provenance, and
-publishes one canonical manifest containing only the six required images. A second hosted
-runner redownloads the release, verifies checksums, identities, SBOM
+publishes one canonical manifest containing only the six required images. A
+second runner redownloads the release and verifies checksums, identities, SBOM
 attestations, provenance, platforms, chart contents, and manifest-to-registry
-digest equality. This is implementation evidence only until an exact tag run
-passes. Issue #138 remains open for that publication and the supported
-clean-cluster Proton/OpenVPN journey within 15 minutes.
+digest equality through the reusable registry-native verifier.
+
+The immutable `v0.0.0-core.5` candidate was published from exact main commit
+`b3937057dcad6d491a75e27e51dd8ed39bd48dda`. Its publisher and separate CLI
+verification passed. The original Core verifier was cancelled after its
+Docker-dependent monolithic step emitted unbounded successful SPDX payloads and
+GitHub exposed contradictory queued/running state. The replacement verifier
+uses pinned Crane without a Docker daemon, bounds every external operation and
+successful log volume, and independently re-verified the published candidate in
+3m19s. A post-merge tag must still pass this verifier on a fresh hosted runner;
+the local result does not substitute for the supported real-provider journey,
+destructive reinstall drill, support-row conformance, or soak required by
+#137–#141.
+
+Fresh homelab preparation is paused before mutation: its recorded Kubernetes
+API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed
+host key. The new identity must be independently trusted before any remote
+inspection, exact destructive inventory, uninstall, purge, or replacement
+install.
 
 The deployment preparation after the first live alpha churn review found that a
 plan could outlive its cluster observation and that mixed-architecture clusters

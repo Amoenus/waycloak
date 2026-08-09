@@ -370,7 +370,7 @@ jobs:
   verify-published-core:
     needs: publish
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       attestations: read
       contents: read
@@ -385,12 +385,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Set up Helm
-        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
-        with:
-          version: v4.2.1
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Install pinned registry verifier
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
+          echo "$GOBIN" >>"$GITHUB_PATH"
       - name: Authenticate to GHCR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -404,151 +406,13 @@ jobs:
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/published"
-      - name: Verify checksums, canonical inventory, and blob signatures
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        working-directory: ${{ runner.temp }}/published
-        run: |
-          expected=(
-            core-SHA256SUMS
-            core-SHA256SUMS.sigstore.json
-            core-release-manifest.json
-            core-release-manifest.sigstore.json
-            gluetun-binaries.SHA256SUMS
-            gluetun-dependency.patch
-            gluetun.LICENSE
-            gluetun.ref
-            gluetun.spdx.json
-            replacement-controller.ref
-            replacement-controller.spdx.json
-            waycloak-cni.ref
-            waycloak-cni.spdx.json
-            waycloak-node-agent.ref
-            waycloak-node-agent.spdx.json
-            waycloak-gateway-agent.ref
-            waycloak-gateway-agent.spdx.json
-            waycloak-chart.ref
-            waycloak-chart.spdx.json
-            "waycloak-${RELEASE_TAG#v}.tgz"
-          )
-          for artifact in "${expected[@]}"; do
-            test -f "$artifact"
-          done
-          sha256sum --check core-SHA256SUMS
-
-          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml@refs/tags/${RELEASE_TAG}"
-          issuer="https://token.actions.githubusercontent.com"
-          cosign verify-blob \
-            --bundle core-release-manifest.sigstore.json \
-            --certificate-identity "$identity" \
-            --certificate-oidc-issuer "$issuer" \
-            core-release-manifest.json
-          cosign verify-blob \
-            --bundle core-SHA256SUMS.sigstore.json \
-            --certificate-identity "$identity" \
-            --certificate-oidc-issuer "$issuer" \
-            core-SHA256SUMS
-
-          jq -e --arg version "$RELEASE_TAG" '.version == $version and .apiVersion == "release.waycloak.io/v1"' core-release-manifest.json
-          test "$(jq -r '.chart.repository + "@" + .chart.digest' core-release-manifest.json)" = "$(cat waycloak-chart.ref)"
-          for pair in \
-            gluetun:gluetun.ref \
-            replacement-controller:replacement-controller.ref \
-            waycloak-cni:waycloak-cni.ref \
-            waycloak-node-agent:waycloak-node-agent.ref \
-            waycloak-gateway-agent:waycloak-gateway-agent.ref; do
-            name="${pair%%:*}"
-            ref_file="${pair#*:}"
-            test "$(jq -r --arg name "$name" '.images[$name].repository + "@" + .images[$name].digest' core-release-manifest.json)" = "$(cat "$ref_file")"
-          done
-      - name: Verify OCI signatures, SBOM attestations, provenance, and platforms
+      - name: Verify exact published Core release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        working-directory: ${{ runner.temp }}/published
         run: |
-          retry_bounded() {
-            local description="$1"
-            shift
-            for attempt in 1 2; do
-              echo "${description}: attempt ${attempt}/2" >&2
-              if timeout --kill-after=15s 2m "$@"; then
-                return 0
-              fi
-            done
-            echo "${description}: failed after two bounded attempts" >&2
-            return 1
-          }
-
-          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml@refs/tags/${RELEASE_TAG}"
-          issuer="https://token.actions.githubusercontent.com"
-          platform_index=0
-          for ref_file in gluetun.ref replacement-controller.ref waycloak-cni.ref waycloak-node-agent.ref waycloak-gateway-agent.ref; do
-            reference="$(cat "$ref_file")"
-            echo "verifying ${ref_file}: ${reference}" >&2
-            retry_bounded "${ref_file} signature" cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$reference"
-            retry_bounded "${ref_file} SPDX attestation" cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$reference"
-            platform_index=$((platform_index + 1))
-            retry_bounded "${ref_file} platform index" docker buildx imagetools inspect "$reference" --raw \
-              >"$RUNNER_TEMP/platform-${platform_index}.json"
-            jq -e \
-              '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]' \
-              "$RUNNER_TEMP/platform-${platform_index}.json"
-            retry_bounded "${ref_file} GitHub provenance" gh attestation verify "oci://$reference" \
-              --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml" \
-              --source-ref "refs/tags/${RELEASE_TAG}" \
-              --source-digest "$GITHUB_SHA" \
-              --deny-self-hosted-runners
-          done
-
-          gluetun_reference="$(cat gluetun.ref)"
-          for architecture in amd64 arm64; do
-            expected_checksum="$(awk -v architecture="$architecture" \
-              '$2 == "bin/gluetun-entrypoint-linux-" architecture {print $1}' \
-              gluetun-binaries.SHA256SUMS)"
-            [[ "$expected_checksum" =~ ^[a-f0-9]{64}$ ]]
-            retry_bounded "Gluetun linux/${architecture} pull" docker pull --platform "linux/$architecture" "$gluetun_reference"
-            test "$(docker image inspect "$gluetun_reference" --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 7eed6eaf160440724a93ca66f66055068cebe4ac
-            test "$(docker image inspect "$gluetun_reference" --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
-            container_id="$(docker create --platform "linux/$architecture" "$gluetun_reference")"
-            docker cp "$container_id:/gluetun-entrypoint" "$RUNNER_TEMP/gluetun-entrypoint-linux-$architecture"
-            docker rm "$container_id"
-            printf '%s  %s\n' "$expected_checksum" "$RUNNER_TEMP/gluetun-entrypoint-linux-$architecture" | sha256sum --check
-          done
-
-          chart_reference="$(sed 's|^oci://||' waycloak-chart.ref)"
-          retry_bounded "chart signature" cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$chart_reference"
-          retry_bounded "chart SPDX attestation" cosign verify-attestation --type spdxjson --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$chart_reference"
-          retry_bounded "chart GitHub provenance" gh attestation verify "oci://$chart_reference" \
-            --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml" \
-            --source-ref "refs/tags/${RELEASE_TAG}" \
-            --source-digest "$GITHUB_SHA" \
-            --deny-self-hosted-runners
-      - name: Verify downloadable provenance and exact chart contents
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        working-directory: ${{ runner.temp }}/published
-        run: |
-          while read -r artifact; do
-            gh attestation verify "$artifact" \
-              --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml" \
-              --source-ref "refs/tags/${RELEASE_TAG}" \
-              --source-digest "$GITHUB_SHA" \
-              --deny-self-hosted-runners
-          done < <(awk '{print $2}' core-SHA256SUMS)
-          gh attestation verify core-SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/core-release.yaml" \
-            --source-ref "refs/tags/${RELEASE_TAG}" \
-            --source-digest "$GITHUB_SHA" \
-            --deny-self-hosted-runners
-
-          mkdir pulled
-          helm pull "$(cat waycloak-chart.ref)" --destination pulled
-          cmp "waycloak-${RELEASE_TAG#v}.tgz" "pulled/waycloak-${RELEASE_TAG#v}.tgz"
-          test "$(tar -tzf "waycloak-${RELEASE_TAG#v}.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpnegressroutes|vpngatewayclasses|vpngateways|vpnworkloadbindings|workloadadapters)\.yaml$')" -eq 6
-          go test ./hack/corerelease ./internal/waycloakctl
+          bash hack/verify-core-release.sh \
+            "$RELEASE_TAG" \
+            "$GITHUB_SHA" \
+            "$GITHUB_REPOSITORY" \
+            "$RUNNER_TEMP/published"
