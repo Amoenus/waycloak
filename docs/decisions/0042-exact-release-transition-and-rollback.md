@@ -72,6 +72,14 @@ bypass, disabled deny path, or ordinary-egress interval. Apply then observes the
 exact target CRDs, runtime images, newly created immutable class identity, and
 preserved certificate identity before reporting success.
 
+The target agent starts by validating the target receipt and reinstalling deny
+state for every durable attachment. It reports `Ready=False` through the
+authenticated controller relay before attempting recovery. Only a successful
+relay response authorizes its internal durable-state reconciliation; that path
+bypasses the public CNI readiness gate so backend readiness does not depend on
+itself. Public ADD/CHECK remain rejected until reconciliation succeeds and a
+second report publishes the live target capability.
+
 Gateway activation remains explicit. After the controller, CNI installer, and
 node agent report the target release, the operator activates each singleton
 gateway one at a time during a declared fail-closed window and verifies a fresh

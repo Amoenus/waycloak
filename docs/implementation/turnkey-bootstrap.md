@@ -90,6 +90,11 @@ source node-agent image and release identity. After that revision is Ready and
 the target CNI receipt exists, a second revision activates the target node
 agent. The old agent socket therefore remains available while the installer
 changes, and the installed deny path is never removed or bypassed.
+The target agent validates the exact receipt, restores lockdown, completes a
+fresh authenticated controller-relay handshake, reconciles retained attachment
+state, and only then republishes node capability. Public CNI operations remain
+gated throughout; the recovery reconciler alone bypasses that readiness gate to
+avoid a backend-readiness dependency cycle.
 
 Every plan also binds the exact currently deployed Helm revision, release
 manifest, six runtime images, six CRD specifications, default gateway-class

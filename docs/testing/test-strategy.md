@@ -255,6 +255,10 @@ The lifecycle row must use two immutable releases in both directions and prove
 that each changed-release staging revision retains the exact source node agent
 until the target CNI receipt exists, then activates the target agent without a
 missing-socket restart deadlock or any observed direct-egress packet.
+The row must include at least one durable Ready attachment across agent
+replacement and prove lockdown, authenticated relay handshake, internal drift
+reconciliation, capability republication, and continued rejection of public
+CNI operations before readiness.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled

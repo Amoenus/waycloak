@@ -259,8 +259,13 @@ preserves release-owned trust identity, and uses a two-revision transition: the
 target controller/CNI/class first become Ready with the exact source node agent
 retained, then the target agent is activated. This avoids the fail-closed
 missing-socket deadlock found by hosted Kind without disabling or bypassing the
-CNI deny path. Apply verifies the exact post-Helm target. Unit/race and a
-two-immutable-release Kind lifecycle are the merge gates.
+CNI deny path. The next hosted run exposed and fixed a restart-recovery cycle in
+which durable reconciliation called public CHECK while backend readiness was
+still false. The target agent now restores lockdown, authenticates the relay,
+reconciles durable state through an internal-only path, and republishes
+capability while public CNI calls remain gated. Apply verifies the exact
+post-Helm target. Unit/race and a two-immutable-release Kind lifecycle are the
+merge gates.
 Interrupted transition recovery, explicit certificate rotation, and supported
 distribution datastore-snapshot drills remain open #32 work.
 

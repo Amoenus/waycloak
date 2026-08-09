@@ -202,6 +202,40 @@ func TestControllerRelayLossRejectsPrepareAndWithdrawsEveryAttachment(t *testing
 	}
 }
 
+func TestAuthenticatedRestartRecoveryBypassesOnlyPublicReadinessGate(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	service.RequireRelay = true
+	service.SetRelayHealthy(false)
+	service.SetBackendHealthy(false)
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}
+	if err := service.Check(context.Background(), identity, reference); err == nil {
+		t.Fatal("public CNI check succeeded before restart recovery")
+	}
+	if want := []string{"lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("public readiness gate operations = %v, want %v", programmer.events, want)
+	}
+	programmer.events = nil
+	service.SetRelayHealthy(true)
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"verify"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("authenticated restart recovery operations = %v, want %v", programmer.events, want)
+	}
+	if service.Ready() {
+		t.Fatal("internal reconciliation published readiness before its caller committed backend health")
+	}
+	if err := service.Check(context.Background(), identity, reference); err == nil {
+		t.Fatal("public CNI check bypassed the still-false backend state")
+	}
+	if want := []string{"verify", "lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("post-recovery public gate operations = %v, want %v", programmer.events, want)
+	}
+}
+
 func TestRestartRecoveryLocksRevokedBindingAndCleansOnlyAbsentPod(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
 	service.Store = staticAttachments{{

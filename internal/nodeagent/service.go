@@ -137,6 +137,10 @@ func (s *Service) Prepare(ctx context.Context, identity waycni.PodIdentity, requ
 	if !s.Ready() {
 		return errors.New("node backend or controller observation relay is unavailable")
 	}
+	return s.prepare(ctx, identity, requested)
+}
+
+func (s *Service) prepare(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
 	pod, binding, cfg, err := s.authority(ctx, identity, requested)
 	if err != nil {
 		return err
@@ -164,6 +168,10 @@ func (s *Service) Check(ctx context.Context, identity waycni.PodIdentity, reques
 		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
 		return errors.New("node backend or controller observation relay is unavailable")
 	}
+	return s.check(ctx, identity, requested)
+}
+
+func (s *Service) check(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
 	_, binding, cfg, err := s.authority(ctx, identity, requested)
 	if err != nil {
 		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
@@ -264,8 +272,11 @@ func (s *Service) Withdraw(ctx context.Context, identity waycni.PodIdentity) err
 	return nil
 }
 
-// ReconcileAll rebuilds from durable CNI attachment records. A revoked or
-// unverifiable live Pod is locked down; only an absent exact Pod is cleaned.
+// ReconcileAll rebuilds from durable CNI attachment records after the caller
+// has completed a fresh authenticated controller-relay handshake. It bypasses
+// the public CNI readiness gate so backend health can recover without depending
+// on itself. A revoked or unverifiable live Pod is locked down; only an absent
+// exact Pod is cleaned.
 func (s *Service) ReconcileAll(ctx context.Context) error {
 	attachments, err := s.Store.ListAll()
 	if err != nil {
@@ -319,9 +330,9 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		requested := bindingReference(binding)
 		var reconcileErr error
 		if attachment.BindingGeneration != requested.Generation {
-			reconcileErr = s.Prepare(ctx, attachment.Pod, requested)
+			reconcileErr = s.prepare(ctx, attachment.Pod, requested)
 		} else {
-			reconcileErr = s.Check(ctx, attachment.Pod, requested)
+			reconcileErr = s.check(ctx, attachment.Pod, requested)
 		}
 		if reconcileErr != nil {
 			if errors.Is(reconcileErr, fs.ErrNotExist) {

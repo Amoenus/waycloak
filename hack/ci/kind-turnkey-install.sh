@@ -649,6 +649,11 @@ apply_exact_transition() {
   until "$work_dir/waycloakctl" doctor --output json >"$work_dir/doctor-${label}.json"; do
     if (( SECONDS >= doctor_deadline )); then
       printf '%s transition did not restore healthy node capability\n' "$label" >&2
+      cat "$work_dir/doctor-${label}.json" >&2 || true
+      kubectl get nodes -o yaml >&2 || true
+      kubectl logs --namespace "$system_namespace" \
+        --selector app.kubernetes.io/component=node-agent \
+        --all-containers --prefix --tail=200 >&2 || true
       return 1
     fi
     sleep 2
