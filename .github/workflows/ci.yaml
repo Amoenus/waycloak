@@ -541,9 +541,9 @@ jobs:
           restore_seconds="$(sed -n 's/^restore_seconds=//p' <<<"$metrics")"
           {
             printf '### K3s embedded-etcd recovery row\n\n'
-            printf -- '- K3s: `v1.36.1+k3s1`, single server, embedded etcd, Flannel/containerd\n'
-            printf -- '- Snapshot duration: `%ss`\n' "$snapshot_seconds"
-            printf -- '- API and Node-ready restore duration: `%ss`\n' "$restore_seconds"
+            printf -- "- K3s: \`v1.36.1+k3s1\`, single server, embedded etcd, Flannel/containerd\n"
+            printf -- "- Snapshot duration: \`%ss\`\n" "$snapshot_seconds"
+            printf -- "- API and Node-ready restore duration: \`%ss\`\n" "$restore_seconds"
             printf -- '- Snapshot and retained server token were root-only and were not uploaded\n'
           } >>"$GITHUB_STEP_SUMMARY"
       - name: Remove confidential K3s recovery fixture
