@@ -372,11 +372,12 @@ func runDatastoreRecoveryProof(
 		t.Fatalf("durable CNI attachment identity was lost across restore: before=%q after=%q", statePath, restoredStatePath)
 	}
 	waitForSandboxFailure(t, direct, &restoredPod, 60*time.Second)
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(&restoredPod), &restoredPod))
+	assertApplicationNeverStarted(t, &restoredPod)
 	time.Sleep(500 * time.Millisecond)
 	if after := readCaptureCounts(t, namespace, agentPod.Name); after != baseline {
 		t.Fatalf("captured direct packets during datastore recovery: baseline=%#v after=%#v", baseline, after)
 	}
-	assertApplicationNeverStarted(t, &restoredPod)
 	return direct
 }
 
