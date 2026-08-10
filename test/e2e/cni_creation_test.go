@@ -292,7 +292,7 @@ func runDatastoreRecoveryProof(
 		},
 	}
 	statusApply := &wayv1.VPNWorkloadBinding{
-		TypeMeta:   binding.TypeMeta,
+		TypeMeta:   metav1.TypeMeta{APIVersion: wayv1.GroupVersion.String(), Kind: "VPNWorkloadBinding"},
 		ObjectMeta: metav1.ObjectMeta{Name: binding.Name, Namespace: binding.Namespace},
 		Status:     binding.Status,
 	}
