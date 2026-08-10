@@ -197,7 +197,7 @@ owned-object cleanup. The fixture uses runtime-generated keys and certificates
 and is not a supported provider. Issue #138 remains open for the under-15-minute
 supported real-provider journey.
 
-Issue #188 is in progress after the live Core.13 qBittorrent canary proved a
+Issues #188 and #189 are complete after the live Core.13 qBittorrent canary proved a
 gateway-engine coexistence defect. Chained CNI correctly kept the sandbox
 without an IP and prevented both application containers from starting, but
 Gluetun's priority-99 `FIREWALL_OUTBOUND_SUBNETS` rule selected `eth0` ahead of
@@ -206,7 +206,24 @@ lacked narrow `waycloak0` allowances. Exact temporary health/DNS, overlay-to-
 tunnel, established-return, and priority-90 return-path rules allowed the next
 CNI `ADD` to succeed with no direct-egress fallback. The permanent slice makes
 those rules marker-owned, fail-closed, drift-reconciled, and no-op stable before
-the canary can count as release evidence.
+the canary can count as release evidence. The exact Core.15 canary now runs
+qBittorrent with one application container, no Waycloak sidecar, no Kubernetes
+token, no added capability, zero restarts, matching protected/gateway public-IP
+hashes, and current route, gateway, binding, and node conditions. Bitmagnet is
+intentionally scaled to zero and Qui is retired from the workload canary.
+
+Issue #190 is in progress after that canary exposed a restart-recovery ordering
+defect. One exact Ready qBittorrent sandbox coexisted with 20 earlier failed-ADD
+LockedDown records for the same Pod UID. Flat file iteration verified the live
+sandbox and then allowed a later stale record to overwrite the Pod observation
+with not-ready. Recovery now groups records by exact Pod UID, permits one live
+Ready sandbox, locks down multiple live sandboxes as ambiguous, preserves the
+bounded fresh-ADD grace, and removes old missing/reused attempts only after the
+current sandbox verifies or exact Pod absence is authenticated. Unit coverage
+reproduces both storage orders with 20 attempts, the real file store, failed
+verification, restart idempotency, ambiguity, grace, and one-shot group
+withdrawal. Privileged K3s/Flannel canary evidence remains required before the
+issue closes.
 
 The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and
@@ -468,14 +485,13 @@ proof are recorded below.
 Core.13 published that exact patch and passed hosted plus independent local
 verification of release checksums, Sigstore identities, SPDX attestations,
 GitHub provenance, both OCI architectures, embedded Gluetun control policy, and
-the chart layer. The signed Core.12-to-Core.13 lifecycle plan installed Helm
-revision 14 on the reviewed amd64 row. Homelab GitOps PR #1526 then converged
-Argo CD to Healthy/Synced with no diff while preserving controller UID
-`762b65e6-4d67-4e0d-9e2e-c151dd6f9cf9` and gateway UID
-`59b81f3e-7d08-4387-a416-4d9737e35d71`; both retained zero restarts and the
-gateway's seven current-generation conditions remained `True`. Protected
-qBittorrent, Bitmagnet, and qui workloads remain intentionally at zero replicas
-until route/binding enrollment and fail-closed application cutover evidence.
+the chart layer. The later signed Core.14-to-Core.15 lifecycle plan installed
+Helm revision 16 on the reviewed amd64 row. Homelab GitOps PR #1532 converged
+Argo CD to Healthy/Synced with no diff after the transaction replaced the
+immutable default class and gateway under the exact signed plan. The fresh
+qBittorrent Pod and UID-derived binding reached current live readiness without
+ordinary-egress fallback. Bitmagnet remains intentionally at zero replicas;
+Qui is no longer a desired workload.
 
 The live mixed-architecture diagnostic exposed a narrower #138 defect: doctor
 treated the two intentionally unselected arm64 nodes as unavailable even though

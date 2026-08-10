@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/netip"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,6 +69,7 @@ var (
 	ErrPodLookupFailed    = errors.New("kubernetes Pod observation failed")
 	ErrPodUIDMismatch     = errors.New("pod UID does not match API observation")
 	ErrPodNodeMismatch    = errors.New("pod node does not match local authority")
+	ErrSandboxAmbiguous   = errors.New("multiple live sandboxes exist for one Pod UID")
 )
 
 type NodeReport struct {
@@ -352,81 +354,214 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list durable CNI attachments: %w", err)
 	}
-	var errs []error
+	groups := make(map[string][]waycni.Attachment)
 	for _, attachment := range attachments {
 		if attachment.Pod.UID == "" || attachment.Pod.NetNS == "" {
 			continue
 		}
-		pod, podErr := s.pod(ctx, attachment.Pod)
-		if exactPodAbsent(podErr) || (podErr == nil && !pod.DeletionTimestamp.IsZero()) {
-			if withdrawErr := s.withdrawAttachment(ctx, attachment); withdrawErr != nil {
-				errs = append(errs, withdrawErr)
-				continue
-			}
-			if deleteErr := s.Store.Delete(attachment.Key()); deleteErr != nil {
-				errs = append(errs, fmt.Errorf("delete withdrawn Pod attachment: %w", deleteErr))
-			}
-			continue
-		}
-		if podErr != nil {
-			errs = append(errs, podErr)
-			continue
-		}
-		namespaceIdentity, identityErr := s.Programmer.Identity(attachment.Pod.NetNS)
-		if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
-			errs = append(errs, fmt.Errorf("observe durable attachment namespace: %w", identityErr))
-			continue
-		}
-		if identityErr != nil || namespaceIdentity != attachment.NamespaceIdentity {
-			// A failed ADD can lose its sandbox before the Pod is deleted. Keep
-			// the UID-bound enrollment durable for retries, report not-ready when
-			// possible, and never operate on a missing or replacement namespace.
-			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
-				s.observe(binding, false)
-			}
-			continue
-		}
-		if attachment.Phase == waycni.PhaseLockedDown {
-			age := s.now().Sub(attachment.UpdatedAt)
-			if !attachment.UpdatedAt.IsZero() && age >= 0 && age < lockedDownReconcileDelay {
-				continue
-			}
-			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
-			continue
-		}
-		binding, readErr := s.binding(ctx, pod)
-		if readErr != nil || string(binding.UID) != attachment.BindingUID || string(binding.Spec.GatewayRef.UID) != attachment.GatewayUID {
-			lockErr := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID)
-			errs = append(errs, errors.Join(errors.New("durable attachment binding was revoked or replaced"), lockErr))
-			if readErr == nil {
-				s.observe(binding, false)
-			}
-			continue
-		}
-		requested := bindingReference(binding)
-		var reconcileErr error
-		if attachment.BindingGeneration != requested.Generation {
-			reconcileErr = s.prepare(ctx, attachment.Pod, requested)
-		} else {
-			reconcileErr = s.check(ctx, attachment.Pod, requested)
-		}
-		if reconcileErr != nil {
-			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
-				s.observe(binding, false)
-			}
-			errs = append(errs, reconcileErr)
-			continue
-		}
-		if attachment.BindingGeneration != requested.Generation {
-			attachment.BindingGeneration = requested.Generation
-			attachment.UpdatedAt = s.now()
-			if err := s.Store.Save(attachment); err != nil {
-				_ = s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID)
-				errs = append(errs, fmt.Errorf("persist adopted binding generation: %w", err))
-			}
+		groups[attachment.Pod.UID] = append(groups[attachment.Pod.UID], attachment)
+	}
+	podUIDs := make([]string, 0, len(groups))
+	for podUID := range groups {
+		podUIDs = append(podUIDs, podUID)
+	}
+	sort.Strings(podUIDs)
+	var errs []error
+	for _, podUID := range podUIDs {
+		if reconcileErr := s.reconcileAttachmentGroup(ctx, groups[podUID]); reconcileErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile Pod UID %q: %w", podUID, reconcileErr))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (s *Service) reconcileAttachmentGroup(ctx context.Context, attachments []waycni.Attachment) error {
+	sort.Slice(attachments, func(i, j int) bool {
+		left, right := attachments[i].Key(), attachments[j].Key()
+		if left.Network != right.Network {
+			return left.Network < right.Network
+		}
+		if left.ContainerID != right.ContainerID {
+			return left.ContainerID < right.ContainerID
+		}
+		return left.IfName < right.IfName
+	})
+	canonical := attachments[0].Pod
+	for _, attachment := range attachments[1:] {
+		if attachment.Pod.Namespace != canonical.Namespace || attachment.Pod.Name != canonical.Name {
+			return s.quarantineAttachmentGroup(ctx, attachments, errors.New("durable attachments disagree on Pod namespace or name"))
+		}
+	}
+
+	pod, podErr := s.pod(ctx, canonical)
+	if exactPodAbsent(podErr) || (podErr == nil && !pod.DeletionTimestamp.IsZero()) {
+		return s.withdrawAttachmentGroup(ctx, attachments)
+	}
+	if podErr != nil {
+		s.observeNotReady(ctx, canonical.Namespace, canonical.UID)
+		return podErr
+	}
+
+	live, classifyErr := s.liveAttachments(attachments)
+	if classifyErr != nil {
+		s.observeNotReady(ctx, canonical.Namespace, canonical.UID)
+		return errors.Join(classifyErr, s.lockdownAttachments(ctx, live))
+	}
+	if len(live) > 1 {
+		s.observeNotReady(ctx, canonical.Namespace, canonical.UID)
+		return errors.Join(ErrSandboxAmbiguous, s.lockdownAttachments(ctx, live))
+	}
+	if len(live) == 0 {
+		// Failed ADD sandboxes may disappear while the exact Pod remains. Keep
+		// every UID-bound record for the next retry and never touch a reused
+		// namespace. One not-ready observation represents the complete group.
+		s.observeNotReady(ctx, canonical.Namespace, canonical.UID)
+		return nil
+	}
+
+	current := live[0]
+	if current.Phase == waycni.PhaseLockedDown {
+		s.observeNotReady(ctx, canonical.Namespace, canonical.UID)
+		if attachmentIsYoung(current, s.now()) {
+			return nil
+		}
+		return s.Programmer.InstallLockdown(ctx, current.Pod.NetNS, current.Pod.UID)
+	}
+
+	binding, readErr := s.binding(ctx, pod)
+	if readErr != nil || string(binding.UID) != current.BindingUID || string(binding.Spec.GatewayRef.UID) != current.GatewayUID {
+		lockErr := s.Programmer.InstallLockdown(ctx, current.Pod.NetNS, current.Pod.UID)
+		if readErr == nil {
+			s.observe(binding, false)
+		} else {
+			s.observeNotReady(ctx, canonical.Namespace, canonical.UID)
+		}
+		return errors.Join(errors.New("durable attachment binding was revoked or replaced"), readErr, lockErr)
+	}
+	requested := bindingReference(binding)
+	if current.BindingGeneration != requested.Generation {
+		readErr = s.prepare(ctx, current.Pod, requested)
+	} else {
+		readErr = s.check(ctx, current.Pod, requested)
+	}
+	if readErr != nil {
+		s.observe(binding, false)
+		return readErr
+	}
+	if current.BindingGeneration != requested.Generation {
+		current.BindingGeneration = requested.Generation
+		current.UpdatedAt = s.now()
+		if saveErr := s.Store.Save(current); saveErr != nil {
+			lockErr := s.Programmer.InstallLockdown(ctx, current.Pod.NetNS, current.Pod.UID)
+			s.observe(binding, false)
+			return errors.Join(fmt.Errorf("persist adopted binding generation: %w", saveErr), lockErr)
+		}
+	}
+
+	// Only a successfully verified exact Ready sandbox authorizes removing old
+	// failed attempts. Preserve a young LockedDown record until the bounded CNI
+	// ADD transaction has had its full race grace period.
+	var cleanupErrs []error
+	for _, attachment := range attachments {
+		if attachment.Key() == current.Key() || (attachment.Phase == waycni.PhaseLockedDown && attachmentIsYoung(attachment, s.now())) {
+			continue
+		}
+		if deleteErr := s.Store.Delete(attachment.Key()); deleteErr != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("delete quarantined Pod attachment: %w", deleteErr))
+		}
+	}
+	return errors.Join(cleanupErrs...)
+}
+
+func (s *Service) liveAttachments(attachments []waycni.Attachment) ([]waycni.Attachment, error) {
+	var live []waycni.Attachment
+	var errs []error
+	for _, attachment := range attachments {
+		namespaceIdentity, identityErr := s.Programmer.Identity(attachment.Pod.NetNS)
+		if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("observe durable attachment namespace %q: %w", attachment.Pod.NetNS, identityErr))
+			continue
+		}
+		if identityErr == nil && namespaceIdentity == attachment.NamespaceIdentity {
+			live = append(live, attachment)
+		}
+	}
+	return live, errors.Join(errs...)
+}
+
+func (s *Service) quarantineAttachmentGroup(ctx context.Context, attachments []waycni.Attachment, cause error) error {
+	live, classifyErr := s.liveAttachments(attachments)
+	for _, attachment := range attachments {
+		s.observeNotReady(ctx, attachment.Pod.Namespace, attachment.Pod.UID)
+	}
+	return errors.Join(cause, classifyErr, s.lockdownAttachments(ctx, live))
+}
+
+func (s *Service) lockdownAttachments(ctx context.Context, attachments []waycni.Attachment) error {
+	var errs []error
+	for _, attachment := range attachments {
+		if err := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Service) withdrawAttachmentGroup(ctx context.Context, attachments []waycni.Attachment) error {
+	live, classifyErr := s.liveAttachments(attachments)
+	if classifyErr != nil {
+		return classifyErr
+	}
+	var cleanupErrs []error
+	for _, attachment := range live {
+		if err := s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
+			cleanupErrs = append(cleanupErrs, err)
+		}
+	}
+	if err := errors.Join(cleanupErrs...); err != nil {
+		return err
+	}
+	canonical := attachments[0].Pod
+	binding, err := s.withdrawalBinding(ctx, canonical.Namespace, canonical.UID)
+	if err != nil {
+		return err
+	}
+	if binding != nil {
+		if s.WithdrawalPublisher == nil {
+			return errors.New("synchronous withdrawal publisher is unavailable")
+		}
+		observation := s.observe(binding, false)
+		report := s.Report()
+		report.Observations = []Observation{observation}
+		if err := s.WithdrawalPublisher(ctx, report); err != nil {
+			return fmt.Errorf("publish exact attachment withdrawal: %w", err)
+		}
+	}
+	var deleteErrs []error
+	for _, attachment := range attachments {
+		if err := s.Store.Delete(attachment.Key()); err != nil {
+			deleteErrs = append(deleteErrs, fmt.Errorf("delete withdrawn Pod attachment: %w", err))
+		}
+	}
+	if err := errors.Join(deleteErrs...); err != nil {
+		return err
+	}
+	s.forgetObservation(canonical.UID)
+	return nil
+}
+
+func (s *Service) observeNotReady(ctx context.Context, namespace, podUID string) {
+	if binding, err := s.rawBinding(ctx, namespace, podUID); err == nil {
+		s.observe(binding, false)
+	}
+}
+
+func attachmentIsYoung(attachment waycni.Attachment, now time.Time) bool {
+	age := now.Sub(attachment.UpdatedAt)
+	// A future timestamp is not authority to shorten the CNI-owned grace
+	// period. Retain it until the local clock has caught up and the full bound
+	// has elapsed.
+	return !attachment.UpdatedAt.IsZero() && age < lockedDownReconcileDelay
 }
 
 func (s *Service) Observations() []Observation {

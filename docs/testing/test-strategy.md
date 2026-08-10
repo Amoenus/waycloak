@@ -248,6 +248,16 @@ The production agent suite additionally proves that the CNI cannot supply a
 data-plane configuration, stale binding UID/generation is rejected before
 programming, partial configure or verify restores lockdown, drift repair occurs
 under lockdown, and restart rebuilds only from validated durable attachments.
+Restart recovery must first aggregate every durable attachment by exact Pod UID
+and publish one group outcome. Exactly one live Ready sandbox may be verified;
+its positive observation cannot be overwritten by missing or reused failed-ADD
+attempts. A young LockedDown record retains the complete bounded-ADD grace
+period. Old attempts are deleted only after the one exact Ready sandbox is
+verified or exact Pod absence is authenticated. Multiple live sandboxes are
+ambiguous: every exact namespace is locked down, one not-ready observation is
+published, and all durable records remain quarantined. File-backed order,
+agent restart, repeated reconciliation, DEL, and GC must converge without
+status flapping or repeated cleanup.
 Pod-bound TokenReview tests reject unbound tokens and cross-node observations.
 Loss of the authenticated controller observation relay makes local status
 unready, rejects new prepare, and locks down every durable attachment before a

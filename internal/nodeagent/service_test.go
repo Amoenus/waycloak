@@ -45,17 +45,25 @@ func TestCapabilityHoldAffectsOnlyPublishedReadiness(t *testing.T) {
 }
 
 type fakeProgrammer struct {
-	events       []string
-	configured   dataplane.Config
-	configureErr error
-	verifyErrs   []error
-	identity     string
-	identityErr  error
-	identityErrs []error
-	lockdownErr  error
+	events             []string
+	configured         dataplane.Config
+	configureErr       error
+	verifyErrs         []error
+	identity           string
+	identityErr        error
+	identityErrs       []error
+	identityByNetNS    map[string]string
+	identityErrByNetNS map[string]error
+	lockdownErr        error
 }
 
-func (p *fakeProgrammer) Identity(string) (string, error) {
+func (p *fakeProgrammer) Identity(netNS string) (string, error) {
+	if err, ok := p.identityErrByNetNS[netNS]; ok {
+		return p.identityByNetNS[netNS], err
+	}
+	if identity, ok := p.identityByNetNS[netNS]; ok {
+		return identity, nil
+	}
 	if p.identity == "" {
 		p.identity = "1:2"
 	}
@@ -98,12 +106,39 @@ func (s staticAttachments) Delete(waycni.Key) error               { return nil }
 type recordingAttachments struct {
 	staticAttachments
 	deleted   []waycni.Key
+	saved     []waycni.Attachment
 	deleteErr error
+	saveErr   error
 }
 
 func (s *recordingAttachments) Delete(key waycni.Key) error {
 	s.deleted = append(s.deleted, key)
-	return s.deleteErr
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	retained := s.staticAttachments[:0]
+	for _, attachment := range s.staticAttachments {
+		if attachment.Key() != key {
+			retained = append(retained, attachment)
+		}
+	}
+	s.staticAttachments = retained
+	return nil
+}
+
+func (s *recordingAttachments) Save(attachment waycni.Attachment) error {
+	s.saved = append(s.saved, attachment)
+	if s.saveErr != nil {
+		return s.saveErr
+	}
+	for index := range s.staticAttachments {
+		if s.staticAttachments[index].Key() == attachment.Key() {
+			s.staticAttachments[index] = attachment
+			return nil
+		}
+	}
+	s.staticAttachments = append(s.staticAttachments, attachment)
+	return nil
 }
 
 func TestPrepareUsesControllerBindingAndVerifiesBeforeReady(t *testing.T) {
@@ -356,17 +391,19 @@ func TestRestartRecoveryAdoptsNewGenerationOnlyAfterVerification(t *testing.T) {
 }
 
 func TestDriftReconciliationDoesNotRaceFreshLockedDownADD(t *testing.T) {
-	service, identity, _, programmer := fixture(t)
-	service.Store = staticAttachments{{
-		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
-		UpdatedAt: service.now().Add(-lockedDownReconcileDelay + time.Second),
-	}}
+	for _, offset := range []time.Duration{-lockedDownReconcileDelay + time.Second, time.Second} {
+		service, identity, _, programmer := fixture(t)
+		service.Store = staticAttachments{{
+			Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
+			UpdatedAt: service.now().Add(offset),
+		}}
 
-	if err := service.ReconcileAll(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(programmer.events) != 0 {
-		t.Fatalf("fresh CNI ADD was raced by drift reconciliation: %v", programmer.events)
+		if err := service.ReconcileAll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(programmer.events) != 0 {
+			t.Fatalf("fresh or future-dated CNI ADD was raced by drift reconciliation: %v", programmer.events)
+		}
 	}
 }
 
@@ -512,6 +549,252 @@ func TestRestartRecoveryAbsorbsNamespaceDisappearanceDuringRepair(t *testing.T) 
 	}
 	if len(store.deleted) != 0 {
 		t.Fatalf("live Pod enrollment was discarded: %#v", store.deleted)
+	}
+}
+
+func TestRestartRecoveryAggregatesFailedADDRetriesByExactPodUID(t *testing.T) {
+	for _, readyFirst := range []bool{true, false} {
+		name := "ready-last"
+		if readyFirst {
+			name = "ready-first"
+		}
+		t.Run(name, func(t *testing.T) {
+			service, identity, reference, programmer := fixture(t)
+			identity.ContainerID = "sandbox-current"
+			identity.NetNS = "/proc/current/ns/net"
+			current := waycni.Attachment{
+				Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+				BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+				UpdatedAt: service.now(),
+			}
+			stale := make([]waycni.Attachment, 0, 20)
+			programmer.identityByNetNS = map[string]string{identity.NetNS: current.NamespaceIdentity}
+			programmer.identityErrByNetNS = make(map[string]error, 20)
+			for attempt := 0; attempt < 20; attempt++ {
+				failedIdentity := identity
+				failedIdentity.ContainerID = fmt.Sprintf("failed-%02d", attempt)
+				failedIdentity.NetNS = fmt.Sprintf("/proc/failed-%02d/ns/net", attempt)
+				stale = append(stale, waycni.Attachment{
+					Network: "kindnet", Pod: failedIdentity, NamespaceIdentity: fmt.Sprintf("old:%d", attempt),
+					Phase: waycni.PhaseLockedDown, UpdatedAt: service.now().Add(-lockedDownReconcileDelay),
+				})
+				programmer.identityErrByNetNS[failedIdentity.NetNS] = fs.ErrNotExist
+			}
+			attachments := append([]waycni.Attachment(nil), stale...)
+			if readyFirst {
+				attachments = append([]waycni.Attachment{current}, attachments...)
+			} else {
+				attachments = append(attachments, current)
+			}
+			store := &recordingAttachments{staticAttachments: attachments}
+			service.Store = store
+
+			if err := service.ReconcileAll(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"verify"}; !reflect.DeepEqual(programmer.events, want) {
+				t.Fatalf("group recovery operations = %v, want %v", programmer.events, want)
+			}
+			if observations := service.Observations(); len(observations) != 1 || !observations[0].Ready {
+				t.Fatalf("verified Ready sandbox was overridden: %#v", observations)
+			}
+			if len(store.deleted) != len(stale) || len(store.staticAttachments) != 1 || store.staticAttachments[0].Key() != current.Key() {
+				t.Fatalf("quarantine cleanup: deleted=%d retained=%#v", len(store.deleted), store.staticAttachments)
+			}
+
+			if err := service.ReconcileAll(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if observations := service.Observations(); len(observations) != 1 || !observations[0].Ready {
+				t.Fatalf("idempotent restart observation = %#v", observations)
+			}
+			if len(store.deleted) != len(stale) || len(store.staticAttachments) != 1 {
+				t.Fatalf("idempotent cleanup repeated: deleted=%d retained=%d", len(store.deleted), len(store.staticAttachments))
+			}
+		})
+	}
+}
+
+func TestFileStoreRestartRecoveryConvergesToOneDurableLiveAttachment(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	identity.ContainerID = "sandbox-current"
+	identity.NetNS = "/proc/current/ns/net"
+	current := waycni.Attachment{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+		UpdatedAt: service.now(),
+	}
+	store := waycni.FileStore{Directory: t.TempDir()}
+	mustSave := func(attachment waycni.Attachment) {
+		t.Helper()
+		if err := store.Save(attachment); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustSave(current)
+	programmer.identityByNetNS = map[string]string{identity.NetNS: current.NamespaceIdentity}
+	programmer.identityErrByNetNS = make(map[string]error, 20)
+	for attempt := 0; attempt < 20; attempt++ {
+		failedIdentity := identity
+		failedIdentity.ContainerID = fmt.Sprintf("failed-%02d", attempt)
+		failedIdentity.NetNS = fmt.Sprintf("/proc/failed-%02d/ns/net", attempt)
+		mustSave(waycni.Attachment{
+			Network: "kindnet", Pod: failedIdentity, NamespaceIdentity: fmt.Sprintf("old:%d", attempt),
+			Phase: waycni.PhaseLockedDown, UpdatedAt: service.now().Add(-lockedDownReconcileDelay),
+		})
+		programmer.identityErrByNetNS[failedIdentity.NetNS] = fs.ErrNotExist
+	}
+	service.Store = store
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	retained, err := store.ListAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained) != 1 || retained[0].Key() != current.Key() || retained[0].Phase != waycni.PhaseReady {
+		t.Fatalf("durable state after restart = %#v", retained)
+	}
+	if observations := service.Observations(); len(observations) != 1 || !observations[0].Ready {
+		t.Fatalf("durable restart observation = %#v", observations)
+	}
+}
+
+func TestRestartRecoveryPreservesYoungFailedADDQuarantineAfterReadyProof(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	identity.ContainerID = "sandbox-current"
+	identity.NetNS = "/proc/current/ns/net"
+	current := waycni.Attachment{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}
+	failedIdentity := identity
+	failedIdentity.ContainerID = "failed-young"
+	failedIdentity.NetNS = "/proc/failed-young/ns/net"
+	young := waycni.Attachment{
+		Network: "kindnet", Pod: failedIdentity, NamespaceIdentity: "old:1", Phase: waycni.PhaseLockedDown,
+		UpdatedAt: service.now().Add(-lockedDownReconcileDelay + time.Second),
+	}
+	programmer.identityByNetNS = map[string]string{identity.NetNS: current.NamespaceIdentity}
+	programmer.identityErrByNetNS = map[string]error{failedIdentity.NetNS: fs.ErrNotExist}
+	store := &recordingAttachments{staticAttachments: staticAttachments{young, current}}
+	service.Store = store
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.deleted) != 0 || len(store.staticAttachments) != 2 {
+		t.Fatalf("young failed ADD was removed during its grace period: deleted=%#v", store.deleted)
+	}
+	if observations := service.Observations(); len(observations) != 1 || !observations[0].Ready {
+		t.Fatalf("verified Ready observation = %#v", observations)
+	}
+}
+
+func TestRestartRecoveryRetainsQuarantineUntilReadySandboxIsVerified(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	identity.ContainerID = "sandbox-current"
+	identity.NetNS = "/proc/current/ns/net"
+	current := waycni.Attachment{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}
+	failedIdentity := identity
+	failedIdentity.ContainerID = "failed-old"
+	failedIdentity.NetNS = "/proc/failed-old/ns/net"
+	old := waycni.Attachment{
+		Network: "kindnet", Pod: failedIdentity, NamespaceIdentity: "old:1", Phase: waycni.PhaseLockedDown,
+		UpdatedAt: service.now().Add(-lockedDownReconcileDelay),
+	}
+	programmer.identityByNetNS = map[string]string{identity.NetNS: current.NamespaceIdentity}
+	programmer.identityErrByNetNS = map[string]error{failedIdentity.NetNS: fs.ErrNotExist}
+	programmer.verifyErrs = []error{errors.New("drift"), errors.New("repair did not converge")}
+	store := &recordingAttachments{staticAttachments: staticAttachments{old, current}}
+	service.Store = store
+
+	if err := service.ReconcileAll(context.Background()); err == nil {
+		t.Fatal("unverified Ready sandbox released its failed-ADD quarantine")
+	}
+	if len(store.deleted) != 0 || len(store.staticAttachments) != 2 {
+		t.Fatalf("state was cleaned before current sandbox proof: deleted=%#v retained=%d", store.deleted, len(store.staticAttachments))
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("unverified sandbox observation = %#v", observations)
+	}
+}
+
+func TestRestartRecoveryFailsClosedForMultipleLiveSandboxes(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	first := waycni.Attachment{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}
+	secondIdentity := identity
+	secondIdentity.ContainerID = "replacement-sandbox"
+	secondIdentity.NetNS = "/proc/2/ns/net"
+	second := first
+	second.Pod = secondIdentity
+	second.NamespaceIdentity = "3:4"
+	programmer.identityByNetNS = map[string]string{identity.NetNS: first.NamespaceIdentity, secondIdentity.NetNS: second.NamespaceIdentity}
+	store := &recordingAttachments{staticAttachments: staticAttachments{first, second}}
+	service.Store = store
+
+	err := service.ReconcileAll(context.Background())
+	if !errors.Is(err, ErrSandboxAmbiguous) {
+		t.Fatalf("multiple live sandbox result = %v", err)
+	}
+	if want := []string{"lockdown", "lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("ambiguous sandbox operations = %v, want %v", programmer.events, want)
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("ambiguous sandbox observation = %#v", observations)
+	}
+	if len(store.deleted) != 0 {
+		t.Fatalf("ambiguous sandbox state was discarded: %#v", store.deleted)
+	}
+}
+
+func TestRestartRecoveryWithdrawsPodUIDGroupOnceAfterExactPodAbsence(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	binding := &wayv1.VPNWorkloadBinding{}
+	if err := service.Reader.Get(context.Background(), client.ObjectKey{Namespace: identity.Namespace, Name: waybinding.BindingName(types.UID(identity.UID))}, binding); err != nil {
+		t.Fatal(err)
+	}
+	service.Reader = fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(binding).Build()
+	secondIdentity := identity
+	secondIdentity.ContainerID = "failed-retry"
+	secondIdentity.NetNS = "/proc/missing/ns/net"
+	attachments := staticAttachments{
+		{Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady, BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID},
+		{Network: "kindnet", Pod: secondIdentity, NamespaceIdentity: "3:4", Phase: waycni.PhaseLockedDown},
+	}
+	programmer.identityErrByNetNS = map[string]error{identity.NetNS: fs.ErrNotExist, secondIdentity.NetNS: fs.ErrNotExist}
+	store := &recordingAttachments{staticAttachments: attachments}
+	service.Store = store
+	published := 0
+	service.WithdrawalPublisher = func(_ context.Context, report Report) error {
+		published++
+		if len(report.Observations) != 1 || report.Observations[0].Ready {
+			t.Fatalf("group withdrawal report = %#v", report.Observations)
+		}
+		return nil
+	}
+
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 || len(store.deleted) != 2 || len(store.staticAttachments) != 0 {
+		t.Fatalf("group withdrawal: published=%d deleted=%d retained=%d", published, len(store.deleted), len(store.staticAttachments))
+	}
+	if observations := service.Observations(); len(observations) != 0 {
+		t.Fatalf("withdrawn group remained observable: %#v", observations)
+	}
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 || len(store.deleted) != 2 {
+		t.Fatalf("idempotent group withdrawal repeated: published=%d deleted=%d", published, len(store.deleted))
 	}
 }
 
