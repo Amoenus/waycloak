@@ -115,6 +115,33 @@ Ready. Do not collapse these revisions: simultaneous CNI-installer and agent
 replacement can strand both behind a missing local agent socket. This staging
 is not a bypass or fallback; protected sandboxes continue to fail closed.
 
+### Resume an interrupted exact transition
+
+Retain the reviewed plan until completion. Before class withdrawal,
+`waycloakctl` writes the immutable
+`<release>-release-transition` ConfigMap in the system namespace. It contains
+the non-sensitive reviewed plan and exact plan ID, not credentials. Do not edit,
+replace, or delete it.
+
+1. Stop new enrolled rollout and leave the CNI, prior node agent, and deny state
+   installed.
+2. Re-run `waycloakctl install plan` with the same verified target manifest.
+   At an exact checkpoint it returns the original journaled plan ID. A different
+   target or changed preflight is refused.
+3. Review that recovered plan and run `install apply` with its exact original
+   confirmation. Apply skips an already completed class withdrawal or staging
+   revision and activates only the missing exact stage.
+4. Require the journal to be absent, the exact target postconditions and doctor
+   health to pass, then activate singleton gateways and resume workload rollout.
+
+Recovery is supported only when the live state is the exact source with its
+class withdrawn, the exact target stage retaining the source agent, or the
+completed exact target. A missing/foreign journal, pending or ambiguous Helm
+revision, arbitrary image skew, or changed trust/CRD/cluster identity is a hard
+stop. Capture a support bundle and author a separate repair plan; do not delete
+Helm locks, recreate trust, invoke opaque `helm rollback`, or permit ordinary
+egress to make progress.
+
 ## Failure and degraded-state handling
 
 - Missing route, gateway, class, Secret, ConfigMap, CNI, node agent, tunnel, or

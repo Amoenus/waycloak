@@ -125,6 +125,12 @@ immutable gateway-class UID at its stable name, preserve observation trust
 identity, execute the two-revision CNI/agent transition, and verify the exact
 target runtime after Helm completes. The class replacement and transition
 windows remain fail closed behind the installed CNI deny path.
+Before the first destructive transition action, apply persists the complete
+non-sensitive reviewed plan in one immutable release-scoped lifecycle journal.
+The same plan may resume only an exact class-withdrawn, source-agent-retained
+staging, or completed-target checkpoint. Planning returns the journaled plan
+only for the same verified target and preflight; arbitrary skew, a different
+target, or a missing/foreign journal remains refused.
 
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
@@ -172,9 +178,14 @@ baseline. Both directions require a newer Helm revision, unchanged observation
 certificate UIDs and public bytes, a new immutable gateway-class UID with the
 exact target release identity, exact runtime arguments and CNI receipt, healthy
 capability observation, and the complete
-gateway-replacement fail-closed exercise. This proves the supported identical-
-schema beta row; interrupted transitions, explicit certificate rotation, and
-distribution snapshots remain separate issue #32 evidence.
+gateway-replacement fail-closed exercise. In each direction the gate terminates
+the real CLI process immediately after the staging Helm revision completes,
+requires an immutable exact-plan journal and degraded doctor report, proves an
+enrolled application container never starts and receives no Pod IP, re-plans to
+the identical plan ID, and resumes without repeating staging. This proves the
+supported identical-schema beta row and exact staged-interruption recovery;
+explicit certificate rotation and distribution snapshots remain separate issue
+#32 evidence.
 
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.

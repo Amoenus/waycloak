@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Replacement architecture decision set
 
@@ -289,8 +289,19 @@ edge: a prior binding generation was rejected as a whole-report authorization
 failure, preventing the post-handshake drift loop from adopting current gateway
 intent. Older observations for the same binding UID, Pod UID, and node are now
 non-mutating no-ops; mismatched or future identity remains rejected.
-Interrupted transition recovery, explicit certificate rotation, and supported
-distribution datastore-snapshot drills remain open #32 work.
+The next #32 slice implements exact staged-interruption recovery. Before class
+withdrawal, apply creates one immutable, non-sensitive release lifecycle
+journal containing the reviewed plan and plan ID. Re-planning the same verified
+target returns that exact plan. Apply resumes only the reviewed source with its
+class withdrawn, the newer target controller/CNI/class revision retaining the
+exact source agent, or the completed exact target; missing/foreign journals,
+different targets, ambiguous Helm state, image skew, and trust/CRD/preflight
+drift are refused. Local full unit, focused race, vet, shell syntax, and
+ShellCheck gates pass. The hosted Kind gate now interrupts the real CLI after
+successful staging in both forward and rollback directions and must still pass
+before this slice can merge. Pending/corrupt Helm repair, explicit certificate
+rotation, and supported distribution datastore-snapshot drills remain open #32
+work.
 
 Fresh homelab preparation is paused before mutation: its recorded Kubernetes
 API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed

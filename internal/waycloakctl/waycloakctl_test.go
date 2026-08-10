@@ -270,7 +270,11 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 			if revision == 1 {
 				revision = 2
 			}
-			seedInstalledRelease(t, clients, activeManifest, plan.Namespace, plan.Release, revision, testCRDs)
+			if upgradeCalls == 3 || upgradeCalls == 5 {
+				seedStagedRelease(t, clients, stageSource, activeManifest, plan.Namespace, plan.Release, revision, testCRDs)
+			} else {
+				seedInstalledRelease(t, clients, activeManifest, plan.Namespace, plan.Release, revision, testCRDs)
+			}
 		}
 		return nil, nil
 	}
@@ -360,6 +364,238 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	}
 	if upgradeCalls != 6 {
 		t.Fatal("tampered source reached Helm mutation")
+	}
+}
+
+func TestInstallApplyResumesOnlyJournalBoundExactCheckpoints(t *testing.T) {
+	ctx := context.Background()
+	clients := supportedClients(t)
+	report, err := Preflight(ctx, clients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = clients.Kubernetes.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "waycloak-system", Labels: map[string]string{"pod-security.kubernetes.io/enforce": "privileged"},
+	}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = ensureObservationSecrets(ctx, clients, "waycloak-system", "waycloak", "sha256:"+strings.Repeat("1", 64)); err != nil {
+		t.Fatal(err)
+	}
+	crdObjects, crds, crdBundle := testInstallCRDBundle(t)
+	sourceManifest := releaseManifest()
+	seedInstalledRelease(t, clients, sourceManifest, "waycloak-system", "waycloak", 1, crdObjects)
+	source, err := ObserveInstalledRelease(ctx, clients, "waycloak-system", "waycloak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := sourceManifest
+	target.Version = "v1.0.0-beta.2"
+	target.ManifestDigest, err = target.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revision := int64(1)
+	upgradeCalls := 0
+	interruptStage := true
+	runner := func(_ context.Context, name string, arguments ...string) ([]byte, error) {
+		if name != "helm" {
+			t.Fatalf("unexpected command %s %#v", name, arguments)
+		}
+		if len(arguments) >= 2 && arguments[0] == "show" && arguments[1] == "crds" {
+			return crdBundle, nil
+		}
+		upgradeCalls++
+		revision++
+		staging := false
+		for index, argument := range arguments {
+			if argument != "--values" || index+1 >= len(arguments) {
+				continue
+			}
+			data, readErr := os.ReadFile(arguments[index+1])
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if strings.Contains(string(data), "releaseIdentity:\n    version: "+strconv.Quote(source.Version)) {
+				staging = true
+			}
+		}
+		if staging {
+			seedStagedRelease(t, clients, source, target, plan.Namespace, plan.Release, revision, crdObjects)
+			if interruptStage {
+				interruptStage = false
+				return nil, context.Canceled
+			}
+			return nil, nil
+		}
+		seedInstalledRelease(t, clients, target, plan.Namespace, plan.Release, revision, crdObjects)
+		return nil, nil
+	}
+
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err == nil || !strings.Contains(err.Error(), "staging failed") {
+		t.Fatalf("simulated client interruption was not retained as a failed apply: %v", err)
+	}
+	if upgradeCalls != 1 {
+		t.Fatalf("interrupted apply executed %d Helm upgrades, want staging only", upgradeCalls)
+	}
+	active, journal, found, err := loadInstallTransitionJournal(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil || !found || active.PlanID != plan.PlanID || journal.Immutable == nil || !*journal.Immutable {
+		t.Fatalf("interrupted transition lost its exact immutable journal: %#v %#v %v", active, journal, err)
+	}
+	if strings.Contains(journal.Data[installTransitionPlanData], "tls.key") || strings.Contains(journal.Data[installTransitionPlanData], "PRIVATE KEY") {
+		t.Fatal("transition journal included credential material")
+	}
+	tamperedJournal := journal.DeepCopy()
+	tamperedJournal.Annotations[installReleaseOwnerKey] = "foreign-release"
+	if _, err = clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Update(ctx, tamperedJournal, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err == nil || !strings.Contains(err.Error(), "foreign or malformed") {
+		t.Fatalf("foreign transition journal was accepted: %v", err)
+	}
+	if upgradeCalls != 1 {
+		t.Fatal("foreign journal reached Helm mutation")
+	}
+	journal, err = clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Get(ctx, journal.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal.Annotations[installReleaseOwnerKey] = plan.Release
+	if journal, err = clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Update(ctx, journal, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	recovered, found, err := recoverInstallTransitionPlan(ctx, clients, plan.Namespace, plan.Release, report, target, crds)
+	if err != nil || !found || !reflect.DeepEqual(recovered, plan) {
+		t.Fatalf("install plan did not recover the exact active transaction: %#v %v", recovered, err)
+	}
+	otherTarget := target
+	otherTarget.Version = "v1.0.0-beta.3"
+	otherTarget.ManifestDigest, err = otherTarget.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err = recoverInstallTransitionPlan(ctx, clients, plan.Namespace, plan.Release, report, otherTarget, crds); err == nil || !found || !strings.Contains(err.Error(), "different exact release") {
+		t.Fatalf("active transaction permitted a different target: found=%t err=%v", found, err)
+	}
+
+	agent, err := clients.Kubernetes.AppsV1().DaemonSets(plan.Namespace).Get(ctx, chartFullname(plan.Release)+"-node-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.Spec.Template.Spec.Containers[0].Image = target.Images["waycloak-node-agent"].Repository + "@sha256:" + strings.Repeat("f", 64)
+	if _, err = clients.Kubernetes.AppsV1().DaemonSets(plan.Namespace).Update(ctx, agent, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err == nil || !strings.Contains(err.Error(), "exact transition checkpoint") {
+		t.Fatalf("ambiguous staged node identity was accepted: %v", err)
+	}
+	if upgradeCalls != 1 {
+		t.Fatal("ambiguous checkpoint reached Helm mutation")
+	}
+	agent.Spec.Template.Spec.Containers[0].Image = source.Images["waycloak-node-agent"]
+	if _, err = clients.Kubernetes.AppsV1().DaemonSets(plan.Namespace).Update(ctx, agent, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	savedJournal := journal.DeepCopy()
+	if err = clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Delete(ctx, journal.Name, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err == nil || !strings.Contains(err.Error(), "no matching transition journal") {
+		t.Fatalf("staged state without its journal was accepted: %v", err)
+	}
+	if upgradeCalls != 1 {
+		t.Fatal("journal-less checkpoint reached Helm mutation")
+	}
+	savedJournal.ResourceVersion = ""
+	savedJournal.UID = ""
+	if _, err = clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Create(ctx, savedJournal, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err != nil {
+		t.Fatal(err)
+	}
+	if upgradeCalls != 2 {
+		t.Fatalf("staged recovery repeated work: Helm upgrades=%d, want stage plus activation", upgradeCalls)
+	}
+	if _, _, found, err = loadInstallTransitionJournal(ctx, clients, plan.Namespace, plan.Release); err != nil || found {
+		t.Fatalf("completed transition retained its lifecycle journal: found=%t err=%v", found, err)
+	}
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err != nil {
+		t.Fatalf("completed exact plan was not retry-idempotent: %v", err)
+	}
+	if upgradeCalls != 2 {
+		t.Fatal("completed retry reached Helm mutation")
+	}
+}
+
+func TestInstallApplyResumesAfterExactClassWithdrawal(t *testing.T) {
+	ctx := context.Background()
+	clients := supportedClients(t)
+	report, err := Preflight(ctx, clients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = clients.Kubernetes.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "waycloak-system", Labels: map[string]string{"pod-security.kubernetes.io/enforce": "privileged"},
+	}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = ensureObservationSecrets(ctx, clients, "waycloak-system", "waycloak", "sha256:"+strings.Repeat("2", 64)); err != nil {
+		t.Fatal(err)
+	}
+	crdObjects, crds, crdBundle := testInstallCRDBundle(t)
+	sourceManifest := releaseManifest()
+	seedInstalledRelease(t, clients, sourceManifest, "waycloak-system", "waycloak", 1, crdObjects)
+	source, err := ObserveInstalledRelease(ctx, clients, "waycloak-system", "waycloak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := sourceManifest
+	target.Version = "v1.0.0-beta.2"
+	target.ManifestDigest, err = target.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ensureInstallTransitionJournal(ctx, clients, plan); err != nil {
+		t.Fatal(err)
+	}
+	if err = replaceGatewayClassForTransition(ctx, clients, source, target); err != nil {
+		t.Fatal(err)
+	}
+
+	revision := int64(1)
+	upgradeCalls := 0
+	runner := func(_ context.Context, name string, arguments ...string) ([]byte, error) {
+		if len(arguments) >= 2 && arguments[0] == "show" && arguments[1] == "crds" {
+			return crdBundle, nil
+		}
+		if name != "helm" {
+			t.Fatalf("unexpected command %s", name)
+		}
+		upgradeCalls++
+		revision++
+		if upgradeCalls == 1 {
+			seedStagedRelease(t, clients, source, target, plan.Namespace, plan.Release, revision, crdObjects)
+		} else {
+			seedInstalledRelease(t, clients, target, plan.Namespace, plan.Release, revision, crdObjects)
+		}
+		return nil, nil
+	}
+	if err = ApplyInstallPlan(ctx, clients, runner, plan, plan.PlanID); err != nil {
+		t.Fatal(err)
+	}
+	if upgradeCalls != 2 {
+		t.Fatalf("class-withdrawn recovery ran %d Helm upgrades, want stage and activation", upgradeCalls)
 	}
 }
 
@@ -711,6 +947,21 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 		}
 	} else {
 		t.Fatal(getErr)
+	}
+}
+
+func seedStagedRelease(t *testing.T, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest, namespace, release string, revision int64, crds []*apiextensionsv1.CustomResourceDefinition) {
+	t.Helper()
+	seedInstalledRelease(t, clients, target, namespace, release, revision, crds)
+	reference := source.Images["waycloak-node-agent"]
+	agent, err := clients.Kubernetes.AppsV1().DaemonSets(namespace).Get(context.Background(), chartFullname(release)+"-node-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.Spec.Template.Spec.Containers[0].Image = reference
+	agent.Spec.Template.Spec.Containers[0].Args = []string{"--release-version=" + source.Version, "--release-manifest-digest=" + source.ManifestDigest}
+	if _, err = clients.Kubernetes.AppsV1().DaemonSets(namespace).Update(context.Background(), agent, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -550,6 +550,7 @@ apply_exact_transition() {
   local plan_path="$work_dir/install-plan-${label}.json"
   local expected_digest current_version before_revision after_revision plan_id
   local before_ca before_tls after_ca after_tls before_class_uid after_class_uid receipt_ready
+  local helm_wrapper_dir stage_marker interrupted_pid startup_denied pod_name doctor_degraded
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
   current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -591,7 +592,152 @@ apply_exact_transition() {
     --selector owner=helm,name="$release_name",status=deployed -o json | \
     jq -r '.items[0].metadata.labels.version')" = "$before_revision"
 
-  "$work_dir/waycloakctl" install apply --plan "$plan_path" --confirm "$plan_id"
+  helm_wrapper_dir="$work_dir/helm-wrapper-${label}"
+  stage_marker="$work_dir/stage-complete-${label}"
+  mkdir -p "$helm_wrapper_dir"
+  cat >"$helm_wrapper_dir/helm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *"node-agent-transition-hold.yaml"* ]]; then
+  "$WAYCLOAK_REAL_HELM" "$@"
+  : >"$WAYCLOAK_STAGE_MARKER"
+  while true; do sleep 1; done
+fi
+exec "$WAYCLOAK_REAL_HELM" "$@"
+EOF
+  chmod 0755 "$helm_wrapper_dir/helm"
+  setsid env \
+    PATH="$helm_wrapper_dir:$PATH" \
+    WAYCLOAK_REAL_HELM="$(command -v helm)" \
+    WAYCLOAK_STAGE_MARKER="$stage_marker" \
+    "$work_dir/waycloakctl" install apply --plan "$plan_path" --confirm "$plan_id" \
+    >"$work_dir/interrupted-${label}.log" 2>&1 &
+  interrupted_pid="$!"
+  for _ in $(seq 1 600); do
+    if [[ -f "$stage_marker" ]]; then
+      break
+    fi
+    if ! kill -0 "$interrupted_pid" 2>/dev/null; then
+      wait "$interrupted_pid" || true
+      cat "$work_dir/interrupted-${label}.log" >&2
+      printf '%s transition exited before its staged interruption checkpoint\n' "$label" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  if [[ ! -f "$stage_marker" ]]; then
+    kill -TERM -- "-$interrupted_pid" 2>/dev/null || true
+    wait "$interrupted_pid" || true
+    printf '%s transition did not reach its staged interruption checkpoint\n' "$label" >&2
+    return 1
+  fi
+  kill -TERM -- "-$interrupted_pid"
+  if wait "$interrupted_pid"; then
+    printf '%s interrupted transition unexpectedly returned success\n' "$label" >&2
+    return 1
+  fi
+
+  kubectl get configmap "${release_name}-release-transition" \
+    --namespace "$system_namespace" -o json | \
+    jq -e --arg release "$release_name" --arg plan "$plan_id" '
+      .immutable == true and
+      .metadata.annotations["install.waycloak.io/release"] == $release and
+      .metadata.annotations["install.waycloak.io/transition-plan-id"] == $plan and
+      (.data["plan.json"] | fromjson | .planID) == $plan
+    ' >/dev/null
+  "$work_dir/waycloakctl" install plan \
+    --release-manifest "$manifest_path" \
+    --namespace "$system_namespace" \
+    --release "$release_name" \
+    --output json >"$work_dir/recovered-plan-${label}.json"
+  test "$(jq -S . "$plan_path")" = "$(jq -S . "$work_dir/recovered-plan-${label}.json")"
+
+  doctor_degraded=false
+  for _ in $(seq 1 60); do
+    if ! "$work_dir/waycloakctl" doctor --output json \
+      >"$work_dir/doctor-interrupted-${label}.json" 2>/dev/null && \
+      jq -e '.healthy == false and (.problems | length) > 0' \
+        "$work_dir/doctor-interrupted-${label}.json" >/dev/null; then
+      doctor_degraded=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$doctor_degraded" != true ]]; then
+    cat "$work_dir/doctor-interrupted-${label}.json" >&2 || true
+    printf '%s interrupted transition retained stale healthy state\n' "$label" >&2
+    return 1
+  fi
+
+  pod_name="${label}-interrupted-probe"
+  cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${pod_name}
+  namespace: ${smoke_namespace}
+  labels:
+    networking.waycloak.io/egress-route: transition-guard
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: ${probe_ref}
+      env:
+        - name: PROBE_URL
+          value: ${probe_url}
+        - name: PROBE_CA_FILE
+          value: /observer-ca/ca.crt
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        - name: observer-ca
+          mountPath: /observer-ca
+          readOnly: true
+  volumes:
+    - name: observer-ca
+      configMap:
+        name: observer-ca
+EOF
+  startup_denied=false
+  for _ in $(seq 1 45); do
+    if [[ "$(kubectl get pod "$pod_name" --namespace "$smoke_namespace" -o json | \
+      jq '[.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length')" != "0" ]]; then
+      printf '%s application container started during an interrupted release transition\n' "$label" >&2
+      return 1
+    fi
+    if kubectl get events --namespace "$smoke_namespace" \
+      --field-selector "involvedObject.kind=Pod,involvedObject.name=${pod_name}" -o json | \
+      jq -e '.items[] | select(.reason == "FailedCreatePodSandBox" or .reason == "FailedScheduling")' >/dev/null; then
+      startup_denied=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$startup_denied" != true ]]; then
+    kubectl describe pod "$pod_name" --namespace "$smoke_namespace" >&2 || true
+    printf '%s did not produce observable fail-closed startup denial\n' "$label" >&2
+    return 1
+  fi
+  kubectl get pod "$pod_name" --namespace "$smoke_namespace" -o json | \
+    jq -e '((.status.podIP // "") | length) == 0 and
+      ([.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length) == 0' >/dev/null
+  kubectl delete pod "$pod_name" --namespace "$smoke_namespace" --wait=true --timeout=2m
+
+  "$work_dir/waycloakctl" install apply \
+    --plan "$work_dir/recovered-plan-${label}.json" \
+    --confirm "$plan_id"
+  if kubectl get configmap "${release_name}-release-transition" \
+    --namespace "$system_namespace" >/dev/null 2>&1; then
+    printf '%s completed transition retained its lifecycle journal\n' "$label" >&2
+    return 1
+  fi
   kubectl rollout status deployment/waycloak-controller \
     --namespace "$system_namespace" --timeout=2m
   kubectl rollout status daemonset/waycloak-cni-installer \
@@ -663,10 +809,29 @@ apply_exact_transition() {
 }
 
 run_disruptive_verify baseline
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNEgressRoute
+metadata:
+  name: transition-guard
+  namespace: ${smoke_namespace}
+spec:
+  parentRefs:
+    - group: networking.waycloak.io
+      kind: VPNGateway
+      namespace: ${smoke_namespace}
+      name: disposable
+  requiredFeatures:
+    - networking.waycloak.io/TCP
+EOF
+kubectl wait vpnegressroute/transition-guard --namespace "$smoke_namespace" \
+  --for=condition=Ready --timeout=2m
 apply_exact_transition forward "$work_dir/release-manifest.json" "$release_version"
 run_disruptive_verify forward
 apply_exact_transition rollback "$work_dir/baseline-release-manifest.json" "$baseline_release_version"
 run_disruptive_verify rollback
+kubectl delete vpnegressroute/transition-guard --namespace "$smoke_namespace" \
+  --wait=true --timeout=2m
 
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.waycloak.io/v1beta1

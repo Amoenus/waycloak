@@ -36,6 +36,14 @@ OCI digest, and repeats the installed-release observation before any namespace,
 Secret, Helm, or CNI mutation. Any difference from the reviewed source refuses
 the transition.
 
+Before withdrawing the immutable class, apply creates one immutable,
+release-scoped lifecycle ConfigMap containing the reviewed non-sensitive plan.
+The journal binds its annotation and embedded plan to the same exact plan ID;
+it contains no Secret value, private key, credential, endpoint, allocation, or
+runtime observation. A foreign, mutable, malformed, differently targeted, or
+unaccompanied journal is not recovery authority. The journal is deleted with a
+UID precondition only after exact target postconditions pass.
+
 The initial beta lifecycle row permits only an identical `v1beta1` CRD spec
 inventory. Helm is not represented as a CRD upgrader. A changed schema, served
 version, storage version, or conversion boundary requires a separate explicit
@@ -80,6 +88,24 @@ bypasses the public CNI readiness gate so backend readiness does not depend on
 itself. Public ADD/CHECK remain rejected until reconciliation succeeds and a
 second report publishes the live target capability.
 
+An interrupted CLI may resume only the original confirmed plan. Planning
+returns that exact journaled plan when the requested verified manifest and
+current preflight still match. Apply recognizes four states:
+
+1. the exact reviewed source;
+2. that source with only the exact class UID already absent;
+3. one newer staged Helm revision with the target controller, CNI, pause,
+   gateway images, and class but the exact source node agent; or
+4. the fully activated exact target.
+
+Completed mutations are skipped. The staged state is verified before target
+node-agent activation, and an already completed target is retry-idempotent.
+Any other image/version mix, changed certificate or CRD, ambiguous deployed
+Helm revision, missing journal, changed target, or changed cluster observation
+is refused while the installed deny path remains authoritative. A Helm release
+left in a pending/corrupt state is deliberately outside these checkpoints and
+requires a separate explicit repair plan; recovery never guesses through it.
+
 Gateway activation remains explicit. After the controller, CNI installer, and
 node agent report the target release, the operator activates each singleton
 gateway one at a time during a declared fail-closed window and verifies a fresh
@@ -98,8 +124,11 @@ ordinary-egress fallback.
   stable class name; attachment recovers only after the target class is live.
 - CRD evolution remains unavailable until its storage migration is designed
   and tested explicitly.
-- Interrupted Helm transitions and distribution datastore snapshots remain
-  additional issue #32 certification rows.
+- Exact class-withdrawn and post-staging CLI interruptions are resumable without
+  repeating completed mutations. Pending/corrupt Helm operations remain an
+  explicit repair boundary.
+- Certificate rotation and distribution datastore snapshots remain additional
+  issue #32 certification rows.
 
 ## Alternatives rejected
 
