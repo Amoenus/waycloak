@@ -11,7 +11,8 @@ readonly token_file="$root/server-token"
 readonly snapshot_path_file="$root/snapshot-path"
 readonly cni_digest_file="$root/cni-state.sha256"
 readonly cni_state_dir=/var/lib/cni/waycloak-e2e
-readonly kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig
+readonly server_kubeconfig="$root/kubeconfig"
+readonly client_kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig
 readonly unit_name=waycloak-k3s-dr.service
 readonly unit_file="/etc/systemd/system/$unit_name"
 
@@ -28,7 +29,7 @@ require_root() {
 
 wait_for_cluster() {
   local deadline=$((SECONDS + 180))
-  until KUBECONFIG="$kubeconfig" kubectl get --raw=/readyz >/dev/null 2>&1; do
+  until KUBECONFIG="$server_kubeconfig" kubectl get --raw=/readyz >/dev/null 2>&1; do
     if (( SECONDS >= deadline )); then
       journalctl --unit "$unit_name" --no-pager --lines 200 >&2 || true
       echo "K3s API did not become ready" >&2
@@ -36,7 +37,16 @@ wait_for_cluster() {
     fi
     sleep 2
   done
-  KUBECONFIG="$kubeconfig" kubectl wait --for=condition=Ready node --all --timeout=180s
+  KUBECONFIG="$server_kubeconfig" kubectl wait --for=condition=Ready node --all --timeout=180s
+}
+
+publish_client_kubeconfig() {
+  test -s "$server_kubeconfig"
+  if [[ -z "${SUDO_UID:-}" || -z "${SUDO_GID:-}" ]]; then
+    echo "runner identity is unavailable for the client kubeconfig" >&2
+    exit 1
+  fi
+  install -m 0600 -o "$SUDO_UID" -g "$SUDO_GID" "$server_kubeconfig" "$client_kubeconfig"
 }
 
 write_cni_digest() {
@@ -55,7 +65,7 @@ write_cni_digest() {
 setup() {
   command -v k3s >/dev/null
   command -v kubectl >/dev/null
-  if [[ -e "$root" || -e "$unit_file" || -e "$kubeconfig" ]]; then
+  if [[ -e "$root" || -e "$unit_file" || -e "$client_kubeconfig" ]]; then
     echo "refusing non-empty K3s recovery fixture paths" >&2
     exit 1
   fi
@@ -75,7 +85,7 @@ Wants=network-online.target
 [Service]
 Type=notify
 Environment=K3S_TOKEN_FILE=$token_file
-ExecStart=/usr/local/bin/k3s server --cluster-init --data-dir=$data_dir --write-kubeconfig=$kubeconfig --write-kubeconfig-mode=0600 --etcd-snapshot-dir=$snapshot_dir --disable=traefik --disable=servicelb
+ExecStart=/usr/local/bin/k3s server --cluster-init --data-dir=$data_dir --write-kubeconfig=$server_kubeconfig --write-kubeconfig-mode=0600 --etcd-snapshot-dir=$snapshot_dir --disable=traefik --disable=servicelb
 KillMode=process
 Delegate=yes
 LimitNOFILE=1048576
@@ -92,9 +102,7 @@ EOF
   systemctl daemon-reload
   systemctl start "$unit_name"
   wait_for_cluster
-  if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
-    chown "$SUDO_UID:$SUDO_GID" "$kubeconfig"
-  fi
+  publish_client_kubeconfig
 }
 
 snapshot() {
@@ -165,6 +173,7 @@ restore() {
     exit 1
   fi
   wait_for_cluster
+  publish_client_kubeconfig
   if [[ -e "$data_dir/server/db/reset-flag" ]]; then
     echo "ordinary K3s restart did not consume the one-shot reset flag" >&2
     exit 1
@@ -188,7 +197,7 @@ cleanup() {
   if [[ -d "$root" ]]; then
     rm -rf --one-file-system "$root"
   fi
-  rm -f "$kubeconfig"
+  rm -f "$client_kubeconfig"
 }
 
 require_root
