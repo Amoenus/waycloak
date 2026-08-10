@@ -524,8 +524,8 @@ jobs:
           WAYCLOAK_E2E_CNI_CONFIG_DIR: /var/lib/waycloak-k3s-dr/data/agent/etc/cni/net.d
           WAYCLOAK_E2E_CNI_CONFIG_NAME: 10-flannel.conflist
           WAYCLOAK_E2E_CNI_BIN_DIR: /var/lib/waycloak-k3s-dr/data/data/cni
-          WAYCLOAK_E2E_CNI_SNAPSHOT_COMMAND: sudo hack/ci/k3s-datastore-dr.sh snapshot
-          WAYCLOAK_E2E_CNI_RESTORE_COMMAND: sudo hack/ci/k3s-datastore-dr.sh restore
+          WAYCLOAK_E2E_CNI_SNAPSHOT_COMMAND: sudo ${{ github.workspace }}/hack/ci/k3s-datastore-dr.sh snapshot
+          WAYCLOAK_E2E_CNI_RESTORE_COMMAND: sudo ${{ github.workspace }}/hack/ci/k3s-datastore-dr.sh restore
         run: |
           node_name="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
           WAYCLOAK_E2E_CNI_NODE="$node_name" \
