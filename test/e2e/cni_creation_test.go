@@ -291,7 +291,12 @@ func runDatastoreRecoveryProof(
 			freshCondition(wayv1.ConditionNodeReady, metav1.ConditionTrue, wayv1.ReasonNodeReady, binding.Generation, observedAt),
 		},
 	}
-	must(t, direct.Status().Update(ctx, binding))
+	statusApply := &wayv1.VPNWorkloadBinding{
+		TypeMeta:   binding.TypeMeta,
+		ObjectMeta: metav1.ObjectMeta{Name: binding.Name, Namespace: binding.Namespace},
+		Status:     binding.Status,
+	}
+	must(t, direct.Status().Patch(ctx, statusApply, client.Apply, client.FieldOwner(wayv1.FieldManagerBindingController)))
 	expected := restoredIdentities{
 		NamespaceUID: string(currentNamespace.UID), PodUID: string(currentPod.UID), BindingUID: string(binding.UID),
 	}
