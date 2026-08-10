@@ -101,13 +101,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   verification. Continue with beta CRD lifecycle, upgrade/rollback, #32 DR,
   #33 observability, uninstall/purge, and support-row evidence.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
-  rollback (#175), and journal-bound staged interruption recovery (#176) are
-  merged with exact hosted evidence. The current slice adds explicit
-  confirmation-bound observation-certificate rotation, old/new overlap,
-  non-ready authenticated capability holds, dynamic serving reload, every
-  exact interruption checkpoint, and hosted overlap/server-switch failures.
-  Pending/corrupt Helm repair and supported distribution snapshots remain;
-  coherent UID preservation is distribution-snapshot-only.
+  rollback (#175), journal-bound staged interruption recovery (#176), and
+  observation-certificate rotation (#177) are merged with exact hosted
+  evidence. The current slice adds a separate confirmation-bound repair for one
+  exact newer `pending-upgrade`/`failed` Helm Secret, immutable pre-deletion
+  evidence, UID-preconditioned cleanup, and original-checkpoint resume without
+  rewriting Helm storage or invoking opaque rollback. Supported distribution
+  snapshots remain; coherent UID preservation is distribution-snapshot-only.
 - [ ] #33 and #141: proceed after their declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline

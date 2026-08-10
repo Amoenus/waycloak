@@ -894,7 +894,7 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 	helmSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 		Name: "sh.helm.release.v1." + release + ".v" + strconv.FormatInt(revision, 10), Namespace: namespace,
 		Labels: map[string]string{"owner": "helm", "name": release, "status": "deployed", "version": strconv.FormatInt(revision, 10)},
-	}}
+	}, Type: corev1.SecretType("helm.sh/release.v1"), Data: map[string][]byte{"release": []byte("opaque-test-release-record")}}
 	if _, err = clients.Kubernetes.CoreV1().Secrets(namespace).Create(ctx, helmSecret, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}

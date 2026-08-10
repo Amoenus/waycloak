@@ -228,6 +228,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if err := ensureNoCertificateRotation(ctx, clients, plan.Namespace, plan.Release); err != nil {
 		return err
 	}
+	if err := ensureNoInstallRepair(ctx, clients, plan.Namespace, plan.Release); err != nil {
+		return err
+	}
 	current, err := Preflight(ctx, clients, plan.OverlayCIDR)
 	if err != nil {
 		return fmt.Errorf("re-run preflight before mutation: %w", err)
@@ -258,6 +261,10 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		}
 		return nil
 	}
+	return applyInstallPlanAtCheckpoint(ctx, clients, runner, plan, targetCRDs, checkpoint)
+}
+
+func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner func(context.Context, string, ...string) ([]byte, error), plan InstallPlan, targetCRDs map[string]string, checkpoint string) error {
 	if err := validateInstallCRDTransition(plan.Source, targetCRDs); err != nil {
 		return err
 	}
