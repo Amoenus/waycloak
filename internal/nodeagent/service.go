@@ -439,14 +439,15 @@ func (s *Service) reconcileAttachmentGroup(ctx context.Context, attachments []wa
 		return errors.Join(errors.New("durable attachment binding was revoked or replaced"), readErr, lockErr)
 	}
 	requested := bindingReference(binding)
+	var programErr error
 	if current.BindingGeneration != requested.Generation {
-		readErr = s.prepare(ctx, current.Pod, requested)
+		programErr = s.prepare(ctx, current.Pod, requested)
 	} else {
-		readErr = s.check(ctx, current.Pod, requested)
+		programErr = s.check(ctx, current.Pod, requested)
 	}
-	if readErr != nil {
+	if programErr != nil {
 		s.observe(binding, false)
-		return readErr
+		return programErr
 	}
 	if current.BindingGeneration != requested.Generation {
 		current.BindingGeneration = requested.Generation
