@@ -142,7 +142,7 @@ func inputNames(gateway *wayv1.VPNGateway) (string, string, error) {
 func validateEngineConfig(data map[string]string) error {
 	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE"} {
 		if _, exists := data[key]; exists {
-			return errors.New("Gluetun control authentication is release-owned")
+			return errors.New("gluetun control authentication is release-owned")
 		}
 	}
 	return nil
