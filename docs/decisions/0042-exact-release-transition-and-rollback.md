@@ -67,6 +67,17 @@ the exact target identity. During this bounded class gap, gateways and enrolled
 workloads remain unavailable behind the installed CNI deny path. The lifecycle
 must never weaken class immutability or edit the old object in place.
 
+The chart refuses a connected Helm render when the live default class has a
+different exact release identity. That refusal occurs before Helm stores a new
+revision or applies any executable component; only the journal-bound lifecycle
+may first withdraw the reviewed UID. Argo CD renders without cluster-backed
+`lookup`, so the class carries an early sync wave: a raw GitOps release change
+fails on the immutable class before controller, CNI, or node-agent resources
+advance. The supported GitOps handoff records the desired exact release, keeps
+automatic runtime sync suspended, executes the reviewed `waycloakctl`
+transition, then lets Argo verify/converge the already matching target. Argo is
+not a release-transition authority or a runtime dependency.
+
 Forward transition and rollback use the same confirmation-gated plan/apply
 boundary with different independently verified target manifests. An existing
 release never executes the controller-only clean-install bootstrap revision.
@@ -181,6 +192,9 @@ install/certificate operation is refused while the installed deny path remains.
   installed, and existing releases never temporarily disable node enforcement.
 - Every changed release receives a new immutable gateway-class UID at the same
   stable class name; attachment recovers only after the target class is live.
+- Raw Helm and Argo release changes stop before creating a mixed-release
+  runtime; GitOps convergence follows, rather than replaces, the reviewed
+  transition transaction.
 - CRD evolution remains unavailable until its storage migration is designed
   and tested explicitly.
 - Exact class-withdrawn and post-staging CLI interruptions are resumable without

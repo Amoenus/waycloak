@@ -13,6 +13,13 @@ class only from an exact release version and `sha256` manifest digest supplied
 by the verified install plan. The development defaults do not invent a release
 identity. Gateway manifests contain no Waycloak image digest.
 
+An existing default class with another exact release identity makes a connected
+Helm render fail before mutation. Argo CD cannot use Helm's cluster-backed
+lookup, so the class has an earlier sync wave and a raw release sync fails on
+that immutable object before executable components advance. Perform upgrades
+and rollbacks with reviewed `waycloakctl install plan/apply`, then let GitOps
+converge the already matching target; never manually delete or mutate the class.
+
 It does not render the alpha controller, mutation webhooks, sidecars, init
 containers, allocation ConfigMaps, alpha CRDs, or any compatibility bridge.
 Install through a signed `waycloakctl` exact-artifact plan: development values

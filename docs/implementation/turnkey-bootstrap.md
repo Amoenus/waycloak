@@ -130,6 +130,14 @@ immutable gateway-class UID at its stable name, preserve observation trust
 identity, execute the two-revision CNI/agent transition, and verify the exact
 target runtime after Helm completes. The class replacement and transition
 windows remain fail closed behind the installed CNI deny path.
+Connected Helm rendering refuses a changed live class identity before any
+release mutation. Argo CD's offline render cannot perform that lookup, so the
+class is assigned an earlier sync wave and a direct sync stops on immutable
+class application before runtime components advance. For GitOps, commit the
+reviewed target while automatic runtime sync is suspended, execute the exact
+`waycloakctl install plan/apply` transition, and only then sync Argo to confirm
+the already matching target. Do not delete the class manually or use Argo as
+the transition executor.
 Every lifecycle Helm mutation uses explicit server-side apply and
 `--force-conflicts`. The reviewed plan therefore authorizes Waycloak's Helm
 field manager to reclaim only fields rendered by that exact chart and values
