@@ -13,7 +13,7 @@ readonly cni_digest_file="$root/cni-state.sha256"
 readonly cni_state_dir=/var/lib/cni/waycloak-e2e
 readonly server_kubeconfig="$root/kubeconfig"
 readonly client_kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig
-readonly runtime_endpoint="unix://$data_dir/agent/containerd/containerd.sock"
+readonly runtime_endpoint=unix:///run/k3s/containerd/containerd.sock
 readonly unit_name=waycloak-k3s-dr.service
 readonly unit_file="/etc/systemd/system/$unit_name"
 
