@@ -371,8 +371,12 @@ func runDatastoreRecoveryProof(
 		t.Fatalf("CHECK stopped failing closed after coherent datastore restore: %s", output)
 	}
 	_, restoredStatePath, restoredState := readRemoteAttachment(t, namespace, installerPod.Name)
-	if path.Base(restoredStatePath) != path.Base(statePath) || !json.Valid(restoredState) || !json.Valid(stateData) {
-		t.Fatalf("durable CNI attachment identity was lost across restore: before=%q after=%q", statePath, restoredStatePath)
+	var restoredAttachment waycni.Attachment
+	if !json.Valid(restoredState) || !json.Valid(stateData) || json.Unmarshal(restoredState, &restoredAttachment) != nil || restoredAttachment.Validate() != nil {
+		t.Fatalf("restored CNI attachment state is invalid: before=%q after=%q", statePath, restoredStatePath)
+	}
+	if restoredAttachment.Network != attachment.Network || restoredAttachment.Pod.UID != attachment.Pod.UID {
+		t.Fatalf("durable CNI Pod identity was lost across restore: before=%#v after=%#v", attachment.Pod, restoredAttachment.Pod)
 	}
 	waitForSandboxFailure(t, direct, &restoredPod, 60*time.Second)
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(&restoredPod), &restoredPod))
