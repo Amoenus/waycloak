@@ -252,9 +252,9 @@ func installExitRules() error {
 	return nil
 }
 
-// installGatewayFirewallBase models the Gluetun-owned deny-first chains that
-// the gateway agent must extend. Only loopback is accepted by the fixture;
-// Waycloak owns its marker-tagged overlay health, DNS, and forwarding exceptions.
+// installGatewayFirewallBase models the Gluetun-owned table and chain names the
+// gateway agent must extend. Privileged packet E2E owns the base-hook DROP-policy
+// proof; this turnkey fixture owns exact-artifact installation and recovery.
 func installGatewayFirewallBase() error {
 	connection := &nftables.Conn{}
 	tables, err := connection.ListTablesOfFamily(nftables.TableFamilyIPv4)
@@ -267,15 +267,8 @@ func installGatewayFirewallBase() error {
 		}
 	}
 	table := connection.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: gatewayTableName})
-	policy := nftables.ChainPolicyDrop
-	input := connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
-	connection.AddChain(&nftables.Chain{Table: table, Name: "FORWARD", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
-	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(inputInterface("lo"), &expr.Verdict{Kind: expr.VerdictAccept})})
-	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: []expr.Any{
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: netip.MustParseAddr("127.0.0.1").AsSlice()},
-		&expr.Verdict{Kind: expr.VerdictAccept},
-	}})
+	connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT"})
+	connection.AddChain(&nftables.Chain{Table: table, Name: "FORWARD"})
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install fixture gateway firewall: %w", err)
 	}
@@ -328,10 +321,6 @@ func prefixToIPNet(prefix netip.Prefix) *net.IPNet {
 
 func interfacePair(input, output string) []expr.Any {
 	return []expr.Any{&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(input)}, &expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(output)}}
-}
-
-func inputInterface(input string) []expr.Any {
-	return []expr.Any{&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(input)}}
 }
 
 func established() []expr.Any {
