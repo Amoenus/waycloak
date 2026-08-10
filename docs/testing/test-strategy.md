@@ -92,6 +92,12 @@ Mandatory scenarios:
 17. class deletion, foreign-controller claims, unsupported features, and
     credential-reference loss produce stable conditions before any data-plane
     object or address is published.
+18. a Gluetun-like priority-99 overlay policy route and default-drop
+    `INPUT`/`FORWARD` chains are present in the privileged gateway fixture;
+    Waycloak must win the overlay return path, admit only its health/DNS and
+    overlay-to-tunnel traffic, preserve handles on a no-op reconcile, remove
+    permission on tunnel loss, and repair an engine firewall reset before
+    readiness returns.
 
 ### Port-forward tests
 

@@ -149,7 +149,13 @@ leaves the ordinary CNI default route usable.
 programming; the agent never removes denial to make progress; readiness requires
 live end-to-end observation; every missing, unauthorized, unsupported, stale,
 or unknown state is denied. Packet tests cover TCP, UDP, DNS UDP/TCP, fragments,
-startup/teardown races, and component restarts.
+startup/teardown races, and component restarts. At the gateway, an owned policy
+rule precedes Gluetun's outbound-subnet routing for overlay returns, while the
+credential-free gateway agent reconciles marker-owned allowances for only
+overlay health, gateway DNS, overlay-to-tunnel forwarding, and established
+returns inside Gluetun's default-drop chains. Missing or reset engine rules
+therefore withdraw readiness and traffic until exact repair; they never open an
+ordinary gateway path.
 
 ### Compromised application Pod
 

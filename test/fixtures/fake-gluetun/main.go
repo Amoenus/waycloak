@@ -31,11 +31,12 @@ import (
 )
 
 const (
-	ownedAlias      = "waycloak:disposable-wireguard-fixture"
-	exitTableName   = "waycloak_test_wg_exit"
-	gatewayRouteTab = 51821
-	fixtureOverlay  = "100.96.0.0/16"
-	ipv4Forwarding  = "/proc/sys/net/ipv4/ip_forward"
+	ownedAlias       = "waycloak:disposable-wireguard-fixture"
+	exitTableName    = "waycloak_test_wg_exit"
+	gatewayTableName = "filter"
+	gatewayRouteTab  = 51821
+	fixtureOverlay   = "100.96.0.0/16"
+	ipv4Forwarding   = "/proc/sys/net/ipv4/ip_forward"
 )
 
 func main() {
@@ -99,6 +100,9 @@ func runGateway(ctx context.Context) error {
 		return err
 	}
 	if err := installGatewayRoute(overlay.Masked()); err != nil {
+		return err
+	}
+	if err := installGatewayFirewallBase(); err != nil {
 		return err
 	}
 	return serveObservation(ctx)
@@ -244,6 +248,29 @@ func installExitRules() error {
 	connection.AddRule(&nftables.Rule{Table: table, Chain: postrouting, Exprs: append(interfacePair("wg0", "eth0"), &expr.Masq{})})
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install fixture exit policy: %w", err)
+	}
+	return nil
+}
+
+// installGatewayFirewallBase models the Gluetun-owned table and chain names the
+// gateway agent must extend. Privileged packet E2E owns the base-hook DROP-policy
+// proof; this turnkey fixture owns exact-artifact installation and recovery.
+func installGatewayFirewallBase() error {
+	connection := &nftables.Conn{}
+	tables, err := connection.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
+		if table.Name == gatewayTableName {
+			connection.DelTable(table)
+		}
+	}
+	table := connection.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: gatewayTableName})
+	connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT"})
+	connection.AddChain(&nftables.Chain{Table: table, Name: "FORWARD"})
+	if err := connection.Flush(); err != nil {
+		return fmt.Errorf("install fixture gateway firewall: %w", err)
 	}
 	return nil
 }

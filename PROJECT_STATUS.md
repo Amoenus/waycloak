@@ -196,6 +196,18 @@ replacement, protected application startup denial during loss, recovery, and
 owned-object cleanup. The fixture uses runtime-generated keys and certificates
 and is not a supported provider. Issue #138 remains open for the under-15-minute
 supported real-provider journey.
+
+Issue #188 is in progress after the live Core.13 qBittorrent canary proved a
+gateway-engine coexistence defect. Chained CNI correctly kept the sandbox
+without an IP and prevented both application containers from starting, but
+Gluetun's priority-99 `FIREWALL_OUTBOUND_SUBNETS` rule selected `eth0` ahead of
+Waycloak's overlay return path and its default-drop `INPUT`/`FORWARD` chains
+lacked narrow `waycloak0` allowances. Exact temporary health/DNS, overlay-to-
+tunnel, established-return, and priority-90 return-path rules allowed the next
+CNI `ADD` to succeed with no direct-egress fallback. The permanent slice makes
+those rules marker-owned, fail-closed, drift-reconciled, and no-op stable before
+the canary can count as release evidence.
+
 The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and
 verifying checksums, both keyless Sigstore bundles, the signing workflow
