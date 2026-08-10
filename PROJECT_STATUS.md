@@ -289,19 +289,33 @@ edge: a prior binding generation was rejected as a whole-report authorization
 failure, preventing the post-handshake drift loop from adopting current gateway
 intent. Older observations for the same binding UID, Pod UID, and node are now
 non-mutating no-ops; mismatched or future identity remains rejected.
-The next #32 slice implements exact staged-interruption recovery. Before class
+The third #32 slice implements exact staged-interruption recovery. Before class
 withdrawal, apply creates one immutable, non-sensitive release lifecycle
 journal containing the reviewed plan and plan ID. Re-planning the same verified
 target returns that exact plan. Apply resumes only the reviewed source with its
 class withdrawn, the newer target controller/CNI/class revision retaining the
 exact source agent, or the completed exact target; missing/foreign journals,
 different targets, ambiguous Helm state, image skew, and trust/CRD/preflight
-drift are refused. Local full unit, focused race, vet, shell syntax, and
-ShellCheck gates pass. The hosted Kind gate now interrupts the real CLI after
-successful staging in both forward and rollback directions and must still pass
-before this slice can merge. Pending/corrupt Helm repair, explicit certificate
-rotation, and supported distribution datastore-snapshot drills remain open #32
-work.
+drift are refused. PR #176 merged with exact green run `31347967874`; the hosted
+Kind gate interrupted the real CLI after successful staging in both forward and
+rollback directions, proved degraded health and no enrolled application
+startup/Pod IP, and resumed without repeating staging.
+
+The fourth #32 slice now implements explicit observation-relay certificate
+rotation. `certificate rotation plan/apply` binds the exact deployed release,
+preflight, stable Secret UIDs/public digests, and a durable node-agent rotation
+identity. Confirmation precedes private-key generation; the key exists only in
+an immutable staged Secret and the non-sensitive immutable journal contains
+only its UID and public digests. The controller reloads and validates its
+projected pair for every TLS handshake. Rotation publishes bounded old/new
+trust, keeps Core-ready scheduling withdrawn through a node-agent capability
+hold, records fresh authenticated non-ready observations through the switched
+server and new-only trust, then restores live capability and removes old/staged
+material. Unit coverage enumerates every partial Secret/agent checkpoint,
+tamper, bundle, cleanup, and later-release carry-forward boundary. Hosted Kind
+now injects deterministic serving-switch and trust-prune failures and remains
+the merge gate. Pending/corrupt Helm repair and supported distribution
+datastore-snapshot drills remain open #32 work.
 
 Fresh homelab preparation is paused before mutation: its recorded Kubernetes
 API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed

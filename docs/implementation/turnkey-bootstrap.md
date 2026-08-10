@@ -184,8 +184,14 @@ requires an immutable exact-plan journal and degraded doctor report, proves an
 enrolled application container never starts and receives no Pod IP, re-plans to
 the identical plan ID, and resumes without repeating staging. This proves the
 supported identical-schema beta row and exact staged-interruption recovery;
-explicit certificate rotation and distribution snapshots remain separate issue
-#32 evidence.
+the same gate now uses admission fault injection to stop an explicit observation
+certificate rotation after overlap and after serving-key switch. At both
+checkpoints the immutable plan/journal recovers exactly, held agents prove an
+authenticated TLS observation without publishing Core-ready scheduling, and an
+enrolled Pod receives no container or Pod IP. Completion preserves stable
+Secret UIDs, removes old trust and staged private state, and carries the new
+rotation identity into later release plans. Distribution snapshots remain
+separate issue #32 evidence.
 
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.

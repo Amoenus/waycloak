@@ -43,11 +43,82 @@ func Run(ctx context.Context, arguments []string, dependencies Dependencies) err
 		return runAlphaPurge(ctx, arguments[1:], dependencies)
 	case "state":
 		return runState(ctx, arguments[1:], dependencies)
+	case "certificate":
+		return runCertificate(ctx, arguments[1:], dependencies)
 	case "version":
 		_, err := fmt.Fprintln(dependencies.Stdout, Version)
 		return err
 	default:
 		return usage(dependencies.Stderr)
+	}
+}
+
+func runCertificate(ctx context.Context, arguments []string, dependencies Dependencies) error {
+	if len(arguments) < 2 || arguments[0] != "rotation" {
+		return errors.New("certificate requires rotation plan or rotation apply")
+	}
+	switch arguments[1] {
+	case "plan":
+		flags := flag.NewFlagSet("certificate rotation plan", flag.ContinueOnError)
+		flags.SetOutput(dependencies.Stderr)
+		kubeconfig, contextName, output := clusterFlags(flags)
+		namespace := flags.String("namespace", "waycloak-system", "system namespace")
+		release := flags.String("release", "waycloak", "Helm release name")
+		overlay := flags.String("overlay-cidr", "100.96.0.0/16", "reviewed protected overlay CIDR")
+		if err := flags.Parse(arguments[2:]); err != nil {
+			return err
+		}
+		if *output != "json" {
+			return errors.New("certificate rotation plan output must be json")
+		}
+		clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+		if err != nil {
+			return err
+		}
+		if err := ensureNoInstallTransition(ctx, clients, *namespace, *release); err != nil {
+			return err
+		}
+		report, err := Preflight(ctx, clients, *overlay)
+		if err != nil {
+			return err
+		}
+		if active, found, err := recoverCertificateRotationPlan(ctx, clients, *namespace, *release, report); err != nil {
+			return err
+		} else if found {
+			return writeOutput(dependencies.Stdout, "json", active)
+		}
+		source, err := ObserveInstalledRelease(ctx, clients, *namespace, *release)
+		if err != nil {
+			return err
+		}
+		plan, err := BuildCertificateRotationPlan(report, source, *namespace, *release, *overlay)
+		if err != nil {
+			return err
+		}
+		if err := validateNoOrMatchingStagedCertificate(ctx, clients, plan); err != nil {
+			return err
+		}
+		return writeOutput(dependencies.Stdout, "json", plan)
+	case "apply":
+		flags := flag.NewFlagSet("certificate rotation apply", flag.ContinueOnError)
+		flags.SetOutput(dependencies.Stderr)
+		kubeconfig, contextName, _ := clusterFlags(flags)
+		planPath := flags.String("plan", "", "reviewed certificate rotation plan JSON")
+		confirmation := flags.String("confirm", "", "exact planID confirmation")
+		if err := flags.Parse(arguments[2:]); err != nil {
+			return err
+		}
+		plan, err := LoadCertificateRotationPlan(*planPath)
+		if err != nil {
+			return err
+		}
+		clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+		if err != nil {
+			return err
+		}
+		return ApplyCertificateRotationPlan(ctx, clients, plan, *confirmation)
+	default:
+		return errors.New("certificate rotation requires plan or apply")
 	}
 }
 
@@ -102,6 +173,9 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		}
 		clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
 		if err != nil {
+			return err
+		}
+		if err := ensureNoCertificateRotation(ctx, clients, *namespace, *release); err != nil {
 			return err
 		}
 		report, err := Preflight(ctx, clients, *overlay)
@@ -287,7 +361,7 @@ func writeOutput(writer io.Writer, format string, value any) error {
 }
 
 func usage(writer io.Writer) error {
-	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|state backup|state restore plan|state restore apply|version>")
+	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|certificate rotation plan|certificate rotation apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|state backup|state restore plan|state restore apply|version>")
 	return errors.New("invalid command")
 }
 

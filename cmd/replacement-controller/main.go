@@ -196,7 +196,8 @@ func main() {
 				ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
 				ConformanceProfile: wayv1.QualifiedName(conformanceProfile)},
 		}).Handler()
-		server := &http.Server{Addr: observationAddress, Handler: relay, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13}}
+		certificate := observationrelay.FileCertificate{CertFile: observationCert, KeyFile: observationKey}
+		server := &http.Server{Addr: observationAddress, Handler: relay, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certificate.GetCertificate}}
 		go serveObservations(ctx, server, observationCert, observationKey)
 	}
 	if err = manager.Start(ctx); err != nil {
@@ -212,7 +213,7 @@ func serveObservations(ctx context.Context, server *http.Server, certFile, keyFi
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	if err := server.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+	if err := server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 		ctrl.Log.Error(err, "serve authenticated node observations")
 		os.Exit(1)
 	}

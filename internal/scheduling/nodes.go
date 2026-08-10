@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	CoreReadyLabel       = "networking.waycloak.io.node-restriction.kubernetes.io/core-ready"
-	CapabilityEpochLabel = "networking.waycloak.io.node-restriction.kubernetes.io/capability-epoch"
-	FieldManager         = "waycloak-node-capability-controller"
-	DefaultFreshness     = 20 * time.Second
-	DefaultClockSkew     = time.Minute
+	CoreReadyLabel        = "networking.waycloak.io.node-restriction.kubernetes.io/core-ready"
+	CapabilityEpochLabel  = "networking.waycloak.io.node-restriction.kubernetes.io/capability-epoch"
+	ObservationEpochLabel = "networking.waycloak.io.node-restriction.kubernetes.io/observation-epoch"
+	FieldManager          = "waycloak-node-capability-controller"
+	DefaultFreshness      = 20 * time.Second
+	DefaultClockSkew      = time.Minute
 )
 
 var CoreCapabilities = []string{"dns-udp-tcp", "ipv4", "netlink", "nftables", "vxlan"}
@@ -55,17 +56,20 @@ func (p Publisher) Apply(ctx context.Context, agentPod *corev1.Pod, report nodea
 		_ = p.withdraw(ctx, report.NodeName)
 		return errors.New("node capability or immutable release identity is unsupported")
 	}
-	if !report.Ready {
-		return p.withdraw(ctx, report.NodeName)
-	}
 	if err := p.Client.Get(ctx, client.ObjectKey{Name: report.NodeName}, &corev1.Node{}); err != nil {
 		return err
 	}
-	owned := coreapply.Node(report.NodeName).WithLabels(map[string]string{
-		CoreReadyLabel: "true", CapabilityEpochLabel: strconv.FormatInt(now.Unix(), 10),
-	})
+	labels := map[string]string{ObservationEpochLabel: strconv.FormatInt(now.UnixNano(), 10)}
+	if report.Ready {
+		labels[CoreReadyLabel] = "true"
+		labels[CapabilityEpochLabel] = strconv.FormatInt(now.Unix(), 10)
+	}
+	owned := coreapply.Node(report.NodeName).WithLabels(labels)
 	if err := p.Client.Apply(ctx, owned, client.FieldOwner(FieldManager), client.ForceOwnership); err != nil {
 		return fmt.Errorf("publish authenticated node capability: %w", err)
+	}
+	if !report.Ready {
+		return p.withdraw(ctx, report.NodeName)
 	}
 	return nil
 }

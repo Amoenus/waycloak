@@ -32,6 +32,8 @@ const (
 	installInitialPlanKey      = "install.waycloak.io/initial-plan-id"
 	installTransitionPlanKey   = "install.waycloak.io/transition-plan-id"
 	installTransitionPlanData  = "plan.json"
+	observationRotationKey     = "install.waycloak.io/observation-rotation-id"
+	initialObservationRotation = "initial"
 )
 
 const (
@@ -65,28 +67,31 @@ type InstalledReleaseObservation struct {
 	ObservationTLSUID        string            `json:"observationTLSUID,omitempty"`
 	ObservationCADigest      string            `json:"observationCADigest,omitempty"`
 	ObservationServingDigest string            `json:"observationServingDigest,omitempty"`
+	ObservationRotationID    string            `json:"observationRotationID,omitempty"`
 	CRDIdentities            map[string]string `json:"crdIdentities,omitempty"`
 }
 
 type deployedReleaseComponents struct {
-	HelmRevision             int64
-	ControllerVersion        string
-	ControllerManifest       string
-	CNIVersion               string
-	CNIManifest              string
-	NodeAgentVersion         string
-	NodeAgentManifest        string
-	ClassPresent             bool
-	ClassVersion             string
-	ClassManifest            string
-	ClassUID                 string
-	ClassGeneration          int64
-	Images                   map[string]string
-	ObservationCAUID         string
-	ObservationTLSUID        string
-	ObservationCADigest      string
-	ObservationServingDigest string
-	CRDIdentities            map[string]string
+	HelmRevision              int64
+	ControllerVersion         string
+	ControllerManifest        string
+	CNIVersion                string
+	CNIManifest               string
+	NodeAgentVersion          string
+	NodeAgentManifest         string
+	ClassPresent              bool
+	ClassVersion              string
+	ClassManifest             string
+	ClassUID                  string
+	ClassGeneration           int64
+	Images                    map[string]string
+	ObservationCAUID          string
+	ObservationTLSUID         string
+	ObservationCADigest       string
+	ObservationServingDigest  string
+	ObservationRotationID     string
+	ObservationCapabilityHeld bool
+	CRDIdentities             map[string]string
 }
 
 func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, release string) (InstalledReleaseObservation, error) {
@@ -195,8 +200,19 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 	if err != nil {
 		return InstalledReleaseObservation{}, err
 	}
+	capabilityHeld, err := observationCapabilityHeld(agentContainer.Args)
+	if err != nil {
+		return InstalledReleaseObservation{}, err
+	}
+	if capabilityHeld {
+		return InstalledReleaseObservation{}, errors.New("deployed node agent retains an observation capability hold")
+	}
 	if len(cniContainer.Args) < 2 {
 		return InstalledReleaseObservation{}, errors.New("CNI installer lacks release identity arguments")
+	}
+	rotationID := agent.Spec.Template.Annotations[observationRotationKey]
+	if rotationID == "" {
+		rotationID = initialObservationRotation
 	}
 	cniVersion := cniContainer.Args[len(cniContainer.Args)-2]
 	cniManifest := cniContainer.Args[len(cniContainer.Args)-1]
@@ -223,7 +239,8 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 		Images: images, GatewayClassUID: string(class.GetUID()), GatewayClassGeneration: class.GetGeneration(),
 		ObservationCAUID: string(caSecret.UID), ObservationTLSUID: string(tlsSecret.UID),
 		ObservationCADigest: digestBytes(caSecret.Data["ca.crt"]), ObservationServingDigest: digestBytes(tlsSecret.Data["tls.crt"]),
-		CRDIdentities: crds,
+		ObservationRotationID: rotationID,
+		CRDIdentities:         crds,
 	}
 	return finalizeInstalledReleaseObservation(observation)
 }
@@ -281,10 +298,6 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 	if err := validateReleaseOwnedInstallSecret(tlsSecret, release, corev1.SecretTypeTLS); err != nil {
 		return observation, err
 	}
-	if !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
-		return observation, errors.New("transition checkpoint observation identities do not share exact trust material")
-	}
-
 	controllerContainer, err := requiredContainer(controller.Spec.Template.Spec.Containers, "controller")
 	if err != nil {
 		return observation, err
@@ -325,8 +338,16 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 	if err != nil {
 		return observation, err
 	}
+	capabilityHeld, err := observationCapabilityHeld(agentContainer.Args)
+	if err != nil {
+		return observation, err
+	}
 	if len(cniContainer.Args) < 2 {
 		return observation, errors.New("transition CNI installer lacks release identity arguments")
+	}
+	rotationID := agent.Spec.Template.Annotations[observationRotationKey]
+	if rotationID == "" {
+		rotationID = initialObservationRotation
 	}
 	cniVersion := cniContainer.Args[len(cniContainer.Args)-2]
 	cniManifest := cniContainer.Args[len(cniContainer.Args)-1]
@@ -349,7 +370,9 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 		CNIVersion: cniVersion, CNIManifest: cniManifest, NodeAgentVersion: nodeVersion, NodeAgentManifest: nodeManifest,
 		Images: images, ObservationCAUID: string(caSecret.UID), ObservationTLSUID: string(tlsSecret.UID),
 		ObservationCADigest: digestBytes(caSecret.Data["ca.crt"]), ObservationServingDigest: digestBytes(tlsSecret.Data["tls.crt"]),
-		CRDIdentities: crds,
+		ObservationRotationID:     rotationID,
+		ObservationCapabilityHeld: capabilityHeld,
+		CRDIdentities:             crds,
 	}
 	if classErr == nil {
 		observation.ClassPresent = true
@@ -376,9 +399,11 @@ func classifyInstallTransitionCheckpoint(components deployedReleaseComponents, p
 
 func exactSourceComponents(components deployedReleaseComponents, source InstalledReleaseObservation, classWithdrawn bool) bool {
 	if source.State != installStateDeployed || components.HelmRevision != source.HelmRevision ||
+		components.ObservationCapabilityHeld ||
 		components.ControllerVersion != source.Version || components.ControllerManifest != source.ManifestDigest ||
 		components.CNIVersion != source.Version || components.CNIManifest != source.ManifestDigest ||
 		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
+		components.ObservationRotationID != source.ObservationRotationID ||
 		!reflect.DeepEqual(components.Images, source.Images) || !sameTransitionTrust(components, source) ||
 		!reflect.DeepEqual(components.CRDIdentities, source.CRDIdentities) {
 		return false
@@ -392,9 +417,11 @@ func exactSourceComponents(components deployedReleaseComponents, source Installe
 
 func exactStagedComponents(components deployedReleaseComponents, source InstalledReleaseObservation, target ReleaseManifest, targetCRDs map[string]string) bool {
 	if source.State != installStateDeployed || components.HelmRevision <= source.HelmRevision || !components.ClassPresent ||
+		components.ObservationCapabilityHeld ||
 		components.ControllerVersion != target.Version || components.ControllerManifest != target.ManifestDigest ||
 		components.CNIVersion != target.Version || components.CNIManifest != target.ManifestDigest ||
 		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
+		components.ObservationRotationID != source.ObservationRotationID ||
 		components.ClassVersion != target.Version || components.ClassManifest != target.ManifestDigest ||
 		components.ClassUID == "" || components.ClassGeneration < 1 || !sameTransitionTrust(components, source) ||
 		!reflect.DeepEqual(components.CRDIdentities, targetCRDs) {
@@ -489,7 +516,7 @@ func validateInstallTarget(source, target InstalledReleaseObservation, manifest 
 		if !classChanged && target.GatewayClassUID != source.GatewayClassUID {
 			return errors.New("same-release apply unexpectedly replaced the gateway class identity")
 		}
-		if target.ObservationCAUID != source.ObservationCAUID || target.ObservationTLSUID != source.ObservationTLSUID || target.ObservationCADigest != source.ObservationCADigest || target.ObservationServingDigest != source.ObservationServingDigest {
+		if target.ObservationCAUID != source.ObservationCAUID || target.ObservationTLSUID != source.ObservationTLSUID || target.ObservationCADigest != source.ObservationCADigest || target.ObservationServingDigest != source.ObservationServingDigest || target.ObservationRotationID != source.ObservationRotationID {
 			return errors.New("ordinary release transition replaced stable observation certificate identity")
 		}
 	}
@@ -515,7 +542,7 @@ func (observation InstalledReleaseObservation) validate() error {
 		return errors.New("installed release observation content does not match its digest")
 	}
 	if observation.State == installStateAbsent {
-		if observation.HelmRevision != 0 || observation.Version != "" || observation.ManifestDigest != "" || len(observation.Images) != 0 || observation.GatewayClassUID != "" || observation.ObservationCAUID != "" || observation.ObservationTLSUID != "" {
+		if observation.HelmRevision != 0 || observation.Version != "" || observation.ManifestDigest != "" || len(observation.Images) != 0 || observation.GatewayClassUID != "" || observation.ObservationCAUID != "" || observation.ObservationTLSUID != "" || observation.ObservationRotationID != "" {
 			return errors.New("absent release observation contains deployed state")
 		}
 		if len(observation.CRDIdentities) != 0 {
@@ -523,7 +550,7 @@ func (observation InstalledReleaseObservation) validate() error {
 		}
 		return nil
 	}
-	if observation.State != installStateDeployed || observation.HelmRevision < 1 || observation.Version == "" || !validDigest(observation.ManifestDigest) || observation.GatewayClassUID == "" || observation.GatewayClassGeneration < 1 || observation.ObservationCAUID == "" || observation.ObservationTLSUID == "" || !validDigest(observation.ObservationCADigest) || !validDigest(observation.ObservationServingDigest) {
+	if observation.State != installStateDeployed || observation.HelmRevision < 1 || observation.Version == "" || !validDigest(observation.ManifestDigest) || observation.GatewayClassUID == "" || observation.GatewayClassGeneration < 1 || observation.ObservationCAUID == "" || observation.ObservationTLSUID == "" || !validDigest(observation.ObservationCADigest) || !validDigest(observation.ObservationServingDigest) || observation.ObservationRotationID != initialObservationRotation && !validDigest(observation.ObservationRotationID) {
 		return errors.New("deployed release observation is incomplete")
 	}
 	if len(observation.Images) != len(installRuntimeImageNames) {
@@ -654,6 +681,20 @@ func requiredArgument(arguments []string, prefix string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("deployed release lacks %s argument", prefix)
+}
+
+func observationCapabilityHeld(arguments []string) (bool, error) {
+	held := false
+	for _, argument := range arguments {
+		if !strings.HasPrefix(argument, "--observation-capability-hold=") {
+			continue
+		}
+		if argument != "--observation-capability-hold=true" || held {
+			return false, errors.New("deployed node agent has an invalid observation capability hold")
+		}
+		held = true
+	}
+	return held, nil
 }
 
 func validExactImageReference(reference string) bool {

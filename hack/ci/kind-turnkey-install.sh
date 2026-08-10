@@ -808,6 +808,237 @@ EOF
     "$work_dir/doctor-${label}.json" >/dev/null
 }
 
+assert_rotation_fail_closed() {
+  local label="$1"
+  local pod_name="rotation-${label}-probe"
+  local doctor_degraded=false
+  local startup_denied=false
+
+  for _ in $(seq 1 60); do
+    if ! "$work_dir/waycloakctl" doctor --output json \
+      >"$work_dir/doctor-rotation-${label}.json" 2>/dev/null && \
+      jq -e '.healthy == false and (.nodeCapabilityStates.CNICapable // 0) == 0' \
+        "$work_dir/doctor-rotation-${label}.json" >/dev/null; then
+      doctor_degraded=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$doctor_degraded" != true ]]; then
+    cat "$work_dir/doctor-rotation-${label}.json" >&2 || true
+    printf '%s certificate interruption retained stale healthy doctor state\n' "$label" >&2
+    return 1
+  fi
+  test -z "$(kubectl get node -o jsonpath='{.items[0].metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/core-ready}')"
+
+  cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${pod_name}
+  namespace: ${smoke_namespace}
+  labels:
+    networking.waycloak.io/egress-route: transition-guard
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: ${probe_ref}
+      env:
+        - name: PROBE_URL
+          value: ${probe_url}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+EOF
+  for _ in $(seq 1 45); do
+    kubectl get pod "$pod_name" --namespace "$smoke_namespace" -o json | \
+      jq -e '((.status.podIP // "") | length) == 0 and
+        ([.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length) == 0' >/dev/null
+    if kubectl get events --namespace "$smoke_namespace" \
+      --field-selector "involvedObject.kind=Pod,involvedObject.name=${pod_name}" -o json | \
+      jq -e '.items[] | select(.reason == "FailedScheduling" or .reason == "FailedCreatePodSandBox")' >/dev/null; then
+      startup_denied=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$startup_denied" != true ]]; then
+    kubectl describe pod "$pod_name" --namespace "$smoke_namespace" >&2 || true
+    printf '%s certificate interruption did not deny enrolled startup\n' "$label" >&2
+    return 1
+  fi
+  kubectl delete pod "$pod_name" --namespace "$smoke_namespace" --wait=true --timeout=2m
+}
+
+install_rotation_fault_policy() {
+  local mode="$1"
+  local expression
+  if [[ "$mode" == switch ]]; then
+    expression='object.data["tls.crt"] == oldObject.data["tls.crt"]'
+  else
+    expression='size(object.data["ca.crt"]) >= size(oldObject.data["ca.crt"])'
+  fi
+  cat <<EOF | kubectl apply -f -
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: waycloak-ci-rotation-fault
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["secrets"]
+  matchConditions:
+    - name: exact-stable-serving-secret
+      expression: 'object.metadata.namespace == "${system_namespace}" && object.metadata.name == "${release_name}-observation-tls"'
+  validations:
+    - expression: '${expression}'
+      message: injected exact certificate rotation interruption
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: waycloak-ci-rotation-fault
+spec:
+  policyName: waycloak-ci-rotation-fault
+  validationActions: [Deny]
+EOF
+  sleep 2
+}
+
+remove_rotation_fault_policy() {
+  kubectl delete validatingadmissionpolicybinding/waycloak-ci-rotation-fault \
+    validatingadmissionpolicy/waycloak-ci-rotation-fault --wait=true --timeout=2m
+}
+
+apply_certificate_rotation() {
+  local plan_path="$work_dir/certificate-rotation-plan.json"
+  local recovered_path="$work_dir/certificate-rotation-recovered.json"
+  local carry_plan="$work_dir/install-plan-after-certificate-rotation.json"
+  local plan_id before_ca_uid before_tls_uid before_ca before_tls after_ca after_tls ca_count
+
+  before_ca_uid="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
+  before_tls_uid="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
+  before_ca="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" -o jsonpath='{.data.ca\.crt}')"
+  before_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.data.tls\.crt}')"
+  "$work_dir/waycloakctl" certificate rotation plan \
+    --namespace "$system_namespace" --release "$release_name" --output json >"$plan_path"
+  plan_id="$(jq -r '.planID' "$plan_path")"
+  jq -e '
+    .kind == "CertificateRotationPlan" and
+    .rotationSequence == "ObservationCertificateRotation-v1" and
+    .source.state == "Deployed" and
+    (.source.observationCAUID | length) > 0 and
+    (.source.observationTLSUID | length) > 0 and
+    (.planID | test("^sha256:[a-f0-9]{64}$"))
+  ' "$plan_path" >/dev/null
+  if grep -Eq 'PRIVATE KEY|tls\.key' "$plan_path"; then
+    printf 'certificate rotation plan contains private material\n' >&2
+    return 1
+  fi
+  if "$work_dir/waycloakctl" certificate rotation apply --plan "$plan_path" \
+    --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; then
+    printf 'certificate rotation accepted the wrong confirmation\n' >&2
+    return 1
+  fi
+  if kubectl get secret "${release_name}-observation-next" --namespace "$system_namespace" >/dev/null 2>&1; then
+    printf 'refused certificate rotation generated staged private material\n' >&2
+    return 1
+  fi
+
+  install_rotation_fault_policy switch
+  if "$work_dir/waycloakctl" certificate rotation apply --plan "$plan_path" --confirm "$plan_id"; then
+    printf 'certificate serving-switch fault did not interrupt apply\n' >&2
+    return 1
+  fi
+  kubectl get configmap "${release_name}-certificate-rotation" --namespace "$system_namespace" -o json | \
+    jq -e --arg plan "$plan_id" '
+      .immutable == true and
+      .metadata.annotations["install.waycloak.io/certificate-rotation-plan-id"] == $plan and
+      (.data["rotation.json"] | fromjson |
+        .plan.planID == $plan and
+        (.stagedSecretUID | length) > 0 and
+        (.targetCADigest | test("^sha256:[a-f0-9]{64}$")) and
+        (.targetServingDigest | test("^sha256:[a-f0-9]{64}$")))
+    ' >/dev/null
+  if kubectl get configmap "${release_name}-certificate-rotation" --namespace "$system_namespace" \
+    -o jsonpath='{.data.rotation\.json}' | grep -Eq 'PRIVATE KEY|tls\.key'; then
+    printf 'certificate rotation journal contains private material\n' >&2
+    return 1
+  fi
+  ca_count="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" \
+    -o jsonpath='{.data.ca\.crt}' | base64 --decode | grep -c 'BEGIN CERTIFICATE')"
+  test "$ca_count" = 2
+  test "$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.data.tls\.crt}')" = "$before_tls"
+  kubectl get daemonset/waycloak-node-agent --namespace "$system_namespace" -o json | \
+    jq -e --arg plan "${plan_id}-overlap" '
+      .spec.template.metadata.annotations["install.waycloak.io/observation-rotation-id"] == $plan and
+      any(.spec.template.spec.containers[] | select(.name == "node-agent") | .args[]; . == "--observation-capability-hold=true")
+    ' >/dev/null
+  assert_rotation_fail_closed overlap
+  "$work_dir/waycloakctl" certificate rotation plan \
+    --namespace "$system_namespace" --release "$release_name" --output json >"$recovered_path"
+  test "$(jq -S . "$plan_path")" = "$(jq -S . "$recovered_path")"
+  if "$work_dir/waycloakctl" install plan --release-manifest "$work_dir/baseline-release-manifest.json" \
+    --namespace "$system_namespace" --release "$release_name" --output json >/dev/null 2>&1; then
+    printf 'install planning crossed an active certificate rotation\n' >&2
+    return 1
+  fi
+  remove_rotation_fault_policy
+
+  install_rotation_fault_policy prune
+  if "$work_dir/waycloakctl" certificate rotation apply --plan "$recovered_path" --confirm "$plan_id"; then
+    printf 'certificate trust-prune fault did not interrupt apply\n' >&2
+    return 1
+  fi
+  test "$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.data.tls\.crt}')" != "$before_tls"
+  ca_count="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" \
+    -o jsonpath='{.data.ca\.crt}' | base64 --decode | grep -c 'BEGIN CERTIFICATE')"
+  test "$ca_count" = 2
+  assert_rotation_fail_closed serving-switch
+  "$work_dir/waycloakctl" certificate rotation plan \
+    --namespace "$system_namespace" --release "$release_name" --output json >"$recovered_path"
+  test "$(jq -S . "$plan_path")" = "$(jq -S . "$recovered_path")"
+  remove_rotation_fault_policy
+
+  "$work_dir/waycloakctl" certificate rotation apply --plan "$recovered_path" --confirm "$plan_id"
+  if kubectl get configmap "${release_name}-certificate-rotation" --namespace "$system_namespace" >/dev/null 2>&1 || \
+    kubectl get secret "${release_name}-observation-next" --namespace "$system_namespace" >/dev/null 2>&1; then
+    printf 'completed certificate rotation retained staged state\n' >&2
+    return 1
+  fi
+  test "$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')" = "$before_ca_uid"
+  test "$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')" = "$before_tls_uid"
+  after_ca="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" -o jsonpath='{.data.ca\.crt}')"
+  after_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.data.tls\.crt}')"
+  test "$after_ca" != "$before_ca"
+  test "$after_tls" != "$before_tls"
+  test "$after_ca" = "$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o jsonpath='{.data.ca\.crt}')"
+  test "$(printf '%s' "$after_ca" | base64 --decode | grep -c 'BEGIN CERTIFICATE')" = 1
+  kubectl get daemonset/waycloak-node-agent --namespace "$system_namespace" -o json | \
+    jq -e --arg plan "$plan_id" '
+      .spec.template.metadata.annotations["install.waycloak.io/observation-rotation-id"] == $plan and
+      (any(.spec.template.spec.containers[] | select(.name == "node-agent") | .args[]; startswith("--observation-capability-hold=")) | not)
+    ' >/dev/null
+  "$work_dir/waycloakctl" doctor --output json >"$work_dir/doctor-rotation-complete.json"
+  jq -e '.healthy == true and .nodeCapabilityStates.CNICapable == 1' "$work_dir/doctor-rotation-complete.json" >/dev/null
+  "$work_dir/waycloakctl" install plan --release-manifest "$work_dir/baseline-release-manifest.json" \
+    --namespace "$system_namespace" --release "$release_name" --output json >"$carry_plan"
+  jq -e --arg plan "$plan_id" '
+    .source.observationRotationID == $plan and
+    (.valuesYAML | contains("observationRotationID: \"" + $plan + "\""))
+  ' "$carry_plan" >/dev/null
+}
+
 run_disruptive_verify baseline
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.waycloak.io/v1beta1
@@ -830,6 +1061,8 @@ apply_exact_transition forward "$work_dir/release-manifest.json" "$release_versi
 run_disruptive_verify forward
 apply_exact_transition rollback "$work_dir/baseline-release-manifest.json" "$baseline_release_version"
 run_disruptive_verify rollback
+apply_certificate_rotation
+run_disruptive_verify certificate-rotation
 kubectl delete vpnegressroute/transition-guard --namespace "$smoke_namespace" \
   --wait=true --timeout=2m
 

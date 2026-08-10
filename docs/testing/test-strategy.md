@@ -269,6 +269,15 @@ The row must include at least one durable Ready attachment across agent
 replacement and prove lockdown, authenticated relay handshake, internal drift
 reconciliation, capability republication, and continued rejection of public
 CNI operations before readiness.
+The same hosted row must rotate the observation relay identity with an exact
+confirmation-bound plan. It injects failures after old-and-new overlap and
+after the serving-key switch, requires the immutable journal and staged UID to
+recover the identical plan, and proves Core-ready scheduling remains withdrawn
+while held agents publish fresh authenticated non-ready observations. Enrolled
+Pods at both interruptions must receive neither an application container nor a
+Pod IP. Completion must preserve stable Secret UIDs, remove old trust and all
+staged private state, carry the final rotation identity into a later release
+plan, restore fresh capability, and repeat the protected packet-loss exercise.
 The disruptive verifier must delete Pods before route intent, observe each exact
 Pod and UID-derived binding as absent, then observe route deletion before it may
 emit `cleanupComplete=true`. A terminating binding is a failed cleanup result,

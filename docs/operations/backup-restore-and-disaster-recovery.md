@@ -142,6 +142,42 @@ stop. Capture a support bundle and author a separate repair plan; do not delete
 Helm locks, recreate trust, invoke opaque `helm rollback`, or permit ordinary
 egress to make progress.
 
+## Rotate observation trust
+
+Do not replace `<release>-observation-ca` or
+`<release>-observation-tls` manually. Retain the current deny path and run:
+
+```text
+waycloakctl certificate rotation plan \
+  --namespace waycloak-system --release waycloak --output json \
+  > certificate-rotation-plan.json
+waycloakctl certificate rotation apply \
+  --plan certificate-rotation-plan.json \
+  --confirm <exact-planID>
+```
+
+Review the source release, preflight digest, stable Secret UIDs, public
+certificate digests, and rotation sequence. The plan and immutable journal are
+non-sensitive; the newly generated private key exists only in the staged and
+stable TLS Secrets. Wrong confirmation performs no mutation.
+
+During overlap and new-only verification, node agents retain the local CNI and
+deny state but publish a capability hold. New enrolled scheduling therefore
+remains unavailable while fresh authenticated observation is proved through
+each trust boundary. Existing protected traffic remains subject to the same
+gateway/tunnel deny path; there is no plaintext listener or ordinary-egress
+fallback.
+
+If apply is interrupted, leave the stable Secrets, staged Secret, journal, and
+DaemonSet unchanged. Re-run `certificate rotation plan` with the same namespace
+and release; an exact recoverable checkpoint returns the original plan. Apply
+that plan with its original confirmation. Foreign/tampered material, changed
+release/preflight/Secret UID, an unenumerated bundle, or missing staged private
+material before the exact target is refused. Successful completion preserves
+the stable Secret UIDs, leaves one new CA and serving identity, removes the
+capability hold, restores fresh Core-ready capability, and deletes staged state
+and the journal.
+
 ## Failure and degraded-state handling
 
 - Missing route, gateway, class, Secret, ConfigMap, CNI, node agent, tunnel, or

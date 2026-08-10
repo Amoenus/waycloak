@@ -116,9 +116,10 @@
     "nodeAgent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "nodeSelector", "image", "observationRelayURL", "observationCASecret", "cniReceiptHostPath", "cniBinaryHostPath", "cniConfigHostPath", "reconcileInterval", "conformanceProfile", "releaseIdentity"],
+      "required": ["enabled", "observationRotationID", "nodeSelector", "image", "observationRelayURL", "observationCASecret", "cniReceiptHostPath", "cniBinaryHostPath", "cniConfigHostPath", "reconcileInterval", "conformanceProfile", "releaseIdentity"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "observationRotationID": {"type": "string", "pattern": "^(initial|sha256:[a-f0-9]{64})$"},
         "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}},
         "image": {
           "type": "object",
