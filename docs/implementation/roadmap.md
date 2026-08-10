@@ -98,8 +98,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.
 - [ ] #140: `v0.0.0-core.7` passed exact publication and independent hosted
-  verification. Continue with beta CRD lifecycle, upgrade/rollback, #32 DR,
-  #33 observability, uninstall/purge, and support-row evidence.
+  verification; Core.8 through Core.10 also passed their exact publication and
+  registry-native verification gates. The live clean-break amd64 row reached
+  Core.10 through exact lifecycle plans and stayed unavailable during gateway
+  startup defects. Its next exact candidate grants only the additional Gluetun
+  privilege-drop capability and separates the overlay DNS listener on 1053 from
+  Gluetun's loopback port 53. Continue with that live proof, beta CRD lifecycle,
+  upgrade/rollback, #32 DR, uninstall/purge, and remaining support-row evidence.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm

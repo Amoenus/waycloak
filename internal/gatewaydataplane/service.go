@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -124,7 +125,7 @@ func (service *Service) reportReconcileError(err error, previous string) string 
 }
 
 func runDNS(ctx context.Context, config Config) error {
-	address := net.JoinHostPort(config.GatewayAddress.String(), "53")
+	address := dnsListenAddress(config)
 	upstream := config.DNSUpstream.String()
 	udp, err := net.ListenPacket("udp4", address)
 	if err != nil {
@@ -139,6 +140,10 @@ func runDNS(ctx context.Context, config Config) error {
 	go serveUDP(ctx, udp, upstream)
 	go serveTCP(ctx, tcp, upstream)
 	return nil
+}
+
+func dnsListenAddress(config Config) string {
+	return net.JoinHostPort(config.GatewayAddress.String(), strconv.Itoa(int(DNSListenPort)))
 }
 
 func serveUDP(ctx context.Context, listener net.PacketConn, upstream string) {
