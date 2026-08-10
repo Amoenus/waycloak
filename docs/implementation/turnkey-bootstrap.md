@@ -125,12 +125,20 @@ immutable gateway-class UID at its stable name, preserve observation trust
 identity, execute the two-revision CNI/agent transition, and verify the exact
 target runtime after Helm completes. The class replacement and transition
 windows remain fail closed behind the installed CNI deny path.
+Every lifecycle Helm mutation uses explicit server-side apply and
+`--force-conflicts`. The reviewed plan therefore authorizes Waycloak's Helm
+field manager to reclaim only fields rendered by that exact chart and values
+from another server-side manager. It does not use Helm's broad
+`--take-ownership` annotation override. GitOps controllers may retain and
+observe the release declaration, but must not race `waycloakctl` by applying
+the rendered runtime objects during a lifecycle transaction.
 Before the first destructive transition action, apply persists the complete
 non-sensitive reviewed plan in one immutable release-scoped lifecycle journal.
-The same plan may resume only an exact class-withdrawn, source-agent-retained
-staging, or completed-target checkpoint. Planning returns the journaled plan
-only for the same verified target and preflight; arbitrary skew, a different
-target, or a missing/foreign journal remains refused.
+The same plan may resume only an exact class-withdrawn, target-class with exact
+source runtime, source-agent-retained staging, or completed-target checkpoint.
+Planning returns the journaled plan only for the same verified target and
+preflight; arbitrary skew, a different target, or a missing/foreign journal
+remains refused.
 
 If that exact transition leaves one newer Helm Secret in `pending-upgrade` or
 `failed`, ordinary install and certificate operations remain blocked. Repair is
@@ -148,7 +156,10 @@ deployed revision, and the sole newer stuck Secret's name, UID, type, status,
 version and full-object digest. Opaque Helm data is hashed but never copied into
 the plan or journal. Apply creates an immutable repair journal, deletes only the
 exact stuck UID, and resumes the original class-withdrawn, staged, or target
-checkpoint. It does not relabel or rewrite Helm storage and does not call an
+checkpoint. A partial server-side apply that recreated the exact target class
+while leaving every executable component at the exact source identity is a
+separate supported checkpoint and re-enters staging with the source node agent
+held. Repair does not relabel or rewrite Helm storage and does not call an
 unverified rollback. Interrupted deletion and post-Helm cleanup are retryable;
 revision or runtime ambiguity is a hard stop.
 

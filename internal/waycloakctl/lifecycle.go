@@ -39,6 +39,7 @@ const (
 const (
 	installCheckpointSource         = "Source"
 	installCheckpointClassWithdrawn = "ClassWithdrawn"
+	installCheckpointClassReplaced  = "ClassReplaced"
 	installCheckpointStaged         = "Staged"
 	installCheckpointTarget         = "Target"
 )
@@ -391,6 +392,9 @@ func classifyInstallTransitionCheckpoint(components deployedReleaseComponents, p
 	if exactSourceComponents(components, plan.Source, true) {
 		return installCheckpointClassWithdrawn, nil
 	}
+	if exactClassReplacedComponents(components, plan.Source, plan.Target) {
+		return installCheckpointClassReplaced, nil
+	}
 	if exactStagedComponents(components, plan.Source, plan.Target, plan.TargetCRDs) {
 		return installCheckpointStaged, nil
 	}
@@ -398,14 +402,7 @@ func classifyInstallTransitionCheckpoint(components deployedReleaseComponents, p
 }
 
 func exactSourceComponents(components deployedReleaseComponents, source InstalledReleaseObservation, classWithdrawn bool) bool {
-	if source.State != installStateDeployed || components.HelmRevision != source.HelmRevision ||
-		components.ObservationCapabilityHeld ||
-		components.ControllerVersion != source.Version || components.ControllerManifest != source.ManifestDigest ||
-		components.CNIVersion != source.Version || components.CNIManifest != source.ManifestDigest ||
-		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
-		components.ObservationRotationID != source.ObservationRotationID ||
-		!reflect.DeepEqual(components.Images, source.Images) || !sameTransitionTrust(components, source) ||
-		!reflect.DeepEqual(components.CRDIdentities, source.CRDIdentities) {
+	if !exactSourceRuntimeComponents(components, source) {
 		return false
 	}
 	if classWithdrawn {
@@ -413,6 +410,23 @@ func exactSourceComponents(components deployedReleaseComponents, source Installe
 	}
 	return components.ClassPresent && components.ClassVersion == source.Version && components.ClassManifest == source.ManifestDigest &&
 		components.ClassUID == source.GatewayClassUID && components.ClassGeneration == source.GatewayClassGeneration
+}
+
+func exactSourceRuntimeComponents(components deployedReleaseComponents, source InstalledReleaseObservation) bool {
+	return source.State == installStateDeployed && components.HelmRevision == source.HelmRevision &&
+		!components.ObservationCapabilityHeld &&
+		components.ControllerVersion == source.Version && components.ControllerManifest == source.ManifestDigest &&
+		components.CNIVersion == source.Version && components.CNIManifest == source.ManifestDigest &&
+		components.NodeAgentVersion == source.Version && components.NodeAgentManifest == source.ManifestDigest &&
+		components.ObservationRotationID == source.ObservationRotationID &&
+		reflect.DeepEqual(components.Images, source.Images) && sameTransitionTrust(components, source) &&
+		reflect.DeepEqual(components.CRDIdentities, source.CRDIdentities)
+}
+
+func exactClassReplacedComponents(components deployedReleaseComponents, source InstalledReleaseObservation, target ReleaseManifest) bool {
+	return exactSourceRuntimeComponents(components, source) && components.ClassPresent &&
+		components.ClassVersion == target.Version && components.ClassManifest == target.ManifestDigest &&
+		components.ClassUID != "" && components.ClassUID != source.GatewayClassUID && components.ClassGeneration >= 1
 }
 
 func exactStagedComponents(components deployedReleaseComponents, source InstalledReleaseObservation, target ReleaseManifest, targetCRDs map[string]string) bool {

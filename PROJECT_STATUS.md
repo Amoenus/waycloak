@@ -328,6 +328,17 @@ post-Helm cleanup interruption; hosted Kind corrupts a real staged revision,
 kills the repair after exact deletion, proves enrolled startup remains denied,
 and resumes to the exact target.
 
+Live Core.7-to-Core.8 homelab deployment exposed an additional exact Helm 4
+server-side-apply boundary: Argo CD had acquired fields on rendered runtime
+objects, so transition staging failed on field conflicts after the immutable
+target class had already been recreated. The lifecycle now invokes Helm with
+explicit server-side conflict takeover bound to the reviewed chart and values,
+without the broad Helm annotation-ownership override. Repair recognizes only
+the exact target-class/source-runtime partial checkpoint, retains the source
+node-agent deny path during restaging, and continues to reject any mixed image,
+trust, CRD, class, or revision identity. Unit coverage reproduces that partial
+state and completes both repair revisions.
+
 The sixth #32 slice adds the first distribution-native datastore row: a
 checksummed K3s `v1.36.1+k3s1` binary, one embedded-etcd server, bundled
 containerd/Flannel, and the retained root-only server token. Its dedicated
