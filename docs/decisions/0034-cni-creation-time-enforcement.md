@@ -49,6 +49,11 @@ from an unavailable or unauthorized Pod observation. Once absence is proven,
 zero-applied binding observation, and removes only matching state. Ambiguous API
 or agent failure retains the deny record for retry; netns absence or reuse never
 authorizes touching the replacement namespace.
+If the runtime sends `DEL` immediately after a failed `ADD` while the Pod still
+exists, the node agent retains the UID-bound enrollment even after that sandbox
+netns disappears. Its recovery loop withdraws and deletes that record only after
+the exact Pod is absent or its name has a different UID, and only after the
+controller accepts the zero-applied observation.
 
 The node agent verifies the CNI-supplied Pod UID and node assignment with a
 direct API-server read. An eventually consistent informer cache is not an

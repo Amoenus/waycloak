@@ -61,6 +61,27 @@ func TestRelayRejectsCrossNodeForgery(t *testing.T) {
 	}
 }
 
+func TestRelayIgnoresObservationForBindingAlreadyDeleted(t *testing.T) {
+	relay, kube, observation := fixture(t)
+	binding := &wayv1.VPNWorkloadBinding{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: observation.BindingNamespace, Name: observation.BindingName}, binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Delete(context.Background(), binding); err != nil {
+		t.Fatal(err)
+	}
+	if response := report(t, relay, observation); response.Code != http.StatusNoContent {
+		t.Fatalf("already-absent binding status = %d, body %s", response.Code, response.Body.String())
+	}
+	node := &corev1.Node{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
+		t.Fatal(err)
+	}
+	if node.Labels[scheduling.CoreReadyLabel] != "true" {
+		t.Fatalf("obsolete binding observation poisoned node readiness: %#v", node.Labels)
+	}
+}
+
 func TestRelayRejectsUnboundServiceAccountToken(t *testing.T) {
 	relay, _, observation := fixture(t)
 	relay.Reviewer = fakeReviewer{status: authenticationv1.TokenReviewStatus{Authenticated: true, User: authenticationv1.UserInfo{Username: "system:serviceaccount:waycloak-system:waycloak-node-agent"}}}

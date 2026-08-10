@@ -106,6 +106,10 @@ window. The authenticated CNI/node protocol returns a distinct exact-Pod-absent
 result, then binds withdrawal to the durable sandbox/interface/netns identity
 and publishes zero applied state before discarding that record. API ambiguity,
 agent loss, and foreign netns reuse retain denial and never claim cleanup.
+The same ordering covers kubelet's failed-`ADD` behavior: an early `DEL` cannot
+discard sticky enrollment while the Pod remains pending, and periodic recovery
+completes withdrawal after exact Pod absence without replaying an already
+accepted observation after its binding is gone.
 
 Every plan also binds the exact currently deployed Helm revision, release
 manifest, six runtime images, six CRD specifications, default gateway-class

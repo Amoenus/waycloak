@@ -268,6 +268,12 @@ attachment existed. It must distinguish authenticated exact-Pod absence from
 API/agent ambiguity, publish a zero-applied withdrawal from durable attachment
 identity, release the binding finalizer within the cleanup bound, avoid foreign
 netns cleanup, and retain state when the withdrawal report cannot be accepted.
+It must also cover kubelet's early `DEL`: a failed-`ADD` sandbox may disappear
+while the Pod remains pending, but its durable enrollment must survive until a
+later exact-Pod-absence reconciliation publishes withdrawal. Accepted one-shot
+withdrawals must not poison later node reports after the binding is deleted.
+The relay must likewise accept a final-deletion race only as an idempotent no-op
+while continuing to reject every cross-node or stale-identity mismatch.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled

@@ -278,6 +278,12 @@ absence as a generic authority failure and never published zero applied state.
 The local protocol now has an authenticated `PodNotFound` result; `DEL` uses the
 exact durable attachment to report withdrawal for absent/reused netns state,
 retains state on ambiguous failure, and never cleans a foreign namespace.
+Hosted run `31344553203` then proved the remaining ordering gap: kubelet sends
+`DEL` for a failed sandbox while the Pod is still live, and the recovery loop
+discarded its missing netns record before later Pod deletion. Recovery now keeps
+that sticky UID enrollment, publishes withdrawal after exact Pod absence or
+name/UID reuse, and retires accepted one-shot observations so deleted bindings
+cannot make subsequent node reports fail authorization.
 Interrupted transition recovery, explicit certificate rotation, and supported
 distribution datastore-snapshot drills remain open #32 work.
 

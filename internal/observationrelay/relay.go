@@ -131,6 +131,12 @@ func (r *Relay) apply(ctx context.Context, agentPod *corev1.Pod, observation nod
 	binding := &wayv1.VPNWorkloadBinding{}
 	key := client.ObjectKey{Namespace: observation.BindingNamespace, Name: observation.BindingName}
 	if err := r.Reader.Get(ctx, key, binding); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// The authenticated withdrawal can race finalizer removal. An exact
+			// binding that is already absent needs no status mutation and must not
+			// poison the node capability report.
+			return nil
+		}
 		return err
 	}
 	if string(binding.UID) != observation.BindingUID || binding.Generation != observation.Generation ||
@@ -150,6 +156,9 @@ func (r *Relay) apply(ctx context.Context, agentPod *corev1.Pod, observation nod
 		ObservedAt: metav1.NewTime(r.now()),
 	}
 	if err := r.Writer.Status().Patch(ctx, updated, client.MergeFrom(binding), client.FieldOwner(wayv1.FieldManagerBindingController)); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil
+		}
 		return fmt.Errorf("relay authenticated node observation: %w", err)
 	}
 	return nil
