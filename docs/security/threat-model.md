@@ -181,6 +181,11 @@ or object changes between resolution and programming redirect privilege.
 device/inode. The agent rechecks UID/node/binding generation immediately before
 privilege and verifies observed ownership afterward. Mismatch never cleans or
 programs a foreign namespace. Desired/applied/live generations remain separate.
+An authenticated `PodNotFound` result is distinct from API ambiguity: only that
+result permits `DEL` to use the exact durable attachment as withdrawal
+authority. The node agent reports zero applied state even when the old netns is
+already absent or reused, while generic lookup/agent failures retain durable
+deny state and cannot release the binding finalizer.
 
 ### Inbound port cross-delivery and stale advertisement
 

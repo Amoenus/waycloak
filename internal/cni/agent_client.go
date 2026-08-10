@@ -65,6 +65,7 @@ type AgentError struct {
 const (
 	AgentErrorInvalidRequest      = "InvalidRequest"
 	AgentErrorPodIdentityMismatch = "PodIdentityMismatch"
+	AgentErrorPodNotFound         = "PodNotFound"
 	AgentErrorNotEnrolled         = "NotEnrolled"
 	AgentErrorBindingNotReady     = "BindingNotReady"
 )
@@ -81,6 +82,9 @@ type UnixAgentClient struct {
 func (c UnixAgentClient) Resolve(ctx context.Context, pod PodIdentity) (Resolution, error) {
 	var response AgentResponse
 	if err := c.call(ctx, http.MethodPost, resolvePath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, &response); err != nil {
+		if isAgentError(err, AgentErrorPodNotFound) {
+			return Resolution{}, fmt.Errorf("%w: %v", ErrPodNotFound, err)
+		}
 		return Resolution{}, err
 	}
 	if response.Resolution == nil {
@@ -93,8 +97,7 @@ func (c UnixAgentClient) Resolve(ctx context.Context, pod PodIdentity) (Resoluti
 func (c UnixAgentClient) Binding(ctx context.Context, pod PodIdentity) (Binding, error) {
 	var response AgentResponse
 	if err := c.call(ctx, http.MethodPost, bindingPath, AgentRequest{APIVersion: AgentAPIVersion, Pod: pod}, &response); err != nil {
-		var statusErr *agentStatusError
-		if errors.As(err, &statusErr) && statusErr.Reason == AgentErrorBindingNotReady {
+		if isAgentError(err, AgentErrorBindingNotReady) {
 			return Binding{}, ErrBindingNotReady
 		}
 		return Binding{}, err
@@ -128,6 +131,11 @@ type agentStatusError struct {
 
 func (e *agentStatusError) Error() string {
 	return fmt.Sprintf("local agent returned %s (HTTP %d): %s", e.Reason, e.HTTPStatus, e.Message)
+}
+
+func isAgentError(err error, reason string) bool {
+	var statusErr *agentStatusError
+	return errors.As(err, &statusErr) && statusErr.Reason == reason
 }
 
 func (c UnixAgentClient) call(ctx context.Context, method, path string, body any, output any) error {

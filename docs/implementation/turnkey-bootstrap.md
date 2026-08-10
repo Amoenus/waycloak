@@ -101,6 +101,11 @@ each Pod and UID-derived binding to be absent, and only then removes and observe
 the route. `cleanupComplete=true` therefore means finalizer-backed data-plane
 withdrawal finished; accepted deletion requests or terminating bindings are not
 reported as complete.
+Failed-`ADD` cleanup does not depend on catching a brief terminating-Pod API
+window. The authenticated CNI/node protocol returns a distinct exact-Pod-absent
+result, then binds withdrawal to the durable sandbox/interface/netns identity
+and publishes zero applied state before discarding that record. API ambiguity,
+agent loss, and foreign netns reuse retain denial and never claim cleanup.
 
 Every plan also binds the exact currently deployed Helm revision, release
 manifest, six runtime images, six CRD specifications, default gateway-class

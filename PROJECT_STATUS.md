@@ -271,6 +271,13 @@ after merely accepting route/Pod deletion while three bindings still terminated.
 Verification now deletes exact Pods first, waits for Pod and UID-derived binding
 absence, then deletes and observes the route; lifecycle health is no longer
 allowed to race finalizer-backed withdrawal.
+The next exact-head run correctly rejected cleanup instead of producing that
+false positive and exposed the underlying failed-`ADD` edge: force deletion can
+remove the Pod API object before `DEL`, while the old protocol represented
+absence as a generic authority failure and never published zero applied state.
+The local protocol now has an authenticated `PodNotFound` result; `DEL` uses the
+exact durable attachment to report withdrawal for absent/reused netns state,
+retains state on ambiguous failure, and never cleans a foreign namespace.
 Interrupted transition recovery, explicit certificate rotation, and supported
 distribution datastore-snapshot drills remain open #32 work.
 

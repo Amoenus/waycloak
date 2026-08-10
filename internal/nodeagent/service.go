@@ -91,18 +91,19 @@ type Report struct {
 // owns programming, verification, withdrawal, restart recovery, and drift
 // repair for one node.
 type Service struct {
-	Reader             client.Reader
-	Programmer         Programmer
-	Store              AttachmentStore
-	NodeName           string
-	NodeBootID         string
-	InstanceID         string
-	Now                func() time.Time
-	RequireRelay       bool
-	Capabilities       []string
-	ReleaseIdentity    wayv1.ReleaseIdentity
-	ConformanceProfile wayv1.QualifiedName
-	OperationErrorHook func(string, error)
+	Reader              client.Reader
+	Programmer          Programmer
+	Store               AttachmentStore
+	NodeName            string
+	NodeBootID          string
+	InstanceID          string
+	Now                 func() time.Time
+	RequireRelay        bool
+	Capabilities        []string
+	ReleaseIdentity     wayv1.ReleaseIdentity
+	ConformanceProfile  wayv1.QualifiedName
+	OperationErrorHook  func(string, error)
+	WithdrawalPublisher func(context.Context, Report) error
 
 	mu             sync.RWMutex
 	observations   map[string]Observation
@@ -251,25 +252,76 @@ func (s *Service) Withdraw(ctx context.Context, identity waycni.PodIdentity) err
 	if err := identity.Validate(); err != nil {
 		return err
 	}
+	attachment, err := s.exactAttachment(identity)
+	if err != nil {
+		return err
+	}
 	pod, podErr := s.pod(ctx, identity)
-	if podErr == nil && !pod.DeletionTimestamp.IsZero() {
-		if err := s.Programmer.Cleanup(ctx, identity.NetNS, identity.UID); err != nil {
+	if podErr != nil && !apierrors.IsNotFound(podErr) {
+		return podErr
+	}
+	namespaceIdentity, identityErr := s.Programmer.Identity(identity.NetNS)
+	if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
+		return fmt.Errorf("observe exact attachment namespace for withdrawal: %w", identityErr)
+	}
+	exactNamespace := identityErr == nil && namespaceIdentity == attachment.NamespaceIdentity
+	if exactNamespace {
+		if podErr == nil && pod.DeletionTimestamp.IsZero() {
+			if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
+				return fmt.Errorf("withdraw allow path while retaining deny: %w", err)
+			}
+		} else if err := s.Programmer.Cleanup(ctx, identity.NetNS, identity.UID); err != nil {
 			return fmt.Errorf("clean terminating exact attachment: %w", err)
 		}
-	} else if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
-		return fmt.Errorf("withdraw allow path while retaining deny: %w", err)
 	}
-	reported := false
-	if binding, err := s.rawBinding(ctx, identity.Namespace, identity.UID); err == nil {
-		s.observe(binding, false)
-		reported = true
+	binding, err := s.withdrawalBinding(ctx, identity.Namespace, identity.UID)
+	if err != nil {
+		return err
 	}
-	if !reported {
+	if binding == nil {
 		s.mu.Lock()
 		delete(s.observations, identity.UID)
 		s.mu.Unlock()
+		return nil
+	}
+	if s.WithdrawalPublisher == nil {
+		return errors.New("synchronous withdrawal publisher is unavailable")
+	}
+	observation := s.observe(binding, false)
+	report := s.Report()
+	report.Observations = []Observation{observation}
+	if err := s.WithdrawalPublisher(ctx, report); err != nil {
+		return fmt.Errorf("publish exact attachment withdrawal: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) exactAttachment(identity waycni.PodIdentity) (waycni.Attachment, error) {
+	attachments, err := s.Store.ListAll()
+	if err != nil {
+		return waycni.Attachment{}, fmt.Errorf("list durable attachments for withdrawal: %w", err)
+	}
+	for _, attachment := range attachments {
+		if attachment.Pod == identity {
+			return attachment, nil
+		}
+	}
+	return waycni.Attachment{}, errors.New("exact durable attachment is unavailable")
+}
+
+func (s *Service) withdrawalBinding(ctx context.Context, namespace, podUID string) (*wayv1.VPNWorkloadBinding, error) {
+	binding := &wayv1.VPNWorkloadBinding{}
+	key := client.ObjectKey{Namespace: namespace, Name: waybinding.BindingName(types.UID(podUID))}
+	if err := s.Reader.Get(ctx, key, binding); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("resolve exact binding for withdrawal: %w", err)
+	}
+	if binding.Spec.PodRef.UID != wayv1.ObjectUID(podUID) {
+		return nil, errors.New("withdrawal binding Pod UID does not match durable attachment")
+	}
+	return binding, nil
 }
 
 // ReconcileAll rebuilds from durable CNI attachment records after the caller
@@ -506,7 +558,7 @@ func ConfigFromBinding(binding *wayv1.VPNWorkloadBinding) (dataplane.Config, err
 	return config, config.Validate()
 }
 
-func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) {
+func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) Observation {
 	observation := Observation{
 		BindingNamespace: binding.Namespace, BindingName: binding.Name, BindingUID: string(binding.UID),
 		Generation: binding.Generation, PodUID: string(binding.Spec.PodRef.UID), GatewayUID: string(binding.Spec.GatewayRef.UID),
@@ -518,6 +570,7 @@ func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) {
 	}
 	s.observations[observation.PodUID] = observation
 	s.mu.Unlock()
+	return observation
 }
 
 func (s *Service) now() time.Time {

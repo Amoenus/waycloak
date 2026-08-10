@@ -43,6 +43,13 @@ a retry into ordinary egress. Terminating-Pod `DEL`, `CHECK`, `GC`, chained
 `prevResult`, rollback, runtime restart, and stale namespace cleanup follow the
 CNI specification.
 
+The authenticated local protocol distinguishes an exact Pod that is absent
+from an unavailable or unauthorized Pod observation. Once absence is proven,
+`DEL` binds withdrawal to the durable sandbox/interface/netns record, reports a
+zero-applied binding observation, and removes only matching state. Ambiguous API
+or agent failure retains the deny record for retry; netns absence or reuse never
+authorizes touching the replacement namespace.
+
 The node agent verifies the CNI-supplied Pod UID and node assignment with a
 direct API-server read. An eventually consistent informer cache is not an
 authority for sandbox creation or Pod name/UID reuse.

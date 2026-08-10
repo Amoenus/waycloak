@@ -210,6 +210,13 @@ func TestAgentStatusErrorRetainsAuthenticatedMessage(t *testing.T) {
 	}
 }
 
+func TestAgentStatusErrorClassifiesExactPodAbsence(t *testing.T) {
+	err := &agentStatusError{HTTPStatus: http.StatusNotFound, Reason: AgentErrorPodNotFound, Message: "Exact Kubernetes Pod is absent"}
+	if !isAgentError(err, AgentErrorPodNotFound) || isAgentError(err, AgentErrorBindingNotReady) {
+		t.Fatalf("stable error classification failed: %v", err)
+	}
+}
+
 type failingProtocolReader struct{ err error }
 
 func (r failingProtocolReader) Read([]byte) (int, error) { return 0, r.err }

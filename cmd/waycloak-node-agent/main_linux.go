@@ -98,6 +98,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 	if err != nil {
 		return err
 	}
+	reporter := nodeagent.Reporter{URL: relayURL, TokenFile: relayToken, CAFile: relayCA}
 	service := &nodeagent.Service{
 		// CNI ADD is a creation-time security boundary. Resolve the exact Pod UID
 		// and node assignment from the API server, not an eventually consistent
@@ -105,8 +106,9 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		Reader: manager.GetAPIReader(), Programmer: waycni.LinuxEnforcer{Backend: backend},
 		Store: waycni.FileStore{Directory: stateDir}, NodeName: nodeName, NodeBootID: bootID, InstanceID: instanceID,
 		RequireRelay: true, Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
-		ReleaseIdentity:    releaseIdentity,
-		ConformanceProfile: wayv1.QualifiedName(conformanceProfile),
+		ReleaseIdentity:     releaseIdentity,
+		ConformanceProfile:  wayv1.QualifiedName(conformanceProfile),
+		WithdrawalPublisher: reporter.Report,
 	}
 	service.OperationErrorHook = func(operation string, err error) {
 		log.Printf("local %s operation remained fail closed: %v", operation, err)
@@ -151,7 +153,6 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	reporter := nodeagent.Reporter{URL: relayURL, TokenFile: relayToken, CAFile: relayCA}
 	go reconcileLoop(ctx, service, reporter, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity, interval)
 	err = server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {

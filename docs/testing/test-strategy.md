@@ -263,6 +263,11 @@ The disruptive verifier must delete Pods before route intent, observe each exact
 Pod and UID-derived binding as absent, then observe route deletion before it may
 emit `cleanupComplete=true`. A terminating binding is a failed cleanup result,
 not a healthy resource to ignore during lifecycle certification.
+The row also deletes a Pod whose chained `ADD` failed before any Ready
+attachment existed. It must distinguish authenticated exact-Pod absence from
+API/agent ambiguity, publish a zero-applied withdrawal from durable attachment
+identity, release the binding finalizer within the cleanup bound, avoid foreign
+netns cleanup, and retain state when the withdrawal report cannot be accepted.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled

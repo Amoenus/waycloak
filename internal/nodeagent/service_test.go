@@ -23,6 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -142,19 +144,84 @@ func TestPodLookupFailureMessagesAreSafeAndActionable(t *testing.T) {
 	for name, test := range map[string]struct {
 		err     error
 		message string
+		status  int
+		code    string
 	}{
-		"not-found":    {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Kubernetes Pod is not yet observable"},
-		"forbidden":    {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized"},
-		"unauthorized": {apierrors.NewUnauthorized("redacted"), "Kubernetes API identity is unauthorized"},
-		"timeout":      {context.DeadlineExceeded, "Kubernetes Pod observation timed out"},
+		"not-found":    {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Exact Kubernetes Pod is absent", 404, waycni.AgentErrorPodNotFound},
+		"forbidden":    {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized", 403, waycni.AgentErrorPodIdentityMismatch},
+		"unauthorized": {apierrors.NewUnauthorized("redacted"), "Kubernetes API identity is unauthorized", 403, waycni.AgentErrorPodIdentityMismatch},
+		"timeout":      {context.DeadlineExceeded, "Kubernetes Pod observation timed out", 403, waycni.AgentErrorPodIdentityMismatch},
 	} {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			writeServiceError(response, fmt.Errorf("%w: %w", ErrPodLookupFailed, test.err))
-			if response.Code != 403 || !strings.Contains(response.Body.String(), test.message) || strings.Contains(response.Body.String(), "redacted") {
+			if response.Code != test.status || !strings.Contains(response.Body.String(), test.message) || !strings.Contains(response.Body.String(), test.code) || strings.Contains(response.Body.String(), "redacted") {
 				t.Fatalf("unsafe lookup response: %d %s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestWithdrawAbsentPodReportsExactDurableAttachment(t *testing.T) {
+	for name, test := range map[string]struct {
+		identity    string
+		identityErr error
+		wantEvents  []string
+	}{
+		"namespace absent":   {identityErr: fs.ErrNotExist},
+		"namespace reused":   {identity: "9:9"},
+		"namespace retained": {identity: "1:2", wantEvents: []string{"cleanup"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, identity, reference, programmer := fixture(t)
+			published := 0
+			service.WithdrawalPublisher = func(_ context.Context, report Report) error {
+				published++
+				if len(report.Observations) != 1 || report.Observations[0].Ready {
+					t.Fatalf("synchronous withdrawal report = %#v", report.Observations)
+				}
+				return nil
+			}
+			binding := &wayv1.VPNWorkloadBinding{}
+			if err := service.Reader.Get(context.Background(), client.ObjectKey{Namespace: identity.Namespace, Name: waybinding.BindingName(types.UID(identity.UID))}, binding); err != nil {
+				t.Fatal(err)
+			}
+			service.Reader = fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(binding).Build()
+			service.Store = staticAttachments{{
+				Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
+				BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+			}}
+			programmer.identity = test.identity
+			programmer.identityErr = test.identityErr
+			if err := service.Withdraw(context.Background(), identity); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(programmer.events, test.wantEvents) {
+				t.Fatalf("withdrawal operations = %v, want %v", programmer.events, test.wantEvents)
+			}
+			observations := service.Observations()
+			if len(observations) != 1 || observations[0].Ready || observations[0].BindingUID != reference.UID {
+				t.Fatalf("withdrawal observation = %#v", observations)
+			}
+			if published != 1 {
+				t.Fatalf("synchronous withdrawal publications = %d", published)
+			}
+		})
+	}
+}
+
+func TestWithdrawDoesNotAcknowledgeRejectedObservation(t *testing.T) {
+	service, identity, reference, _ := fixture(t)
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}
+	service.WithdrawalPublisher = func(context.Context, Report) error { return errors.New("relay unavailable") }
+	if err := service.Withdraw(context.Background(), identity); err == nil || !strings.Contains(err.Error(), "publish exact attachment withdrawal") {
+		t.Fatalf("rejected withdrawal publication = %v", err)
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("rejected withdrawal lost fail-closed observation: %#v", observations)
 	}
 }
 
