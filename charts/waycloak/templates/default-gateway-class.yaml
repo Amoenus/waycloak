@@ -4,10 +4,22 @@
 {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) }}
 {{- fail "defaultGatewayClass.releaseIdentity.manifestDigest must be an exact sha256 digest" }}
 {{- end }}
+{{- $existing := lookup "networking.waycloak.io/v1beta1" "VPNGatewayClass" "" .Values.defaultGatewayClass.name }}
+{{- if $existing }}
+{{- $existingVersion := dig "spec" "releaseIdentity" "version" "" $existing }}
+{{- $existingDigest := dig "spec" "releaseIdentity" "manifestDigest" "" $existing }}
+{{- if or (ne $existingVersion $version) (ne $existingDigest $digest) }}
+{{- fail "the immutable default VPNGatewayClass belongs to another exact release; use waycloakctl install plan/apply for a journal-bound transition" }}
+{{- end }}
+{{- end }}
 apiVersion: networking.waycloak.io/v1beta1
 kind: VPNGatewayClass
 metadata:
   name: {{ .Values.defaultGatewayClass.name }}
+  annotations:
+    # Argo renders Helm without cluster-backed lookup. Apply the immutable class
+    # first so a direct release change stops before executable components move.
+    argocd.argoproj.io/sync-wave: "-100"
   labels:
     {{- include "waycloak.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-class

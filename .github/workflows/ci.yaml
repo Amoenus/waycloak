@@ -253,6 +253,7 @@ jobs:
           test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^kind: DaemonSet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c '^kind: VPNGatewayClass$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
+          test "$(grep -c '^    argocd.argoproj.io/sync-wave: \"-100\"$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^kind: Secret$' "$RUNNER_TEMP/enabled-1.yaml" || true)" -eq 0
           test "$(grep -c '@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RUNNER_TEMP/enabled-1.yaml")" -ge 5
           grep -A4 'securityContext:' "$RUNNER_TEMP/enabled-1.yaml" | grep -q 'fsGroup: 65532'

@@ -699,6 +699,8 @@ apply_exact_transition() {
   local before_ca before_tls after_ca after_tls before_class_uid after_class_uid receipt_ready
   local helm_wrapper_dir stage_marker interrupted_pid startup_denied pod_name doctor_degraded
   local source_secret_path staged_revision repair_plan_path repair_plan_id repair_marker
+  local direct_values_path direct_log target_chart
+  local before_controller_image before_cni_image before_agent_image
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
   current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -742,6 +744,40 @@ apply_exact_transition() {
   test "$(kubectl get secrets --namespace "$system_namespace" \
     --selector owner=helm,name="$release_name",status=deployed -o json | \
     jq -r '.items[0].metadata.labels.version')" = "$before_revision"
+
+  # Raw Helm has neither the reviewed source UID nor the immutable transition
+  # journal. A changed release must fail during connected rendering, before it
+  # can create a mixed controller/CNI/agent runtime. Exercise both forward and
+  # rollback directions; apply_exact_transition is called once for each.
+  before_controller_image="$(kubectl get deployment waycloak-controller \
+    --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  before_cni_image="$(kubectl get daemonset waycloak-cni-installer \
+    --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[0].image}')"
+  before_agent_image="$(kubectl get daemonset waycloak-node-agent \
+    --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  direct_values_path="$work_dir/direct-values-${label}.yaml"
+  direct_log="$work_dir/direct-helm-${label}.log"
+  target_chart="$(jq -r '.chart.repository + "@" + .chart.digest' "$plan_path")"
+  jq -r '.valuesYAML' "$plan_path" >"$direct_values_path"
+  if helm upgrade --install "$release_name" "$target_chart" \
+    --namespace "$system_namespace" --server-side=true --force-conflicts \
+    --values "$direct_values_path" >"$direct_log" 2>&1; then
+    printf '%s raw Helm transition bypassed the immutable-class lifecycle\n' "$label" >&2
+    return 1
+  fi
+  grep -q 'use waycloakctl install plan/apply for a journal-bound transition' "$direct_log"
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')" = "$before_class_uid"
+  test "$(kubectl get deployment waycloak-controller --namespace "$system_namespace" \
+    -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$before_controller_image"
+  test "$(kubectl get daemonset waycloak-cni-installer --namespace "$system_namespace" \
+    -o jsonpath='{.spec.template.spec.initContainers[0].image}')" = "$before_cni_image"
+  test "$(kubectl get daemonset waycloak-node-agent --namespace "$system_namespace" \
+    -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$before_agent_image"
+  test "$(kubectl get secrets --namespace "$system_namespace" \
+    --selector owner=helm,name="$release_name",status=deployed -o json | \
+    jq -r '.items[0].metadata.labels.version')" = "$before_revision"
+  kubectl wait vpnegressroute/transition-guard --namespace "$smoke_namespace" \
+    --for=condition=Ready --timeout=10s
 
   helm_wrapper_dir="$work_dir/helm-wrapper-${label}"
   stage_marker="$work_dir/stage-complete-${label}"

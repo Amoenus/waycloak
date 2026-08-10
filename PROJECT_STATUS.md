@@ -351,6 +351,16 @@ node-agent deny path during restaging, and continues to reject any mixed image,
 trust, CRD, class, or revision identity. Unit coverage reproduces that partial
 state and completes both repair revisions.
 
+The Core.13-to-Core.14 GitOps canary exposed the inverse lifecycle misuse: a raw
+Argo sync advanced executable components before its immutable default-class
+apply failed. The class remains immutable and `waycloakctl` remains the only
+UID-preconditioned transition authority. Connected raw Helm release changes now
+fail during rendering before mutation, while an early Argo class wave stops an
+offline direct sync before controller/CNI/node resources advance. Turnkey Kind
+attempts and rejects raw forward and rollback changes with the class UID, Helm
+revision, images, and Ready route unchanged, then runs both supported exact
+transactions.
+
 The sixth #32 slice adds the first distribution-native datastore row: a
 checksummed K3s `v1.36.1+k3s1` binary, one embedded-etcd server, bundled
 containerd/Flannel, and the retained root-only server token. Its dedicated

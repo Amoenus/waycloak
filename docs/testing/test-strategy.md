@@ -179,6 +179,12 @@ rollback. Both transitions require a newer Helm revision, exact target runtime
 and CNI receipt, a new UID for the immutable target gateway class, preserved
 certificate identity, live node capability, and the full gateway-replacement
 startup-denial and packet exercise.
+Before each supported forward and rollback transaction, the suite attempts the
+same changed release through raw Helm. Connected rendering must refuse it with
+the original class UID, deployed Helm revision, controller/CNI/node images, and
+Ready route unchanged. Deterministic chart rendering separately requires the
+early Argo class sync wave, proving that an offline direct sync reaches the
+immutable boundary before executable runtime waves.
 The staged-interruption row uses a real Helm command and kills the CLI process
 after that command succeeds but before activation. It requires an immutable,
 non-sensitive exact-plan journal; plan recovery with the identical plan ID;
