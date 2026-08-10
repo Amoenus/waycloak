@@ -91,6 +91,7 @@ expected_assets=(
   core-release-manifest.json
   core-release-manifest.sigstore.json
   gluetun-binaries.SHA256SUMS
+  gluetun-control-auth.toml
   gluetun-dependency.patch
   gluetun.LICENSE
   gluetun.ref
@@ -188,6 +189,9 @@ for architecture in amd64 arm64; do
     >"$work_dir/gluetun-entrypoint-linux-${architecture}"
   printf '%s  %s\n' "$expected_checksum" "$work_dir/gluetun-entrypoint-linux-${architecture}" | \
     sha256sum --check
+  tar -xOf "$work_dir/gluetun-${architecture}.tar" etc/waycloak/gluetun-control-auth.toml \
+    >"$work_dir/gluetun-control-auth-${architecture}.toml"
+  cmp "$asset_dir/gluetun-control-auth.toml" "$work_dir/gluetun-control-auth-${architecture}.toml"
 done
 
 chart_reference="$(sed 's|^oci://||' "$asset_dir/waycloak-chart.ref")"

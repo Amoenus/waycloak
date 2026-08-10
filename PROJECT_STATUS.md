@@ -404,6 +404,24 @@ forwards only to Gluetun on loopback port 53. The controller remains stopped and
 protected workloads remain intentionally scaled down until this correction is
 published, independently verified, and installed as an exact artifact.
 
+Core.11 was then published, independently registry-verified, locally checked for
+checksums, Sigstore identities, SPDX attestations, and GitHub provenance, and
+installed through an exact Core.10 revision-8 transition. It removed both
+startup blockers: OpenVPN completed its UID drop and Gluetun exclusively bound
+port 53 while the gateway agent bound overlay port 1053. The live gateway still
+remained fail closed and exposed two additional pinned-Gluetun integration
+requirements. A root supervisor with a UID-1000 OpenVPN child could not signal
+that child during health-driven restart without `KILL`; Kubernetes' inherited
+`ndots:5` exhausted Gluetun's bounded DNS health window on namespace search
+expansions; and Gluetun's current control server correctly returned 401 because
+all routes are private by default. A controller-stopped diagnostic proved the
+exact follow-up contract: add only `KILL`, retain the cluster nameserver while
+setting Pod-local `ndots:1`, and bake a non-secret role policy into the signed
+engine image that permits only `GET /v1/dns/status` and
+`GET /v1/publicip/ip`. The gateway reached 2/2 Ready with zero container
+restarts, while a credential-bearing settings route remained unauthorized.
+Protected qBittorrent and Bitmagnet workloads remained at zero replicas.
+
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
 state, and the privileged node agent uses the host network namespace so its own

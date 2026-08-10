@@ -191,6 +191,7 @@ jobs:
           fi
           printf '%s@%s\n' "$repository" "$digest" >dist/core/gluetun.ref
           cp "$RUNNER_TEMP/gluetun-first/gluetun-dependency.patch" dist/core/
+          cp "$RUNNER_TEMP/gluetun-first/control-auth.toml" dist/core/gluetun-control-auth.toml
           cp "$RUNNER_TEMP/gluetun-first/LICENSE" dist/core/gluetun.LICENSE
           cp "$RUNNER_TEMP/gluetun-first/gluetun-binaries.SHA256SUMS" dist/core/
           {

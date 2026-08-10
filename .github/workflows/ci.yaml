@@ -367,7 +367,9 @@ jobs:
           test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 7eed6eaf160440724a93ca66f66055068cebe4ac
           test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
           docker run --rm --entrypoint /bin/sh waycloak-gluetun:test -c \
-            'test -x /gluetun-entrypoint && test -f /licenses/gluetun/LICENSE && test -s /licenses/gluetun/gluetun-dependency.patch'
+            'test -x /gluetun-entrypoint && test -f /licenses/gluetun/LICENSE && test -s /licenses/gluetun/gluetun-dependency.patch && test -r /etc/waycloak/gluetun-control-auth.toml'
+          docker run --rm --entrypoint cat waycloak-gluetun:test \
+            /etc/waycloak/gluetun-control-auth.toml | cmp - build/gluetun-candidate/control-auth.toml
 
   kind-e2e:
     needs: classify
