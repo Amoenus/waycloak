@@ -13,6 +13,7 @@ readonly cni_digest_file="$root/cni-state.sha256"
 readonly cni_state_dir=/var/lib/cni/waycloak-e2e
 readonly cni_config="$data_dir/agent/etc/cni/net.d/10-flannel.conflist"
 readonly cni_config_backup="$root/10-flannel.conflist.backup"
+readonly cni_recovery_config="$data_dir/agent/etc/cni/net.d/00-waycloak.conflist"
 readonly cni_binary="$data_dir/data/cni/waycloak-cni"
 readonly server_kubeconfig="$root/kubeconfig"
 readonly client_kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig
@@ -185,7 +186,8 @@ restore() {
     --etcd-snapshot-dir="$snapshot_dir" \
     --disable=traefik \
     --disable=servicelb
-  install -m 0600 "$cni_config_backup" "$cni_config"
+  install -m 0644 "$cni_config_backup" "$cni_config"
+  install -m 0644 "$cni_config_backup" "$cni_recovery_config"
   (cd / && sha256sum --check "$cni_digest_file")
   if ! find "$data_dir/server/db" -maxdepth 1 -type d -name 'etcd-old-*' -print -quit | grep -q .; then
     echo "K3s restore did not quarantine the replaced datastore as etcd-old" >&2
@@ -207,6 +209,13 @@ restore() {
     exit 1
   fi
   wait_for_cluster
+  cmp --silent "$cni_config_backup" "$cni_recovery_config"
+  local selected_cni_config
+  selected_cni_config="$(find "$(dirname "$cni_recovery_config")" -maxdepth 1 -type f \( -name '*.conf' -o -name '*.conflist' -o -name '*.json' \) -printf '%f\n' | sort | head -n 1)"
+  if [[ "$selected_cni_config" != "$(basename "$cni_recovery_config")" ]]; then
+    echo "Waycloak-owned recovery conflist is not the first CNI configuration" >&2
+    exit 1
+  fi
   publish_client_kubeconfig
   local reset_flag_deadline=$((SECONDS + 30))
   while [[ -e "$data_dir/server/db/reset-flag" ]]; do
