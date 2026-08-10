@@ -103,12 +103,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm
-  repair (#178) are merged with exact hosted evidence. The current slice pins
-  the first distribution row to single-server K3s `v1.36.1+k3s1` embedded etcd
-  and adds real snapshot/reset recovery with coherent UID return, stale-ready
-  withdrawal, durable CNI deny state, zero direct packets, and primary-CNI
-  controls. Keep #32 open for exact hosted evidence and the authorized homelab
-  exact-artifact snapshot drill after clean-break deployment.
+  repair (#178) are merged with exact hosted evidence. PR #179 pins the first
+  distribution row to single-server K3s `v1.36.1+k3s1` embedded etcd. Exact-head
+  run `31361748255` passes cold CRI-quiesced snapshot/reset recovery with
+  coherent Pod UID return, fresh sandbox identity, stale-ready withdrawal,
+  exact first chained-CNI restoration, durable deny state, zero direct packets,
+  and primary-CNI controls. Warm service-only reset is explicitly unsupported
+  after it allowed an enrolled application to resume with direct egress. Keep
+  #32 open for the authorized homelab exact-artifact snapshot drill after
+  clean-break deployment.
 - [ ] #33 and #141: proceed after their declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline

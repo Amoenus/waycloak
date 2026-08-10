@@ -39,13 +39,27 @@ cluster certificate authority private keys. The same server token is required
 to decrypt confidential bootstrap data during restore. Never upload either CI
 fixture artifact or print the token.
 
-For this single-server row, stop K3s, run `k3s server --cluster-reset` with the
-exact `--cluster-reset-restore-path` and retained token, then start the ordinary
-server service. The reset command is a one-shot operation; do not leave
-`--cluster-reset` on the service. K3s moves the replaced datastore aside under
-`etcd-old-*`. Keep that directory inside the same confidential boundary until
-the restored cluster and an independently retained snapshot are verified, then
-remove it through a separately reviewed exact-path cleanup.
+This row supports only a cold restore. A service-only stop is insufficient:
+K3s can leave containerd workloads running, and the hosted proof observed an
+enrolled application continue with direct egress during such a warm reset.
+Before stopping K3s, enumerate every exact sandbox through the K3s containerd
+CRI endpoint, stop and remove each one, and require both the CRI container and
+sandbox inventories to be empty. If CRI cannot be queried or quiesced, abort.
+
+At snapshot time, retain a root-only digest set for Waycloak's exact CNI binary,
+active chained conflist, and durable attachment files, plus an exact copy of the
+active chained conflist. After CRI quiescence, stop K3s, verify that digest set,
+and run `k3s server --cluster-reset` with the exact
+`--cluster-reset-restore-path` and retained token. Before starting the ordinary
+server service, restore the saved chain both at its distribution path and as an
+independent Waycloak-owned `00-waycloak.conflist`; verify it is the
+lexicographically first CNI configuration. K3s may regenerate its Flannel file
+during startup, so relying only on that distribution-owned path is unsupported.
+The reset command is one-shot; do not leave `--cluster-reset` on the service.
+K3s moves the replaced datastore aside under `etcd-old-*`. Keep that directory
+inside the confidential boundary until the restored cluster and an independently
+retained snapshot are verified, then remove it through separately reviewed
+exact-path cleanup.
 
 RPO is the exact completed snapshot point. RTO is measured from server stop
 through API readiness and Node `Ready`; the hosted gate records both snapshot
@@ -59,8 +73,11 @@ Before reporting the row recovered, require all of the following:
    post-snapshot marker does not.
 2. The binding controller changes restored stale `Ready=True` and
    `NodeReady=True` to current-generation `False` conditions.
-3. Host CNI attachment and deny state survive K3s/containerd restart, `CHECK`
-   remains denied, and the enrolled application container never starts.
+3. CRI was empty before reset; the exact Waycloak CNI binary, first chained
+   configuration, attachment intent, and deny state survive recovery; `CHECK`
+   remains denied; and no enrolled application container starts after failed
+   `ADD`. A recreated sandbox may have a new CRI identity, but the exact
+   Kubernetes Pod UID and attachment authority must remain coherent.
 4. TCP, UDP, DNS over UDP and TCP, and fragmented-UDP direct packet counters do
    not change through restore.
 5. Idempotent `DEL`/`GC` succeeds and a second unenrolled positive control proves

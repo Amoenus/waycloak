@@ -218,13 +218,19 @@ same chained-CNI test takes a real distribution snapshot after an ordinary
 five-protocol positive control and a denied enrolled Pod exist. It records exact
 Namespace, Pod, and binding UIDs, creates post-snapshot drift, performs the
 documented `--cluster-reset-restore-path` procedure with the retained root-only
-token, and requires coherent UID rollback plus absence of the drift marker. It
-then runs the binding status reconciler at a stale observation time, restarts
-the authenticated fixture agent under the durable host deny state, repeats
-`CHECK`, no-start, and zero-packet assertions, and finishes with idempotent
-`DEL`/`GC` and a second ordinary positive control. Snapshot/restore commands are
-accepted only as a pair; identity drift, missing objects, or a surviving marker
-are unit-level negative gates.
+token, and requires coherent UID rollback plus absence of the drift marker. The
+restore gate first enumerates and removes every exact K3s containerd sandbox and
+requires empty CRI container/sandbox inventories. It verifies the
+snapshot-bound CNI binary, active chain, and durable attachment digest, restores
+an independent Waycloak-owned first conflist before normal kubelet startup, and
+rejects warm service-only recovery. It then runs the binding status reconciler
+at a stale observation time, restarts the authenticated fixture agent under the
+durable host deny state, repeats `CHECK`, no-start, and zero-packet assertions,
+and finishes with idempotent `DEL`/`GC` and a second ordinary positive control.
+The Kubernetes Pod UID remains exact while a recreated CRI sandbox identity may
+change. Snapshot/restore commands are accepted only as a pair; identity drift,
+missing objects, nonempty CRI, mismatched CNI recovery state, a non-first
+Waycloak conflist, or a surviving marker are negative gates.
 
 The production agent suite additionally proves that the CNI cannot supply a
 data-plane configuration, stale binding UID/generation is rejected before
