@@ -108,11 +108,16 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		if err != nil {
 			return err
 		}
-		source, err := ObserveInstalledRelease(ctx, clients, *namespace, *release)
+		targetCRDs, err := ChartCRDIdentities(ctx, dependencies.RunCommand, manifest.Chart)
 		if err != nil {
 			return err
 		}
-		targetCRDs, err := ChartCRDIdentities(ctx, dependencies.RunCommand, manifest.Chart)
+		if active, found, err := recoverInstallTransitionPlan(ctx, clients, *namespace, *release, report, manifest, targetCRDs); err != nil {
+			return err
+		} else if found {
+			return writeOutput(dependencies.Stdout, *output, active)
+		}
+		source, err := ObserveInstalledRelease(ctx, clients, *namespace, *release)
 		if err != nil {
 			return err
 		}

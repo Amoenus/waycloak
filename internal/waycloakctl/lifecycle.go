@@ -30,6 +30,15 @@ const (
 	installStateDeployed       = "Deployed"
 	installReleaseOwnerKey     = "install.waycloak.io/release"
 	installInitialPlanKey      = "install.waycloak.io/initial-plan-id"
+	installTransitionPlanKey   = "install.waycloak.io/transition-plan-id"
+	installTransitionPlanData  = "plan.json"
+)
+
+const (
+	installCheckpointSource         = "Source"
+	installCheckpointClassWithdrawn = "ClassWithdrawn"
+	installCheckpointStaged         = "Staged"
+	installCheckpointTarget         = "Target"
 )
 
 var installRuntimeImageNames = []string{
@@ -57,6 +66,27 @@ type InstalledReleaseObservation struct {
 	ObservationCADigest      string            `json:"observationCADigest,omitempty"`
 	ObservationServingDigest string            `json:"observationServingDigest,omitempty"`
 	CRDIdentities            map[string]string `json:"crdIdentities,omitempty"`
+}
+
+type deployedReleaseComponents struct {
+	HelmRevision             int64
+	ControllerVersion        string
+	ControllerManifest       string
+	CNIVersion               string
+	CNIManifest              string
+	NodeAgentVersion         string
+	NodeAgentManifest        string
+	ClassPresent             bool
+	ClassVersion             string
+	ClassManifest            string
+	ClassUID                 string
+	ClassGeneration          int64
+	Images                   map[string]string
+	ObservationCAUID         string
+	ObservationTLSUID        string
+	ObservationCADigest      string
+	ObservationServingDigest string
+	CRDIdentities            map[string]string
 }
 
 func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, release string) (InstalledReleaseObservation, error) {
@@ -196,6 +226,195 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 		CRDIdentities: crds,
 	}
 	return finalizeInstalledReleaseObservation(observation)
+}
+
+func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, namespace, release string) (deployedReleaseComponents, error) {
+	var observation deployedReleaseComponents
+	crds, err := optionalInstallCRDIdentities(ctx, clients)
+	if err != nil {
+		return observation, err
+	}
+	if len(crds) != len(stateCRDNames) {
+		return observation, errors.New("transition checkpoint lacks the exact replacement CRD inventory")
+	}
+	selector := labels.Set{"owner": "helm", "name": release, "status": "deployed"}.AsSelector().String()
+	releases, err := clients.Kubernetes.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return observation, fmt.Errorf("inspect transition Helm revision: %w", err)
+	}
+	if len(releases.Items) != 1 {
+		return observation, errors.New("transition checkpoint requires one unambiguous deployed Helm revision")
+	}
+	revision, err := strconv.ParseInt(releases.Items[0].Labels["version"], 10, 64)
+	if err != nil || revision < 1 {
+		return observation, errors.New("transition checkpoint lacks a valid deployed Helm revision")
+	}
+
+	name := chartFullname(release)
+	controller, err := clients.Kubernetes.AppsV1().Deployments(namespace).Get(ctx, name+"-controller", metav1.GetOptions{})
+	if err != nil {
+		return observation, fmt.Errorf("observe transition controller: %w", err)
+	}
+	cni, err := clients.Kubernetes.AppsV1().DaemonSets(namespace).Get(ctx, name+"-cni-installer", metav1.GetOptions{})
+	if err != nil {
+		return observation, fmt.Errorf("observe transition CNI installer: %w", err)
+	}
+	agent, err := clients.Kubernetes.AppsV1().DaemonSets(namespace).Get(ctx, name+"-node-agent", metav1.GetOptions{})
+	if err != nil {
+		return observation, fmt.Errorf("observe transition node agent: %w", err)
+	}
+	class, classErr := clients.Dynamic.Resource(gatewayClassGVR).Get(ctx, "gluetun.waycloak.io", metav1.GetOptions{})
+	if classErr != nil && !apierrors.IsNotFound(classErr) {
+		return observation, fmt.Errorf("observe transition gateway class: %w", classErr)
+	}
+	caSecret, err := clients.Kubernetes.CoreV1().Secrets(namespace).Get(ctx, release+"-observation-ca", metav1.GetOptions{})
+	if err != nil {
+		return observation, fmt.Errorf("observe transition installation CA: %w", err)
+	}
+	tlsSecret, err := clients.Kubernetes.CoreV1().Secrets(namespace).Get(ctx, release+"-observation-tls", metav1.GetOptions{})
+	if err != nil {
+		return observation, fmt.Errorf("observe transition serving identity: %w", err)
+	}
+	if err := validateReleaseOwnedInstallSecret(caSecret, release, corev1.SecretTypeOpaque); err != nil {
+		return observation, err
+	}
+	if err := validateReleaseOwnedInstallSecret(tlsSecret, release, corev1.SecretTypeTLS); err != nil {
+		return observation, err
+	}
+	if !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
+		return observation, errors.New("transition checkpoint observation identities do not share exact trust material")
+	}
+
+	controllerContainer, err := requiredContainer(controller.Spec.Template.Spec.Containers, "controller")
+	if err != nil {
+		return observation, err
+	}
+	cniContainer, err := requiredContainer(cni.Spec.Template.Spec.InitContainers, "install")
+	if err != nil {
+		return observation, err
+	}
+	pauseContainer, err := requiredContainer(cni.Spec.Template.Spec.Containers, "receipt-holder")
+	if err != nil {
+		return observation, err
+	}
+	agentContainer, err := requiredContainer(agent.Spec.Template.Spec.Containers, "node-agent")
+	if err != nil {
+		return observation, err
+	}
+	controllerVersion, err := requiredArgument(controllerContainer.Args, "--release-version=")
+	if err != nil {
+		return observation, err
+	}
+	controllerManifest, err := requiredArgument(controllerContainer.Args, "--release-manifest-digest=")
+	if err != nil {
+		return observation, err
+	}
+	engineImage, err := requiredArgument(controllerContainer.Args, "--gateway-engine-image=")
+	if err != nil {
+		return observation, err
+	}
+	gatewayAgentImage, err := requiredArgument(controllerContainer.Args, "--gateway-agent-image=")
+	if err != nil {
+		return observation, err
+	}
+	nodeVersion, err := requiredArgument(agentContainer.Args, "--release-version=")
+	if err != nil {
+		return observation, err
+	}
+	nodeManifest, err := requiredArgument(agentContainer.Args, "--release-manifest-digest=")
+	if err != nil {
+		return observation, err
+	}
+	if len(cniContainer.Args) < 2 {
+		return observation, errors.New("transition CNI installer lacks release identity arguments")
+	}
+	cniVersion := cniContainer.Args[len(cniContainer.Args)-2]
+	cniManifest := cniContainer.Args[len(cniContainer.Args)-1]
+	images := map[string]string{
+		"replacement-controller": controllerContainer.Image,
+		"waycloak-cni":           cniContainer.Image,
+		"waycloak-node-agent":    agentContainer.Image,
+		"waycloak-gateway-agent": gatewayAgentImage,
+		"gluetun":                engineImage,
+		"pause":                  pauseContainer.Image,
+	}
+	for _, imageName := range installRuntimeImageNames {
+		if !validExactImageReference(images[imageName]) {
+			return observation, fmt.Errorf("transition checkpoint %s image is not digest resolved", imageName)
+		}
+	}
+
+	observation = deployedReleaseComponents{
+		HelmRevision: revision, ControllerVersion: controllerVersion, ControllerManifest: controllerManifest,
+		CNIVersion: cniVersion, CNIManifest: cniManifest, NodeAgentVersion: nodeVersion, NodeAgentManifest: nodeManifest,
+		Images: images, ObservationCAUID: string(caSecret.UID), ObservationTLSUID: string(tlsSecret.UID),
+		ObservationCADigest: digestBytes(caSecret.Data["ca.crt"]), ObservationServingDigest: digestBytes(tlsSecret.Data["tls.crt"]),
+		CRDIdentities: crds,
+	}
+	if classErr == nil {
+		observation.ClassPresent = true
+		observation.ClassVersion, _, _ = unstructured.NestedString(class.Object, "spec", "releaseIdentity", "version")
+		observation.ClassManifest, _, _ = unstructured.NestedString(class.Object, "spec", "releaseIdentity", "manifestDigest")
+		observation.ClassUID = string(class.GetUID())
+		observation.ClassGeneration = class.GetGeneration()
+	}
+	return observation, nil
+}
+
+func classifyInstallTransitionCheckpoint(components deployedReleaseComponents, plan InstallPlan) (string, error) {
+	if exactSourceComponents(components, plan.Source, false) {
+		return installCheckpointSource, nil
+	}
+	if exactSourceComponents(components, plan.Source, true) {
+		return installCheckpointClassWithdrawn, nil
+	}
+	if exactStagedComponents(components, plan.Source, plan.Target, plan.TargetCRDs) {
+		return installCheckpointStaged, nil
+	}
+	return "", errors.New("release state does not match a journal-bound exact transition checkpoint")
+}
+
+func exactSourceComponents(components deployedReleaseComponents, source InstalledReleaseObservation, classWithdrawn bool) bool {
+	if source.State != installStateDeployed || components.HelmRevision != source.HelmRevision ||
+		components.ControllerVersion != source.Version || components.ControllerManifest != source.ManifestDigest ||
+		components.CNIVersion != source.Version || components.CNIManifest != source.ManifestDigest ||
+		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
+		!reflect.DeepEqual(components.Images, source.Images) || !sameTransitionTrust(components, source) ||
+		!reflect.DeepEqual(components.CRDIdentities, source.CRDIdentities) {
+		return false
+	}
+	if classWithdrawn {
+		return !components.ClassPresent
+	}
+	return components.ClassPresent && components.ClassVersion == source.Version && components.ClassManifest == source.ManifestDigest &&
+		components.ClassUID == source.GatewayClassUID && components.ClassGeneration == source.GatewayClassGeneration
+}
+
+func exactStagedComponents(components deployedReleaseComponents, source InstalledReleaseObservation, target ReleaseManifest, targetCRDs map[string]string) bool {
+	if source.State != installStateDeployed || components.HelmRevision <= source.HelmRevision || !components.ClassPresent ||
+		components.ControllerVersion != target.Version || components.ControllerManifest != target.ManifestDigest ||
+		components.CNIVersion != target.Version || components.CNIManifest != target.ManifestDigest ||
+		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
+		components.ClassVersion != target.Version || components.ClassManifest != target.ManifestDigest ||
+		components.ClassUID == "" || components.ClassGeneration < 1 || !sameTransitionTrust(components, source) ||
+		!reflect.DeepEqual(components.CRDIdentities, targetCRDs) {
+		return false
+	}
+	for _, name := range installRuntimeImageNames {
+		wanted := target.Images[name].Repository + "@" + target.Images[name].Digest
+		if name == "waycloak-node-agent" {
+			wanted = source.Images[name]
+		}
+		if components.Images[name] != wanted {
+			return false
+		}
+	}
+	return true
+}
+
+func sameTransitionTrust(components deployedReleaseComponents, source InstalledReleaseObservation) bool {
+	return components.ObservationCAUID == source.ObservationCAUID && components.ObservationTLSUID == source.ObservationTLSUID &&
+		components.ObservationCADigest == source.ObservationCADigest && components.ObservationServingDigest == source.ObservationServingDigest
 }
 
 func ChartCRDIdentities(ctx context.Context, runner func(context.Context, string, ...string) ([]byte, error), chart Artifact) (map[string]string, error) {

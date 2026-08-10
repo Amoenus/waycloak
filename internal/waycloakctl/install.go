@@ -44,6 +44,10 @@ func LoadInstallPlan(path string) (InstallPlan, error) {
 	if err != nil {
 		return InstallPlan{}, err
 	}
+	return decodeInstallPlan(data)
+}
+
+func decodeInstallPlan(data []byte) (InstallPlan, error) {
 	if len(data) > 2<<20 {
 		return InstallPlan{}, errors.New("install plan exceeds size limit")
 	}
@@ -86,6 +90,135 @@ func (plan InstallPlan) validate() error {
 	return nil
 }
 
+func installTransitionJournalName(release string) string {
+	return chartFullname(release) + "-release-transition"
+}
+
+func loadInstallTransitionJournal(ctx context.Context, clients *Clients, namespace, release string) (InstallPlan, *corev1.ConfigMap, bool, error) {
+	name := installTransitionJournalName(release)
+	journal, err := clients.Kubernetes.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return InstallPlan{}, nil, false, nil
+	}
+	if err != nil {
+		return InstallPlan{}, nil, false, fmt.Errorf("read active release transition: %w", err)
+	}
+	if journal.Annotations[installReleaseOwnerKey] != release || !validDigest(journal.Annotations[installTransitionPlanKey]) || journal.Immutable == nil || !*journal.Immutable || len(journal.Data) != 1 {
+		return InstallPlan{}, journal, true, errors.New("active release transition journal is foreign or malformed")
+	}
+	encoded, ok := journal.Data[installTransitionPlanData]
+	if !ok || len(encoded) > 512<<10 {
+		return InstallPlan{}, journal, true, errors.New("active release transition journal lacks one bounded reviewed plan")
+	}
+	plan, err := decodeInstallPlan([]byte(encoded))
+	if err != nil {
+		return InstallPlan{}, journal, true, fmt.Errorf("decode active release transition journal: %w", err)
+	}
+	if plan.Namespace != namespace || plan.Release != release || plan.PlanID != journal.Annotations[installTransitionPlanKey] || plan.Operation != installOperationTransition || plan.Source.State != installStateDeployed || plan.Source.ManifestDigest == plan.Target.ManifestDigest {
+		return InstallPlan{}, journal, true, errors.New("active release transition journal does not bind one changed exact release")
+	}
+	return plan, journal, true, nil
+}
+
+func ensureInstallTransitionJournal(ctx context.Context, clients *Clients, plan InstallPlan) (*corev1.ConfigMap, error) {
+	encoded, err := EncodePlan(plan)
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) > 512<<10 {
+		return nil, errors.New("reviewed install plan is too large for the bounded transition journal")
+	}
+	immutable := true
+	name := installTransitionJournalName(plan.Release)
+	journal := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name: name, Namespace: plan.Namespace,
+		Annotations: map[string]string{installReleaseOwnerKey: plan.Release, installTransitionPlanKey: plan.PlanID},
+		Labels:      map[string]string{"app.kubernetes.io/managed-by": "waycloakctl", "app.kubernetes.io/component": "release-transition"},
+	}, Immutable: &immutable, Data: map[string]string{installTransitionPlanData: string(encoded)}}
+	created, err := clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Create(ctx, journal, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		active, existing, found, loadErr := loadInstallTransitionJournal(ctx, clients, plan.Namespace, plan.Release)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if !found || active.PlanID != plan.PlanID || !reflect.DeepEqual(active, plan) {
+			return nil, errors.New("another exact release transition is already active")
+		}
+		return existing, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("create exact release transition journal: %w", err)
+	}
+	return created, nil
+}
+
+func deleteInstallTransitionJournal(ctx context.Context, clients *Clients, plan InstallPlan, required bool) error {
+	active, journal, found, err := loadInstallTransitionJournal(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if required {
+			return errors.New("exact transition checkpoint lacks its immutable lifecycle journal")
+		}
+		return nil
+	}
+	if active.PlanID != plan.PlanID || !reflect.DeepEqual(active, plan) {
+		return errors.New("refusing to remove a different active release transition journal")
+	}
+	uid := journal.UID
+	if err := clients.Kubernetes.CoreV1().ConfigMaps(plan.Namespace).Delete(ctx, journal.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("complete exact release transition journal: %w", err)
+	}
+	return nil
+}
+
+func recoverInstallTransitionPlan(ctx context.Context, clients *Clients, namespace, release string, report PreflightReport, manifest ReleaseManifest, targetCRDs map[string]string) (InstallPlan, bool, error) {
+	plan, _, found, err := loadInstallTransitionJournal(ctx, clients, namespace, release)
+	if err != nil || !found {
+		return InstallPlan{}, found, err
+	}
+	if report.ObservationDigest != plan.PreflightDigest || !report.Compatible {
+		return InstallPlan{}, true, errors.New("active release transition no longer matches the reviewed cluster preflight observation")
+	}
+	if !reflect.DeepEqual(plan.Target, manifest) || !reflect.DeepEqual(plan.TargetCRDs, targetCRDs) {
+		return InstallPlan{}, true, errors.New("active release transition targets a different exact release; resume or repair it before planning another target")
+	}
+	if _, err := observeInstallTransitionCheckpoint(ctx, clients, plan, targetCRDs); err != nil {
+		return InstallPlan{}, true, fmt.Errorf("active release transition is not recoverable: %w", err)
+	}
+	return plan, true, nil
+}
+
+func observeInstallTransitionCheckpoint(ctx context.Context, clients *Clients, plan InstallPlan, targetCRDs map[string]string) (string, error) {
+	observed, observeErr := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
+	if observeErr == nil && observed.ObservationDigest == plan.Source.ObservationDigest {
+		return installCheckpointSource, nil
+	}
+	if observeErr == nil && validateInstallTarget(plan.Source, observed, plan.Target, targetCRDs) == nil {
+		return installCheckpointTarget, nil
+	}
+	active, _, found, err := loadInstallTransitionJournal(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return "", err
+	}
+	if !found || active.PlanID != plan.PlanID || !reflect.DeepEqual(active, plan) {
+		if observeErr != nil {
+			return "", fmt.Errorf("installed release is not observable and no matching transition journal authorizes recovery: %w", observeErr)
+		}
+		return "", errors.New("installed release state changed after plan review")
+	}
+	components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return "", fmt.Errorf("active release transition is not at an exact checkpoint: %w", err)
+	}
+	checkpoint, err := classifyInstallTransitionCheckpoint(components, plan)
+	if err != nil {
+		return "", err
+	}
+	return checkpoint, nil
+}
+
 func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context.Context, string, ...string) ([]byte, error), plan InstallPlan, confirmation string) error {
 	if err := plan.validate(); err != nil {
 		return err
@@ -113,14 +246,17 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if !reflect.DeepEqual(targetCRDs, plan.TargetCRDs) {
 		return errors.New("refusing mutation: exact target chart CRD identity changed after plan review")
 	}
-	source, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
+	checkpoint, err := observeInstallTransitionCheckpoint(ctx, clients, plan, targetCRDs)
 	if err != nil {
-		return err
+		return fmt.Errorf("refusing mutation: %w", err)
 	}
-	if source.ObservationDigest != plan.Source.ObservationDigest {
-		return errors.New("refusing mutation: installed release state changed after plan review")
+	if checkpoint == installCheckpointTarget {
+		if err := deleteInstallTransitionJournal(ctx, clients, plan, false); err != nil {
+			return err
+		}
+		return nil
 	}
-	if err := validateInstallCRDTransition(source, targetCRDs); err != nil {
+	if err := validateInstallCRDTransition(plan.Source, targetCRDs); err != nil {
 		return err
 	}
 	namespace, err := clients.Kubernetes.CoreV1().Namespaces().Get(ctx, plan.Namespace, metav1.GetOptions{})
@@ -153,9 +289,38 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return err
 	}
 	chart := plan.Chart.Repository + "@" + plan.Chart.Digest
-	deployed := source.State == installStateDeployed
-	if err := replaceGatewayClassForTransition(ctx, clients, source, plan.Target); err != nil {
-		return err
+	deployed := plan.Source.State == installStateDeployed
+	changedTransition := deployed && plan.Source.ManifestDigest != plan.Target.ManifestDigest
+	if changedTransition {
+		if checkpoint == installCheckpointSource {
+			if _, err := ensureInstallTransitionJournal(ctx, clients, plan); err != nil {
+				return err
+			}
+		}
+		if checkpoint != installCheckpointSource {
+			active, _, found, err := loadInstallTransitionJournal(ctx, clients, plan.Namespace, plan.Release)
+			if err != nil || !found || active.PlanID != plan.PlanID || !reflect.DeepEqual(active, plan) {
+				if err != nil {
+					return err
+				}
+				return errors.New("exact transition checkpoint lacks its matching immutable lifecycle journal")
+			}
+		}
+	}
+	if checkpoint == installCheckpointSource {
+		if err := replaceGatewayClassForTransition(ctx, clients, plan.Source, plan.Target); err != nil {
+			return err
+		}
+		if changedTransition {
+			components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
+			if err != nil {
+				return fmt.Errorf("observe immutable gateway class withdrawal checkpoint: %w", err)
+			}
+			if !exactSourceComponents(components, plan.Source, true) {
+				return errors.New("immutable gateway class withdrawal did not reach the exact journal-bound checkpoint")
+			}
+			checkpoint = installCheckpointClassWithdrawn
+		}
 	}
 	if !deployed {
 		bootstrapValuesPath := filepath.Join(directory, "controller-first-bootstrap.yaml")
@@ -166,8 +331,8 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		if err != nil {
 			return fmt.Errorf("controller-first Helm bootstrap failed before Core activation: %w: %s", err, bounded(output, 4096))
 		}
-	} else if source.ManifestDigest != plan.Target.ManifestDigest {
-		holdValues, err := nodeAgentTransitionHoldValues(source)
+	} else if changedTransition && checkpoint == installCheckpointClassWithdrawn {
+		holdValues, err := nodeAgentTransitionHoldValues(plan.Source)
 		if err != nil {
 			return err
 		}
@@ -179,6 +344,14 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		if err != nil {
 			return fmt.Errorf("helm transition staging failed with the prior node agent retained: %w: %s", err, bounded(output, 4096))
 		}
+		components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
+		if err != nil {
+			return fmt.Errorf("observe exact Helm transition staging checkpoint: %w", err)
+		}
+		if !exactStagedComponents(components, plan.Source, plan.Target, targetCRDs) {
+			return errors.New("helm transition staging did not reach the exact journal-bound checkpoint")
+		}
+		checkpoint = installCheckpointStaged
 	}
 	output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m")
 	if err != nil {
@@ -188,7 +361,13 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if err != nil {
 		return fmt.Errorf("observe exact target release after Helm: %w", err)
 	}
-	return validateInstallTarget(source, target, plan.Target, targetCRDs)
+	if err := validateInstallTarget(plan.Source, target, plan.Target, targetCRDs); err != nil {
+		return err
+	}
+	if changedTransition {
+		return deleteInstallTransitionJournal(ctx, clients, plan, true)
+	}
+	return nil
 }
 
 func nodeAgentTransitionHoldValues(source InstalledReleaseObservation) (string, error) {

@@ -173,9 +173,16 @@ rollback. Both transitions require a newer Helm revision, exact target runtime
 and CNI receipt, a new UID for the immutable target gateway class, preserved
 certificate identity, live node capability, and the full gateway-replacement
 startup-denial and packet exercise.
-Interrupted Helm transitions, controller/node restart during transition,
-explicit certificate rotation, and each distribution snapshot row remain
-independent required evidence.
+The staged-interruption row uses a real Helm command and kills the CLI process
+after that command succeeds but before activation. It requires an immutable,
+non-sensitive exact-plan journal; plan recovery with the identical plan ID;
+degraded rather than stale healthy doctor output; no Pod IP or application
+container for a newly enrolled Pod; no repeated staging mutation; exact target
+activation; and journal cleanup. Unit/race negatives reject a missing, foreign,
+tampered, differently targeted, or ambiguous checkpoint and prove exact
+class-withdrawn, staged, and completed retries. Pending/corrupt Helm repair,
+controller/node restart inside a Helm command, explicit certificate rotation,
+and each distribution snapshot row remain independent required evidence.
 
 ### Backup, restore, and disaster-recovery conformance
 
@@ -255,6 +262,9 @@ The lifecycle row must use two immutable releases in both directions and prove
 that each changed-release staging revision retains the exact source node agent
 until the target CNI receipt exists, then activates the target agent without a
 missing-socket restart deadlock or any observed direct-egress packet.
+It must terminate the CLI after a successful staging revision in both forward
+and rollback directions, observe fail-closed startup and degraded health, and
+resume the exact journal-bound plan without repeating the completed revision.
 The row must include at least one durable Ready attachment across agent
 replacement and prove lockdown, authenticated relay handshake, internal drift
 reconciliation, capability republication, and continued rejection of public
