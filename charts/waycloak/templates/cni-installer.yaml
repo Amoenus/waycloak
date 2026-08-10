@@ -26,6 +26,11 @@ spec:
     spec:
       automountServiceAccountToken: false
       priorityClassName: system-node-critical
+      # The installer owns the chained plugin and must remain startable while
+      # that plugin or its local node-agent socket is absent or incompatible.
+      # Enrolled application Pods are separately forbidden from hostNetwork.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       {{- with .Values.cniInstaller.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -307,6 +307,8 @@ test "$(kubectl get deployment waycloak-controller -n "$system_namespace" -o jso
 test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[0].image}')" = "$cni_ref"
 test "$(kubectl get daemonset waycloak-node-agent -n "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$node_agent_ref"
 test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/arch}')" = amd64
+test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.hostNetwork}')" = true
+test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.dnsPolicy}')" = ClusterFirstWithHostNet
 test "$(kubectl get daemonset waycloak-node-agent -n "$system_namespace" -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/arch}')" = amd64
 
 node="$(kind get nodes --name "$cluster_name" | head -n1)"
@@ -320,6 +322,24 @@ docker exec "$node" test -f /run/waycloak/cni-auth.key
 docker exec "$node" cat /var/lib/cni/waycloak/install-receipt.json \
   | jq -e --arg version "$baseline_release_version" --arg digest "$manifest_digest" \
       '.releaseIdentity.version == $version and .releaseIdentity.manifestDigest == $digest' >/dev/null
+
+# The installer sandbox must not depend on the chained CNI or node-agent socket
+# it is responsible for upgrading. Remove only the exact local socket, restart
+# the installer, and prove it can still re-establish the exact receipt before
+# restarting the agent to recover its authenticated local protocol.
+docker exec "$node" rm -f /run/waycloak/cni-agent.sock
+kubectl delete pod --namespace "$system_namespace" \
+  --selector app.kubernetes.io/component=cni-installer --wait=true
+kubectl rollout status daemonset/waycloak-cni-installer \
+  --namespace "$system_namespace" --timeout=2m
+docker exec "$node" cat /var/lib/cni/waycloak/install-receipt.json \
+  | jq -e --arg version "$baseline_release_version" --arg digest "$manifest_digest" \
+      '.releaseIdentity.version == $version and .releaseIdentity.manifestDigest == $digest' >/dev/null
+kubectl delete pod --namespace "$system_namespace" \
+  --selector app.kubernetes.io/component=node-agent --wait=true
+kubectl rollout status daemonset/waycloak-node-agent \
+  --namespace "$system_namespace" --timeout=2m
+docker exec "$node" test -S /run/waycloak/cni-agent.sock
 
 doctor_deadline="$((SECONDS + 120))"
 until "$work_dir/waycloakctl" doctor --output json \

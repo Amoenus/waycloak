@@ -19,6 +19,12 @@ Install through a signed `waycloakctl` exact-artifact plan: development values
 do not invent image digests, release identity, observation trust, or root-owned
 host paths. The runtime agent never writes the host CNI directories.
 
+The privileged CNI installer is always host-networked and tokenless. Its Pod
+sandbox therefore does not invoke the chained plugin that it installs or
+upgrades, including while the node-agent socket is absent or the previous
+receipt is incompatible. This bootstrap exception does not apply to enrolled
+application Pods, which admission rejects if they request a host namespace.
+
 The only replacement enrollment key is the Pod-template label
 `networking.waycloak.io/egress-route: <same-namespace-route-name>`. A present
 label is fail-closed intent even when the route is not yet accepted or ready.
