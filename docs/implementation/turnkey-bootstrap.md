@@ -90,6 +90,11 @@ source node-agent image and release identity. After that revision is Ready and
 the target CNI receipt exists, a second revision activates the target node
 agent. The old agent socket therefore remains available while the installer
 changes, and the installed deny path is never removed or bypassed.
+The installer DaemonSet is independently host-networked and tokenless, so its
+own sandbox never depends on the chained plugin or local socket it owns. This
+also makes an interrupted or externally orchestrated installer/agent restart
+recoverable without creating an ordinary-egress path; enrolled workloads still
+fail CNI `ADD` while the local authority is unavailable.
 The target agent validates the exact receipt, restores lockdown, completes a
 fresh authenticated controller-relay handshake, reconciles retained attachment
 state, and only then republishes node capability. Public CNI operations remain

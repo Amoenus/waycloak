@@ -485,6 +485,13 @@ application Pods remain subject to the chained plugin and are rejected if they
 request a host namespace. The installer and node agent now also render the same
 versioned local socket/key paths, with exact-artifact assertions before any new
 Pod sandbox is admitted.
+The Core.13-to-Core.14 homelab canary exposed the corresponding upgrade edge:
+an old receipt stopped the target node agent, while the ordinary-networked CNI
+installer could not create its sandbox without that agent socket. The installer
+is now mandatorily host-networked and tokenless. Helm rendering and turnkey Kind
+recovery remove the exact socket, restart the installer, verify the exact receipt,
+restart the agent, and require authenticated socket recovery without weakening
+enrolled-workload denial.
 Clean installs now commit a controller-only Helm bootstrap revision before
 activating the CNI installer, node agent, and default class. Existing releases
 skip that bootstrap; changed releases stage the target controller, CNI, and
