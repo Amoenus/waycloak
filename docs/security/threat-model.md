@@ -191,8 +191,12 @@ deleted. Missing sandbox state is therefore not deletion authority while that
 exact Pod UID remains live; the durable enrollment survives until exact Pod
 absence or name/UID replacement is observed and withdrawal is acknowledged.
 An authenticated observation for an exact binding that has already completed
-deletion is an idempotent no-op; mismatched UID, generation, gateway, or node
+deletion is an idempotent no-op; mismatched binding, Pod, gateway, or node
 identity remains rejected and cannot mutate another binding.
+An older generation for the same binding UID, Pod UID, and authenticated node is
+also a no-op. It cannot refresh status, but it cannot block the agent's relay
+handshake and subsequent adoption of current intent; equal-generation identity
+mismatches and future generations remain rejected.
 
 ### Inbound port cross-delivery and stale advertisement
 

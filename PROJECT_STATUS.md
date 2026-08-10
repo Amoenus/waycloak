@@ -284,6 +284,11 @@ discarded its missing netns record before later Pod deletion. Recovery now keeps
 that sticky UID enrollment, publishes withdrawal after exact Pod absence or
 name/UID reuse, and retires accepted one-shot observations so deleted bindings
 cannot make subsequent node reports fail authorization.
+Run `31345442701` passed baseline cleanup and exposed the next exact transition
+edge: a prior binding generation was rejected as a whole-report authorization
+failure, preventing the post-handshake drift loop from adopting current gateway
+intent. Older observations for the same binding UID, Pod UID, and node are now
+non-mutating no-ops; mismatched or future identity remains rejected.
 Interrupted transition recovery, explicit certificate rotation, and supported
 distribution datastore-snapshot drills remain open #32 work.
 

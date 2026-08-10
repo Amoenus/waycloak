@@ -274,6 +274,10 @@ later exact-Pod-absence reconciliation publishes withdrawal. Accepted one-shot
 withdrawals must not poison later node reports after the binding is deleted.
 The relay must likewise accept a final-deletion race only as an idempotent no-op
 while continuing to reject every cross-node or stale-identity mismatch.
+Gateway replacement must advance binding intent while an older exact node
+observation is queued: the relay ignores that old generation without mutating
+status, the agent completes its handshake, and drift reconciliation adopts the
+current generation without an authorization loop.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled
