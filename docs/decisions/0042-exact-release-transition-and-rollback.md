@@ -145,6 +145,32 @@ deleted before the journal; if cleanup is interrupted at that boundary, the
 journal's target digests and exact live target authorize journal-only cleanup.
 Missing private material at any earlier phase is a hard stop.
 
+### Pending or corrupt Helm transition repair
+
+An exact transition may leave one newer Helm storage Secret in
+`pending-upgrade` or `failed` even though the live runtime remains at an
+enumerated class-withdrawn, staged, or target checkpoint. Ordinary planning and
+certificate rotation never guess through that state. The operator instead runs
+`waycloakctl install repair plan`, reviews the exact source and stuck revision,
+then supplies the repair plan ID to `install repair apply`.
+
+The repair plan is available only while the original immutable transition
+journal and its preflight still match. It binds the source deployed revision and
+the sole newer stuck Secret by name, UID, Helm type, version, status, and a
+digest of all labels, annotations, immutability and opaque data. The plan stores
+only that digest, never the Helm release payload. Apply persists a second
+immutable repair journal before deleting only the bound stuck Secret with a UID
+precondition. It never edits Helm storage, relabels a revision, invokes opaque
+Helm rollback, or selects among multiple candidates.
+
+After deletion, apply resumes the original exact transition from its observed
+checkpoint. A crash before Helm is retryable from the repair journal. A crash
+after Helm succeeds is recognized only when one newer deployed revision and the
+complete exact target runtime agree; cleanup then removes the transition and
+repair journals without repeating Helm. Any candidate drift, extra revision,
+preflight/chart/runtime regression, lost transition authority, or concurrent
+install/certificate operation is refused while the installed deny path remains.
+
 ## Consequences
 
 - A stale plan cannot cross an intervening release or certificate change.
@@ -158,8 +184,8 @@ Missing private material at any earlier phase is a hard stop.
 - CRD evolution remains unavailable until its storage migration is designed
   and tested explicitly.
 - Exact class-withdrawn and post-staging CLI interruptions are resumable without
-  repeating completed mutations. Pending/corrupt Helm operations remain an
-  explicit repair boundary.
+  repeating completed mutations. One journal-bound pending/corrupt Helm
+  revision has a separate confirmation-bound repair transaction.
 - Observation certificate rotation is explicit and restart-safe; distribution
   datastore snapshots remain an additional issue #32 certification row.
 

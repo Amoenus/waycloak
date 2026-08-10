@@ -189,6 +189,9 @@ func validateNoOrMatchingStagedCertificate(ctx context.Context, clients *Clients
 }
 
 func ensureNoInstallTransition(ctx context.Context, clients *Clients, namespace, release string) error {
+	if err := ensureNoInstallRepair(ctx, clients, namespace, release); err != nil {
+		return err
+	}
 	_, _, found, err := loadInstallTransitionJournal(ctx, clients, namespace, release)
 	if err != nil {
 		return err

@@ -301,7 +301,7 @@ Kind gate interrupted the real CLI after successful staging in both forward and
 rollback directions, proved degraded health and no enrolled application
 startup/Pod IP, and resumed without repeating staging.
 
-The fourth #32 slice now implements explicit observation-relay certificate
+The fourth #32 slice implements explicit observation-relay certificate
 rotation. `certificate rotation plan/apply` binds the exact deployed release,
 preflight, stable Secret UIDs/public digests, and a durable node-agent rotation
 identity. Confirmation precedes private-key generation; the key exists only in
@@ -313,15 +313,26 @@ hold, records fresh authenticated non-ready observations through the switched
 server and new-only trust, then restores live capability and removes old/staged
 material. Unit coverage enumerates every partial Secret/agent checkpoint,
 tamper, bundle, cleanup, and later-release carry-forward boundary. Hosted Kind
-now injects deterministic serving-switch and trust-prune failures and remains
-the merge gate. Pending/corrupt Helm repair and supported distribution
-datastore-snapshot drills remain open #32 work.
+injects deterministic serving-switch and trust-prune failures. PR #177 merged
+after exact-head run `31351170963` passed all seven jobs.
 
-Fresh homelab preparation is paused before mutation: its recorded Kubernetes
-API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed
-host key. The new identity must be independently trusted before any remote
-inspection, exact destructive inventory, uninstall, purge, or replacement
-install.
+The fifth #32 slice adds explicit recovery for one exact newer Helm revision
+left `pending-upgrade` or `failed` by the active journal-bound transition.
+`install repair plan/apply` binds the source and stuck Secret name, UID, type,
+status, version, and full opaque-object digest without copying Helm payload.
+Apply creates a separate immutable journal before UID-preconditioned deletion,
+then resumes only the original class-withdrawn, staged, or target checkpoint.
+Candidate drift, extra revisions, lost transition authority, and concurrent
+install/certificate changes remain hard failures. Unit tests cover deletion and
+post-Helm cleanup interruption; hosted Kind corrupts a real staged revision,
+kills the repair after exact deletion, proves enrolled startup remains denied,
+and resumes to the exact target. Supported distribution datastore-snapshot
+drills remain open #32 work.
+
+Fresh homelab reassessment on 2026-08-10 reached the authenticated k3s API and
+observed all three mixed-architecture nodes Ready. No mutation has begun; exact
+replacement inventory, reviewed architecture selection, and the release gate
+still precede deployment.
 
 The deployment preparation after the first live alpha churn review found that a
 plan could outlive its cluster observation and that mixed-architecture clusters

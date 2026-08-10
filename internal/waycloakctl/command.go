@@ -152,6 +152,8 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		return errors.New("install requires plan or apply")
 	}
 	switch arguments[0] {
+	case "repair":
+		return runInstallRepair(ctx, arguments[1:], dependencies)
 	case "plan":
 		flags := flag.NewFlagSet("install plan", flag.ContinueOnError)
 		flags.SetOutput(dependencies.Stderr)
@@ -176,6 +178,9 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 			return err
 		}
 		if err := ensureNoCertificateRotation(ctx, clients, *namespace, *release); err != nil {
+			return err
+		}
+		if err := ensureNoInstallRepair(ctx, clients, *namespace, *release); err != nil {
 			return err
 		}
 		report, err := Preflight(ctx, clients, *overlay)
@@ -220,6 +225,84 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		return ApplyInstallPlan(ctx, clients, dependencies.RunCommand, plan, *confirmation)
 	default:
 		return errors.New("install requires plan or apply")
+	}
+}
+
+func runInstallRepair(ctx context.Context, arguments []string, dependencies Dependencies) error {
+	if len(arguments) == 0 {
+		return errors.New("install repair requires plan or apply")
+	}
+	switch arguments[0] {
+	case "plan":
+		flags := flag.NewFlagSet("install repair plan", flag.ContinueOnError)
+		flags.SetOutput(dependencies.Stderr)
+		kubeconfig, contextName, output := clusterFlags(flags)
+		namespace := flags.String("namespace", "waycloak-system", "system namespace")
+		release := flags.String("release", "waycloak", "Helm release name")
+		if err := flags.Parse(arguments[1:]); err != nil {
+			return err
+		}
+		if *output != "json" {
+			return errors.New("install repair plan output must be json")
+		}
+		clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+		if err != nil {
+			return err
+		}
+		if err := ensureNoCertificateRotation(ctx, clients, *namespace, *release); err != nil {
+			return err
+		}
+		repair, _, repairFound, err := loadInstallRepairJournal(ctx, clients, *namespace, *release)
+		if err != nil {
+			return err
+		}
+		overlay := ""
+		if repairFound {
+			overlay = repair.Transition.OverlayCIDR
+		} else {
+			transition, _, found, transitionErr := loadInstallTransitionJournal(ctx, clients, *namespace, *release)
+			if transitionErr != nil {
+				return transitionErr
+			}
+			if !found {
+				return errors.New("install repair requires an active exact-transition journal")
+			}
+			overlay = transition.OverlayCIDR
+		}
+		report, err := Preflight(ctx, clients, overlay)
+		if err != nil {
+			return err
+		}
+		if active, found, err := recoverInstallRepairPlan(ctx, clients, *namespace, *release, report); err != nil {
+			return err
+		} else if found {
+			return writeOutput(dependencies.Stdout, "json", active)
+		}
+		plan, err := BuildInstallRepairPlan(ctx, clients, report, *namespace, *release)
+		if err != nil {
+			return err
+		}
+		return writeOutput(dependencies.Stdout, "json", plan)
+	case "apply":
+		flags := flag.NewFlagSet("install repair apply", flag.ContinueOnError)
+		flags.SetOutput(dependencies.Stderr)
+		kubeconfig, contextName, _ := clusterFlags(flags)
+		planPath := flags.String("plan", "", "reviewed Helm transition repair plan JSON")
+		confirmation := flags.String("confirm", "", "exact repair planID confirmation")
+		if err := flags.Parse(arguments[1:]); err != nil {
+			return err
+		}
+		plan, err := LoadInstallRepairPlan(*planPath)
+		if err != nil {
+			return err
+		}
+		clients, err := dependencies.Clients(ctx, *kubeconfig, *contextName)
+		if err != nil {
+			return err
+		}
+		return ApplyInstallRepairPlan(ctx, clients, dependencies.RunCommand, plan, *confirmation)
+	default:
+		return errors.New("install repair requires plan or apply")
 	}
 }
 
@@ -361,7 +444,7 @@ func writeOutput(writer io.Writer, format string, value any) error {
 }
 
 func usage(writer io.Writer) error {
-	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|certificate rotation plan|certificate rotation apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|state backup|state restore plan|state restore apply|version>")
+	fmt.Fprintln(writer, "usage: waycloakctl <preflight|install plan|install apply|install repair plan|install repair apply|certificate rotation plan|certificate rotation apply|gateway init|doctor|verify|support-bundle|alpha-purge plan|alpha-purge apply|state backup|state restore plan|state restore apply|version>")
 	return errors.New("invalid command")
 }
 

@@ -180,9 +180,16 @@ degraded rather than stale healthy doctor output; no Pod IP or application
 container for a newly enrolled Pod; no repeated staging mutation; exact target
 activation; and journal cleanup. Unit/race negatives reject a missing, foreign,
 tampered, differently targeted, or ambiguous checkpoint and prove exact
-class-withdrawn, staged, and completed retries. Pending/corrupt Helm repair,
-controller/node restart inside a Helm command, explicit certificate rotation,
-and each distribution snapshot row remain independent required evidence.
+class-withdrawn, staged, and completed retries. The hosted pending/corrupt row
+restores the exact pre-staging source record, corrupts the sole staged revision
+into `pending-upgrade`, and requires an opaque-data digest without payload
+disclosure, wrong-confirmation non-mutation, fail-closed startup, immutable
+repair journaling before UID-preconditioned deletion, ordinary-install
+exclusion, recovery after a post-deletion CLI kill, exact target activation,
+and both-journal cleanup. Unit/race coverage repeats that contract for
+class-withdrawn, staged, target, drift, and post-Helm/pre-cleanup interruption
+checkpoints. Controller/node restart inside a Helm command and each distribution
+snapshot row remain independent required evidence.
 
 ### Backup, restore, and disaster-recovery conformance
 

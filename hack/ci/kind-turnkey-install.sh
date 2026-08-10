@@ -551,6 +551,7 @@ apply_exact_transition() {
   local expected_digest current_version before_revision after_revision plan_id
   local before_ca before_tls after_ca after_tls before_class_uid after_class_uid receipt_ready
   local helm_wrapper_dir stage_marker interrupted_pid startup_denied pod_name doctor_degraded
+  local source_secret_path staged_revision repair_plan_path repair_plan_id repair_marker
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
   current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -563,6 +564,9 @@ apply_exact_transition() {
   before_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o json | \
     jq -r '[.metadata.uid, .data["ca.crt"], .data["tls.crt"]] | join("|")')"
   before_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
+  source_secret_path="$work_dir/source-helm-revision-${label}.json"
+  kubectl get secret "sh.helm.release.v1.${release_name}.v${before_revision}" \
+    --namespace "$system_namespace" -o json >"$source_secret_path"
 
   "$work_dir/waycloakctl" install plan \
     --release-manifest "$manifest_path" \
@@ -730,9 +734,106 @@ EOF
       ([.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length) == 0' >/dev/null
   kubectl delete pod "$pod_name" --namespace "$smoke_namespace" --wait=true --timeout=2m
 
-  "$work_dir/waycloakctl" install apply \
-    --plan "$work_dir/recovered-plan-${label}.json" \
-    --confirm "$plan_id"
+  if [[ "$label" == forward ]]; then
+    staged_revision="$(kubectl get secrets --namespace "$system_namespace" \
+      --selector owner=helm,name="$release_name",status=deployed -o json | \
+      jq -r --argjson source "$before_revision" \
+        '.items | map(select((.metadata.labels.version | tonumber) > $source)) |
+         if length == 1 then .[0].metadata.labels.version else error("ambiguous staged Helm revision") end')"
+    jq '{metadata: {labels: .metadata.labels, annotations: .metadata.annotations}, data: .data, type: .type}' \
+      "$source_secret_path" | kubectl patch secret "sh.helm.release.v1.${release_name}.v${before_revision}" \
+      --namespace "$system_namespace" --type merge --patch-file /dev/stdin
+    kubectl patch secret "sh.helm.release.v1.${release_name}.v${staged_revision}" \
+      --namespace "$system_namespace" --type merge \
+      --patch '{"metadata":{"labels":{"status":"pending-upgrade"}},"data":{"release":"b3BhcXVlLWNvcnJ1cHQtcmVsZWFzZS1yZWNvcmQ="}}'
+
+    repair_plan_path="$work_dir/install-repair-${label}.json"
+    "$work_dir/waycloakctl" install repair plan \
+      --namespace "$system_namespace" --release "$release_name" --output json >"$repair_plan_path"
+    repair_plan_id="$(jq -r '.planID' "$repair_plan_path")"
+    jq -e --arg source "$before_revision" --arg stuck "$staged_revision" '
+      .kind == "InstallRepairPlan" and
+      .repairSequence == "ExactHelmTransitionRepair-v1" and
+      .checkpoint == "Staged" and
+      .sourceRevision.version == ($source | tonumber) and
+      .sourceRevision.status == "deployed" and
+      .stuckRevision.version == ($stuck | tonumber) and
+      .stuckRevision.status == "pending-upgrade" and
+      (.sourceRevision.objectDigest | test("^sha256:[a-f0-9]{64}$")) and
+      (.stuckRevision.objectDigest | test("^sha256:[a-f0-9]{64}$"))
+    ' "$repair_plan_path" >/dev/null
+    if grep -Eq 'opaque-corrupt-release-record|b3BhcXVlLWNvcnJ1cHQtcmVsZWFzZS1yZWNvcmQ=' "$repair_plan_path"; then
+      printf 'Helm repair plan copied opaque release payload\n' >&2
+      return 1
+    fi
+    if "$work_dir/waycloakctl" install repair apply --plan "$repair_plan_path" \
+      --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; then
+      printf 'Helm repair accepted the wrong confirmation\n' >&2
+      return 1
+    fi
+    kubectl get secret "sh.helm.release.v1.${release_name}.v${staged_revision}" \
+      --namespace "$system_namespace" >/dev/null
+
+    repair_marker="$work_dir/repair-candidate-deleted-${label}"
+    cat >"$helm_wrapper_dir/helm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *" upgrade "* ]]; then
+  : >"$WAYCLOAK_REPAIR_MARKER"
+  while true; do sleep 1; done
+fi
+exec "$WAYCLOAK_REAL_HELM" "$@"
+EOF
+    chmod 0755 "$helm_wrapper_dir/helm"
+    setsid env PATH="$helm_wrapper_dir:$PATH" \
+      WAYCLOAK_REAL_HELM="$(command -v helm)" WAYCLOAK_REPAIR_MARKER="$repair_marker" \
+      "$work_dir/waycloakctl" install repair apply --plan "$repair_plan_path" --confirm "$repair_plan_id" \
+      >"$work_dir/interrupted-repair-${label}.log" 2>&1 &
+    interrupted_pid="$!"
+    for _ in $(seq 1 120); do
+      [[ -f "$repair_marker" ]] && break
+      if ! kill -0 "$interrupted_pid" 2>/dev/null; then
+        wait "$interrupted_pid" || true
+        cat "$work_dir/interrupted-repair-${label}.log" >&2
+        printf 'Helm repair exited before its post-deletion interruption\n' >&2
+        return 1
+      fi
+      sleep 1
+    done
+    [[ -f "$repair_marker" ]]
+    kill -TERM -- "-$interrupted_pid"
+    wait "$interrupted_pid" || true
+    if kubectl get secret "sh.helm.release.v1.${release_name}.v${staged_revision}" \
+      --namespace "$system_namespace" >/dev/null 2>&1; then
+      printf 'interrupted Helm repair retained the exact stuck revision\n' >&2
+      return 1
+    fi
+    kubectl get configmap "${release_name}-release-repair" --namespace "$system_namespace" -o json | \
+      jq -e --arg plan "$repair_plan_id" '
+        .immutable == true and
+        .metadata.annotations["install.waycloak.io/repair-plan-id"] == $plan and
+        (.data["repair.json"] | fromjson | .planID) == $plan
+      ' >/dev/null
+    "$work_dir/waycloakctl" install repair plan --namespace "$system_namespace" \
+      --release "$release_name" --output json >"$work_dir/recovered-repair-${label}.json"
+    test "$(jq -S . "$repair_plan_path")" = "$(jq -S . "$work_dir/recovered-repair-${label}.json")"
+    if "$work_dir/waycloakctl" install plan --release-manifest "$manifest_path" \
+      --namespace "$system_namespace" --release "$release_name" --output json >/dev/null; then
+      printf 'ordinary install planning overlapped an active Helm repair\n' >&2
+      return 1
+    fi
+    "$work_dir/waycloakctl" install repair apply \
+      --plan "$work_dir/recovered-repair-${label}.json" --confirm "$repair_plan_id"
+    if kubectl get configmap "${release_name}-release-repair" \
+      --namespace "$system_namespace" >/dev/null 2>&1; then
+      printf 'completed Helm repair retained its immutable journal\n' >&2
+      return 1
+    fi
+  else
+    "$work_dir/waycloakctl" install apply \
+      --plan "$work_dir/recovered-plan-${label}.json" \
+      --confirm "$plan_id"
+  fi
   if kubectl get configmap "${release_name}-release-transition" \
     --namespace "$system_namespace" >/dev/null 2>&1; then
     printf '%s completed transition retained its lifecycle journal\n' "$label" >&2

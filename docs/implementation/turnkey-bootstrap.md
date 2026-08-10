@@ -132,6 +132,26 @@ staging, or completed-target checkpoint. Planning returns the journaled plan
 only for the same verified target and preflight; arbitrary skew, a different
 target, or a missing/foreign journal remains refused.
 
+If that exact transition leaves one newer Helm Secret in `pending-upgrade` or
+`failed`, ordinary install and certificate operations remain blocked. Repair is
+an explicit reviewed transaction:
+
+```text
+waycloakctl install repair plan --context <context> --namespace <namespace> \
+  --release <release> --output json >install-repair.json
+waycloakctl install repair apply --context <context> --plan install-repair.json \
+  --confirm <repair-planID>
+```
+
+The repair plan binds the original transition, current preflight, exact source
+deployed revision, and the sole newer stuck Secret's name, UID, type, status,
+version and full-object digest. Opaque Helm data is hashed but never copied into
+the plan or journal. Apply creates an immutable repair journal, deletes only the
+exact stuck UID, and resumes the original class-withdrawn, staged, or target
+checkpoint. It does not relabel or rewrite Helm storage and does not call an
+unverified rollback. Interrupted deletion and post-Helm cleanup are retryable;
+revision or runtime ambiguity is a hard stop.
+
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
 reconciliation, but it is not authoritative for creation-time identity or Pod
