@@ -11,6 +11,9 @@ readonly token_file="$root/server-token"
 readonly snapshot_path_file="$root/snapshot-path"
 readonly cni_digest_file="$root/cni-state.sha256"
 readonly cni_state_dir=/var/lib/cni/waycloak-e2e
+readonly cni_config="$data_dir/agent/etc/cni/net.d/10-flannel.conflist"
+readonly cni_config_backup="$root/10-flannel.conflist.backup"
+readonly cni_binary="$data_dir/data/cni/waycloak-cni"
 readonly server_kubeconfig="$root/kubeconfig"
 readonly client_kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig
 readonly runtime_endpoint=unix:///run/k3s/containerd/containerd.sock
@@ -79,7 +82,13 @@ write_cni_digest() {
     echo "no durable Waycloak CNI attachment exists at the snapshot boundary" >&2
     exit 1
   fi
-  find "$cni_state_dir" -type f -name '*.json' -print0 \
+  test -x "$cni_binary"
+  test -s "$cni_config"
+  install -m 0600 "$cni_config" "$cni_config_backup"
+  {
+    printf '%s\0' "$cni_binary" "$cni_config"
+    find "$cni_state_dir" -type f -name '*.json' -print0
+  } \
     | sort --zero-terminated \
     | xargs --null sha256sum >"$cni_digest_file"
   chmod 0600 "$cni_digest_file"
@@ -176,6 +185,7 @@ restore() {
     --etcd-snapshot-dir="$snapshot_dir" \
     --disable=traefik \
     --disable=servicelb
+  install -m 0600 "$cni_config_backup" "$cni_config"
   (cd / && sha256sum --check "$cni_digest_file")
   if ! find "$data_dir/server/db" -maxdepth 1 -type d -name 'etcd-old-*' -print -quit | grep -q .; then
     echo "K3s restore did not quarantine the replaced datastore as etcd-old" >&2
