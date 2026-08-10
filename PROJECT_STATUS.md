@@ -347,17 +347,20 @@ SQLite, external/multi-server datastores, S3, or another distribution. #32
 remains open until the authorized homelab exact-artifact snapshot drill passes
 after cutover.
 
-Issue #33 is in implementation. The replacement controller now has a bounded
-aggregate Prometheus collector for common acceptance/programming/readiness,
-gateway tunnel and DNS health, explicit enrollment state, durable allocation,
-lease delivery, collection health, and controller-runtime reconcile errors.
-Labels deliberately exclude namespace, object name/UID, node, network,
-endpoint, provider, release identity, credentials, and free-form messages.
-The chart exposes an optional metrics endpoint and optional deterministic plain
-Prometheus rules/Grafana dashboard ConfigMaps without a Prometheus Operator
-runtime dependency. Unit privacy/cardinality tests and a live turnkey Kind
-scrape are the merge gate; #33 remains open until exact-head hosted evidence is
-recorded.
+Issue #33 implementation and acceptance are complete on PR #180's exact commit
+`9f586011a037a361a9b26ae6445696f7d7f81523`. The replacement controller has a
+bounded aggregate Prometheus collector for common acceptance/programming/
+readiness, gateway tunnel and DNS health, explicit enrollment state, durable
+allocation, lease delivery, collection health, and controller-runtime
+reconcile errors. Labels deliberately exclude namespace, object name/UID,
+node, network, endpoint, provider, release identity, credentials, and free-form
+messages. The chart exposes an optional metrics endpoint and deterministic
+plain Prometheus rules/Grafana dashboard ConfigMaps without a Prometheus
+Operator runtime dependency. Exact-head CI run `31366217996` passed all eight
+jobs, including race, envtest, generated/reproducible artifacts, Prometheus
+rule/config compilation, and an 11m26s turnkey Kind journey that observed live
+gateway/tunnel/DNS and missing-route fail-closed state while its application
+container never started and privacy canaries remained absent from the scrape.
 
 Fresh homelab reassessment on 2026-08-10 reached the authenticated k3s API and
 observed all three mixed-architecture nodes Ready. No mutation has begun; exact

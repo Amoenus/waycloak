@@ -112,10 +112,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   after it allowed an enrolled application to resume with direct egress. Keep
   #32 open for the authorized homelab exact-artifact snapshot drill after
   clean-break deployment.
-- [ ] #33: bounded aggregate controller metrics, classified fail-closed versus
+- [x] #33: bounded aggregate controller metrics, classified fail-closed versus
   availability alerts, a plain Prometheus scrape fragment, and an optional
-  Grafana dashboard are implemented. Complete exact-head hosted Kind evidence
-  and record it before closing.
+  Grafana dashboard passed all eight jobs in exact-head run `31366217996`.
+  Turnkey Kind proved live gateway/tunnel/DNS and missing-route protection state,
+  application non-start, and privacy-canary absence from the installed scrape.
 - [ ] #141: proceed after its declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline
