@@ -8,6 +8,11 @@ import (
 	"net/netip"
 )
 
+// DNSListenPort is the gateway overlay listener targeted by the workload
+// data-plane redirect. Gluetun exclusively owns port 53 in the shared gateway
+// network namespace.
+const DNSListenPort uint16 = 1053
+
 type Config struct {
 	GatewayUID        string
 	OverlayCIDR       netip.Prefix

@@ -15,6 +15,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
+	"github.com/Amoenus/waycloak/internal/gatewaydataplane"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,11 +49,14 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if engine.Name != "vpn-engine" || len(engine.Env) != 2 || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
 	}
-	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 3 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" {
+	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 4 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" || engine.SecurityContext.Capabilities.Add[3] != "SETUID" {
 		t.Fatalf("VPN engine lacks its exact runtime capabilities: %#v", engine.SecurityContext)
 	}
 	if agent.SecurityContext == nil || agent.SecurityContext.Capabilities == nil || len(agent.SecurityContext.Capabilities.Add) != 1 || agent.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" {
 		t.Fatalf("gateway agent capabilities were broadened: %#v", agent.SecurityContext)
+	}
+	if len(agent.Ports) != 4 || agent.Ports[2].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[2].Protocol != corev1.ProtocolUDP || agent.Ports[3].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[3].Protocol != corev1.ProtocolTCP {
+		t.Fatalf("gateway DNS listener does not match the workload redirect: %#v", agent.Ports)
 	}
 	rendered, _ := json.Marshal(statefulSet)
 	if bytes.Contains(rendered, []byte("CANARY-USERNAME")) || bytes.Contains(rendered, []byte("CANARY-PASSWORD")) {

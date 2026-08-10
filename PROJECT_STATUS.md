@@ -389,6 +389,21 @@ to that reviewed row. This lets the homelab begin on its already-proved amd64
 row without falsely treating multi-platform image construction as arm64
 conformance.
 
+The authorized clean-break homelab deployment subsequently purged the alpha
+runtime and installed Core.7 on that explicit amd64 row. Exact lifecycle plans
+advanced through Core.8, Core.9, and Core.10; the Core.8 repair exercised the
+target-class/source-runtime recovery checkpoint after Helm 4 server-side field
+ownership conflicted with prior Argo CD ownership. Fresh Core.10 gateway startup
+then proved two narrower Gluetun runtime requirements without allowing protected
+workloads to start: OpenVPN must be able to drop from the root supervisor to its
+generated non-root user, and Gluetun's DNS server exclusively binds port 53 in
+the shared gateway network namespace. The replacement gateway therefore grants
+the engine exactly `NET_ADMIN`, `CHOWN`, `DAC_OVERRIDE`, and `SETUID`, while the
+gateway agent listens on the already-routed overlay TCP/UDP port 1053 and
+forwards only to Gluetun on loopback port 53. The controller remains stopped and
+protected workloads remain intentionally scaled down until this correction is
+published, independently verified, and installed as an exact artifact.
+
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
 state, and the privileged node agent uses the host network namespace so its own

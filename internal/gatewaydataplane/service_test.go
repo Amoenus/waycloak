@@ -64,6 +64,16 @@ func TestReconcileErrorReportingOnlyReportsTransitions(t *testing.T) {
 	}
 }
 
+func TestDNSListenerUsesDedicatedOverlayPort(t *testing.T) {
+	config := testConfig()
+	if got, want := dnsListenAddress(config), "100.96.0.1:1053"; got != want {
+		t.Fatalf("DNS listen address = %q, want %q", got, want)
+	}
+	if got, want := config.DNSUpstream.String(), "127.0.0.1:53"; got != want {
+		t.Fatalf("DNS upstream = %q, want %q", got, want)
+	}
+}
+
 type recordingBackend struct{ health []bool }
 
 func (*recordingBackend) EnsureOverlay(context.Context, Config) error { return nil }
