@@ -253,8 +253,8 @@ func installExitRules() error {
 }
 
 // installGatewayFirewallBase models the Gluetun-owned deny-first chains that
-// the gateway agent must extend. The fixture deliberately installs no accepts:
-// Waycloak owns only its marker-tagged health, DNS, and forwarding exceptions.
+// the gateway agent must extend. Only loopback is accepted by the fixture;
+// Waycloak owns its marker-tagged overlay health, DNS, and forwarding exceptions.
 func installGatewayFirewallBase() error {
 	connection := &nftables.Conn{}
 	tables, err := connection.ListTablesOfFamily(nftables.TableFamilyIPv4)
@@ -268,8 +268,9 @@ func installGatewayFirewallBase() error {
 	}
 	table := connection.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: gatewayTableName})
 	policy := nftables.ChainPolicyDrop
-	connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+	input := connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
 	connection.AddChain(&nftables.Chain{Table: table, Name: "FORWARD", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(inputInterface("lo"), &expr.Verdict{Kind: expr.VerdictAccept})})
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install fixture gateway firewall: %w", err)
 	}
@@ -322,6 +323,10 @@ func prefixToIPNet(prefix netip.Prefix) *net.IPNet {
 
 func interfacePair(input, output string) []expr.Any {
 	return []expr.Any{&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(input)}, &expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(output)}}
+}
+
+func inputInterface(input string) []expr.Any {
+	return []expr.Any{&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(input)}}
 }
 
 func established() []expr.Any {
