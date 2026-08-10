@@ -13,6 +13,7 @@ readonly cni_digest_file="$root/cni-state.sha256"
 readonly cni_state_dir=/var/lib/cni/waycloak-e2e
 readonly server_kubeconfig="$root/kubeconfig"
 readonly client_kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig
+readonly runtime_endpoint="unix://$data_dir/agent/containerd/containerd.sock"
 readonly unit_name=waycloak-k3s-dr.service
 readonly unit_file="/etc/systemd/system/$unit_name"
 
@@ -47,6 +48,28 @@ publish_client_kubeconfig() {
     exit 1
   fi
   install -m 0600 -o "$SUDO_UID" -g "$SUDO_GID" "$server_kubeconfig" "$client_kubeconfig"
+}
+
+cold_stop_runtime() {
+  if [[ ! -S "${runtime_endpoint#unix://}" ]]; then
+    echo "K3s containerd socket is unavailable for cold restore" >&2
+    exit 1
+  fi
+  mapfile -t sandbox_ids < <(k3s crictl --runtime-endpoint="$runtime_endpoint" pods --quiet)
+  printf 'cold restore will stop and remove %s exact CRI Pod sandboxes\n' "${#sandbox_ids[@]}"
+  local sandbox_id
+  for sandbox_id in "${sandbox_ids[@]}"; do
+    [[ "$sandbox_id" =~ ^[a-f0-9]{64}$ ]] || {
+      echo "refusing unexpected CRI sandbox identity $sandbox_id" >&2
+      exit 1
+    }
+    k3s crictl --runtime-endpoint="$runtime_endpoint" stopp "$sandbox_id"
+    k3s crictl --runtime-endpoint="$runtime_endpoint" rmp "$sandbox_id"
+  done
+  if [[ -n "$(k3s crictl --runtime-endpoint="$runtime_endpoint" ps --quiet)" || -n "$(k3s crictl --runtime-endpoint="$runtime_endpoint" pods --quiet)" ]]; then
+    echo "cold restore left a CRI application container or Pod sandbox running" >&2
+    exit 1
+  fi
 }
 
 write_cni_digest() {
@@ -143,6 +166,7 @@ restore() {
   fi
 
   date +%s >"$root/restore-start-epoch"
+  cold_stop_runtime
   systemctl stop "$unit_name"
   (cd / && sha256sum --check "$cni_digest_file")
   K3S_TOKEN_FILE="$token_file" timeout 180s k3s server \
