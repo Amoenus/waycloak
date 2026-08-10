@@ -93,7 +93,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   Deployment plans now also bind a canonical hashed cluster observation and
   re-run it immediately before mutation. Mixed-architecture clusters require
   an explicit reviewed row, and the CNI installer/node agent run only on that
-  architecture so an unproved node cannot publish Core capability.
+  architecture so an unproved node cannot publish Core capability. Doctor now
+  derives the expected capability set from those two live selectors, requires
+  them to agree, reports other architecture rows as `NotSelected`, and still
+  fails for any selected node without a current authenticated capability.
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.
@@ -110,10 +113,12 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   gateway with zero restarts through the 10.5-minute checkpoint. Homelab GitOps
   promotion preserved the controller and gateway Pod identities but exposed
   stable API-server defaults missing from the rendered MutatingAdmissionPolicy,
-  leaving Argo CD OutOfSync. Render those defaults explicitly, publish and
-  install the exact patch, and prove no-replacement Argo convergence before
-  beta CRD lifecycle, upgrade/rollback, #32 DR, uninstall/purge, and remaining
-  support-row evidence.
+  leaving Argo CD OutOfSync. Core.13 renders those defaults explicitly, passed
+  hosted and independent exact-artifact verification, and converged Argo CD to
+  Healthy/Synced without replacing the controller or gateway or restarting
+  either container. Protected workload enrollment and churn/leak evidence now
+  precede beta CRD lifecycle, upgrade/rollback, #32 DR, uninstall/purge, and the
+  remaining support-row evidence.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm

@@ -440,8 +440,30 @@ the Application OutOfSync because the Kubernetes API server defaults
 `MutatingAdmissionPolicy.matchConstraints.matchPolicy`, `namespaceSelector`,
 and `objectSelector` while the chart omitted those stable values. The chart now
 renders those defaults explicitly and CI scopes a regression assertion to the
-mutating policy. An exact patch release and no-replacement Argo convergence
-proof still precede protected workload enrollment.
+mutating policy. The exact patch release and no-replacement Argo convergence
+proof are recorded below.
+
+Core.13 published that exact patch and passed hosted plus independent local
+verification of release checksums, Sigstore identities, SPDX attestations,
+GitHub provenance, both OCI architectures, embedded Gluetun control policy, and
+the chart layer. The signed Core.12-to-Core.13 lifecycle plan installed Helm
+revision 14 on the reviewed amd64 row. Homelab GitOps PR #1526 then converged
+Argo CD to Healthy/Synced with no diff while preserving controller UID
+`762b65e6-4d67-4e0d-9e2e-c151dd6f9cf9` and gateway UID
+`59b81f3e-7d08-4387-a416-4d9737e35d71`; both retained zero restarts and the
+gateway's seven current-generation conditions remained `True`. Protected
+qBittorrent, Bitmagnet, and qui workloads remain intentionally at zero replicas
+until route/binding enrollment and fail-closed application cutover evidence.
+
+The live mixed-architecture diagnostic exposed a narrower #138 defect: doctor
+treated the two intentionally unselected arm64 nodes as unavailable even though
+the reviewed install plan persisted `kubernetes.io/arch=amd64` on both node
+components. Doctor now derives its expected set from the live CNI-installer and
+node-agent selectors, requires one coherent installation, counts those arm64
+nodes as `NotSelected`, and continues to fail for every selected node without a
+current authenticated capability. The updated binary reports the live Core.13
+row healthy with one `CNICapable` amd64 node and two `NotSelected` arm64 nodes;
+arm64 remains uncertified until its separate live conformance row passes.
 
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
