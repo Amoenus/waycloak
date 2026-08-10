@@ -811,15 +811,24 @@ EOF
 assert_rotation_fail_closed() {
   local label="$1"
   local pod_name="rotation-${label}-probe"
+  local doctor_degraded=false
   local startup_denied=false
 
-  if "$work_dir/waycloakctl" doctor --output json \
-    >"$work_dir/doctor-rotation-${label}.json" 2>/dev/null; then
+  for _ in $(seq 1 60); do
+    if ! "$work_dir/waycloakctl" doctor --output json \
+      >"$work_dir/doctor-rotation-${label}.json" 2>/dev/null && \
+      jq -e '.healthy == false and (.nodeCapabilityStates.CNICapable // 0) == 0' \
+        "$work_dir/doctor-rotation-${label}.json" >/dev/null; then
+      doctor_degraded=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$doctor_degraded" != true ]]; then
+    cat "$work_dir/doctor-rotation-${label}.json" >&2 || true
     printf '%s certificate interruption retained stale healthy doctor state\n' "$label" >&2
     return 1
   fi
-  jq -e '.healthy == false and .nodeCapabilityStates.CNICapable == 0' \
-    "$work_dir/doctor-rotation-${label}.json" >/dev/null
   test -z "$(kubectl get node -o jsonpath='{.items[0].metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/core-ready}')"
 
   cat <<EOF | kubectl apply -f -
