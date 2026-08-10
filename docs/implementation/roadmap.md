@@ -100,12 +100,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [ ] #140: `v0.0.0-core.6` passed exact publication and independent hosted
   verification. Continue with beta CRD lifecycle, upgrade/rollback, #32 DR,
   #33 observability, uninstall/purge, and support-row evidence.
-- [ ] #32: portable logical backup/restore and exact source-bound forward/
-  rollback are merged. The next slice adds an immutable exact-plan lifecycle
-  journal and resumes only exact class-withdrawn, source-agent-retained staged,
-  or completed checkpoints; unit/race evidence is green and hosted forward/
-  rollback process-interruption evidence is pending. Pending Helm repair,
-  explicit certificate rotation, and supported distribution snapshots remain;
+- [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
+  rollback (#175), and journal-bound staged interruption recovery (#176) are
+  merged with exact hosted evidence. The current slice adds explicit
+  confirmation-bound observation-certificate rotation, old/new overlap,
+  non-ready authenticated capability holds, dynamic serving reload, every
+  exact interruption checkpoint, and hosted overlap/server-switch failures.
+  Pending/corrupt Helm repair and supported distribution snapshots remain;
   coherent UID preservation is distribution-snapshot-only.
 - [ ] #33 and #141: proceed after their declared dependencies and evidence.
 

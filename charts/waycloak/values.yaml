@@ -58,6 +58,7 @@ defaultGatewayClass:
 # the API-only chart stage avoids publishing a mutable or placeholder image.
 nodeAgent:
   enabled: false
+  observationRotationID: initial
   nodeSelector: {}
   image:
     repository: ghcr.io/amoenus/waycloak-node-agent

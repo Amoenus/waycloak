@@ -99,6 +99,7 @@ type Service struct {
 	InstanceID          string
 	Now                 func() time.Time
 	RequireRelay        bool
+	CapabilityHeld      bool
 	Capabilities        []string
 	ReleaseIdentity     wayv1.ReleaseIdentity
 	ConformanceProfile  wayv1.QualifiedName
@@ -214,7 +215,7 @@ func (s *Service) Status() waycni.AgentStatus {
 func (s *Service) Report() Report {
 	return Report{APIVersion: ReportAPIVersion, Node: NodeReport{
 		NodeName: s.NodeName, NodeBootID: s.NodeBootID, InstanceID: s.InstanceID,
-		ObservedAt: s.now(), Ready: s.Ready(), Capabilities: append([]string(nil), s.Capabilities...),
+		ObservedAt: s.now(), Ready: s.Ready() && !s.CapabilityHeld, Capabilities: append([]string(nil), s.Capabilities...),
 		ReleaseIdentity: s.ReleaseIdentity, ConformanceProfile: s.ConformanceProfile,
 	}, Observations: s.Observations()}
 }

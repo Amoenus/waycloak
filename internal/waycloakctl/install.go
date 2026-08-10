@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
@@ -225,6 +224,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	}
 	if confirmation != plan.PlanID {
 		return fmt.Errorf("refusing mutation: --confirm must exactly equal %s", plan.PlanID)
+	}
+	if err := ensureNoCertificateRotation(ctx, clients, plan.Namespace, plan.Release); err != nil {
+		return err
 	}
 	current, err := Preflight(ctx, clients, plan.OverlayCIDR)
 	if err != nil {
@@ -475,13 +477,9 @@ func validateInstallSecret(secret *corev1.Secret, secretType corev1.SecretType) 
 	if secret.Type != secretType || len(secret.Data["ca.crt"]) == 0 {
 		return errors.New("existing installation Secret has an invalid type or CA")
 	}
-	caBlock, _ := pem.Decode(secret.Data["ca.crt"])
-	if caBlock == nil {
-		return errors.New("existing installation CA is invalid")
-	}
-	ca, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil || !ca.IsCA || time.Now().After(ca.NotAfter) {
-		return errors.New("existing installation CA is invalid or expired")
+	authorities, err := parseCABundle(secret.Data["ca.crt"])
+	if err != nil {
+		return err
 	}
 	if secretType == corev1.SecretTypeOpaque {
 		if len(secret.Data) != 1 {
@@ -489,18 +487,7 @@ func validateInstallSecret(secret *corev1.Secret, secretType corev1.SecretType) 
 		}
 		return nil
 	}
-	if len(secret.Data) != 3 {
-		return errors.New("installation TLS Secret contains unexpected keys")
-	}
-	pair, err := tls.X509KeyPair(secret.Data["tls.crt"], secret.Data["tls.key"])
-	if err != nil || len(pair.Certificate) != 1 {
-		return errors.New("existing installation TLS key pair is invalid")
-	}
-	certificate, err := x509.ParseCertificate(pair.Certificate[0])
-	if err != nil || certificate.CheckSignatureFrom(ca) != nil || time.Now().After(certificate.NotAfter) {
-		return errors.New("existing installation TLS certificate is invalid, expired, or signed by another CA")
-	}
-	return nil
+	return validateServingIdentity(secret, authorities)
 }
 
 func observationIdentity(release, namespace string) ([]byte, []byte, []byte, error) {

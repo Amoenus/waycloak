@@ -28,6 +28,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func TestCapabilityHoldAffectsOnlyPublishedReadiness(t *testing.T) {
+	service := &Service{RequireRelay: true, CapabilityHeld: true, NodeName: "node", NodeBootID: "boot", InstanceID: "instance"}
+	service.SetBackendHealthy(true)
+	service.SetRelayHealthy(true)
+	if !service.Ready() || !service.Status().Ready {
+		t.Fatal("certificate hold disabled the local CNI readiness boundary")
+	}
+	if service.Report().Node.Ready {
+		t.Fatal("certificate hold published schedulable Core readiness")
+	}
+	service.CapabilityHeld = false
+	if !service.Report().Node.Ready {
+		t.Fatal("released certificate hold did not publish live readiness")
+	}
+}
+
 type fakeProgrammer struct {
 	events       []string
 	configured   dataplane.Config

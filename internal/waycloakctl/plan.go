@@ -167,6 +167,10 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	gatewayAgent := manifest.Images["waycloak-gateway-agent"]
 	engine := manifest.Images["gluetun"]
 	controllerService := chartFullname(release) + "-controller"
+	rotationID := initialObservationRotation
+	if source.State == installStateDeployed {
+		rotationID = source.ObservationRotationID
+	}
 	values := fmt.Sprintf(`releaseIdentity:
   version: %q
   manifestDigest: %q
@@ -198,6 +202,7 @@ cniInstaller:
   binaryHostPath: %q
 nodeAgent:
   enabled: true
+  observationRotationID: %q
   nodeSelector:
     kubernetes.io/arch: %q
   image:
@@ -217,7 +222,7 @@ defaultGatewayClass:
     version: %q
     manifestDigest: %q
 `, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
-		report.CNI.ConfigPath, report.CNI.BinaryPath, architecture, agent.Repository, agent.Digest,
+		report.CNI.ConfigPath, report.CNI.BinaryPath, rotationID, architecture, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)

@@ -30,7 +30,7 @@ func TestPublisherUsesExactAuthenticatedNodeAndPreservesForeignLabels(t *testing
 	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
 		t.Fatal(err)
 	}
-	if node.Labels[CoreReadyLabel] != "true" || node.Labels[CapabilityEpochLabel] != "2000" || node.Labels["topology.kubernetes.io/zone"] != "test" {
+	if node.Labels[CoreReadyLabel] != "true" || node.Labels[CapabilityEpochLabel] != "2000" || node.Labels[ObservationEpochLabel] != "2000000000000" || node.Labels["topology.kubernetes.io/zone"] != "test" {
 		t.Fatalf("published labels = %#v", node.Labels)
 	}
 }
@@ -59,6 +59,9 @@ func TestPublisherWithdrawsSkewedOrUnsupportedReportsAndRejectsForeignNode(t *te
 			}
 			if node.Labels[CoreReadyLabel] != "" || node.Labels[CapabilityEpochLabel] != "" {
 				t.Fatalf("invalid report retained readiness: %#v", node.Labels)
+			}
+			if name == "not ready" && node.Labels[ObservationEpochLabel] != "2000000000000" {
+				t.Fatalf("authenticated held report lacked non-ready observation evidence: %#v", node.Labels)
 			}
 		})
 	}

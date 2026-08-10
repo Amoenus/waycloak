@@ -112,6 +112,39 @@ gateway one at a time during a declared fail-closed window and verifies a fresh
 gateway Pod UID, route/binding recovery, protected denial during loss, and no
 ordinary-egress fallback.
 
+### Observation certificate rotation
+
+The replacement Core has no admission webhook certificate. Its only owned TLS
+boundary is the authenticated node-agent observation relay. Rotation therefore
+uses a separate `waycloakctl certificate rotation plan/apply` transaction; an
+ordinary release transition must preserve this identity and cannot overlap an
+active certificate transaction.
+
+The reviewed plan binds the cluster preflight, exact deployed Helm/runtime/
+CRD/class identity, stable CA and serving Secret UIDs, public certificate
+digests, and current node-agent rotation identity. Confirmation precedes
+generation of a new private key. Apply stores that key only in one immutable,
+release-owned staged Secret and records its UID and public digests in a separate
+immutable, non-sensitive journal.
+
+The controller validates the projected key pair on every new TLS handshake.
+Apply publishes the old-and-new CA bundle before changing the serving key,
+then rolls node agents with an explicit capability hold. Held agents keep the
+local CNI and existing deny state operational but report `Ready=False`; the
+controller records a fresh authenticated observation epoch without restoring
+the Core-ready scheduling label. After a held report succeeds through the new
+serving certificate, apply prunes old trust, rolls agents against new-only
+trust, requires another held observation, releases the hold, and finally
+requires fresh live Core capability.
+
+Each single-object Secret update is an exact restart checkpoint, including
+partial overlap publication and partial trust pruning. A retry accepts only the
+original plan, journal, staged Secret UID/public digests, stable Secret UIDs,
+unchanged release state, and one enumerated phase. Staged private material is
+deleted before the journal; if cleanup is interrupted at that boundary, the
+journal's target digests and exact live target authorize journal-only cleanup.
+Missing private material at any earlier phase is a hard stop.
+
 ## Consequences
 
 - A stale plan cannot cross an intervening release or certificate change.
@@ -127,8 +160,8 @@ ordinary-egress fallback.
 - Exact class-withdrawn and post-staging CLI interruptions are resumable without
   repeating completed mutations. Pending/corrupt Helm operations remain an
   explicit repair boundary.
-- Certificate rotation and distribution datastore snapshots remain additional
-  issue #32 certification rows.
+- Observation certificate rotation is explicit and restart-safe; distribution
+  datastore snapshots remain an additional issue #32 certification row.
 
 ## Alternatives rejected
 

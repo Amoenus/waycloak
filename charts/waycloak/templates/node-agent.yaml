@@ -7,6 +7,7 @@
 {{- $cniReceipt := required "nodeAgent.cniReceiptHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniReceiptHostPath }}
 {{- $cniBinary := required "nodeAgent.cniBinaryHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniBinaryHostPath }}
 {{- $cniConfig := required "nodeAgent.cniConfigHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniConfigHostPath }}
+{{- $rotationID := required "nodeAgent.observationRotationID is required when nodeAgent.enabled=true" .Values.nodeAgent.observationRotationID }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -47,6 +48,8 @@ spec:
       app.kubernetes.io/component: node-agent
   template:
     metadata:
+      annotations:
+        install.waycloak.io/observation-rotation-id: {{ $rotationID | quote }}
       labels:
         {{- include "waycloak.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: node-agent
