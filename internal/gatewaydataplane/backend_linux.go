@@ -294,7 +294,7 @@ func replaceEngineFilterRules(connection *nftables.Conn, config Config, healthy 
 	}
 	if table == nil {
 		if healthy {
-			return errors.New("Gluetun filter table is unavailable")
+			return errors.New("gluetun filter table is unavailable")
 		}
 		return nil
 	}
@@ -311,7 +311,7 @@ func replaceEngineFilterRules(connection *nftables.Conn, config Config, healthy 
 		}
 	}
 	if healthy && (input == nil || forward == nil) {
-		return errors.New("Gluetun INPUT and FORWARD chains are unavailable")
+		return errors.New("gluetun INPUT and FORWARD chains are unavailable")
 	}
 	for _, chain := range []*nftables.Chain{input, forward} {
 		if chain == nil {
