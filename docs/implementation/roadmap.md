@@ -105,11 +105,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   privilege-drop capability and separates the overlay DNS listener on 1053 from
   Gluetun's loopback port 53. Core.11 proved those corrections live, then exposed
   the bounded restart, Kubernetes DNS-search, and current Gluetun control-auth
-  contracts. A controller-stopped diagnostic reached a 2/2 Ready gateway with
-  exact `KILL`, Pod-local `ndots:1`, and only the two required read-only control
-  routes unauthenticated; credential-bearing routes remained private. Publish
-  and install that exact follow-up before beta CRD lifecycle, upgrade/rollback,
-  #32 DR, uninstall/purge, and remaining support-row evidence.
+  contracts. Core.12 implemented those contracts, passed exact hosted and local
+  verification for both OCI architectures, and reached a 2/2 Ready live amd64
+  gateway with zero restarts through the 10.5-minute checkpoint. Homelab GitOps
+  promotion preserved the controller and gateway Pod identities but exposed
+  stable API-server defaults missing from the rendered MutatingAdmissionPolicy,
+  leaving Argo CD OutOfSync. Render those defaults explicitly, publish and
+  install the exact patch, and prove no-replacement Argo convergence before
+  beta CRD lifecycle, upgrade/rollback, #32 DR, uninstall/purge, and remaining
+  support-row evidence.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm

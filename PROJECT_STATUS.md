@@ -422,6 +422,27 @@ engine image that permits only `GET /v1/dns/status` and
 restarts, while a credential-bearing settings route remained unauthorized.
 Protected qBittorrent and Bitmagnet workloads remained at zero replicas.
 
+Core.12 then published and passed both hosted and independent exact-artifact
+verification for checksums, Sigstore identities, SPDX attestations, GitHub
+provenance, and the `linux/amd64` plus `linux/arm64` OCI indices. An exact
+Core.11 revision-10 lifecycle plan installed Core.12 as Helm revision 12 on the
+reviewed amd64 row. The native replacement gateway retained the same Pod UID
+for a 10.5-minute checkpoint, stayed 2/2 Ready with zero restarts, initialized
+OpenVPN exactly once, and recorded no engine errors or health-driven restarts.
+All seven gateway conditions were current-generation `True`; the two intended
+read-only Gluetun control routes succeeded and the private VPN settings route
+remained unauthorized. The diagnostic ConfigMap was unreferenced and deleted.
+Protected qBittorrent, Bitmagnet, and qui workloads remained at zero replicas.
+
+Homelab GitOps PR #1525 promoted the exact Core.12 values and digests. Argo CD
+applied them without replacing the controller or gateway, but correctly kept
+the Application OutOfSync because the Kubernetes API server defaults
+`MutatingAdmissionPolicy.matchConstraints.matchPolicy`, `namespaceSelector`,
+and `objectSelector` while the chart omitted those stable values. The chart now
+renders those defaults explicitly and CI scopes a regression assertion to the
+mutating policy. An exact patch release and no-replacement Argo convergence
+proof still precede protected workload enrollment.
+
 The turnkey gate additionally found and closed six node bootstrap hazards before
 acceptance: installation receipts are isolated from enumerated CNI attachment
 state, and the privileged node agent uses the host network namespace so its own

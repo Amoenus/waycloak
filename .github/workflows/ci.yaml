@@ -194,6 +194,16 @@ jobs:
           test "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "$RUNNER_TEMP/render-1.yaml")" -eq 2
           test "$(grep -c '^kind: MutatingAdmissionPolicy$' "$RUNNER_TEMP/render-1.yaml")" -eq 1
           test "$(grep -c '^kind: MutatingAdmissionPolicyBinding$' "$RUNNER_TEMP/render-1.yaml")" -eq 1
+          awk '
+            $0 == "kind: MutatingAdmissionPolicy" { in_policy = 1 }
+            in_policy && $0 == "    matchPolicy: Equivalent" { match_policy++ }
+            in_policy && $0 == "    namespaceSelector: {}" { namespace_selector++ }
+            in_policy && $0 == "    objectSelector: {}" { object_selector++ }
+            in_policy && $0 == "---" { in_policy = 0 }
+            END {
+              exit !(match_policy == 1 && namespace_selector == 1 && object_selector == 1)
+            }
+          ' "$RUNNER_TEMP/render-1.yaml"
           test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
           test "$(grep -Ec '^kind: (Mutating|Validating)WebhookConfiguration$' "$RUNNER_TEMP/render-1.yaml" || true)" -eq 0
           if grep -q 'v1alpha' "$RUNNER_TEMP/render-1.yaml"; then
