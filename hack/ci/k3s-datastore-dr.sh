@@ -174,10 +174,14 @@ restore() {
   fi
   wait_for_cluster
   publish_client_kubeconfig
-  if [[ -e "$data_dir/server/db/reset-flag" ]]; then
-    echo "ordinary K3s restart did not consume the one-shot reset flag" >&2
-    exit 1
-  fi
+  local reset_flag_deadline=$((SECONDS + 30))
+  while [[ -e "$data_dir/server/db/reset-flag" ]]; do
+    if (( SECONDS >= reset_flag_deadline )); then
+      echo "ordinary K3s restart did not consume the one-shot reset flag" >&2
+      exit 1
+    fi
+    sleep 1
+  done
   date +%s >"$root/restore-end-epoch"
 }
 
