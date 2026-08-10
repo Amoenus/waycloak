@@ -1,0 +1,26 @@
+{{- if .Values.observability.assets.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "waycloak.fullname" . }}-prometheus-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: observability
+data:
+  waycloak.rules.yaml: |
+{{ .Files.Get "files/observability/prometheus-rules.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "waycloak.fullname" . }}-grafana-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: observability
+    grafana_dashboard: "1"
+data:
+  waycloak-overview.json: |
+{{ .Files.Get "files/observability/grafana-dashboard.json" | indent 4 }}
+{{- end }}

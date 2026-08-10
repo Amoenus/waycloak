@@ -182,6 +182,13 @@ jobs:
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-1.yaml"
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-2.yaml"
           cmp "$RUNNER_TEMP/render-1.yaml" "$RUNNER_TEMP/render-2.yaml"
+          asset_args=(waycloak charts/waycloak --namespace waycloak-system --set observability.assets.enabled=true)
+          helm template "${asset_args[@]}" >"$RUNNER_TEMP/observability-1.yaml"
+          helm template "${asset_args[@]}" >"$RUNNER_TEMP/observability-2.yaml"
+          cmp "$RUNNER_TEMP/observability-1.yaml" "$RUNNER_TEMP/observability-2.yaml"
+          test "$(grep -c '^kind: ConfigMap$' "$RUNNER_TEMP/observability-1.yaml")" -eq 2
+          grep -q 'WaycloakEnrolledPodFailClosed' "$RUNNER_TEMP/observability-1.yaml"
+          grep -q 'waycloak-stable-overview' "$RUNNER_TEMP/observability-1.yaml"
           test "$(grep -c '^kind: CustomResourceDefinition$' "$RUNNER_TEMP/render-1.yaml")" -eq 6
           test "$(grep -c '^kind: ValidatingAdmissionPolicy$' "$RUNNER_TEMP/render-1.yaml")" -eq 2
           test "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "$RUNNER_TEMP/render-1.yaml")" -eq 2
@@ -227,6 +234,12 @@ jobs:
           helm template "${enabled_args[@]}" >"$RUNNER_TEMP/enabled-1.yaml"
           helm template "${enabled_args[@]}" >"$RUNNER_TEMP/enabled-2.yaml"
           cmp "$RUNNER_TEMP/enabled-1.yaml" "$RUNNER_TEMP/enabled-2.yaml"
+          grep -q -- '--metrics-bind-address=:8080' "$RUNNER_TEMP/enabled-1.yaml"
+          test "$(grep -c '^ *- name: metrics$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
+          disabled_metrics_args=("${enabled_args[@]}" --set observability.metrics.enabled=false)
+          helm template "${disabled_metrics_args[@]}" >"$RUNNER_TEMP/metrics-disabled.yaml"
+          grep -q -- '--metrics-bind-address=0' "$RUNNER_TEMP/metrics-disabled.yaml"
+          test "$(grep -c '^ *- name: metrics$' "$RUNNER_TEMP/metrics-disabled.yaml" || true)" -eq 0
           test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^kind: DaemonSet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c '^kind: VPNGatewayClass$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
@@ -243,6 +256,17 @@ jobs:
           chart_version="$(awk '$1 == "version:" {print $2; exit}' charts/waycloak/Chart.yaml)"
           cmp "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" "$RUNNER_TEMP/chart-2/waycloak-$chart_version.tgz"
           test "$(tar -tzf "$RUNNER_TEMP/chart-1/waycloak-$chart_version.tgz" | grep -Ec '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpnegressroutes|vpngatewayclasses|vpngateways|vpnworkloadbindings|workloadadapters)\.yaml$')" -eq 6
+      - name: Verify Prometheus rules and scrape configuration
+        run: |
+          archive="$RUNNER_TEMP/prometheus-3.13.2.linux-amd64.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.linux-amd64.tar.gz
+          echo '0e8c4d46101bd025ea8265e377d2caabc57f488fc1be1c367f37db69ea41be6f  '"$archive" | sha256sum --check
+          tar -xzf "$archive" --directory "$RUNNER_TEMP"
+          promtool="$RUNNER_TEMP/prometheus-3.13.2.linux-amd64/promtool"
+          "$promtool" check rules charts/waycloak/files/observability/prometheus-rules.yaml
+          "$promtool" check config config/observability/prometheus-scrape.yaml
       - name: Verify KCL rendering and deterministic package
         run: |
           module_version="$(awk '$1 == "version" {gsub(/\"/, "", $3); print $3; exit}' kcl/waycloak/kcl.mod)"

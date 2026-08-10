@@ -1,14 +1,12 @@
 # Waycloak Helm chart
 
-This chart currently represents the #128 API installation plus the #129–#136
-route enrollment, static admission, cross-namespace, stable status, UID-bound
-allocation, node-agent, and gateway-class contract surfaces. It
-installs only the six `networking.waycloak.io/v1beta1` CRDs, generated persona,
-controller, and unbound read-only node-agent RBAC, the future controller
-ServiceAccount identity, controller-only `VPNWorkloadBinding` defense, and
-declarative rejection of alpha Pod annotations, malformed route lookup labels,
-live-Pod enrollment mutation, host-namespace/direct-node bypass, and a stable
-declarative scheduling mutation for authenticated Core-ready nodes.
+This chart installs the clean-break replacement: the six
+`networking.waycloak.io/v1beta1` CRDs, persona and runtime RBAC, stable admission
+policies, replacement controller, mandatory chained-CNI installer, privileged
+node agent, and optional exact default gateway class. It rejects alpha Pod
+annotations, malformed enrollment labels, live-Pod enrollment mutation,
+host-namespace/direct-node bypass, and schedules enrolled Pods only to nodes
+with authenticated current Core capability.
 
 When `defaultGatewayClass.enabled=true`, the chart renders the tested Gluetun
 class only from an exact release version and `sha256` manifest digest supplied
@@ -16,14 +14,10 @@ by the verified install plan. The development defaults do not invent a release
 identity. Gateway manifests contain no Waycloak image digest.
 
 It does not render the alpha controller, mutation webhooks, sidecars, init
-containers, allocation ConfigMaps, or alpha CRDs. It also does not yet render
-the replacement controller Deployment or CNI installer. The digest-only
-node-agent DaemonSet surface remains disabled until the signed install plan
-supplies its TLS and artifact identity plus root-owned paths for the install
-receipt, CNI binary, and active conflist. Those three exact files are mounted
-read-only and hash-checked before Core readiness; the runtime agent never
-writes the host CNI directories. Do not enroll workloads from this
-intermediate chart; the stable turnkey journey is not complete at #136.
+containers, allocation ConfigMaps, alpha CRDs, or any compatibility bridge.
+Install through a signed `waycloakctl` exact-artifact plan: development values
+do not invent image digests, release identity, observation trust, or root-owned
+host paths. The runtime agent never writes the host CNI directories.
 
 The only replacement enrollment key is the Pod-template label
 `networking.waycloak.io/egress-route: <same-namespace-route-name>`. A present
@@ -65,3 +59,16 @@ controller ServiceAccount with a namespaced `RoleBinding`. Never use a
 Install exactly one Waycloak release per cluster. The CRDs, admission policy,
 and fixed persona ClusterRoles are cluster-wide product identities and are not
 safe for competing Helm release ownership.
+
+## Operational visibility
+
+The controller exposes bounded aggregate metrics on the Service's named
+`metrics` port by default. Disable it with
+`observability.metrics.enabled=false`. No namespace, object name/UID, node,
+address, endpoint, provider, or credential label is published.
+
+Set `observability.assets.enabled=true` to render optional plain Prometheus
+rules and a Grafana dashboard as ConfigMaps. This adds no Prometheus Operator
+or Grafana runtime dependency. See
+[`observability.md`](../../docs/operations/observability.md) for the stable
+metric contract, scrape fragment, privacy boundary, and alert semantics.

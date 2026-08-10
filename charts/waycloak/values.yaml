@@ -4,6 +4,13 @@ fullnameOverride: ""
 serviceAccount:
   annotations: {}
 
+observability:
+  metrics:
+    enabled: true
+    port: 8080
+  assets:
+    enabled: false
+
 releaseIdentity:
   version: ""
   manifestDigest: ""

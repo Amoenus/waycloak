@@ -15,6 +15,30 @@
         }
       }
     },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metrics", "assets"],
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "port"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "port": {"type": "integer", "minimum": 1024, "maximum": 65535}
+          }
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean"}
+          }
+        }
+      }
+    },
     "releaseIdentity": {
       "type": "object",
       "additionalProperties": false,

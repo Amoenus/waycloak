@@ -15,6 +15,7 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/gatewayruntime"
+	wayobservability "github.com/Amoenus/waycloak/internal/observability"
 	"github.com/Amoenus/waycloak/internal/observationrelay"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/scheduling"
@@ -25,6 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -117,6 +119,10 @@ func main() {
 	})
 	if err != nil {
 		ctrl.Log.Error(err, "create replacement manager")
+		os.Exit(1)
+	}
+	if err = crmetrics.Registry.Register(wayobservability.NewCollector(manager.GetClient())); err != nil {
+		ctrl.Log.Error(err, "register stable aggregate metrics")
 		os.Exit(1)
 	}
 	var gatewayRuntime waycontroller.GatewayRuntimeProvisioner

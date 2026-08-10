@@ -16,6 +16,7 @@ The implementation is a destructive clean break. There is no conversion, transla
 
 - [Project status](../PROJECT_STATUS.md)
 - [Roadmap](implementation/roadmap.md)
+- [Stable operational visibility](operations/observability.md)
 - [CNI creation-time feasibility](implementation/cni-creation-time-feasibility.md)
 - [Node-agent threat-model evidence](implementation/node-agent-threat-model-evidence.md)
 - [Alpha removal order](implementation/alpha-removal-order.md)

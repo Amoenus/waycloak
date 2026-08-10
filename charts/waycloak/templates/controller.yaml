@@ -23,6 +23,12 @@ spec:
       port: {{ .Values.controller.observationPort }}
       targetPort: observations
       protocol: TCP
+    {{- if .Values.observability.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.observability.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -72,6 +78,11 @@ spec:
             - --gateway-mtu={{ .Values.controller.gateway.mtu }}
             - --gateway-vxlan-port={{ .Values.controller.gateway.vxlanPort }}
             - --gateway-health-port={{ .Values.controller.gateway.healthPort }}
+            {{- if .Values.observability.metrics.enabled }}
+            - --metrics-bind-address=:{{ .Values.observability.metrics.port }}
+            {{- else }}
+            - --metrics-bind-address=0
+            {{- end }}
           ports:
             - name: observations
               containerPort: {{ .Values.controller.observationPort }}
@@ -79,6 +90,11 @@ spec:
             - name: health
               containerPort: 8081
               protocol: TCP
+            {{- if .Values.observability.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.observability.metrics.port }}
+              protocol: TCP
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /readyz

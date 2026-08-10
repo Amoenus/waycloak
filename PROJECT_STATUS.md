@@ -221,14 +221,14 @@ second runner redownloads the release and verifies checksums, identities, SBOM
 attestations, provenance, platforms, chart contents, and manifest-to-registry
 digest equality through the reusable registry-native verifier.
 
-The immutable `v0.0.0-core.6` candidate was published from exact main commit
-`f9c38f77675f7798a603888bc3842fd84bf49761`. Core release run `31333890655`
+The immutable `v0.0.0-core.7` candidate was published from exact main commit
+`9a78c22633e5bbecc2437742d3740700bbfaa01b`. Core release run `31354593207`
 passed publication and a separate fresh-hosted-runner registry-native verifier.
 The verifier redownloaded the release and checked the canonical inventory,
 checksums, blob and OCI signatures, SPDX attestations, GitHub provenance,
 amd64/arm64 indexes, Gluetun source labels and binary checksums, exact chart
-layer bytes, and all six replacement CRDs in 3m36s. The companion waycloakctl
-release run `31333890656` also passed publication and independent asset
+layer bytes, and all six replacement CRDs in 3m27s. The companion waycloakctl
+release run `31354593216` also passed publication and independent asset
 verification. This closes the missing exact hosted-artifact evidence; it does
 not substitute for the supported real-provider journey, destructive reinstall
 drill, support-row conformance, lifecycle/DR matrix, or soak required by
@@ -346,6 +346,21 @@ second primary-CNI positive control. This evidence does not generalize to
 SQLite, external/multi-server datastores, S3, or another distribution. #32
 remains open until the authorized homelab exact-artifact snapshot drill passes
 after cutover.
+
+Issue #33 implementation and acceptance are complete on PR #180's exact commit
+`9f586011a037a361a9b26ae6445696f7d7f81523`. The replacement controller has a
+bounded aggregate Prometheus collector for common acceptance/programming/
+readiness, gateway tunnel and DNS health, explicit enrollment state, durable
+allocation, lease delivery, collection health, and controller-runtime
+reconcile errors. Labels deliberately exclude namespace, object name/UID,
+node, network, endpoint, provider, release identity, credentials, and free-form
+messages. The chart exposes an optional metrics endpoint and deterministic
+plain Prometheus rules/Grafana dashboard ConfigMaps without a Prometheus
+Operator runtime dependency. Exact-head CI run `31366217996` passed all eight
+jobs, including race, envtest, generated/reproducible artifacts, Prometheus
+rule/config compilation, and an 11m26s turnkey Kind journey that observed live
+gateway/tunnel/DNS and missing-route fail-closed state while its application
+container never started and privacy canaries remained absent from the scrape.
 
 Fresh homelab reassessment on 2026-08-10 reached the authenticated k3s API and
 observed all three mixed-architecture nodes Ready. No mutation has begun; exact
