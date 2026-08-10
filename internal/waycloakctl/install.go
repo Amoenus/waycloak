@@ -336,11 +336,11 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		if err := os.WriteFile(bootstrapValuesPath, []byte(controllerFirstBootstrapValues), 0o600); err != nil {
 			return err
 		}
-		output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--values", bootstrapValuesPath, "--wait", "--timeout", "10m")
+		output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath, bootstrapValuesPath)...)
 		if err != nil {
 			return fmt.Errorf("controller-first Helm bootstrap failed before Core activation: %w: %s", err, bounded(output, 4096))
 		}
-	} else if changedTransition && checkpoint == installCheckpointClassWithdrawn {
+	} else if changedTransition && (checkpoint == installCheckpointClassWithdrawn || checkpoint == installCheckpointClassReplaced) {
 		holdValues, err := nodeAgentTransitionHoldValues(plan.Source)
 		if err != nil {
 			return err
@@ -349,7 +349,7 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		if err := os.WriteFile(holdValuesPath, []byte(holdValues), 0o600); err != nil {
 			return err
 		}
-		output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--values", holdValuesPath, "--wait", "--timeout", "10m")
+		output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath, holdValuesPath)...)
 		if err != nil {
 			return fmt.Errorf("helm transition staging failed with the prior node agent retained: %w: %s", err, bounded(output, 4096))
 		}
@@ -362,7 +362,7 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		}
 		checkpoint = installCheckpointStaged
 	}
-	output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m")
+	output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath)...)
 	if err != nil {
 		return fmt.Errorf("helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
 	}
@@ -377,6 +377,14 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		return deleteInstallTransitionJournal(ctx, clients, plan, true)
 	}
 	return nil
+}
+
+func helmUpgradeArguments(plan InstallPlan, chart string, valuesPaths ...string) []string {
+	arguments := []string{"upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--server-side=true", "--force-conflicts"}
+	for _, path := range valuesPaths {
+		arguments = append(arguments, "--values", path)
+	}
+	return append(arguments, "--wait", "--timeout", "10m")
 }
 
 func nodeAgentTransitionHoldValues(source InstalledReleaseObservation) (string, error) {

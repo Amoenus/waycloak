@@ -104,7 +104,7 @@ func installRepairPlanIdentity(plan InstallRepairPlan) string {
 func (plan InstallRepairPlan) validate() error {
 	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallRepairPlan" || plan.RepairSequence != installRepairSequence ||
 		!validDigest(plan.PlanID) || plan.Namespace == "" || plan.Release == "" || !validDigest(plan.PreflightDigest) ||
-		plan.Checkpoint != installCheckpointClassWithdrawn && plan.Checkpoint != installCheckpointStaged && plan.Checkpoint != installCheckpointTarget {
+		plan.Checkpoint != installCheckpointClassWithdrawn && plan.Checkpoint != installCheckpointClassReplaced && plan.Checkpoint != installCheckpointStaged && plan.Checkpoint != installCheckpointTarget {
 		return errors.New("helm transition repair plan identity is incomplete")
 	}
 	if err := plan.Transition.validate(); err != nil || plan.Transition.Operation != installOperationTransition || plan.Transition.Namespace != plan.Namespace || plan.Transition.Release != plan.Release || plan.Transition.PreflightDigest != plan.PreflightDigest {
@@ -361,6 +361,9 @@ func classifyInstallRepairCheckpoint(components deployedReleaseComponents, trans
 	if exactSourceComponents(components, transition.Source, true) {
 		return installCheckpointClassWithdrawn, nil
 	}
+	if exactClassReplacedComponents(components, transition.Source, transition.Target) {
+		return installCheckpointClassReplaced, nil
+	}
 	components.HelmRevision = effectiveRevision
 	if exactStagedComponents(components, transition.Source, transition.Target, transition.TargetCRDs) {
 		return installCheckpointStaged, nil
@@ -392,10 +395,12 @@ func repairCheckpointRank(checkpoint string) int {
 	switch checkpoint {
 	case installCheckpointClassWithdrawn:
 		return 1
-	case installCheckpointStaged:
+	case installCheckpointClassReplaced:
 		return 2
-	case installCheckpointTarget:
+	case installCheckpointStaged:
 		return 3
+	case installCheckpointTarget:
+		return 4
 	default:
 		return 0
 	}

@@ -17,6 +17,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 )
 
@@ -58,7 +59,7 @@ func TestInstallRepairPlanIsCanonicalCredentialFreeAndConfirmationBound(t *testi
 }
 
 func TestInstallRepairAppliesEveryExactCheckpoint(t *testing.T) {
-	for _, checkpoint := range []string{installCheckpointClassWithdrawn, installCheckpointStaged, installCheckpointTarget} {
+	for _, checkpoint := range []string{installCheckpointClassWithdrawn, installCheckpointClassReplaced, installCheckpointStaged, installCheckpointTarget} {
 		t.Run(checkpoint, func(t *testing.T) {
 			ctx := context.Background()
 			clients, plan, target, crds, bundle := installRepairFixture(t, checkpoint)
@@ -68,7 +69,7 @@ func TestInstallRepairAppliesEveryExactCheckpoint(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantCalls := 1
-			if checkpoint == installCheckpointClassWithdrawn {
+			if checkpoint == installCheckpointClassWithdrawn || checkpoint == installCheckpointClassReplaced {
 				wantCalls = 2
 			}
 			if calls != wantCalls {
@@ -238,6 +239,9 @@ func installRepairFixture(t *testing.T, checkpoint string) (*Clients, InstallRep
 	switch checkpoint {
 	case installCheckpointClassWithdrawn:
 		createStuckHelmRevision(t, clients, transition.Namespace, transition.Release, 2)
+	case installCheckpointClassReplaced:
+		seedTargetClassOnSourceRuntime(t, clients, source, target, transition.Namespace, transition.Release)
+		createStuckHelmRevision(t, clients, transition.Namespace, transition.Release, 2)
 	case installCheckpointStaged:
 		seedStagedRelease(t, clients, source, target, transition.Namespace, transition.Release, 2, crdObjects)
 		normalizeStuckHelmRevisions(t, clients, transition.Namespace, transition.Release, 1, 2)
@@ -294,17 +298,45 @@ func repairRunner(t *testing.T, clients *Clients, plan InstallRepairPlan, target
 		if len(arguments) >= 2 && arguments[0] == "show" && arguments[1] == "crds" {
 			return bundle, nil
 		}
+		assertHelmLifecycleOwnership(t, arguments)
 		*calls++
 		if fail != nil {
 			return nil, fail
 		}
 		revision := plan.StuckRevision.Version + int64(*calls)
-		if plan.Checkpoint == installCheckpointClassWithdrawn && *calls == 1 {
+		if (plan.Checkpoint == installCheckpointClassWithdrawn || plan.Checkpoint == installCheckpointClassReplaced) && *calls == 1 {
 			seedStagedRelease(t, clients, plan.Transition.Source, target, plan.Namespace, plan.Release, revision, crds)
 		} else {
 			seedInstalledRelease(t, clients, target, plan.Namespace, plan.Release, revision, crds)
 		}
 		return nil, nil
+	}
+}
+
+func seedTargetClassOnSourceRuntime(t *testing.T, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest, namespace, release string) {
+	t.Helper()
+	class := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "networking.waycloak.io/v1beta1", "kind": "VPNGatewayClass",
+		"metadata": map[string]any{"name": "gluetun.waycloak.io"},
+		"spec": map[string]any{"releaseIdentity": map[string]any{
+			"version": target.Version, "manifestDigest": target.ManifestDigest,
+		}},
+	}}
+	class.SetUID(k8stypes.UID("test-gateway-class-partial-" + release))
+	class.SetGeneration(1)
+	if _, err := clients.Dynamic.Resource(gatewayClassGVR).Create(context.Background(), class, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	components, err := observeDeployedReleaseComponents(context.Background(), clients, namespace, release)
+	if err != nil || !exactClassReplacedComponents(components, source, target) {
+		t.Fatalf("fixture did not reproduce target-class/source-runtime checkpoint: %#v %v", components, err)
+	}
+}
+
+func assertHelmLifecycleOwnership(t *testing.T, arguments []string) {
+	t.Helper()
+	if !containsString(arguments, "--server-side=true") || !containsString(arguments, "--force-conflicts") || containsString(arguments, "--take-ownership") {
+		t.Fatalf("lifecycle Helm mutation lacks narrow server-side field takeover: %#v", arguments)
 	}
 }
 
