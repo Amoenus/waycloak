@@ -48,7 +48,7 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if engine.Name != "vpn-engine" || len(engine.Env) != 2 || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
 	}
-	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 2 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" {
+	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 3 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" {
 		t.Fatalf("VPN engine lacks its exact runtime capabilities: %#v", engine.SecurityContext)
 	}
 	if agent.SecurityContext == nil || agent.SecurityContext.Capabilities == nil || len(agent.SecurityContext.Capabilities.Add) != 1 || agent.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" {
