@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -296,7 +297,9 @@ func runDatastoreRecoveryProof(
 		ObjectMeta: metav1.ObjectMeta{Name: binding.Name, Namespace: binding.Namespace},
 		Status:     binding.Status,
 	}
-	must(t, direct.Status().Patch(ctx, statusApply, client.Apply, client.FieldOwner(wayv1.FieldManagerBindingController)))
+	statusData, marshalErr := json.Marshal(statusApply)
+	must(t, marshalErr)
+	must(t, direct.SubResource("status").Patch(ctx, statusApply, client.RawPatch(types.ApplyPatchType, statusData), client.FieldOwner(wayv1.FieldManagerBindingController)))
 	expected := restoredIdentities{
 		NamespaceUID: string(currentNamespace.UID), PodUID: string(currentPod.UID), BindingUID: string(binding.UID),
 	}
