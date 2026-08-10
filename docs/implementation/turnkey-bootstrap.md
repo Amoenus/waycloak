@@ -275,6 +275,13 @@ continues, waits for recovery, and deletes only its own objects.
 `waycloakctl doctor` reports resource identity, generation, allowlisted
 conditions, and authenticated node capability counts. It omits condition
 messages, addresses, endpoints, object specs, Secret data, and ConfigMap data.
+The command reads the installed CNI-installer and node-agent DaemonSet selectors
+and requires them to identify one installation with the same selected nodes.
+Nodes outside an explicit reviewed architecture row are counted as
+`NotSelected`; every selected node must retain the current authenticated
+`core-ready` capability. Missing or inconsistent components and selectors that
+match no node are unhealthy rather than silently widening or narrowing the
+diagnostic scope.
 
 ```text
 waycloakctl support-bundle --context <context> --file waycloak-support-bundle.tar.gz

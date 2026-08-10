@@ -56,6 +56,13 @@ select one explicit `amd64` or `arm64` row; the CNI installer and node agent are
 scheduled only there, so an unproved architecture cannot advertise Core
 capability merely because its image was built.
 
+`waycloakctl doctor` derives its expected node set from those two installed
+DaemonSet selectors. Both components must identify the same installation and
+select exactly the same nodes. Nodes outside that reviewed row are reported as
+`NotSelected`; they do not make that row unhealthy. Every selected node must
+still publish a current authenticated Core capability, and missing components,
+selector disagreement, or an empty matching node set is unhealthy.
+
 If a minimal dynamic admission webhook remains necessary, its TLS follows ADR
 0010. Static mutation and validation prefer stable declarative admission policy
 on supported Kubernetes versions. Neither admission mechanism is the packet

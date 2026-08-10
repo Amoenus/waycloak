@@ -10,9 +10,21 @@ import (
 	"fmt"
 	"sort"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+)
+
+const (
+	componentLabel     = "app.kubernetes.io/component"
+	instanceLabel      = "app.kubernetes.io/instance"
+	coreReadyNodeLabel = "networking.waycloak.io.node-restriction.kubernetes.io/core-ready"
+
+	cniInstallerComponent = "cni-installer"
+	nodeAgentComponent    = "node-agent"
 )
 
 type ConditionSummary struct {
@@ -81,9 +93,20 @@ func Doctor(ctx context.Context, clients *Clients, namespace, route string) (Doc
 	if err != nil {
 		return report, err
 	}
+	nodeSelector, selectionProblem := observeInstalledNodeSelector(ctx, clients)
+	if selectionProblem != "" {
+		report.Healthy = false
+		report.Problems = append(report.Problems, selectionProblem)
+	}
+	selectedNodes := 0
 	for _, node := range nodes.Items {
+		if selectionProblem == "" && !nodeMatchesSelector(&node, nodeSelector) {
+			report.Nodes["NotSelected"]++
+			continue
+		}
+		selectedNodes++
 		state := "Unavailable"
-		if node.Labels["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true" {
+		if node.Labels[coreReadyNodeLabel] == "true" {
 			state = "CNICapable"
 		}
 		report.Nodes[state]++
@@ -96,12 +119,72 @@ func Doctor(ctx context.Context, clients *Clients, namespace, route string) (Doc
 		report.Healthy = false
 		report.Problems = append(report.Problems, "One or more nodes lack a current authenticated Core capability")
 	}
+	if selectionProblem == "" && selectedNodes == 0 {
+		report.Healthy = false
+		report.Problems = append(report.Problems, "No nodes match the installed Waycloak node selection")
+	}
 	sort.Slice(report.Resources, func(i, j int) bool {
 		a, b := report.Resources[i], report.Resources[j]
 		return a.Kind+"/"+a.Namespace+"/"+a.Name < b.Kind+"/"+b.Namespace+"/"+b.Name
 	})
 	sort.Strings(report.Problems)
 	return report, nil
+}
+
+func observeInstalledNodeSelector(ctx context.Context, clients *Clients) (map[string]string, string) {
+	daemonSets, err := clients.Kubernetes.AppsV1().DaemonSets(corev1.NamespaceAll).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s in (%s,%s)", componentLabel, cniInstallerComponent, nodeAgentComponent),
+	})
+	if err != nil {
+		return nil, "Waycloak node selection observation is unavailable"
+	}
+	installers := daemonSetsForComponent(daemonSets.Items, cniInstallerComponent)
+	agents := daemonSetsForComponent(daemonSets.Items, nodeAgentComponent)
+	if len(installers) != 1 || len(agents) != 1 {
+		return nil, "Exactly one Waycloak CNI installer and node agent must be observable"
+	}
+	installer, agent := &installers[0], &agents[0]
+	if installer.Namespace != agent.Namespace || installer.Labels[instanceLabel] == "" || installer.Labels[instanceLabel] != agent.Labels[instanceLabel] {
+		return nil, "Waycloak CNI installer and node agent do not identify the same installation"
+	}
+	if !selectorsEqual(installer.Spec.Template.Spec.NodeSelector, agent.Spec.Template.Spec.NodeSelector) {
+		return nil, "Waycloak CNI installer and node agent select different nodes"
+	}
+	return cloneSelector(installer.Spec.Template.Spec.NodeSelector), ""
+}
+
+func daemonSetsForComponent(daemonSets []appsv1.DaemonSet, component string) []appsv1.DaemonSet {
+	result := make([]appsv1.DaemonSet, 0, 1)
+	for i := range daemonSets {
+		if daemonSets[i].Labels[componentLabel] == component {
+			result = append(result, daemonSets[i])
+		}
+	}
+	return result
+}
+
+func selectorsEqual(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneSelector(selector map[string]string) map[string]string {
+	result := make(map[string]string, len(selector))
+	for key, value := range selector {
+		result[key] = value
+	}
+	return result
+}
+
+func nodeMatchesSelector(node *corev1.Node, selector map[string]string) bool {
+	return labels.SelectorFromSet(selector).Matches(labels.Set(node.Labels))
 }
 
 func summarizeResource(kind string, item *unstructured.Unstructured) ResourceSummary {
