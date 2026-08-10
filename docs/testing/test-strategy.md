@@ -359,6 +359,25 @@ protocol-faithful local fixture.
 
 Measure gateway CPU/memory, per-agent RSS, throughput, UDP packet loss, DNS latency, reconciliation duration, and disruption during membership changes at 1, 10, and 50 clients. Publish results with node/kernel/CNI/MTU context.
 
+## Operational visibility tests
+
+Collector unit tests enumerate the bounded label contract, current versus
+stale conditions, missing conditions, unknown-reason collapse, enrolled-Pod
+protection states, durable allocation states, partial Kubernetes list failure,
+and privacy canaries. Rule and dashboard tests parse the published assets,
+require explicit protection/availability/observability domains, and reject
+object-derived dimensions or interpolated unreviewed labels. Helm renders the
+optional assets twice and requires byte-identical output.
+
+The exact turnkey Kind row scrapes the installed controller Service. It must
+observe the installed class, a live Ready gateway with current positive tunnel
+and DNS conditions, and a scheduled enrolled Pod whose missing route keeps it
+in `binding_absent` without starting an application container. The same scrape
+must not contain that Pod's namespace, name, UID, route, observer address, or
+overlay. Generic controller reconciliation errors and explicit collection
+health must be present. Conditions and Events remain the behavioral oracle;
+the scrape is tested only as their bounded operational projection.
+
 ## Release gate
 
 A release cannot rely on manual observation alone. Required suites, artifact verification, supported-platform results, and any accepted failures are attached to the release manifest.

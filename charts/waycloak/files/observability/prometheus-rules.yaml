@@ -1,0 +1,105 @@
+groups:
+  - name: waycloak.protection
+    rules:
+      - alert: WaycloakResourceRejected
+        expr: sum(waycloak_resource_condition_objects{condition="Accepted",status!="True"} or waycloak_resource_condition_objects{condition="Accepted",current!="true"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+          failure_domain: protection
+          traffic_posture: fail_closed
+        annotations:
+          summary: Waycloak resource acceptance is incomplete
+          description: At least one resource is rejected, unknown, or stale; dependent enrolled traffic must remain blocked.
+      - alert: WaycloakEnrolledPodFailClosed
+        expr: sum(waycloak_enrolled_pods{state=~"binding_absent|fail_closed"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+          failure_domain: protection
+          traffic_posture: fail_closed
+        annotations:
+          summary: Enrolled workload availability is degraded
+          description: One or more enrolled Pods lack a live protected path; Waycloak remains fail closed.
+      - alert: WaycloakEnrolledPodAwaitingCapableNode
+        expr: sum(waycloak_enrolled_pods{state="awaiting_capable_node"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+          failure_domain: protection
+          traffic_posture: fail_closed
+        annotations:
+          summary: Enrolled workload cannot reach a capable node
+          description: Scheduling is unavailable while the mandatory creation-time protection boundary remains enforced.
+  - name: waycloak.availability
+    rules:
+      - alert: WaycloakGatewayUnavailable
+        expr: sum(waycloak_resource_condition_objects{resource="vpngateway",condition="Ready",status!="True"} or waycloak_resource_condition_objects{resource="vpngateway",condition="Ready",current!="true"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+          failure_domain: availability
+          traffic_posture: fail_closed
+        annotations:
+          summary: A VPN gateway is unavailable
+          description: At least one gateway lacks current live readiness; enrolled traffic must remain blocked.
+      - alert: WaycloakTunnelUnavailable
+        expr: sum(waycloak_resource_condition_objects{resource="vpngateway",condition="TunnelReady",status!="True"} or waycloak_resource_condition_objects{resource="vpngateway",condition="TunnelReady",current!="true"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+          failure_domain: availability
+          traffic_posture: fail_closed
+        annotations:
+          summary: A VPN tunnel is unavailable
+          description: Tunnel health is not positive; Waycloak does not substitute ordinary egress.
+      - alert: WaycloakDNSUnavailable
+        expr: sum(waycloak_resource_condition_objects{resource="vpngateway",condition="DNSReady",status!="True"} or waycloak_resource_condition_objects{resource="vpngateway",condition="DNSReady",current!="true"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+          failure_domain: availability
+          traffic_posture: fail_closed
+        annotations:
+          summary: Protected DNS is unavailable
+          description: Gateway DNS health is not positive; protected DNS and egress remain unavailable.
+      - alert: WaycloakLeaseDeliveryUnavailable
+        expr: sum(waycloak_resource_condition_objects{resource="portforwardlease",condition=~"GatewayRulesReady|Delivered|Acknowledged",status!="True"} or waycloak_resource_condition_objects{resource="portforwardlease",condition=~"GatewayRulesReady|Delivered|Acknowledged",current!="true"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+          failure_domain: availability
+          traffic_posture: fail_closed
+        annotations:
+          summary: Port-forward delivery is incomplete
+          description: Provider, gateway-rule, delivery, or application acknowledgement has not converged; stale ingress must remain withdrawn.
+      - alert: WaycloakAllocationQuarantined
+        expr: waycloak_workload_allocations{state="quarantined"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          failure_domain: availability
+          traffic_posture: fail_closed
+        annotations:
+          summary: A workload allocation is quarantined
+          description: Unconfirmed withdrawal retained an address quarantine; automatic reuse is prohibited.
+      - alert: WaycloakControllerReconcileErrors
+        expr: sum(rate(controller_runtime_reconcile_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          failure_domain: availability
+          traffic_posture: fail_closed
+        annotations:
+          summary: Waycloak reconciliation errors persist
+          description: Controller reconciliation is failing; inspect Kubernetes Conditions and Events for authoritative object state.
+      - alert: WaycloakMetricsCollectionUnavailable
+        expr: min(waycloak_metrics_collection_success) == 0
+        for: 5m
+        labels:
+          severity: warning
+          failure_domain: observability
+          traffic_posture: unknown
+        annotations:
+          summary: Waycloak aggregate metrics are incomplete
+          description: Metrics collection failed for at least one source; use Kubernetes Conditions and Events as the source of truth.

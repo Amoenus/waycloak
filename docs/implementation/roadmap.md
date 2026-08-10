@@ -97,7 +97,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
   implemented; keep open until repeated real-alpha and clean-reinstall drills
   capture zero direct packets and fresh state reacquisition.
-- [ ] #140: `v0.0.0-core.6` passed exact publication and independent hosted
+- [ ] #140: `v0.0.0-core.7` passed exact publication and independent hosted
   verification. Continue with beta CRD lifecycle, upgrade/rollback, #32 DR,
   #33 observability, uninstall/purge, and support-row evidence.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
@@ -112,7 +112,11 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   after it allowed an enrolled application to resume with direct egress. Keep
   #32 open for the authorized homelab exact-artifact snapshot drill after
   clean-break deployment.
-- [ ] #33 and #141: proceed after their declared dependencies and evidence.
+- [ ] #33: bounded aggregate controller metrics, classified fail-closed versus
+  availability alerts, a plain Prometheus scrape fragment, and an optional
+  Grafana dashboard are implemented. Complete exact-head hosted Kind evidence
+  and record it before closing.
+- [ ] #141: proceed after its declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline
 
@@ -394,7 +398,8 @@ required lifecycle transition.
 - multiple concurrent gateways, explicit sharding, and cross-gateway failover
   (#31);
 - general backup, restore, and disaster-recovery expansion (#32);
-- product-wide metrics, alerts, and dashboards beyond eBPF diagnostics (#33);
+- additional provider-specific or high-cardinality telemetry beyond the stable
+  aggregate #33 contract;
 - Loadstone lease-consumption certification;
 - additional VPN engines and providers;
 - any future upstream ReferenceGrant integration and deeper multi-tenancy;

@@ -298,6 +298,23 @@ enrollment survives failure cleanup; terminating exact-Pod deletion and stale
 GC are separate. Node reimage starts unsupported/unprepared until preflight and
 reinstallation succeed.
 
+### Operational telemetry disclosure or false authority
+
+**Threat:** metrics expose tenant, workload, network, provider, release, or
+credential identity; unbounded labels exhaust the monitoring system; or an
+operator treats a scrape as packet-security authority.
+
+**Controls:** the stable collector publishes only aggregate counts with closed
+resource, condition, status, reason, currency, and state label sets. Unknown
+reasons collapse to `Other`; free-form messages and object-derived labels are
+never exported. Collection failure is explicit and dependent state is omitted
+rather than fabricated. Unit and hosted Kind canaries scan for namespace,
+name, UID, route, address, endpoint, digest, and credential values. The
+cluster-internal endpoint is optional and unauthenticated, is not publicly
+exposed by the chart, and can be further restricted by operator network policy.
+Conditions, Events, authenticated live observations, and packet tests remain
+authoritative; metrics never program or authorize traffic.
+
 ### Denial of service versus security failure
 
 **Threat:** an attacker or outage exhausts replay entries, watches, sockets,

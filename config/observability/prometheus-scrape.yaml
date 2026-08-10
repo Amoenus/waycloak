@@ -1,0 +1,14 @@
+scrape_configs:
+  - job_name: waycloak-controller
+    kubernetes_sd_configs:
+      - role: endpoints
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+        regex: waycloak
+        action: keep
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
+        regex: controller
+        action: keep
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        regex: metrics
+        action: keep

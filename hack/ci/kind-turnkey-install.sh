@@ -17,9 +17,14 @@ readonly system_namespace="waycloak-system"
 readonly release_name="waycloak"
 
 work_dir="$(mktemp -d)"
+metrics_forward_pid=""
 
 cleanup() {
   status="$?"
+  if [[ -n "$metrics_forward_pid" ]]; then
+    kill "$metrics_forward_pid" >/dev/null 2>&1 || true
+    wait "$metrics_forward_pid" >/dev/null 2>&1 || true
+  fi
   if (( status != 0 )) && kind get clusters 2>/dev/null | grep -qx "$cluster_name"; then
     if [[ -s "$work_dir/verify.json" ]]; then
       printf '%s\n' '--- waycloakctl verify report ---' >&2
@@ -56,6 +61,28 @@ cleanup() {
   rm -rf -- "$work_dir"
 }
 trap cleanup EXIT
+
+capture_metrics() {
+  local output_path="$1"
+  local metrics_deadline
+
+  kubectl port-forward --namespace "$system_namespace" \
+    service/waycloak-controller 18080:8080 \
+    >"$work_dir/metrics-port-forward.log" 2>&1 &
+  metrics_forward_pid="$!"
+  metrics_deadline="$((SECONDS + 30))"
+  until curl --fail --silent --show-error \
+    http://127.0.0.1:18080/metrics >"$output_path"; do
+    if ! kill -0 "$metrics_forward_pid" >/dev/null 2>&1 || (( SECONDS >= metrics_deadline )); then
+      cat "$work_dir/metrics-port-forward.log" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  kill "$metrics_forward_pid"
+  wait "$metrics_forward_pid" >/dev/null 2>&1 || true
+  metrics_forward_pid=""
+}
 
 mkdir -p "$work_dir/registry-tls"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
@@ -308,6 +335,29 @@ done
 jq -e '.healthy == true and .nodeCapabilityStates.CNICapable == 1' \
   "$work_dir/doctor.json" >/dev/null
 
+test "$(kubectl get service waycloak-controller -n "$system_namespace" -o jsonpath='{.spec.ports[?(@.name=="metrics")].port}')" = 8080
+capture_metrics "$work_dir/metrics-initial.txt"
+for metric in \
+  waycloak_resources \
+  waycloak_resource_condition_objects \
+  waycloak_enrolled_pods \
+  waycloak_workload_allocations \
+  waycloak_metrics_collection_success \
+  controller_runtime_reconcile_errors_total; do
+  grep -q "^${metric}" "$work_dir/metrics-initial.txt"
+done
+grep -q '^waycloak_resources{resource="vpngatewayclass"} 1$' "$work_dir/metrics-initial.txt"
+test "$(grep -c '^waycloak_metrics_collection_success' "$work_dir/metrics-initial.txt")" -eq 8
+if grep -q '^waycloak_metrics_collection_success.* 0$' "$work_dir/metrics-initial.txt"; then
+  printf 'Waycloak initial metrics collection was incomplete\n' >&2
+  exit 1
+fi
+if grep '^waycloak_' "$work_dir/metrics-initial.txt" \
+  | grep -Eqi 'waycloak-system|gluetun\.waycloak\.io|sha256:|10\.[0-9]+\.[0-9]+\.[0-9]+'; then
+  printf 'Waycloak aggregate metrics exposed an object or network identity\n' >&2
+  exit 1
+fi
+
 readonly smoke_namespace="waycloak-smoke"
 readonly observer_ip="198.18.0.1"
 readonly observer_port="8443"
@@ -494,6 +544,83 @@ kubectl rollout status deployment/fake-wireguard-exit --namespace "$smoke_namesp
 kubectl rollout status deployment/egress-observer --namespace "$smoke_namespace" --timeout=2m
 kubectl wait vpngateway/disposable --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=3m
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: metrics-private-canary
+  namespace: ${smoke_namespace}
+  labels:
+    networking.waycloak.io/egress-route: metrics-missing-route-private
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+    - name: must-not-start
+      image: ${probe_ref}
+      command: ["sh", "-c", "exit 97"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+EOF
+
+metrics_canary_deadline="$((SECONDS + 60))"
+until [[ -n "$(kubectl get pod/metrics-private-canary --namespace "$smoke_namespace" -o jsonpath='{.spec.nodeName}')" ]]; do
+  if (( SECONDS >= metrics_canary_deadline )); then
+    kubectl describe pod/metrics-private-canary --namespace "$smoke_namespace" >&2
+    printf 'metrics privacy canary was not scheduled to the Core-ready node\n' >&2
+    exit 1
+  fi
+  sleep 1
+done
+metrics_canary_uid="$(kubectl get pod/metrics-private-canary --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+until kubectl get events --namespace "$smoke_namespace" \
+  --field-selector involvedObject.kind=Pod,involvedObject.name=metrics-private-canary -o json | \
+  jq -e '.items[] | select(.reason == "FailedCreatePodSandBox") | .message | test("waycloak|egress route|binding"; "i")' >/dev/null; do
+  if [[ "$(kubectl get pod/metrics-private-canary --namespace "$smoke_namespace" -o json | \
+    jq '[.status.containerStatuses[]? | select(.state.running or .state.terminated or ((.containerID // "") | length > 0))] | length')" != "0" ]]; then
+    printf 'metrics privacy canary application container started after failed enrollment resolution\n' >&2
+    exit 1
+  fi
+  if (( SECONDS >= metrics_canary_deadline )); then
+    kubectl describe pod/metrics-private-canary --namespace "$smoke_namespace" >&2
+    printf 'metrics privacy canary did not produce a Waycloak sandbox failure\n' >&2
+    exit 1
+  fi
+  sleep 1
+done
+capture_metrics "$work_dir/metrics-live.txt"
+test "$(grep -c '^waycloak_metrics_collection_success' "$work_dir/metrics-live.txt")" -eq 8
+if grep -q '^waycloak_metrics_collection_success.* 0$' "$work_dir/metrics-live.txt"; then
+  printf 'Waycloak live metrics collection was incomplete\n' >&2
+  exit 1
+fi
+for expected in \
+  'waycloak_resources{resource="vpngateway"} 1' \
+  'waycloak_resource_condition_objects{condition="Ready",current="true",reason="Ready",resource="vpngateway",status="True"} 1' \
+  'waycloak_resource_condition_objects{condition="TunnelReady",current="true",reason="TunnelReady",resource="vpngateway",status="True"} 1' \
+  'waycloak_resource_condition_objects{condition="DNSReady",current="true",reason="DNSReady",resource="vpngateway",status="True"} 1' \
+  'waycloak_enrolled_pods{state="binding_absent"} 1'; do
+  grep -Fqx "$expected" "$work_dir/metrics-live.txt"
+done
+for forbidden in \
+  "$smoke_namespace" \
+  metrics-private-canary \
+  metrics-missing-route-private \
+  "$metrics_canary_uid" \
+  "$observer_ip" \
+  100.96.0.0/16; do
+  if grep '^waycloak_' "$work_dir/metrics-live.txt" | grep -Fq "$forbidden"; then
+    printf 'Waycloak aggregate metrics exposed privacy canary value: %s\n' "$forbidden" >&2
+    exit 1
+  fi
+done
+kubectl delete pod/metrics-private-canary --namespace "$smoke_namespace" --wait=true
 
 probe_url="https://${observer_ip}:${observer_port}/ip"
 

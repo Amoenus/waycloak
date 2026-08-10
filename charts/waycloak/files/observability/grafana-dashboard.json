@@ -1,0 +1,89 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "sum by (state) (waycloak_enrolled_pods)", "legendFormat": "{{state}}", "refId": "A"}],
+      "title": "Explicitly enrolled Pods",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "sum by (condition, status, current) (waycloak_resource_condition_objects{resource=\"vpngateway\",condition=~\"Ready|TunnelReady|DNSReady\"})", "legendFormat": "{{condition}} {{status}} current={{current}}", "refId": "A"}],
+      "title": "Gateway, tunnel, and DNS health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [{"expr": "sum by (state) (waycloak_workload_allocations)", "legendFormat": "{{state}}", "refId": "A"}],
+      "title": "Durable workload allocations",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "targets": [{"expr": "sum by (condition, status, current) (waycloak_resource_condition_objects{resource=\"portforwardlease\",condition=~\"GatewayRulesReady|Delivered|Acknowledged\"})", "legendFormat": "{{condition}} {{status}} current={{current}}", "refId": "A"}],
+      "title": "Port-forward handoff",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "targets": [{"expr": "sum by (controller) (rate(controller_runtime_reconcile_errors_total[5m]))", "legendFormat": "{{controller}}", "refId": "A"}],
+      "title": "Reconciliation errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "targets": [{"expr": "min by (source) (waycloak_metrics_collection_success)", "legendFormat": "{{source}}", "refId": "A"}],
+      "title": "Metrics collection health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "id": 7,
+      "targets": [{"expr": "sum by (resource, status, current) (waycloak_resource_condition_objects{condition=\"Accepted\"})", "legendFormat": "{{resource}} {{status}} current={{current}}", "refId": "A"}],
+      "title": "Resource acceptance",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["waycloak", "fail-closed"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "label": "Prometheus",
+        "name": "DS_PROMETHEUS",
+        "query": "prometheus",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Waycloak stable operational overview",
+  "uid": "waycloak-stable-overview",
+  "version": 1
+}
