@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 
@@ -46,10 +47,10 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 		t.Fatalf("unsafe gateway Pod identity: %#v", statefulSet.Spec.Template.Spec)
 	}
 	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1]
-	if engine.Name != "vpn-engine" || len(engine.Env) != 2 || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 {
+	if engine.Name != "vpn-engine" || len(engine.Env) != 3 || engine.Env[2].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[2].Value != controlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
 	}
-	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 4 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" || engine.SecurityContext.Capabilities.Add[3] != "SETUID" {
+	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 5 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" || engine.SecurityContext.Capabilities.Add[3] != "SETUID" || engine.SecurityContext.Capabilities.Add[4] != "KILL" {
 		t.Fatalf("VPN engine lacks its exact runtime capabilities: %#v", engine.SecurityContext)
 	}
 	if agent.SecurityContext == nil || agent.SecurityContext.Capabilities == nil || len(agent.SecurityContext.Capabilities.Add) != 1 || agent.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" {
@@ -57,6 +58,12 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	}
 	if len(agent.Ports) != 4 || agent.Ports[2].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[2].Protocol != corev1.ProtocolUDP || agent.Ports[3].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[3].Protocol != corev1.ProtocolTCP {
 		t.Fatalf("gateway DNS listener does not match the workload redirect: %#v", agent.Ports)
+	}
+	if statefulSet.Spec.Template.Spec.DNSConfig == nil || len(statefulSet.Spec.Template.Spec.DNSConfig.Options) != 1 || statefulSet.Spec.Template.Spec.DNSConfig.Options[0].Name != "ndots" || statefulSet.Spec.Template.Spec.DNSConfig.Options[0].Value == nil || *statefulSet.Spec.Template.Spec.DNSConfig.Options[0].Value != "1" {
+		t.Fatalf("gateway Pod does not bound Kubernetes DNS search expansion: %#v", statefulSet.Spec.Template.Spec.DNSConfig)
+	}
+	if statefulSet.Spec.Template.Spec.DNSPolicy == corev1.DNSNone || len(statefulSet.Spec.Template.Spec.DNSConfig.Nameservers) != 0 {
+		t.Fatalf("gateway Pod replaced the initial cluster nameserver: policy=%q config=%#v", statefulSet.Spec.Template.Spec.DNSPolicy, statefulSet.Spec.Template.Spec.DNSConfig)
 	}
 	rendered, _ := json.Marshal(statefulSet)
 	if bytes.Contains(rendered, []byte("CANARY-USERNAME")) || bytes.Contains(rendered, []byte("CANARY-PASSWORD")) {
@@ -72,6 +79,28 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	observation, err = provisioner.Reconcile(context.Background(), gateway)
 	if err != nil || !observation.Ready || !hasAddress(observation.Addresses, wayv1.GatewayAddressTypeUnderlayEndpoint, "10.42.0.20:4789") {
 		t.Fatalf("exact ready Pod was not observed: %#v %v", observation, err)
+	}
+}
+
+func TestValidateEngineConfigRejectsControlAuthenticationOverrides(t *testing.T) {
+	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE"} {
+		if err := validateEngineConfig(map[string]string{key: "unsafe"}); err == nil {
+			t.Fatalf("accepted operator override of %s", key)
+		}
+	}
+	if err := validateEngineConfig(map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn"}); err != nil {
+		t.Fatalf("rejected ordinary native engine configuration: %v", err)
+	}
+}
+
+func TestSignedEngineControlPolicyExposesOnlyReadObservations(t *testing.T) {
+	policy, err := os.ReadFile("../../build/gluetun-candidate/control-auth.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted := "# Copyright 2026 The Waycloak Authors.\n# SPDX-License-Identifier: MIT\n\n[[roles]]\nname = \"waycloak-observer\"\nroutes = [\"GET /v1/dns/status\", \"GET /v1/publicip/ip\"]\nauth = \"none\"\n"
+	if string(policy) != wanted {
+		t.Fatalf("Gluetun control policy broadened beyond exact read observations:\n%s", policy)
 	}
 }
 

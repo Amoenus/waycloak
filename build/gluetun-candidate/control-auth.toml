@@ -1,0 +1,7 @@
+# Copyright 2026 The Waycloak Authors.
+# SPDX-License-Identifier: MIT
+
+[[roles]]
+name = "waycloak-observer"
+routes = ["GET /v1/dns/status", "GET /v1/publicip/ip"]
+auth = "none"

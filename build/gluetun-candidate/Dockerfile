@@ -11,6 +11,7 @@ ARG WAYCLOAK_RELEASE
 ARG WAYCLOAK_SOURCE_COMMIT
 
 COPY --chmod=0755 bin/gluetun-entrypoint-linux-${TARGETARCH} /gluetun-entrypoint
+COPY --chmod=0444 control-auth.toml /etc/waycloak/gluetun-control-auth.toml
 COPY LICENSE /licenses/gluetun/LICENSE
 COPY gluetun-dependency.patch /licenses/gluetun/gluetun-dependency.patch
 

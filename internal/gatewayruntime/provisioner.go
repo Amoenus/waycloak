@@ -28,7 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const managedLabel = "runtime.networking.waycloak.io/gateway-uid"
+const (
+	managedLabel          = "runtime.networking.waycloak.io/gateway-uid"
+	controlAuthConfigPath = "/etc/waycloak/gluetun-control-auth.toml"
+)
 
 type Provisioner struct {
 	Client      client.Client
@@ -53,6 +56,9 @@ func (provisioner *Provisioner) Reconcile(ctx context.Context, gateway *wayv1.VP
 	}
 	configMap := &corev1.ConfigMap{}
 	if err := provisioner.reader().Get(ctx, client.ObjectKey{Namespace: gateway.Namespace, Name: configName}, configMap); err != nil {
+		return waycontroller.GatewayRuntimeObservation{}, err
+	}
+	if err := validateEngineConfig(configMap.Data); err != nil {
 		return waycontroller.GatewayRuntimeObservation{}, err
 	}
 	secret := &metav1.PartialObjectMetadata{}
@@ -133,6 +139,15 @@ func inputNames(gateway *wayv1.VPNGateway) (string, string, error) {
 	return config, secret, nil
 }
 
+func validateEngineConfig(data map[string]string) error {
+	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE"} {
+		if _, exists := data[key]; exists {
+			return errors.New("gluetun control authentication is release-owned")
+		}
+	}
+	return nil
+}
+
 func (provisioner *Provisioner) desiredService(gateway *wayv1.VPNGateway, name string, labels map[string]string) *corev1.Service {
 	return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: gateway.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{owner(gateway)}}, Spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone, Selector: labels, Ports: []corev1.ServicePort{{Name: "health", Port: int32(provisioner.HealthPort), Protocol: corev1.ProtocolTCP}}}}
 }
@@ -142,8 +157,8 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 	yes := true
 	runAsRoot := int64(0)
 	hash := sha256.Sum256([]byte(configMap.ResourceVersion + "\x00" + secret.GetResourceVersion()))
-	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: gateway.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{owner(gateway)}}, Spec: appsv1.StatefulSetSpec{ServiceName: name, Replicas: &replicas, Selector: &metav1.LabelSelector{MatchLabels: labels}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{"runtime.networking.waycloak.io/input-revision": hex.EncodeToString(hash[:])}}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, TerminationGracePeriodSeconds: pointer(int64(20)), NodeSelector: gateway.Spec.Placement.NodeSelector, Tolerations: gateway.Spec.Placement.Tolerations, Containers: []corev1.Container{
-		{Name: "vpn-engine", Image: provisioner.EngineImage, ImagePullPolicy: corev1.PullIfNotPresent, EnvFrom: []corev1.EnvFromSource{{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}, Env: []corev1.EnvVar{{Name: "OPENVPN_USER", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "username"}}}, {Name: "OPENVPN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "password"}}}}, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &no, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN", "CHOWN", "DAC_OVERRIDE", "SETUID"}, Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "tun", MountPath: "/dev/net/tun"}, {Name: "engine-state", MountPath: "/gluetun"}}},
+	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: gateway.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{owner(gateway)}}, Spec: appsv1.StatefulSetSpec{ServiceName: name, Replicas: &replicas, Selector: &metav1.LabelSelector{MatchLabels: labels}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{"runtime.networking.waycloak.io/input-revision": hex.EncodeToString(hash[:])}}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, TerminationGracePeriodSeconds: pointer(int64(20)), NodeSelector: gateway.Spec.Placement.NodeSelector, Tolerations: gateway.Spec.Placement.Tolerations, DNSConfig: &corev1.PodDNSConfig{Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: pointer("1")}}}, Containers: []corev1.Container{
+		{Name: "vpn-engine", Image: provisioner.EngineImage, ImagePullPolicy: corev1.PullIfNotPresent, EnvFrom: []corev1.EnvFromSource{{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}, Env: []corev1.EnvVar{{Name: "OPENVPN_USER", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "username"}}}, {Name: "OPENVPN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "password"}}}, {Name: "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", Value: controlAuthConfigPath}}, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &no, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN", "CHOWN", "DAC_OVERRIDE", "SETUID", "KILL"}, Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "tun", MountPath: "/dev/net/tun"}, {Name: "engine-state", MountPath: "/gluetun"}}},
 		{Name: "gateway-agent", Image: provisioner.AgentImage, ImagePullPolicy: corev1.PullIfNotPresent, Args: []string{"--gateway-uid=" + string(gateway.UID), "--overlay-cidr=" + provisioner.OverlayCIDR.Masked().String(), "--gateway-address=" + gatewayAddress(provisioner.OverlayCIDR).String(), "--vxlan-port=" + strconv.Itoa(int(provisioner.VXLANPort)), "--health-port=" + strconv.Itoa(int(provisioner.HealthPort)), "--vni=" + strconv.FormatUint(uint64(provisioner.VNI), 10), "--mtu=" + strconv.Itoa(int(provisioner.MTU))}, Ports: []corev1.ContainerPort{{Name: "vxlan", ContainerPort: int32(provisioner.VXLANPort), Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: int32(provisioner.HealthPort), Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: int32(gatewaydataplane.DNSListenPort), Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: int32(gatewaydataplane.DNSListenPort), Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/", Port: intstrFromInt(int(provisioner.HealthPort))}}, PeriodSeconds: 2, FailureThreshold: 2}, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN"}, Drop: []corev1.Capability{"ALL"}}}},
 	}, Volumes: []corev1.Volume{{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: pointer(corev1.HostPathCharDev)}}}, {Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}}}}}
 }

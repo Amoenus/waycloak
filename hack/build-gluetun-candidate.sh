@@ -14,6 +14,7 @@ output_dir="$2"
 upstream_commit="$3"
 release_version="$4"
 go_bin="${GO:-go}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ ! "$upstream_commit" =~ ^[a-f0-9]{40}$ ]]; then
   echo "upstream commit must be one exact lowercase Git commit" >&2
@@ -64,6 +65,8 @@ done
 git -C "$source_dir" diff --binary -- go.mod go.sum >"$output_dir/gluetun-dependency.patch"
 test -s "$output_dir/gluetun-dependency.patch"
 cp "$source_dir/LICENSE" "$output_dir/LICENSE"
+cp "$script_dir/../build/gluetun-candidate/control-auth.toml" "$output_dir/control-auth.toml"
+test -s "$output_dir/control-auth.toml"
 (
   cd "$output_dir"
   sha256sum bin/* >gluetun-binaries.SHA256SUMS
