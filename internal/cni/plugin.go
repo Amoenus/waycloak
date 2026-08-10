@@ -149,10 +149,15 @@ func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
 	// A runtime may issue DEL after a failed chained ADD and then retry the
 	// same Pod with a new sandbox identity. Retain the UID-bound enrollment
 	// record while that exact Pod still exists so removing its label cannot
-	// turn the next ADD into an ordinary-egress success. Unreachable agents
-	// are treated the same way; GC removes the stale record later.
+	// turn the next ADD into an ordinary-egress success. Ambiguous or
+	// unavailable authority returns a DEL failure and retains the durable
+	// record so the runtime can retry without releasing fail-closed state.
 	resolution, resolveErr := p.Agent.Resolve(ctx, attachment.Pod)
-	if resolveErr != nil || resolution.PodUID != attachment.Pod.UID || !resolution.Terminating {
+	podAbsent := errors.Is(resolveErr, ErrPodNotFound)
+	if resolveErr != nil && !podAbsent {
+		return fmt.Errorf("resolve exact Pod for DEL with durable state retained: %w", resolveErr)
+	}
+	if !podAbsent && (resolution.PodUID != attachment.Pod.UID || !resolution.Terminating) {
 		return nil
 	}
 	path := netns
@@ -160,8 +165,13 @@ func (p Plugin) Delete(ctx context.Context, key Key, netns string) error {
 		path = attachment.Pod.NetNS
 	}
 	identity, identityErr := p.Enforcer.Identity(path)
+	if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
+		return fmt.Errorf("observe exact network namespace for DEL: %w", identityErr)
+	}
+	if err := p.Agent.Withdraw(ctx, attachment.Pod); err != nil {
+		return fmt.Errorf("confirm exact attachment withdrawal: %w", err)
+	}
 	if identityErr == nil && identity == attachment.NamespaceIdentity {
-		_ = p.Agent.Withdraw(ctx, attachment.Pod)
 		if err := p.Enforcer.Cleanup(ctx, path, attachment.Pod.UID); err != nil {
 			return fmt.Errorf("remove exact Waycloak network state: %w", err)
 		}

@@ -82,9 +82,49 @@ node agent, and default class remain disabled. After that revision is Ready, a
 second revision activates the exact reviewed Core runtime. This prevents the
 new chained CNI from becoming authoritative before the ordinary-networked
 controller exists. New Pod sandboxes may fail closed during Core activation;
-there is no namespace bypass or fail-open interval. An already-deployed Helm
-release goes directly to the full reviewed revision so re-apply and upgrade do
-not temporarily remove its deny path.
+there is no namespace bypass or fail-open interval. A same-manifest re-apply
+goes directly to the full reviewed revision. A changed deployed release never
+uses the clean-install bootstrap: its first transition revision deploys the
+target controller, CNI installer, and class while retaining the exact reviewed
+source node-agent image and release identity. After that revision is Ready and
+the target CNI receipt exists, a second revision activates the target node
+agent. The old agent socket therefore remains available while the installer
+changes, and the installed deny path is never removed or bypassed.
+The target agent validates the exact receipt, restores lockdown, completes a
+fresh authenticated controller-relay handshake, reconciles retained attachment
+state, and only then republishes node capability. Public CNI operations remain
+gated throughout; the recovery reconciler alone bypasses that readiness gate to
+avoid a backend-readiness dependency cycle.
+
+Disruptive verification deletes its exact probe Pods before its route, waits for
+each Pod and UID-derived binding to be absent, and only then removes and observes
+the route. `cleanupComplete=true` therefore means finalizer-backed data-plane
+withdrawal finished; accepted deletion requests or terminating bindings are not
+reported as complete.
+Failed-`ADD` cleanup does not depend on catching a brief terminating-Pod API
+window. The authenticated CNI/node protocol returns a distinct exact-Pod-absent
+result, then binds withdrawal to the durable sandbox/interface/netns identity
+and publishes zero applied state before discarding that record. API ambiguity,
+agent loss, and foreign netns reuse retain denial and never claim cleanup.
+The same ordering covers kubelet's failed-`ADD` behavior: an early `DEL` cannot
+discard sticky enrollment while the Pod remains pending, and periodic recovery
+completes withdrawal after exact Pod absence without replaying an already
+accepted observation after its binding is gone.
+
+Every plan also binds the exact currently deployed Helm revision, release
+manifest, six runtime images, six CRD specifications, default gateway-class
+UID/generation, and observation-certificate UIDs and public digests. Apply
+re-observes that source and re-reads the target chart before mutation. The
+initial beta lifecycle permits a transition only when the target has the
+identical served/storage CRD contract; any schema or storage change requires a
+separately reviewed storage-migration procedure. Forward transition and
+rollback use the same target-bound plan/apply path. A rollback therefore names
+a separately verified prior release manifest and never delegates identity to
+an opaque Helm revision number. Ordinary transitions replace the exact old
+immutable gateway-class UID at its stable name, preserve observation trust
+identity, execute the two-revision CNI/agent transition, and verify the exact
+target runtime after Helm completes. The class replacement and transition
+windows remain fail closed behind the installed CNI deny path.
 
 The node agent resolves each CNI request's exact Pod UID and node assignment
 with a direct API-server read. Its informer cache remains useful for ordinary
@@ -124,6 +164,17 @@ restores with the exact plan. Recovery must create a new gateway UID, reacquire
 a new exact Pod-UID binding, and succeed without importing old status or runtime
 state. This logical drill complements, but does not replace, coherent
 distribution datastore-snapshot certification.
+
+The Kind lifecycle gate builds two immutable chart/release identities with an
+identical CRD contract. It installs the baseline, performs a source-bound
+forward transition, and then applies a separately planned rollback to the
+baseline. Both directions require a newer Helm revision, unchanged observation
+certificate UIDs and public bytes, a new immutable gateway-class UID with the
+exact target release identity, exact runtime arguments and CNI receipt, healthy
+capability observation, and the complete
+gateway-replacement fail-closed exercise. This proves the supported identical-
+schema beta row; interrupted transitions, explicit certificate rotation, and
+distribution snapshots remain separate issue #32 evidence.
 
 Normal Helm uninstall intentionally does not restore the primary CNI chain or
 delete CRDs. Those are separate destructive operations covered by issue #139.

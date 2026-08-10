@@ -12,6 +12,7 @@ readonly registry_image="registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100
 readonly kind_node_image="kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
 readonly pause_ref="registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
 readonly release_version="v0.0.0-turnkey-ci"
+readonly baseline_release_version="v0.0.0-turnkey-ci-baseline"
 readonly system_namespace="waycloak-system"
 readonly release_name="waycloak"
 
@@ -172,6 +173,20 @@ if [[ ! "$chart_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
 fi
 chart_ref="oci://${registry_host}:${registry_port}/charts/waycloak@${chart_digest}"
 
+readonly baseline_chart_version="0.0.0-lifecycle-baseline"
+helm package charts/waycloak \
+  --version "$baseline_chart_version" \
+  --app-version "$baseline_release_version" \
+  --destination "$work_dir/chart" >/dev/null
+helm push "$work_dir/chart/waycloak-${baseline_chart_version}.tgz" \
+  "oci://${registry_host}:${registry_port}/charts" >"$work_dir/baseline-chart-push.txt"
+baseline_chart_digest="$(awk '$1 == "Digest:" {print $2}' "$work_dir/baseline-chart-push.txt")"
+if [[ ! "$baseline_chart_digest" =~ ^sha256:[a-f0-9]{64}$ || "$baseline_chart_digest" == "$chart_digest" ]]; then
+  printf 'Helm did not publish two distinct exact lifecycle chart identities\n' >&2
+  exit 1
+fi
+baseline_chart_ref="oci://${registry_host}:${registry_port}/charts/waycloak@${baseline_chart_digest}"
+
 go run ./hack/corerelease \
   --version "$release_version" \
   --chart "$chart_ref" \
@@ -183,6 +198,17 @@ go run ./hack/corerelease \
   --image "pause=$pause_ref" \
   >"$work_dir/release-manifest.json"
 
+go run ./hack/corerelease \
+  --version "$baseline_release_version" \
+  --chart "$baseline_chart_ref" \
+  --image "replacement-controller=$controller_ref" \
+  --image "waycloak-cni=$cni_ref" \
+  --image "waycloak-node-agent=$node_agent_ref" \
+  --image "waycloak-gateway-agent=$gateway_agent_ref" \
+  --image "gluetun=$gluetun_ref" \
+  --image "pause=$pause_ref" \
+  >"$work_dir/baseline-release-manifest.json"
+
 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X main.version=${release_version}" \
   -o "$work_dir/waycloakctl" ./cmd/waycloakctl
@@ -192,7 +218,7 @@ jq -e '.compatible == true and .profile == "networking.waycloak.io/Core-v1"' \
   "$work_dir/preflight.json" >/dev/null
 
 "$work_dir/waycloakctl" install plan \
-  --release-manifest "$work_dir/release-manifest.json" \
+  --release-manifest "$work_dir/baseline-release-manifest.json" \
   --namespace "$system_namespace" \
   --release "$release_name" \
   --output json \
@@ -203,6 +229,9 @@ if [[ ! "$plan_id" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   exit 1
 fi
 jq -e '
+  .operation == "CleanInstall" and
+  .source.state == "Absent" and
+  (.targetCRDIdentities | length) == 6 and
   (.preflightDigest | test("^sha256:[a-f0-9]{64}$")) and
   .nodeArchitecture == "amd64" and
   .metadata.nodeArchitecture == "amd64" and
@@ -244,8 +273,8 @@ kubectl wait node --all \
   --for=jsonpath='{.metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/core-ready}'=true \
   --timeout=2m
 
-manifest_digest="$(jq -r '.manifestDigest' "$work_dir/release-manifest.json")"
-test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.releaseIdentity.version}')" = "$release_version"
+manifest_digest="$(jq -r '.manifestDigest' "$work_dir/baseline-release-manifest.json")"
+test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.releaseIdentity.version}')" = "$baseline_release_version"
 test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.releaseIdentity.manifestDigest}')" = "$manifest_digest"
 test "$(kubectl get deployment waycloak-controller -n "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$controller_ref"
 test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[0].image}')" = "$cni_ref"
@@ -262,7 +291,7 @@ docker exec "$node" grep -q '"agentKeyFile": "/run/waycloak/cni-auth.key"' /etc/
 docker exec "$node" test -S /run/waycloak/cni-agent.sock
 docker exec "$node" test -f /run/waycloak/cni-auth.key
 docker exec "$node" cat /var/lib/cni/waycloak/install-receipt.json \
-  | jq -e --arg version "$release_version" --arg digest "$manifest_digest" \
+  | jq -e --arg version "$baseline_release_version" --arg digest "$manifest_digest" \
       '.releaseIdentity.version == $version and .releaseIdentity.manifestDigest == $digest' >/dev/null
 
 doctor_deadline="$((SECONDS + 120))"
@@ -467,45 +496,177 @@ kubectl wait vpngateway/disposable --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=3m
 
 probe_url="https://${observer_ip}:${observer_port}/ip"
-before_owned_pods="$(kubectl get pods --namespace "$smoke_namespace" \
-  --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)"
-if "$work_dir/waycloakctl" verify \
-  --namespace "$smoke_namespace" \
-  --gateway disposable \
-  --probe-image "$probe_ref" \
-  --probe-url "$probe_url" \
-  --probe-ca-configmap observer-ca \
-  --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
-  --output json >"$work_dir/refused-verify.json" 2>"$work_dir/refused-verify-error.txt"; then
-  printf 'wrong disruptive verification confirmation unexpectedly succeeded\n' >&2
-  exit 1
-fi
-required_confirmation="$(grep -Eo 'sha256:[a-f0-9]{64}' "$work_dir/refused-verify-error.txt" | tail -n1)"
-if [[ ! "$required_confirmation" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-  cat "$work_dir/refused-verify-error.txt" >&2
-  printf 'refused verification did not report its exact identity\n' >&2
-  exit 1
-fi
-after_owned_pods="$(kubectl get pods --namespace "$smoke_namespace" \
-  --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)"
-test "$before_owned_pods" = "$after_owned_pods"
-test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
-  --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
 
-"$work_dir/waycloakctl" verify \
-  --namespace "$smoke_namespace" \
-  --gateway disposable \
-  --probe-image "$probe_ref" \
-  --probe-url "$probe_url" \
-  --probe-ca-configmap observer-ca \
-  --confirm "$required_confirmation" \
-  --output json >"$work_dir/verify.json"
-jq -e '.verified == true and .distinctEgress == true and
-  .protectedSucceeded == true and .ordinarySucceeded == true and
-  .tunnelLossVerified == true and .cleanupComplete == true' \
-  "$work_dir/verify.json" >/dev/null
-test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
-  --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
+run_disruptive_verify() {
+  local label="$1"
+  local before_owned_pods after_owned_pods required_confirmation
+  before_owned_pods="$(kubectl get pods --namespace "$smoke_namespace" \
+    --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)"
+  if "$work_dir/waycloakctl" verify \
+    --namespace "$smoke_namespace" \
+    --gateway disposable \
+    --probe-image "$probe_ref" \
+    --probe-url "$probe_url" \
+    --probe-ca-configmap observer-ca \
+    --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
+    --output json >"$work_dir/refused-verify-${label}.json" 2>"$work_dir/refused-verify-${label}-error.txt"; then
+    printf '%s disruptive verification accepted the wrong confirmation\n' "$label" >&2
+    return 1
+  fi
+  required_confirmation="$(grep -Eo 'sha256:[a-f0-9]{64}' \
+    "$work_dir/refused-verify-${label}-error.txt" | tail -n1)"
+  if [[ ! "$required_confirmation" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    cat "$work_dir/refused-verify-${label}-error.txt" >&2
+    printf '%s refused verification did not report its exact identity\n' "$label" >&2
+    return 1
+  fi
+  after_owned_pods="$(kubectl get pods --namespace "$smoke_namespace" \
+    --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)"
+  test "$before_owned_pods" = "$after_owned_pods"
+  test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
+    --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
+
+  "$work_dir/waycloakctl" verify \
+    --namespace "$smoke_namespace" \
+    --gateway disposable \
+    --probe-image "$probe_ref" \
+    --probe-url "$probe_url" \
+    --probe-ca-configmap observer-ca \
+    --confirm "$required_confirmation" \
+    --output json >"$work_dir/verify-${label}.json"
+  cp "$work_dir/verify-${label}.json" "$work_dir/verify.json"
+  jq -e '.verified == true and .distinctEgress == true and
+    .protectedSucceeded == true and .ordinarySucceeded == true and
+    .tunnelLossVerified == true and .cleanupComplete == true' \
+    "$work_dir/verify-${label}.json" >/dev/null
+  test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
+    --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
+}
+
+apply_exact_transition() {
+  local label="$1"
+  local manifest_path="$2"
+  local expected_version="$3"
+  local plan_path="$work_dir/install-plan-${label}.json"
+  local expected_digest current_version before_revision after_revision plan_id
+  local before_ca before_tls after_ca after_tls before_class_uid after_class_uid receipt_ready
+
+  expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
+  current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
+    -o jsonpath='{.spec.releaseIdentity.version}')"
+  before_revision="$(kubectl get secrets --namespace "$system_namespace" \
+    --selector owner=helm,name="$release_name",status=deployed -o json | \
+    jq -r '.items | if length == 1 then .[0].metadata.labels.version else error("ambiguous deployed Helm revision") end')"
+  before_ca="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" -o json | \
+    jq -r '[.metadata.uid, .data["ca.crt"]] | join("|")')"
+  before_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o json | \
+    jq -r '[.metadata.uid, .data["ca.crt"], .data["tls.crt"]] | join("|")')"
+  before_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
+
+  "$work_dir/waycloakctl" install plan \
+    --release-manifest "$manifest_path" \
+    --namespace "$system_namespace" \
+    --release "$release_name" \
+    --output json >"$plan_path"
+  plan_id="$(jq -r '.planID' "$plan_path")"
+  jq -e --arg source "$current_version" --arg target "$expected_version" --arg digest "$expected_digest" '
+    .operation == "ExactReleaseTransition" and
+    .source.state == "Deployed" and
+    .source.version == $source and
+    .targetRelease.version == $target and
+    .targetRelease.manifestDigest == $digest and
+    (.source.crdIdentities | length) == 6 and
+    (.targetCRDIdentities | length) == 6
+  ' "$plan_path" >/dev/null
+
+  if "$work_dir/waycloakctl" install apply \
+    --plan "$plan_path" \
+    --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; then
+    printf '%s transition accepted the wrong confirmation\n' "$label" >&2
+    return 1
+  fi
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io \
+    -o jsonpath='{.spec.releaseIdentity.version}')" = "$current_version"
+  test "$(kubectl get secrets --namespace "$system_namespace" \
+    --selector owner=helm,name="$release_name",status=deployed -o json | \
+    jq -r '.items[0].metadata.labels.version')" = "$before_revision"
+
+  "$work_dir/waycloakctl" install apply --plan "$plan_path" --confirm "$plan_id"
+  kubectl rollout status deployment/waycloak-controller \
+    --namespace "$system_namespace" --timeout=2m
+  kubectl rollout status daemonset/waycloak-cni-installer \
+    --namespace "$system_namespace" --timeout=2m
+  kubectl rollout status daemonset/waycloak-node-agent \
+    --namespace "$system_namespace" --timeout=2m
+
+  after_revision="$(kubectl get secrets --namespace "$system_namespace" \
+    --selector owner=helm,name="$release_name",status=deployed -o json | \
+    jq -r '.items | if length == 1 then .[0].metadata.labels.version else error("ambiguous deployed Helm revision") end')"
+  if (( after_revision <= before_revision )); then
+    printf '%s transition did not advance the Helm revision\n' "$label" >&2
+    return 1
+  fi
+  after_ca="$(kubectl get secret "${release_name}-observation-ca" --namespace "$system_namespace" -o json | \
+    jq -r '[.metadata.uid, .data["ca.crt"]] | join("|")')"
+  after_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o json | \
+    jq -r '[.metadata.uid, .data["ca.crt"], .data["tls.crt"]] | join("|")')"
+  after_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
+  test "$after_ca" = "$before_ca"
+  test "$after_tls" = "$before_tls"
+  test "$after_class_uid" != "$before_class_uid"
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io \
+    -o jsonpath='{.spec.releaseIdentity.version}')" = "$expected_version"
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io \
+    -o jsonpath='{.spec.releaseIdentity.manifestDigest}')" = "$expected_digest"
+  kubectl get deployment waycloak-controller --namespace "$system_namespace" -o json | \
+    jq -e --arg version "$expected_version" --arg digest "$expected_digest" '
+      .spec.template.spec.containers[] | select(.name == "controller") |
+      (.args | index("--release-version=" + $version) != null) and
+      (.args | index("--release-manifest-digest=" + $digest) != null)
+    ' >/dev/null
+  kubectl get daemonset waycloak-node-agent --namespace "$system_namespace" -o json | \
+    jq -e --arg version "$expected_version" --arg digest "$expected_digest" '
+      .spec.template.spec.containers[] | select(.name == "node-agent") |
+      (.args | index("--release-version=" + $version) != null) and
+      (.args | index("--release-manifest-digest=" + $digest) != null)
+    ' >/dev/null
+  receipt_ready=false
+  for _ in $(seq 1 30); do
+    if docker exec "$node" cat /var/lib/cni/waycloak/install-receipt.json 2>/dev/null | \
+      jq -e --arg version "$expected_version" --arg digest "$expected_digest" '
+        .releaseIdentity.version == $version and .releaseIdentity.manifestDigest == $digest
+      ' >/dev/null; then
+      receipt_ready=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$receipt_ready" != true ]]; then
+    printf '%s transition did not publish the exact CNI receipt\n' "$label" >&2
+    return 1
+  fi
+  doctor_deadline="$((SECONDS + 120))"
+  until "$work_dir/waycloakctl" doctor --output json >"$work_dir/doctor-${label}.json"; do
+    if (( SECONDS >= doctor_deadline )); then
+      printf '%s transition did not restore healthy node capability\n' "$label" >&2
+      cat "$work_dir/doctor-${label}.json" >&2 || true
+      kubectl get nodes -o yaml >&2 || true
+      kubectl logs --namespace "$system_namespace" \
+        --selector app.kubernetes.io/component=node-agent \
+        --all-containers --prefix --tail=200 >&2 || true
+      return 1
+    fi
+    sleep 2
+  done
+  jq -e '.healthy == true and .nodeCapabilityStates.CNICapable == 1' \
+    "$work_dir/doctor-${label}.json" >/dev/null
+}
+
+run_disruptive_verify baseline
+apply_exact_transition forward "$work_dir/release-manifest.json" "$release_version"
+run_disruptive_verify forward
+apply_exact_transition rollback "$work_dir/baseline-release-manifest.json" "$baseline_release_version"
+run_disruptive_verify rollback
 
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.waycloak.io/v1beta1

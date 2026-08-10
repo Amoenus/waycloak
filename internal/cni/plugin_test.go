@@ -6,6 +6,7 @@ package cni
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"reflect"
 	"sync"
@@ -300,6 +301,56 @@ func TestDurableEnrollmentSurvivesRuntimeDeleteAndNewSandbox(t *testing.T) {
 	}
 	if index(*events, "resolve") >= 0 || index(*events, "lockdown") < 0 || index(*events, "binding") < 0 {
 		t.Fatalf("UID-bound enrollment was not retained across sandbox replacement: %v", *events)
+	}
+}
+
+func TestDeleteAbsentPodReportsWithdrawalBeforeDiscardingState(t *testing.T) {
+	plugin, request, events := fixture(t)
+	if err := plugin.Add(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	agent := plugin.Agent.(*fakeAgent)
+	agent.resolveError = ErrPodNotFound
+	plugin.Enforcer.(*fakeEnforcer).identityErrors[request.Pod.NetNS] = fs.ErrNotExist
+	*events = nil
+	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plugin.Store.Load(request.Key()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("absent Pod attachment state remains: %v", err)
+	}
+	if want := []string{"resolve", "identity", "withdraw"}; !reflect.DeepEqual(*events, want) {
+		t.Fatalf("absent Pod DEL operations = %v, want %v", *events, want)
+	}
+}
+
+func TestDeleteRetainsDurableStateUntilWithdrawalIsObserved(t *testing.T) {
+	plugin, request, _ := fixture(t)
+	if err := plugin.Add(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	agent := plugin.Agent.(*fakeAgent)
+	agent.resolveError = ErrPodNotFound
+	agent.withdrawError = errors.New("node agent unavailable")
+	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err == nil {
+		t.Fatal("DEL discarded state without a node-agent withdrawal observation")
+	}
+	if _, err := plugin.Store.Load(request.Key()); err != nil {
+		t.Fatalf("failed withdrawal discarded durable state: %v", err)
+	}
+}
+
+func TestDeleteReturnsAmbiguousResolutionFailureWithStateRetained(t *testing.T) {
+	plugin, request, _ := fixture(t)
+	if err := plugin.Add(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	plugin.Agent.(*fakeAgent).resolveError = errors.New("API observation unavailable")
+	if err := plugin.Delete(context.Background(), request.Key(), request.Pod.NetNS); err == nil {
+		t.Fatal("ambiguous Pod resolution was acknowledged as a completed DEL")
+	}
+	if _, err := plugin.Store.Load(request.Key()); err != nil {
+		t.Fatalf("ambiguous Pod resolution discarded durable state: %v", err)
 	}
 }
 

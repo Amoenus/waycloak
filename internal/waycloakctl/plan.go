@@ -33,28 +33,32 @@ type ReleaseManifest struct {
 }
 
 type InstallPlan struct {
-	APIVersion       string            `json:"apiVersion"`
-	Kind             string            `json:"kind"`
-	PlanID           string            `json:"planID"`
-	PreflightDigest  string            `json:"preflightDigest"`
-	OverlayCIDR      string            `json:"overlayCIDR"`
-	NodeArchitecture string            `json:"nodeArchitecture"`
-	InstallSequence  string            `json:"installSequence"`
-	Namespace        string            `json:"namespace"`
-	Release          string            `json:"release"`
-	Manifest         string            `json:"manifestDigest"`
-	Chart            Artifact          `json:"chart"`
-	Values           string            `json:"valuesYAML"`
-	Commands         []string          `json:"commands"`
-	Security         []string          `json:"securityChanges"`
-	CNIChanges       []string          `json:"cniChanges"`
-	Rollback         []string          `json:"rollback"`
-	Purge            []string          `json:"purge"`
-	SecretObjects    []string          `json:"secretObjects"`
-	Metadata         map[string]string `json:"metadata"`
+	APIVersion       string                      `json:"apiVersion"`
+	Kind             string                      `json:"kind"`
+	PlanID           string                      `json:"planID"`
+	Operation        string                      `json:"operation"`
+	Source           InstalledReleaseObservation `json:"source"`
+	TargetCRDs       map[string]string           `json:"targetCRDIdentities"`
+	PreflightDigest  string                      `json:"preflightDigest"`
+	OverlayCIDR      string                      `json:"overlayCIDR"`
+	NodeArchitecture string                      `json:"nodeArchitecture"`
+	InstallSequence  string                      `json:"installSequence"`
+	Namespace        string                      `json:"namespace"`
+	Release          string                      `json:"release"`
+	Manifest         string                      `json:"manifestDigest"`
+	Target           ReleaseManifest             `json:"targetRelease"`
+	Chart            Artifact                    `json:"chart"`
+	Values           string                      `json:"valuesYAML"`
+	Commands         []string                    `json:"commands"`
+	Security         []string                    `json:"securityChanges"`
+	CNIChanges       []string                    `json:"cniChanges"`
+	Rollback         []string                    `json:"rollback"`
+	Purge            []string                    `json:"purge"`
+	SecretObjects    []string                    `json:"secretObjects"`
+	Metadata         map[string]string           `json:"metadata"`
 }
 
-const controllerFirstInstallSequence = "ControllerFirstCoreActivation-v1"
+const failClosedLifecycleSequence = "FailClosedCoreLifecycle-v2"
 
 func LoadReleaseManifest(path string) (ReleaseManifest, string, error) {
 	data, err := os.ReadFile(path)
@@ -139,8 +143,14 @@ func (manifest ReleaseManifest) IdentityDigest() (string, error) {
 	return digestBytes(data), nil
 }
 
-func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport) (InstallPlan, error) {
+func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string) (InstallPlan, error) {
 	if err := manifest.Validate(); err != nil {
+		return InstallPlan{}, err
+	}
+	if err := source.validate(); err != nil {
+		return InstallPlan{}, err
+	}
+	if err := validateInstallCRDTransition(source, targetCRDs); err != nil {
 		return InstallPlan{}, err
 	}
 	if !report.Compatible || !validDigest(report.ObservationDigest) || report.CNI.ConfigPath == "" || namespace == "" || release == "" {
@@ -211,21 +221,50 @@ defaultGatewayClass:
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
-	planID := digestBytes([]byte(manifest.ManifestDigest + "\x00" + report.ObservationDigest + "\x00" + report.Networking.OverlayCIDR + "\x00" + architecture + "\x00" + namespace + "\x00" + release + "\x00" + controllerFirstInstallSequence + "\x00" + values))
-	return InstallPlan{
-		APIVersion: OutputAPIVersion, Kind: "InstallPlan", PlanID: planID, PreflightDigest: report.ObservationDigest, OverlayCIDR: report.Networking.OverlayCIDR, NodeArchitecture: architecture, InstallSequence: controllerFirstInstallSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Chart: manifest.Chart, Values: values,
+	operation := installOperationTransition
+	if source.State == installStateAbsent {
+		operation = installOperationClean
+	}
+	plan := InstallPlan{
+		APIVersion: OutputAPIVersion, Kind: "InstallPlan", Operation: operation, Source: source, TargetCRDs: copyStringMap(targetCRDs), PreflightDigest: report.ObservationDigest, OverlayCIDR: report.Networking.OverlayCIDR, NodeArchitecture: architecture, InstallSequence: failClosedLifecycleSequence, Namespace: namespace, Release: release, Manifest: manifest.ManifestDigest, Target: manifest, Chart: manifest.Chart, Values: values,
 		Commands: []string{
-			"waycloakctl install apply --plan <reviewed-plan.json> --confirm " + planID,
+			"waycloakctl install apply --plan <reviewed-plan.json> --confirm <exact-planID>",
 			"on a clean cluster: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <controller-first-bootstrap.yaml> --wait",
+			"on a changed deployed release: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <node-agent-transition-hold.yaml> --wait",
 			"helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --wait",
 		},
 		Security:      []string{"create a Pod Security privileged namespace for release-owned node components", "install a privileged root node-agent DaemonSet", "mount exact CNI/netns/state host paths", "install cluster-scoped CRDs, admission policies, and least-privilege RBAC"},
 		CNIChanges:    []string{"atomically append waycloak-cni after the primary plugin in " + report.CNI.ConfigPath, "install the exact CNI binary at " + report.CNI.BinaryPath, "preserve the original chain and write a release-bound receipt"},
-		Rollback:      []string{"stop newly enrolled workloads while the deny path remains", "helm rollback " + release + " <reviewed-revision>", "verify node receipts and protected packet denial before restarting workloads"},
+		Rollback:      []string{"retain the deny path and stop new workload rollout", "create a new target-bound plan from the separately verified prior exact release manifest", "apply that exact plan and verify CRD, runtime, node receipt, gateway activation, and protected packet denial before resuming rollout"},
 		Purge:         []string{"normal Helm uninstall does not delete CRDs or restore the CNI chain", "destructive CRD purge and CNI restoration are separate confirmation-gated operations"},
 		SecretObjects: []string{release + "-observation-ca", release + "-observation-tls"},
 		Metadata:      map[string]string{"cni": report.CNI.Name, "profile": report.Profile, "nodeArchitecture": architecture},
-	}, nil
+	}
+	plan.PlanID = installPlanIdentity(plan)
+	plan.Commands[0] = "waycloakctl install apply --plan <reviewed-plan.json> --confirm " + plan.PlanID
+	return plan, nil
+}
+
+func installPlanIdentity(plan InstallPlan) string {
+	payload := struct {
+		Operation        string                      `json:"operation"`
+		Source           InstalledReleaseObservation `json:"source"`
+		TargetCRDs       map[string]string           `json:"targetCRDIdentities"`
+		Target           ReleaseManifest             `json:"targetRelease"`
+		PreflightDigest  string                      `json:"preflightDigest"`
+		OverlayCIDR      string                      `json:"overlayCIDR"`
+		NodeArchitecture string                      `json:"nodeArchitecture"`
+		Namespace        string                      `json:"namespace"`
+		Release          string                      `json:"release"`
+		InstallSequence  string                      `json:"installSequence"`
+		Values           string                      `json:"valuesYAML"`
+	}{
+		Operation: plan.Operation, Source: plan.Source, TargetCRDs: plan.TargetCRDs, Target: plan.Target,
+		PreflightDigest: plan.PreflightDigest, OverlayCIDR: plan.OverlayCIDR, NodeArchitecture: plan.NodeArchitecture,
+		Namespace: plan.Namespace, Release: plan.Release, InstallSequence: plan.InstallSequence, Values: plan.Values,
+	}
+	data, _ := json.Marshal(payload)
+	return digestBytes(data)
 }
 
 func selectedArchitecture(architectures map[string]int, requested string) (string, error) {

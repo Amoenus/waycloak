@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	waybinding "github.com/Amoenus/waycloak/internal/binding"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,17 +75,9 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, pr
 	}
 	ownedPods := []*corev1.Pod{}
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		cleanupErr := clients.Dynamic.Resource(routeGVR).Namespace(namespace).Delete(cleanupCtx, createdRoute.GetName(), metav1.DeleteOptions{})
-		for _, pod := range ownedPods {
-			if pod != nil {
-				deleteErr := clients.Kubernetes.CoreV1().Pods(namespace).Delete(cleanupCtx, pod.Name, metav1.DeleteOptions{GracePeriodSeconds: pointer(int64(0))})
-				if deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
-					cleanupErr = errors.Join(cleanupErr, deleteErr)
-				}
-			}
-		}
+		cleanupErr := cleanupVerification(cleanupCtx, clients, routeGVR, namespace, createdRoute.GetName(), ownedPods)
 		report.CleanupComplete = cleanupErr == nil
 		if err == nil && cleanupErr != nil {
 			err = cleanupErr
@@ -152,6 +145,67 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, pr
 	report.TunnelLossVerified = outageOrdinaryOK && protectedDenied && recoveredOK && recoveredErr == nil && recoveredIP != ordinaryIP
 	report.Verified = report.OrdinarySucceeded && report.ProtectedSucceeded && report.DistinctEgress && report.TunnelLossVerified
 	return report, nil
+}
+
+func cleanupVerification(ctx context.Context, clients *Clients, routeGVR schema.GroupVersionResource, namespace, routeName string, pods []*corev1.Pod) error {
+	var cleanupErr error
+	bindingGVR := schema.GroupVersionResource{Group: "networking.waycloak.io", Version: "v1beta1", Resource: "vpnworkloadbindings"}
+	zero := int64(0)
+	for _, pod := range pods {
+		if pod == nil {
+			continue
+		}
+		if err := clients.Kubernetes.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{GracePeriodSeconds: &zero}); err != nil && !apierrors.IsNotFound(err) {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete verification Pod: %w", err))
+		}
+	}
+	for _, pod := range pods {
+		if pod == nil {
+			continue
+		}
+		cleanupErr = errors.Join(cleanupErr, waitForAbsence(ctx, "verification Pod", func(ctx context.Context) error {
+			_, err := clients.Kubernetes.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+			return err
+		}))
+		bindingName := waybinding.BindingName(pod.UID)
+		cleanupErr = errors.Join(cleanupErr, waitForAbsence(ctx, "verification binding", func(ctx context.Context) error {
+			_, err := clients.Dynamic.Resource(bindingGVR).Namespace(namespace).Get(ctx, bindingName, metav1.GetOptions{})
+			return err
+		}))
+	}
+	routeCtx := ctx
+	routeCancel := func() {}
+	if ctx.Err() != nil {
+		routeCtx, routeCancel = context.WithTimeout(context.Background(), 5*time.Second)
+	}
+	defer routeCancel()
+	if err := clients.Dynamic.Resource(routeGVR).Namespace(namespace).Delete(routeCtx, routeName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete verification route: %w", err))
+	}
+	cleanupErr = errors.Join(cleanupErr, waitForAbsence(routeCtx, "verification route", func(ctx context.Context) error {
+		_, err := clients.Dynamic.Resource(routeGVR).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
+		return err
+	}))
+	return cleanupErr
+}
+
+func waitForAbsence(ctx context.Context, description string, observe func(context.Context) error) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		err := observe(ctx)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("observe %s cleanup: %w", description, err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%s cleanup did not complete: %w", description, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func deleteExactGatewayPod(ctx context.Context, clients *Clients, namespace string, gateway *unstructured.Unstructured) error {

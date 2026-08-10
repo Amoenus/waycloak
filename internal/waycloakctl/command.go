@@ -108,7 +108,15 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		if err != nil {
 			return err
 		}
-		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report)
+		source, err := ObserveInstalledRelease(ctx, clients, *namespace, *release)
+		if err != nil {
+			return err
+		}
+		targetCRDs, err := ChartCRDIdentities(ctx, dependencies.RunCommand, manifest.Chart)
+		if err != nil {
+			return err
+		}
+		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report, source, targetCRDs)
 		if err != nil {
 			return err
 		}

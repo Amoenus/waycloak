@@ -181,6 +181,22 @@ or object changes between resolution and programming redirect privilege.
 device/inode. The agent rechecks UID/node/binding generation immediately before
 privilege and verifies observed ownership afterward. Mismatch never cleans or
 programs a foreign namespace. Desired/applied/live generations remain separate.
+An authenticated `PodNotFound` result is distinct from API ambiguity: only that
+result permits `DEL` to use the exact durable attachment as withdrawal
+authority. The node agent reports zero applied state even when the old netns is
+already absent or reused, while generic lookup/agent failures retain durable
+deny state and cannot release the binding finalizer.
+Kubelet may issue `DEL` for each failed sandbox before the Pod itself is
+deleted. Missing sandbox state is therefore not deletion authority while that
+exact Pod UID remains live; the durable enrollment survives until exact Pod
+absence or name/UID replacement is observed and withdrawal is acknowledged.
+An authenticated observation for an exact binding that has already completed
+deletion is an idempotent no-op; mismatched binding, Pod, gateway, or node
+identity remains rejected and cannot mutate another binding.
+An older generation for the same binding UID, Pod UID, and authenticated node is
+also a no-op. It cannot refresh status, but it cannot block the agent's relay
+handshake and subsequent adoption of current intent; equal-generation identity
+mismatches and future generations remain rejected.
 
 ### Inbound port cross-delivery and stale advertisement
 

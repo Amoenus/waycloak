@@ -79,6 +79,42 @@ missing namespace, tampered plan, or pre-existing unowned object before its
 first mutation. Repeating an exact partially applied plan is safe; changing the
 backup or target requires a new plan and confirmation.
 
+## Exact release transition and rollback
+
+Do not use `helm rollback` as the release-identity boundary. Retain the signed
+manifest and verification evidence for every supported target, including the
+prior target used for rollback.
+
+1. Keep the current deny path installed and stop rollout of newly enrolled
+   workloads.
+2. Verify the intended target release manifest, signatures, SBOM, provenance,
+   platforms, and support row independently of the cluster.
+3. Run `waycloakctl install plan` with that exact manifest. Review the observed
+   source Helm revision, release and image identities, CRD specification
+   identities, gateway-class UID/generation, observation-certificate public
+   identities, and target.
+4. Apply only that plan ID. Apply re-observes the source and target chart before
+   mutation and refuses drift. The initial beta lifecycle refuses every CRD
+   schema/storage change; those require a dedicated storage-migration plan.
+5. Require a newer Helm revision, the exact target release/runtime/CNI receipt,
+   a new immutable gateway-class UID at the stable class name, preserved
+   observation-certificate identity, healthy node capability and gateway
+   activation, and protected packet/startup checks before resuming workloads.
+
+Use the same procedure for forward transition and rollback. A missing or
+tampered observation identity is not repaired by silently rotating trust. If
+only the public CA Secret is missing, apply may reconstruct it from the intact,
+release-owned TLS Secret; if the serving identity is missing, stop and use the
+explicit certificate-rotation recovery procedure.
+
+A changed deployed release uses two Helm revisions while the deny path remains
+installed. The first applies the target controller, CNI installer, and class but
+pins the node agent to the exact reviewed source image and release identity. The
+second activates the target node agent only after the target CNI receipt is
+Ready. Do not collapse these revisions: simultaneous CNI-installer and agent
+replacement can strand both behind a missing local agent socket. This staging
+is not a bypass or fallback; protected sandboxes continue to fail closed.
+
 ## Failure and degraded-state handling
 
 - Missing route, gateway, class, Secret, ConfigMap, CNI, node agent, tunnel, or

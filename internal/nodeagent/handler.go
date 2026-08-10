@@ -110,7 +110,8 @@ func writeServiceError(response http.ResponseWriter, err error) {
 		message := "Kubernetes Pod observation failed"
 		switch {
 		case apierrors.IsNotFound(err):
-			message = "Kubernetes Pod is not yet observable"
+			writeFailure(response, http.StatusNotFound, waycni.AgentErrorPodNotFound, false, "Exact Kubernetes Pod is absent")
+			return
 		case apierrors.IsForbidden(err):
 			message = "Kubernetes Pod read is unauthorized"
 		case apierrors.IsUnauthorized(err):

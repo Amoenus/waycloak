@@ -156,6 +156,27 @@ installed. Positive-control capture followed by zero direct TCP, UDP, DNS
 UDP/TCP, and fragmented-UDP packets is mandatory. Authentication failure is an
 availability failure and never permits fallback.
 
+### Exact release lifecycle conformance
+
+Install plans bind the complete observed source: deployed Helm revision,
+release manifest and six runtime images, six CRD specifications, default
+gateway-class UID/generation, and observation-certificate UIDs and public
+digests. Negative tests require no mutation after changed source state, target
+chart/CRD drift, wrong confirmation, partial CRD inventory, ambiguous Helm
+state, mutable images, or certificate tampering. The initial beta transition
+row permits only an identical served/storage CRD contract and rejects a schema
+or storage change until an explicit storage-migration procedure exists.
+
+Kind acceptance uses two immutable chart and release identities. It performs a
+clean baseline install, source-bound forward transition, and separately planned
+rollback. Both transitions require a newer Helm revision, exact target runtime
+and CNI receipt, a new UID for the immutable target gateway class, preserved
+certificate identity, live node capability, and the full gateway-replacement
+startup-denial and packet exercise.
+Interrupted Helm transitions, controller/node restart during transition,
+explicit certificate rotation, and each distribution snapshot row remain
+independent required evidence.
+
 ### Backup, restore, and disaster-recovery conformance
 
 Portable backup tests require deterministic canonical identity and exact source
@@ -229,7 +250,34 @@ architecture fixture must refuse an implicit selection and prove that both
 privileged DaemonSets target only the explicitly reviewed row.
 
 A clean supported Kind or k3d row must exercise preflight, plan, apply, CNI
-receipt verification, controller/node capability readiness, and Helm rollback.
+receipt verification, controller/node capability readiness, and exact rollback.
+The lifecycle row must use two immutable releases in both directions and prove
+that each changed-release staging revision retains the exact source node agent
+until the target CNI receipt exists, then activates the target agent without a
+missing-socket restart deadlock or any observed direct-egress packet.
+The row must include at least one durable Ready attachment across agent
+replacement and prove lockdown, authenticated relay handshake, internal drift
+reconciliation, capability republication, and continued rejection of public
+CNI operations before readiness.
+The disruptive verifier must delete Pods before route intent, observe each exact
+Pod and UID-derived binding as absent, then observe route deletion before it may
+emit `cleanupComplete=true`. A terminating binding is a failed cleanup result,
+not a healthy resource to ignore during lifecycle certification.
+The row also deletes a Pod whose chained `ADD` failed before any Ready
+attachment existed. It must distinguish authenticated exact-Pod absence from
+API/agent ambiguity, publish a zero-applied withdrawal from durable attachment
+identity, release the binding finalizer within the cleanup bound, avoid foreign
+netns cleanup, and retain state when the withdrawal report cannot be accepted.
+It must also cover kubelet's early `DEL`: a failed-`ADD` sandbox may disappear
+while the Pod remains pending, but its durable enrollment must survive until a
+later exact-Pod-absence reconciliation publishes withdrawal. Accepted one-shot
+withdrawals must not poison later node reports after the binding is deleted.
+The relay must likewise accept a final-deletion race only as an idempotent no-op
+while continuing to reject every cross-node or stale-identity mismatch.
+Gateway replacement must advance binding intent while an older exact node
+observation is queued: the relay ignores that old generation without mutating
+status, the agent completes its handshake, and drift reconciliation adopts the
+current generation without an authorization loop.
 The credentialed gate then measures the clean Proton/OpenVPN path from preflight
 to verified protected curl, requires completion within 15 minutes, deletes the
 exact gateway Pod, and proves ordinary egress continues while newly enrolled

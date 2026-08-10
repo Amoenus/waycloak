@@ -61,6 +61,56 @@ func TestRelayRejectsCrossNodeForgery(t *testing.T) {
 	}
 }
 
+func TestRelayIgnoresObservationForBindingAlreadyDeleted(t *testing.T) {
+	relay, kube, observation := fixture(t)
+	binding := &wayv1.VPNWorkloadBinding{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: observation.BindingNamespace, Name: observation.BindingName}, binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Delete(context.Background(), binding); err != nil {
+		t.Fatal(err)
+	}
+	if response := report(t, relay, observation); response.Code != http.StatusNoContent {
+		t.Fatalf("already-absent binding status = %d, body %s", response.Code, response.Body.String())
+	}
+	node := &corev1.Node{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
+		t.Fatal(err)
+	}
+	if node.Labels[scheduling.CoreReadyLabel] != "true" {
+		t.Fatalf("obsolete binding observation poisoned node readiness: %#v", node.Labels)
+	}
+}
+
+func TestRelayIgnoresOlderGenerationForSameBindingPodAndNode(t *testing.T) {
+	relay, kube, observation := fixture(t)
+	binding := &wayv1.VPNWorkloadBinding{}
+	key := client.ObjectKey{Namespace: observation.BindingNamespace, Name: observation.BindingName}
+	if err := kube.Get(context.Background(), key, binding); err != nil {
+		t.Fatal(err)
+	}
+	binding.Spec.Network.MTU = 1400
+	binding.Generation = observation.Generation + 1
+	if err := kube.Update(context.Background(), binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Get(context.Background(), key, binding); err != nil {
+		t.Fatal(err)
+	}
+	if binding.Generation <= observation.Generation {
+		t.Fatalf("fixture generation did not advance: binding=%d observation=%d", binding.Generation, observation.Generation)
+	}
+	if response := report(t, relay, observation); response.Code != http.StatusNoContent {
+		t.Fatalf("older exact generation status = %d, body %s", response.Code, response.Body.String())
+	}
+	if err := kube.Get(context.Background(), key, binding); err != nil {
+		t.Fatal(err)
+	}
+	if binding.Status.AppliedGeneration != 0 {
+		t.Fatalf("older generation mutated current status: %#v", binding.Status)
+	}
+}
+
 func TestRelayRejectsUnboundServiceAccountToken(t *testing.T) {
 	relay, _, observation := fixture(t)
 	relay.Reviewer = fakeReviewer{status: authenticationv1.TokenReviewStatus{Authenticated: true, User: authenticationv1.UserInfo{Username: "system:serviceaccount:waycloak-system:waycloak-node-agent"}}}

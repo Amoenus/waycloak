@@ -234,21 +234,63 @@ not substitute for the supported real-provider journey, destructive reinstall
 drill, support-row conformance, lifecycle/DR matrix, or soak required by
 #137–#141.
 
-Issue #32 is now implementing its first portable recovery slice. ADR 0041
-separates coherent distribution datastore snapshots from a portable logical
-backup. The new `waycloakctl state backup` format contains only user-authored
-gateway, route, lease, and adapter specs plus hashed cluster, CRD, and required
-class identities. It structurally excludes credentials, arbitrary metadata,
-status, bindings, allocations, provider mappings, and live observations.
+Issue #32's first portable recovery slice merged in PR #174 with exact green CI
+run `31337381340`. ADR 0041 separates coherent distribution datastore snapshots
+from a portable logical backup. The `waycloakctl state backup` format contains
+only user-authored gateway, route, lease, and adapter specs plus hashed cluster,
+CRD, and required class identities. It structurally excludes credentials,
+arbitrary metadata, status, bindings, allocations, provider mappings, and live
+observations.
 Target-bound `state restore plan/apply` repeats preflight, requires exact CRD
 and class identity plus namespace prerequisites, refuses every unowned conflict
 before mutation, and creates with one explicit field manager without adopting
-pre-existing objects. Portable
-restore always creates new UIDs and reacquires the live data plane. Unit tests
-cover deterministic identity, tampering, confirmation, target drift, conflicts,
-and idempotent retry; the exact-artifact Kind recovery extension remains the
-required merge evidence for missing-route startup denial and fresh binding
-reacquisition.
+pre-existing objects. Portable restore always creates new UIDs and reacquires
+the live data plane. The merged Kind recovery drill proves missing-route
+startup denial, wrong-confirmation non-mutation, new gateway and binding UIDs,
+and live protected recovery without imported runtime state.
+
+ADR 0042 and the next #32 slice now define one exact plan/apply boundary for
+both forward transition and rollback. Plans bind the live Helm revision,
+release and six image identities, exact six-CRD specifications, gateway-class
+UID/generation, and stable observation-certificate identities. Apply refuses
+source or target-chart drift before mutation, permits only an identical beta
+CRD contract, replaces the exact immutable gateway-class UID at its stable name,
+preserves release-owned trust identity, and uses a two-revision transition: the
+target controller/CNI/class first become Ready with the exact source node agent
+retained, then the target agent is activated. This avoids the fail-closed
+missing-socket deadlock found by hosted Kind without disabling or bypassing the
+CNI deny path. The next hosted run exposed and fixed a restart-recovery cycle in
+which durable reconciliation called public CHECK while backend readiness was
+still false. The target agent now restores lockdown, authenticates the relay,
+reconciles durable state through an internal-only path, and republishes
+capability while public CNI calls remain gated. Apply verifies the exact
+post-Helm target. Unit/race and a two-immutable-release Kind lifecycle are the
+merge gates.
+That run also proved `waycloakctl verify` incorrectly reported cleanup complete
+after merely accepting route/Pod deletion while three bindings still terminated.
+Verification now deletes exact Pods first, waits for Pod and UID-derived binding
+absence, then deletes and observes the route; lifecycle health is no longer
+allowed to race finalizer-backed withdrawal.
+The next exact-head run correctly rejected cleanup instead of producing that
+false positive and exposed the underlying failed-`ADD` edge: force deletion can
+remove the Pod API object before `DEL`, while the old protocol represented
+absence as a generic authority failure and never published zero applied state.
+The local protocol now has an authenticated `PodNotFound` result; `DEL` uses the
+exact durable attachment to report withdrawal for absent/reused netns state,
+retains state on ambiguous failure, and never cleans a foreign namespace.
+Hosted run `31344553203` then proved the remaining ordering gap: kubelet sends
+`DEL` for a failed sandbox while the Pod is still live, and the recovery loop
+discarded its missing netns record before later Pod deletion. Recovery now keeps
+that sticky UID enrollment, publishes withdrawal after exact Pod absence or
+name/UID reuse, and retires accepted one-shot observations so deleted bindings
+cannot make subsequent node reports fail authorization.
+Run `31345442701` passed baseline cleanup and exposed the next exact transition
+edge: a prior binding generation was rejected as a whole-report authorization
+failure, preventing the post-handshake drift loop from adopting current gateway
+intent. Older observations for the same binding UID, Pod UID, and node are now
+non-mutating no-ops; mismatched or future identity remains rejected.
+Interrupted transition recovery, explicit certificate rotation, and supported
+distribution datastore-snapshot drills remain open #32 work.
 
 Fresh homelab preparation is paused before mutation: its recorded Kubernetes
 API endpoint responds to ICMP but refuses port 6443, and SSH presents a changed
@@ -277,7 +319,9 @@ versioned local socket/key paths, with exact-artifact assertions before any new
 Pod sandbox is admitted.
 Clean installs now commit a controller-only Helm bootstrap revision before
 activating the CNI installer, node agent, and default class. Existing releases
-skip that bootstrap so upgrades never withdraw the deny path. This ordering was
+skip that bootstrap; changed releases stage the target controller, CNI, and
+class while retaining the exact source agent, then activate the target agent
+after the target CNI receipt exists. This ordering was
 added after exact-artifact CI proved that simultaneous first activation could
 make the CNI authoritative before the controller Pod sandbox existed.
 The same gate then proved that an eventually consistent node-agent cache is not

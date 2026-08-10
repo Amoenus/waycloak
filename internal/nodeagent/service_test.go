@@ -23,6 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -142,19 +144,83 @@ func TestPodLookupFailureMessagesAreSafeAndActionable(t *testing.T) {
 	for name, test := range map[string]struct {
 		err     error
 		message string
+		status  int
+		code    string
 	}{
-		"not-found":    {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Kubernetes Pod is not yet observable"},
-		"forbidden":    {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized"},
-		"unauthorized": {apierrors.NewUnauthorized("redacted"), "Kubernetes API identity is unauthorized"},
-		"timeout":      {context.DeadlineExceeded, "Kubernetes Pod observation timed out"},
+		"not-found":    {apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, "redacted"), "Exact Kubernetes Pod is absent", 404, waycni.AgentErrorPodNotFound},
+		"forbidden":    {apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "redacted", errors.New("denied")), "Kubernetes Pod read is unauthorized", 403, waycni.AgentErrorPodIdentityMismatch},
+		"unauthorized": {apierrors.NewUnauthorized("redacted"), "Kubernetes API identity is unauthorized", 403, waycni.AgentErrorPodIdentityMismatch},
+		"timeout":      {context.DeadlineExceeded, "Kubernetes Pod observation timed out", 403, waycni.AgentErrorPodIdentityMismatch},
 	} {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			writeServiceError(response, fmt.Errorf("%w: %w", ErrPodLookupFailed, test.err))
-			if response.Code != 403 || !strings.Contains(response.Body.String(), test.message) || strings.Contains(response.Body.String(), "redacted") {
+			if response.Code != test.status || !strings.Contains(response.Body.String(), test.message) || !strings.Contains(response.Body.String(), test.code) || strings.Contains(response.Body.String(), "redacted") {
 				t.Fatalf("unsafe lookup response: %d %s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestWithdrawAbsentPodReportsExactDurableAttachment(t *testing.T) {
+	for name, test := range map[string]struct {
+		identity    string
+		identityErr error
+		wantEvents  []string
+	}{
+		"namespace absent":   {identityErr: fs.ErrNotExist},
+		"namespace reused":   {identity: "9:9"},
+		"namespace retained": {identity: "1:2", wantEvents: []string{"cleanup"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, identity, reference, programmer := fixture(t)
+			published := 0
+			service.WithdrawalPublisher = func(_ context.Context, report Report) error {
+				published++
+				if len(report.Observations) != 1 || report.Observations[0].Ready {
+					t.Fatalf("synchronous withdrawal report = %#v", report.Observations)
+				}
+				return nil
+			}
+			binding := &wayv1.VPNWorkloadBinding{}
+			if err := service.Reader.Get(context.Background(), client.ObjectKey{Namespace: identity.Namespace, Name: waybinding.BindingName(types.UID(identity.UID))}, binding); err != nil {
+				t.Fatal(err)
+			}
+			service.Reader = fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(binding).Build()
+			service.Store = staticAttachments{{
+				Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
+				BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+			}}
+			programmer.identity = test.identity
+			programmer.identityErr = test.identityErr
+			if err := service.Withdraw(context.Background(), identity); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(programmer.events, test.wantEvents) {
+				t.Fatalf("withdrawal operations = %v, want %v", programmer.events, test.wantEvents)
+			}
+			if observations := service.Observations(); len(observations) != 0 {
+				t.Fatalf("accepted one-shot withdrawal remained queued: %#v", observations)
+			}
+			if published != 1 {
+				t.Fatalf("synchronous withdrawal publications = %d", published)
+			}
+		})
+	}
+}
+
+func TestWithdrawDoesNotAcknowledgeRejectedObservation(t *testing.T) {
+	service, identity, reference, _ := fixture(t)
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}
+	service.WithdrawalPublisher = func(context.Context, Report) error { return errors.New("relay unavailable") }
+	if err := service.Withdraw(context.Background(), identity); err == nil || !strings.Contains(err.Error(), "publish exact attachment withdrawal") {
+		t.Fatalf("rejected withdrawal publication = %v", err)
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("rejected withdrawal lost fail-closed observation: %#v", observations)
 	}
 }
 
@@ -199,6 +265,40 @@ func TestControllerRelayLossRejectsPrepareAndWithdrawsEveryAttachment(t *testing
 	service.SetRelayHealthy(true)
 	if err := service.Prepare(context.Background(), identity, reference); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAuthenticatedRestartRecoveryBypassesOnlyPublicReadinessGate(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	service.RequireRelay = true
+	service.SetRelayHealthy(false)
+	service.SetBackendHealthy(false)
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}
+	if err := service.Check(context.Background(), identity, reference); err == nil {
+		t.Fatal("public CNI check succeeded before restart recovery")
+	}
+	if want := []string{"lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("public readiness gate operations = %v, want %v", programmer.events, want)
+	}
+	programmer.events = nil
+	service.SetRelayHealthy(true)
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"verify"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("authenticated restart recovery operations = %v, want %v", programmer.events, want)
+	}
+	if service.Ready() {
+		t.Fatal("internal reconciliation published readiness before its caller committed backend health")
+	}
+	if err := service.Check(context.Background(), identity, reference); err == nil {
+		t.Fatal("public CNI check bypassed the still-false backend state")
+	}
+	if want := []string{"verify", "lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("post-recovery public gate operations = %v, want %v", programmer.events, want)
 	}
 }
 
@@ -269,7 +369,7 @@ func TestDriftReconciliationReassertsAbandonedLockedDownState(t *testing.T) {
 	}
 }
 
-func TestRestartRecoveryDiscardsMissingNamespaceWithoutProgramming(t *testing.T) {
+func TestRestartRecoveryRetainsLivePodEnrollmentWhenNamespaceIsMissing(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
 	store := &recordingAttachments{staticAttachments: staticAttachments{{
 		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
@@ -284,12 +384,15 @@ func TestRestartRecoveryDiscardsMissingNamespaceWithoutProgramming(t *testing.T)
 	if len(programmer.events) != 0 {
 		t.Fatalf("missing namespace was programmed: %v", programmer.events)
 	}
-	if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) {
-		t.Fatalf("deleted keys = %#v", store.deleted)
+	if len(store.deleted) != 0 {
+		t.Fatalf("live Pod enrollment was discarded: %#v", store.deleted)
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("missing namespace observation = %#v", observations)
 	}
 }
 
-func TestRestartRecoveryDiscardsReusedNamespaceWithoutTouchingReplacement(t *testing.T) {
+func TestRestartRecoveryRetainsLivePodEnrollmentWithoutTouchingReusedNamespace(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
 	store := &recordingAttachments{staticAttachments: staticAttachments{{
 		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
@@ -304,25 +407,73 @@ func TestRestartRecoveryDiscardsReusedNamespaceWithoutTouchingReplacement(t *tes
 	if len(programmer.events) != 0 {
 		t.Fatalf("replacement namespace was touched: %v", programmer.events)
 	}
-	if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) {
-		t.Fatalf("deleted keys = %#v", store.deleted)
+	if len(store.deleted) != 0 {
+		t.Fatalf("live Pod enrollment was discarded: %#v", store.deleted)
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("reused namespace observation = %#v", observations)
 	}
 }
 
-func TestRestartRecoveryKeepsBackendUnhealthyWhenStaleStateCannotBeDeleted(t *testing.T) {
-	service, identity, reference, programmer := fixture(t)
+func TestRestartRecoveryWithdrawsFailedADDAfterExactPodDisappears(t *testing.T) {
+	for name, replacementPod := range map[string]bool{"not found": false, "name reused by new UID": true} {
+		t.Run(name, func(t *testing.T) {
+			service, identity, reference, programmer := fixture(t)
+			binding := &wayv1.VPNWorkloadBinding{}
+			if err := service.Reader.Get(context.Background(), client.ObjectKey{Namespace: identity.Namespace, Name: waybinding.BindingName(types.UID(identity.UID))}, binding); err != nil {
+				t.Fatal(err)
+			}
+			objects := []client.Object{binding}
+			if replacementPod {
+				objects = append(objects, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: identity.Name, Namespace: identity.Namespace, UID: "replacement-uid"}, Spec: corev1.PodSpec{NodeName: "node-a"}})
+			}
+			service.Reader = fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objects...).Build()
+			store := &recordingAttachments{staticAttachments: staticAttachments{{
+				Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseLockedDown,
+			}}}
+			service.Store = store
+			programmer.identity = "9:9"
+			published := 0
+			service.WithdrawalPublisher = func(_ context.Context, report Report) error {
+				published++
+				if len(report.Observations) != 1 || report.Observations[0].Ready || report.Observations[0].BindingUID != reference.UID {
+					t.Fatalf("absent Pod withdrawal report = %#v", report.Observations)
+				}
+				return nil
+			}
+
+			if err := service.ReconcileAll(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(programmer.events) != 0 {
+				t.Fatalf("missing or reused namespace was touched: %v", programmer.events)
+			}
+			if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) || published != 1 {
+				t.Fatalf("withdrawal state: deleted=%#v published=%d", store.deleted, published)
+			}
+			if observations := service.Observations(); len(observations) != 0 {
+				t.Fatalf("accepted withdrawal was replayable: %#v", observations)
+			}
+		})
+	}
+}
+
+func TestRestartRecoveryRetainsStateWhenWithdrawnAttachmentCannotBeDeleted(t *testing.T) {
+	service, identity, reference, _ := fixture(t)
+	binding := &wayv1.VPNWorkloadBinding{}
+	if err := service.Reader.Get(context.Background(), client.ObjectKey{Namespace: identity.Namespace, Name: waybinding.BindingName(types.UID(identity.UID))}, binding); err != nil {
+		t.Fatal(err)
+	}
+	service.Reader = fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(binding).Build()
 	store := &recordingAttachments{staticAttachments: staticAttachments{{
 		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
 		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
 	}}, deleteErr: errors.New("read-only state")}
 	service.Store = store
-	programmer.identityErr = fs.ErrNotExist
+	service.WithdrawalPublisher = func(context.Context, Report) error { return nil }
 
-	if err := service.ReconcileAll(context.Background()); err == nil || !strings.Contains(err.Error(), "delete stale attachment") {
+	if err := service.ReconcileAll(context.Background()); err == nil || !strings.Contains(err.Error(), "delete withdrawn Pod attachment") {
 		t.Fatalf("delete failure = %v", err)
-	}
-	if len(programmer.events) != 0 {
-		t.Fatalf("missing namespace was programmed after delete failure: %v", programmer.events)
 	}
 }
 
@@ -337,14 +488,14 @@ func TestRestartRecoveryAbsorbsNamespaceDisappearanceDuringRepair(t *testing.T) 
 	programmer.lockdownErr = fs.ErrNotExist
 	programmer.identityErrs = []error{nil, fs.ErrNotExist}
 
-	if err := service.ReconcileAll(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := service.ReconcileAll(context.Background()); err == nil || !strings.Contains(err.Error(), "restore deny-first state after drift") {
+		t.Fatalf("namespace disappearance = %v", err)
 	}
 	if want := []string{"verify", "lockdown"}; !reflect.DeepEqual(programmer.events, want) {
 		t.Fatalf("repair race operations = %v, want %v", programmer.events, want)
 	}
-	if len(store.deleted) != 1 || store.deleted[0] != identityKey(identity) {
-		t.Fatalf("deleted keys = %#v", store.deleted)
+	if len(store.deleted) != 0 {
+		t.Fatalf("live Pod enrollment was discarded: %#v", store.deleted)
 	}
 }
 

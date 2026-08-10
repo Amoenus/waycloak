@@ -91,18 +91,19 @@ type Report struct {
 // owns programming, verification, withdrawal, restart recovery, and drift
 // repair for one node.
 type Service struct {
-	Reader             client.Reader
-	Programmer         Programmer
-	Store              AttachmentStore
-	NodeName           string
-	NodeBootID         string
-	InstanceID         string
-	Now                func() time.Time
-	RequireRelay       bool
-	Capabilities       []string
-	ReleaseIdentity    wayv1.ReleaseIdentity
-	ConformanceProfile wayv1.QualifiedName
-	OperationErrorHook func(string, error)
+	Reader              client.Reader
+	Programmer          Programmer
+	Store               AttachmentStore
+	NodeName            string
+	NodeBootID          string
+	InstanceID          string
+	Now                 func() time.Time
+	RequireRelay        bool
+	Capabilities        []string
+	ReleaseIdentity     wayv1.ReleaseIdentity
+	ConformanceProfile  wayv1.QualifiedName
+	OperationErrorHook  func(string, error)
+	WithdrawalPublisher func(context.Context, Report) error
 
 	mu             sync.RWMutex
 	observations   map[string]Observation
@@ -137,6 +138,10 @@ func (s *Service) Prepare(ctx context.Context, identity waycni.PodIdentity, requ
 	if !s.Ready() {
 		return errors.New("node backend or controller observation relay is unavailable")
 	}
+	return s.prepare(ctx, identity, requested)
+}
+
+func (s *Service) prepare(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
 	pod, binding, cfg, err := s.authority(ctx, identity, requested)
 	if err != nil {
 		return err
@@ -164,6 +169,10 @@ func (s *Service) Check(ctx context.Context, identity waycni.PodIdentity, reques
 		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
 		return errors.New("node backend or controller observation relay is unavailable")
 	}
+	return s.check(ctx, identity, requested)
+}
+
+func (s *Service) check(ctx context.Context, identity waycni.PodIdentity, requested waycni.Binding) error {
 	_, binding, cfg, err := s.authority(ctx, identity, requested)
 	if err != nil {
 		_ = s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID)
@@ -220,12 +229,14 @@ func (s *Service) LockdownAll(ctx context.Context) error {
 	}
 	var errs []error
 	for _, attachment := range attachments {
-		stale, err := s.discardStaleAttachment(attachment)
-		if err != nil {
-			errs = append(errs, err)
+		namespaceIdentity, identityErr := s.Programmer.Identity(attachment.Pod.NetNS)
+		if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("observe durable attachment namespace: %w", identityErr))
 			continue
 		}
-		if stale {
+		if identityErr != nil || namespaceIdentity != attachment.NamespaceIdentity {
+			// The exact Pod may still be pending after a failed ADD. Retain its
+			// sticky enrollment record, but never touch a missing or reused netns.
 			continue
 		}
 		if err := s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID); err != nil {
@@ -243,29 +254,98 @@ func (s *Service) Withdraw(ctx context.Context, identity waycni.PodIdentity) err
 	if err := identity.Validate(); err != nil {
 		return err
 	}
+	attachment, err := s.exactAttachment(identity)
+	if err != nil {
+		return err
+	}
+	return s.withdrawAttachment(ctx, attachment)
+}
+
+func (s *Service) withdrawAttachment(ctx context.Context, attachment waycni.Attachment) error {
+	identity := attachment.Pod
 	pod, podErr := s.pod(ctx, identity)
-	if podErr == nil && !pod.DeletionTimestamp.IsZero() {
-		if err := s.Programmer.Cleanup(ctx, identity.NetNS, identity.UID); err != nil {
+	podAbsent := exactPodAbsent(podErr)
+	if podErr != nil && !podAbsent {
+		return podErr
+	}
+	namespaceIdentity, identityErr := s.Programmer.Identity(identity.NetNS)
+	if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
+		return fmt.Errorf("observe exact attachment namespace for withdrawal: %w", identityErr)
+	}
+	exactNamespace := identityErr == nil && namespaceIdentity == attachment.NamespaceIdentity
+	if exactNamespace {
+		if !podAbsent && pod.DeletionTimestamp.IsZero() {
+			if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
+				return fmt.Errorf("withdraw allow path while retaining deny: %w", err)
+			}
+		} else if err := s.Programmer.Cleanup(ctx, identity.NetNS, identity.UID); err != nil {
 			return fmt.Errorf("clean terminating exact attachment: %w", err)
 		}
-	} else if err := s.Programmer.InstallLockdown(ctx, identity.NetNS, identity.UID); err != nil {
-		return fmt.Errorf("withdraw allow path while retaining deny: %w", err)
 	}
-	reported := false
-	if binding, err := s.rawBinding(ctx, identity.Namespace, identity.UID); err == nil {
-		s.observe(binding, false)
-		reported = true
+	binding, err := s.withdrawalBinding(ctx, identity.Namespace, identity.UID)
+	if err != nil {
+		return err
 	}
-	if !reported {
-		s.mu.Lock()
-		delete(s.observations, identity.UID)
-		s.mu.Unlock()
+	if binding == nil {
+		s.forgetObservation(identity.UID)
+		return nil
 	}
+	if s.WithdrawalPublisher == nil {
+		return errors.New("synchronous withdrawal publisher is unavailable")
+	}
+	observation := s.observe(binding, false)
+	report := s.Report()
+	report.Observations = []Observation{observation}
+	if err := s.WithdrawalPublisher(ctx, report); err != nil {
+		return fmt.Errorf("publish exact attachment withdrawal: %w", err)
+	}
+	s.forgetObservation(identity.UID)
 	return nil
 }
 
-// ReconcileAll rebuilds from durable CNI attachment records. A revoked or
-// unverifiable live Pod is locked down; only an absent exact Pod is cleaned.
+func exactPodAbsent(err error) bool {
+	return apierrors.IsNotFound(err) || errors.Is(err, ErrPodUIDMismatch)
+}
+
+func (s *Service) forgetObservation(podUID string) {
+	s.mu.Lock()
+	delete(s.observations, podUID)
+	s.mu.Unlock()
+}
+
+func (s *Service) exactAttachment(identity waycni.PodIdentity) (waycni.Attachment, error) {
+	attachments, err := s.Store.ListAll()
+	if err != nil {
+		return waycni.Attachment{}, fmt.Errorf("list durable attachments for withdrawal: %w", err)
+	}
+	for _, attachment := range attachments {
+		if attachment.Pod == identity {
+			return attachment, nil
+		}
+	}
+	return waycni.Attachment{}, errors.New("exact durable attachment is unavailable")
+}
+
+func (s *Service) withdrawalBinding(ctx context.Context, namespace, podUID string) (*wayv1.VPNWorkloadBinding, error) {
+	binding := &wayv1.VPNWorkloadBinding{}
+	key := client.ObjectKey{Namespace: namespace, Name: waybinding.BindingName(types.UID(podUID))}
+	if err := s.Reader.Get(ctx, key, binding); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("resolve exact binding for withdrawal: %w", err)
+	}
+	if binding.Spec.PodRef.UID != wayv1.ObjectUID(podUID) {
+		return nil, errors.New("withdrawal binding Pod UID does not match durable attachment")
+	}
+	return binding, nil
+}
+
+// ReconcileAll rebuilds from durable CNI attachment records after the caller
+// has completed a fresh authenticated controller-relay handshake. It bypasses
+// the public CNI readiness gate so backend health can recover without depending
+// on itself. A revoked or unverifiable live Pod is locked down; only an absent
+// exact Pod is cleaned.
 func (s *Service) ReconcileAll(ctx context.Context) error {
 	attachments, err := s.Store.ListAll()
 	if err != nil {
@@ -276,27 +356,33 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		if attachment.Pod.UID == "" || attachment.Pod.NetNS == "" {
 			continue
 		}
-		stale, staleErr := s.discardStaleAttachment(attachment)
-		if staleErr != nil {
-			errs = append(errs, staleErr)
-			continue
-		}
-		if stale {
-			continue
-		}
-		pod, err := s.pod(ctx, attachment.Pod)
-		if apierrors.IsNotFound(err) {
-			if cleanupErr := s.Programmer.Cleanup(ctx, attachment.Pod.NetNS, attachment.Pod.UID); cleanupErr != nil {
-				errs = append(errs, cleanupErr)
+		pod, podErr := s.pod(ctx, attachment.Pod)
+		if exactPodAbsent(podErr) || (podErr == nil && !pod.DeletionTimestamp.IsZero()) {
+			if withdrawErr := s.withdrawAttachment(ctx, attachment); withdrawErr != nil {
+				errs = append(errs, withdrawErr)
 				continue
 			}
 			if deleteErr := s.Store.Delete(attachment.Key()); deleteErr != nil {
-				errs = append(errs, fmt.Errorf("delete absent Pod attachment: %w", deleteErr))
+				errs = append(errs, fmt.Errorf("delete withdrawn Pod attachment: %w", deleteErr))
 			}
 			continue
 		}
-		if err != nil || !pod.DeletionTimestamp.IsZero() {
-			errs = append(errs, s.Programmer.InstallLockdown(ctx, attachment.Pod.NetNS, attachment.Pod.UID))
+		if podErr != nil {
+			errs = append(errs, podErr)
+			continue
+		}
+		namespaceIdentity, identityErr := s.Programmer.Identity(attachment.Pod.NetNS)
+		if identityErr != nil && !errors.Is(identityErr, fs.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("observe durable attachment namespace: %w", identityErr))
+			continue
+		}
+		if identityErr != nil || namespaceIdentity != attachment.NamespaceIdentity {
+			// A failed ADD can lose its sandbox before the Pod is deleted. Keep
+			// the UID-bound enrollment durable for retries, report not-ready when
+			// possible, and never operate on a missing or replacement namespace.
+			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
+				s.observe(binding, false)
+			}
 			continue
 		}
 		if attachment.Phase == waycni.PhaseLockedDown {
@@ -319,21 +405,11 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		requested := bindingReference(binding)
 		var reconcileErr error
 		if attachment.BindingGeneration != requested.Generation {
-			reconcileErr = s.Prepare(ctx, attachment.Pod, requested)
+			reconcileErr = s.prepare(ctx, attachment.Pod, requested)
 		} else {
-			reconcileErr = s.Check(ctx, attachment.Pod, requested)
+			reconcileErr = s.check(ctx, attachment.Pod, requested)
 		}
 		if reconcileErr != nil {
-			if errors.Is(reconcileErr, fs.ErrNotExist) {
-				stale, discardErr := s.discardStaleAttachment(attachment)
-				if discardErr != nil {
-					errs = append(errs, discardErr)
-					continue
-				}
-				if stale {
-					continue
-				}
-			}
 			if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
 				s.observe(binding, false)
 			}
@@ -350,26 +426,6 @@ func (s *Service) ReconcileAll(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// discardStaleAttachment removes durable state only when its exact network
-// namespace no longer exists or its path has been reused. It deliberately
-// performs no network operation against a reused path.
-func (s *Service) discardStaleAttachment(attachment waycni.Attachment) (bool, error) {
-	identity, err := s.Programmer.Identity(attachment.Pod.NetNS)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("observe durable attachment namespace: %w", err)
-	}
-	if err == nil && identity == attachment.NamespaceIdentity {
-		return false, nil
-	}
-	if err := s.Store.Delete(attachment.Key()); err != nil {
-		return false, fmt.Errorf("delete stale attachment: %w", err)
-	}
-	s.mu.Lock()
-	delete(s.observations, attachment.Pod.UID)
-	s.mu.Unlock()
-	return true, nil
 }
 
 func (s *Service) Observations() []Observation {
@@ -495,7 +551,7 @@ func ConfigFromBinding(binding *wayv1.VPNWorkloadBinding) (dataplane.Config, err
 	return config, config.Validate()
 }
 
-func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) {
+func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) Observation {
 	observation := Observation{
 		BindingNamespace: binding.Namespace, BindingName: binding.Name, BindingUID: string(binding.UID),
 		Generation: binding.Generation, PodUID: string(binding.Spec.PodRef.UID), GatewayUID: string(binding.Spec.GatewayRef.UID),
@@ -507,6 +563,7 @@ func (s *Service) observe(binding *wayv1.VPNWorkloadBinding, ready bool) {
 	}
 	s.observations[observation.PodUID] = observation
 	s.mu.Unlock()
+	return observation
 }
 
 func (s *Service) now() time.Time {

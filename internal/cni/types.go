@@ -12,7 +12,10 @@ import (
 
 const AgentAPIVersion = "networking.waycloak.io/cni-node/v1"
 
-var ErrBindingNotReady = errors.New("workload binding is not ready")
+var (
+	ErrBindingNotReady = errors.New("workload binding is not ready")
+	ErrPodNotFound     = errors.New("exact Kubernetes Pod is absent")
+)
 
 type PodIdentity struct {
 	Namespace   string `json:"namespace"`

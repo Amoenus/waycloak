@@ -20,12 +20,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const controllerFirstBootstrapValues = `cniInstaller:
@@ -61,12 +64,23 @@ func LoadInstallPlan(path string) (InstallPlan, error) {
 }
 
 func (plan InstallPlan) validate() error {
-	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || !validDigest(plan.PreflightDigest) || plan.InstallSequence != controllerFirstInstallSequence ||
+	if plan.APIVersion != OutputAPIVersion || plan.Kind != "InstallPlan" || !validDigest(plan.PlanID) || !validDigest(plan.Manifest) || !validDigest(plan.PreflightDigest) || plan.InstallSequence != failClosedLifecycleSequence ||
 		plan.Namespace == "" || plan.Release == "" || plan.Values == "" || plan.OverlayCIDR == "" || plan.NodeArchitecture != "amd64" && plan.NodeArchitecture != "arm64" || plan.Chart.Repository == "" || !validDigest(plan.Chart.Digest) {
 		return errors.New("install plan identity is incomplete")
 	}
-	wanted := digestBytes([]byte(plan.Manifest + "\x00" + plan.PreflightDigest + "\x00" + plan.OverlayCIDR + "\x00" + plan.NodeArchitecture + "\x00" + plan.Namespace + "\x00" + plan.Release + "\x00" + plan.InstallSequence + "\x00" + plan.Values))
-	if plan.PlanID != wanted {
+	if err := plan.Target.Validate(); err != nil || plan.Target.ManifestDigest != plan.Manifest || plan.Target.Chart != plan.Chart {
+		return errors.New("install plan target release identity is inconsistent")
+	}
+	if err := plan.Source.validate(); err != nil {
+		return err
+	}
+	if err := validateInstallCRDTransition(plan.Source, plan.TargetCRDs); err != nil {
+		return err
+	}
+	if plan.Operation != installOperationClean && plan.Operation != installOperationTransition || plan.Operation == installOperationClean && plan.Source.State != installStateAbsent || plan.Operation == installOperationTransition && plan.Source.State != installStateDeployed {
+		return errors.New("install plan operation does not match its reviewed source state")
+	}
+	if plan.PlanID != installPlanIdentity(plan) {
 		return errors.New("install plan content does not match planID")
 	}
 	return nil
@@ -92,6 +106,23 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if runner == nil {
 		runner = defaultRunner
 	}
+	targetCRDs, err := ChartCRDIdentities(ctx, runner, plan.Chart)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(targetCRDs, plan.TargetCRDs) {
+		return errors.New("refusing mutation: exact target chart CRD identity changed after plan review")
+	}
+	source, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return err
+	}
+	if source.ObservationDigest != plan.Source.ObservationDigest {
+		return errors.New("refusing mutation: installed release state changed after plan review")
+	}
+	if err := validateInstallCRDTransition(source, targetCRDs); err != nil {
+		return err
+	}
 	namespace, err := clients.Kubernetes.CoreV1().Namespaces().Get(ctx, plan.Namespace, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		namespace = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: plan.Namespace, Labels: map[string]string{
@@ -105,23 +136,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	} else if namespace.Labels["pod-security.kubernetes.io/enforce"] != "privileged" {
 		return errors.New("existing system namespace is not explicitly privileged; review and label it separately before applying the plan")
 	}
-	caPEM, certPEM, keyPEM, err := observationIdentity(plan.Release, plan.Namespace)
+	caSecret, tlsSecret, err := ensureObservationSecrets(ctx, clients, plan.Namespace, plan.Release, plan.PlanID)
 	if err != nil {
 		return err
-	}
-	if err := createOwnedSecret(ctx, clients, plan.Namespace, plan.Release+"-observation-ca", plan.PlanID, corev1.SecretTypeOpaque, map[string][]byte{"ca.crt": caPEM}); err != nil {
-		return err
-	}
-	if err := createOwnedSecret(ctx, clients, plan.Namespace, plan.Release+"-observation-tls", plan.PlanID, corev1.SecretTypeTLS, map[string][]byte{"ca.crt": caPEM, "tls.crt": certPEM, "tls.key": keyPEM}); err != nil {
-		return err
-	}
-	caSecret, err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Get(ctx, plan.Release+"-observation-ca", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("read observation CA Secret after creation: %w", err)
-	}
-	tlsSecret, err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Get(ctx, plan.Release+"-observation-tls", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("read observation TLS Secret after creation: %w", err)
 	}
 	if !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
 		return errors.New("observation CA and serving identity do not share exact trust material")
@@ -136,8 +153,8 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return err
 	}
 	chart := plan.Chart.Repository + "@" + plan.Chart.Digest
-	deployed, err := deployedHelmRelease(ctx, clients, plan.Namespace, plan.Release)
-	if err != nil {
+	deployed := source.State == installStateDeployed
+	if err := replaceGatewayClassForTransition(ctx, clients, source, plan.Target); err != nil {
 		return err
 	}
 	if !deployed {
@@ -149,37 +166,130 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		if err != nil {
 			return fmt.Errorf("controller-first Helm bootstrap failed before Core activation: %w: %s", err, bounded(output, 4096))
 		}
+	} else if source.ManifestDigest != plan.Target.ManifestDigest {
+		holdValues, err := nodeAgentTransitionHoldValues(source)
+		if err != nil {
+			return err
+		}
+		holdValuesPath := filepath.Join(directory, "node-agent-transition-hold.yaml")
+		if err := os.WriteFile(holdValuesPath, []byte(holdValues), 0o600); err != nil {
+			return err
+		}
+		output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--values", holdValuesPath, "--wait", "--timeout", "10m")
+		if err != nil {
+			return fmt.Errorf("helm transition staging failed with the prior node agent retained: %w: %s", err, bounded(output, 4096))
+		}
 	}
 	output, err := runner(ctx, "helm", "upgrade", "--install", plan.Release, chart, "--namespace", plan.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m")
 	if err != nil {
 		return fmt.Errorf("helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
 	}
+	target, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return fmt.Errorf("observe exact target release after Helm: %w", err)
+	}
+	return validateInstallTarget(source, target, plan.Target, targetCRDs)
+}
+
+func nodeAgentTransitionHoldValues(source InstalledReleaseObservation) (string, error) {
+	reference := source.Images["waycloak-node-agent"]
+	separator := strings.LastIndex(reference, "@")
+	if separator < 1 || !validDigest(reference[separator+1:]) {
+		return "", errors.New("reviewed source lacks an exact node-agent image for transition staging")
+	}
+	return fmt.Sprintf(`nodeAgent:
+  image:
+    repository: %q
+    digest: %q
+  releaseIdentity:
+    version: %q
+    manifestDigest: %q
+`, reference[:separator], reference[separator+1:], source.Version, source.ManifestDigest), nil
+}
+
+func replaceGatewayClassForTransition(ctx context.Context, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest) error {
+	if source.State != installStateDeployed || source.ManifestDigest == target.ManifestDigest {
+		return nil
+	}
+	uid := types.UID(source.GatewayClassUID)
+	if err := clients.Dynamic.Resource(gatewayClassGVR).Delete(ctx, "gluetun.waycloak.io", metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
+		return fmt.Errorf("replace exact immutable gateway class for release transition: %w", err)
+	}
+	if err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := clients.Dynamic.Resource(gatewayClassGVR).Get(ctx, "gluetun.waycloak.io", metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}); err != nil {
+		return fmt.Errorf("wait for exact immutable gateway class replacement boundary: %w", err)
+	}
 	return nil
 }
 
-func deployedHelmRelease(ctx context.Context, clients *Clients, namespace, release string) (bool, error) {
-	selector := labels.Set{"owner": "helm", "name": release, "status": "deployed"}.AsSelector().String()
-	secrets, err := clients.Kubernetes.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
-	if err != nil {
-		return false, fmt.Errorf("detect existing Helm release: %w", err)
+func ensureObservationSecrets(ctx context.Context, clients *Clients, namespace, release, planID string) (*corev1.Secret, *corev1.Secret, error) {
+	secrets := clients.Kubernetes.CoreV1().Secrets(namespace)
+	caName := release + "-observation-ca"
+	tlsName := release + "-observation-tls"
+	caSecret, caErr := secrets.Get(ctx, caName, metav1.GetOptions{})
+	tlsSecret, tlsErr := secrets.Get(ctx, tlsName, metav1.GetOptions{})
+	if caErr != nil && !apierrors.IsNotFound(caErr) {
+		return nil, nil, caErr
 	}
-	return len(secrets.Items) > 0, nil
+	if tlsErr != nil && !apierrors.IsNotFound(tlsErr) {
+		return nil, nil, tlsErr
+	}
+	caFound := caErr == nil
+	tlsFound := tlsErr == nil
+	if caFound {
+		if err := validateReleaseOwnedInstallSecret(caSecret, release, corev1.SecretTypeOpaque); err != nil {
+			return nil, nil, err
+		}
+	}
+	if tlsFound {
+		if err := validateReleaseOwnedInstallSecret(tlsSecret, release, corev1.SecretTypeTLS); err != nil {
+			return nil, nil, err
+		}
+	}
+	if caFound && !tlsFound {
+		return nil, nil, errors.New("installation CA exists without its serving identity; use the explicit certificate-rotation recovery procedure")
+	}
+	if !tlsFound {
+		caPEM, certPEM, keyPEM, err := observationIdentity(release, namespace)
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsSecret, err = createReleaseOwnedSecret(ctx, clients, namespace, tlsName, release, planID, corev1.SecretTypeTLS, map[string][]byte{"ca.crt": caPEM, "tls.crt": certPEM, "tls.key": keyPEM})
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsFound = true
+	}
+	if !caFound {
+		var err error
+		caSecret, err = createReleaseOwnedSecret(ctx, clients, namespace, caName, release, planID, corev1.SecretTypeOpaque, map[string][]byte{"ca.crt": tlsSecret.Data["ca.crt"]})
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if !tlsFound || !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
+		return nil, nil, errors.New("observation CA and serving identity do not share exact trust material")
+	}
+	return caSecret, tlsSecret, nil
 }
 
-func createOwnedSecret(ctx context.Context, clients *Clients, namespace, name, planID string, secretType corev1.SecretType, data map[string][]byte) error {
-	secrets := clients.Kubernetes.CoreV1().Secrets(namespace)
-	existing, err := secrets.Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		if existing.Annotations["install.waycloak.io/plan-id"] != planID {
-			return fmt.Errorf("secret %s/%s exists and is not owned by this exact plan", namespace, name)
-		}
-		return validateInstallSecret(existing, secretType)
+func createReleaseOwnedSecret(ctx context.Context, clients *Clients, namespace, name, release, planID string, secretType corev1.SecretType, data map[string][]byte) (*corev1.Secret, error) {
+	created, err := clients.Kubernetes.CoreV1().Secrets(namespace).Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: map[string]string{installReleaseOwnerKey: release, installInitialPlanKey: planID}}, Type: secretType, Data: data}, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		created, err = clients.Kubernetes.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	}
-	if !apierrors.IsNotFound(err) {
-		return err
+	if err != nil {
+		return nil, err
 	}
-	_, err = secrets.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: map[string]string{"install.waycloak.io/plan-id": planID}}, Type: secretType, Data: data}, metav1.CreateOptions{})
-	return err
+	if err := validateReleaseOwnedInstallSecret(created, release, secretType); err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 func validateInstallSecret(secret *corev1.Secret, secretType corev1.SecretType) error {

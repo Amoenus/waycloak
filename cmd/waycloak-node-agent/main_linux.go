@@ -98,6 +98,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 	if err != nil {
 		return err
 	}
+	reporter := nodeagent.Reporter{URL: relayURL, TokenFile: relayToken, CAFile: relayCA}
 	service := &nodeagent.Service{
 		// CNI ADD is a creation-time security boundary. Resolve the exact Pod UID
 		// and node assignment from the API server, not an eventually consistent
@@ -105,8 +106,9 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		Reader: manager.GetAPIReader(), Programmer: waycni.LinuxEnforcer{Backend: backend},
 		Store: waycni.FileStore{Directory: stateDir}, NodeName: nodeName, NodeBootID: bootID, InstanceID: instanceID,
 		RequireRelay: true, Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
-		ReleaseIdentity:    releaseIdentity,
-		ConformanceProfile: wayv1.QualifiedName(conformanceProfile),
+		ReleaseIdentity:     releaseIdentity,
+		ConformanceProfile:  wayv1.QualifiedName(conformanceProfile),
+		WithdrawalPublisher: reporter.Report,
 	}
 	service.OperationErrorHook = func(operation string, err error) {
 		log.Printf("local %s operation remained fail closed: %v", operation, err)
@@ -151,7 +153,6 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	reporter := nodeagent.Reporter{URL: relayURL, TokenFile: relayToken, CAFile: relayCA}
 	go reconcileLoop(ctx, service, reporter, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity, interval)
 	err = server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -167,31 +168,33 @@ func recoverInstalledState(ctx context.Context, service *nodeagent.Service, rece
 	if err := service.LockdownAll(ctx); err != nil {
 		return fmt.Errorf("restore deny-first state before serving CNI: %w", err)
 	}
-	return service.ReconcileAll(ctx)
+	// Reopening a durable allow path requires a fresh authenticated controller
+	// relay handshake. The reconcile loop performs that handshake before it
+	// adopts or verifies any retained attachment.
+	return nil
 }
 
 func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, cniReceiptFile, cniBinaryFile, cniConfigFile string, releaseIdentity wayv1.ReleaseIdentity, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		reconcileErr := reconcileInstalledState(ctx, service, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity)
-		service.SetBackendHealthy(reconcileErr == nil)
-		if reconcileErr != nil && ctx.Err() == nil {
-			log.Printf("fail-closed drift reconciliation incomplete: %v", reconcileErr)
-		}
-		reportCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := reporter.Report(reportCtx, service.Report())
-		cancel()
-		if err != nil {
-			service.SetRelayHealthy(false)
+		installationErr := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity)
+		if installationErr != nil {
+			service.SetBackendHealthy(false)
 			if lockdownErr := service.LockdownAll(ctx); lockdownErr != nil && ctx.Err() == nil {
-				log.Printf("controller-loss lockdown incomplete: %v", lockdownErr)
+				log.Printf("invalid-CNI lockdown incomplete: %v", lockdownErr)
 			}
-			if ctx.Err() == nil {
-				log.Printf("node observation publication unavailable: %v", err)
+		}
+		if publishObservation(ctx, service, reporter) && installationErr == nil {
+			reconcileErr := service.ReconcileAll(ctx)
+			service.SetBackendHealthy(reconcileErr == nil)
+			if reconcileErr != nil && ctx.Err() == nil {
+				log.Printf("fail-closed drift reconciliation incomplete: %v", reconcileErr)
 			}
-		} else {
-			service.SetRelayHealthy(true)
+			// Publish the post-reconciliation state immediately. A recovering
+			// node remains unadvertised until both the relay handshake and the
+			// retained attachment verification succeed.
+			publishObservation(ctx, service, reporter)
 		}
 		select {
 		case <-ctx.Done():
@@ -201,14 +204,22 @@ func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nod
 	}
 }
 
-func reconcileInstalledState(ctx context.Context, service *nodeagent.Service, receiptFile, binaryFile, configFile string, releaseIdentity wayv1.ReleaseIdentity) error {
-	if err := nodeagent.ValidateCNIInstallation(receiptFile, binaryFile, configFile, releaseIdentity); err != nil {
-		if lockdownErr := service.LockdownAll(ctx); lockdownErr != nil {
-			return fmt.Errorf("CNI installation invalid (%v) and lockdown incomplete: %w", err, lockdownErr)
-		}
-		return fmt.Errorf("CNI installation invalid: %w", err)
+func publishObservation(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter) bool {
+	reportCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	err := reporter.Report(reportCtx, service.Report())
+	cancel()
+	if err == nil {
+		service.SetRelayHealthy(true)
+		return true
 	}
-	return service.ReconcileAll(ctx)
+	service.SetRelayHealthy(false)
+	if lockdownErr := service.LockdownAll(ctx); lockdownErr != nil && ctx.Err() == nil {
+		log.Printf("controller-loss lockdown incomplete: %v", lockdownErr)
+	}
+	if ctx.Err() == nil {
+		log.Printf("node observation publication unavailable: %v", err)
+	}
+	return false
 }
 
 func readOpaqueID(path string) (string, error) {
