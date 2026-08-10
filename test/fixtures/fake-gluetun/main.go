@@ -271,6 +271,11 @@ func installGatewayFirewallBase() error {
 	input := connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
 	connection.AddChain(&nftables.Chain{Table: table, Name: "FORWARD", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
 	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(inputInterface("lo"), &expr.Verdict{Kind: expr.VerdictAccept})})
+	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: netip.MustParseAddr("127.0.0.1").AsSlice()},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	}})
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install fixture gateway firewall: %w", err)
 	}
