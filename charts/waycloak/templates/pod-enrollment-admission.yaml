@@ -8,6 +8,9 @@ spec:
   failurePolicy: Fail
   reinvocationPolicy: IfNeeded
   matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector: {}
+    objectSelector: {}
     resourceRules:
       - apiGroups: [""]
         apiVersions: ["v1"]
