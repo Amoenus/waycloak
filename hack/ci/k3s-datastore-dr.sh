@@ -149,8 +149,26 @@ restore() {
     echo "K3s restore did not quarantine the replaced datastore as etcd-old" >&2
     exit 1
   fi
-  systemctl start "$unit_name"
+  test -f "$data_dir/server/db/reset-flag"
+  local quiesce_deadline=$((SECONDS + 30))
+  while pgrep --full '^/usr/local/bin/k3s server .*--cluster-reset' >/dev/null; do
+    if (( SECONDS >= quiesce_deadline )); then
+      echo "one-shot K3s reset process did not quiesce" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  systemctl reset-failed "$unit_name" >/dev/null 2>&1 || true
+  if ! systemctl start "$unit_name"; then
+    systemctl status "$unit_name" --no-pager >&2 || true
+    journalctl --unit "$unit_name" --no-pager --lines 200 >&2 || true
+    exit 1
+  fi
   wait_for_cluster
+  if [[ -e "$data_dir/server/db/reset-flag" ]]; then
+    echo "ordinary K3s restart did not consume the one-shot reset flag" >&2
+    exit 1
+  fi
   date +%s >"$root/restore-end-epoch"
 }
 
