@@ -14,12 +14,16 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	pluginsns "github.com/containernetworking/plugins/pkg/ns"
+	"github.com/google/nftables"
 	"github.com/vishvananda/netlink"
 	vnetns "github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
@@ -57,18 +61,31 @@ func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
 	// installs its owned chain, proving that later failures are real denial and
 	// not an inert topology.
 	assertGatewayTCP(t, app, "192.0.2.2:18081", "direct")
+	healthTCP := listenGatewayTCP(t, gateway, "100.96.0.1:18080")
+	defer healthTCP.Close()
+	serveGatewayTCP(healthTCP, "health")
+	installGatewayEngineFilter(t, gateway)
 	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
 	backend := LinuxBackend{}
 	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, false) }); err != nil {
 		t.Fatal(err)
 	}
 	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+	assertGatewayUnavailable(t, app, "100.96.0.1:18080")
 	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, true) }); err != nil {
 		t.Fatal(err)
 	}
+	assertGatewayTCP(t, app, "100.96.0.1:18080", "health")
 	assertGatewayTCP(t, app, "10.10.0.2:18081", "vpn")
 	assertGatewayUDP(t, app, "10.10.0.2:18082", "vpn")
 	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+	before := ownedGatewayRuleHandles(t, gateway)
+	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, true) }); err != nil {
+		t.Fatal(err)
+	}
+	if after := ownedGatewayRuleHandles(t, gateway); !reflect.DeepEqual(after, before) {
+		t.Fatalf("no-op reconcile rewrote gateway rules: before=%v after=%v", before, after)
+	}
 	if err := gateway.Do(func(pluginsns.NetNS) error {
 		link, err := netlink.LinkByName("tun0")
 		if err != nil {
@@ -83,6 +100,7 @@ func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertGatewayUnavailable(t, app, "192.0.2.2:18081")
+	assertGatewayUnavailable(t, app, "100.96.0.1:18080")
 }
 
 func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
@@ -140,10 +158,58 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 		if !returnRule {
 			return errors.New("owned overlay return-path policy rule is missing")
 		}
+		if gatewayOverlayReturnPriority >= 99 {
+			return fmt.Errorf("overlay return priority %d does not precede Gluetun priority 99", gatewayOverlayReturnPriority)
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func installGatewayEngineFilter(t *testing.T, networkNS pluginsns.NetNS) {
+	t.Helper()
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		connection := &nftables.Conn{}
+		table := connection.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: engineFilterTableName})
+		policy := nftables.ChainPolicyDrop
+		connection.AddChain(&nftables.Chain{Table: table, Name: engineInputChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+		connection.AddChain(&nftables.Chain{Table: table, Name: engineForwardChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+		return connection.Flush()
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func ownedGatewayRuleHandles(t *testing.T, networkNS pluginsns.NetNS) []string {
+	t.Helper()
+	result := []string{}
+	if err := networkNS.Do(func(pluginsns.NetNS) error {
+		connection := &nftables.Conn{}
+		chains, err := connection.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+		if err != nil {
+			return err
+		}
+		for _, chain := range chains {
+			if chain.Table == nil || (chain.Table.Name != coreTableName && chain.Table.Name != engineFilterTableName) {
+				continue
+			}
+			rules, err := connection.GetRules(chain.Table, chain)
+			if err != nil {
+				return err
+			}
+			for _, rule := range rules {
+				if strings.HasPrefix(string(rule.UserData), "waycloak:") {
+					result = append(result, fmt.Sprintf("%s/%s/%d", chain.Table.Name, chain.Name, rule.Handle))
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func newGatewayNS(t *testing.T) pluginsns.NetNS {
