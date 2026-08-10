@@ -1,7 +1,8 @@
 # Backup, restore, and disaster recovery
 
-Status: portable exact-release slice implemented; full support-row disaster
-recovery certification remains open in issue #32
+Status: portable exact-release recovery and the hosted K3s embedded-etcd row
+are implemented; the authorized exact-artifact homelab drill remains open in
+issue #32
 
 Waycloak never relaxes fail-closed egress to accelerate recovery. Keep enrolled
 workloads stopped until newly restored intent has acquired new runtime identity
@@ -17,6 +18,57 @@ preservation from YAML.
 
 Use portable state for a fresh exact-release installation. It preserves
 operator/workload intent but deliberately reacquires every runtime identity.
+
+## Supported K3s embedded-etcd snapshot row
+
+The first distribution-native row is deliberately narrow:
+
+- K3s `v1.36.1+k3s1`, installed from its exact SHA-256-verified binary;
+- one server using embedded etcd through `--cluster-init`;
+- the bundled containerd and Flannel data plane; and
+- one local K3s etcd snapshot retained together with the exact server token.
+
+This row does not cover SQLite, an external datastore, multiple servers, S3
+snapshot transport, or a different Kubernetes distribution. Those are separate
+support rows and must not inherit this evidence.
+
+Use the distribution-native `k3s etcd-snapshot save` command. Retain the
+snapshot and server token in a root-only encrypted backup boundary. A K3s
+snapshot contains the complete datastore, including Kubernetes Secrets and
+cluster certificate authority private keys. The same server token is required
+to decrypt confidential bootstrap data during restore. Never upload either CI
+fixture artifact or print the token.
+
+For this single-server row, stop K3s, run `k3s server --cluster-reset` with the
+exact `--cluster-reset-restore-path` and retained token, then start the ordinary
+server service. The reset command is a one-shot operation; do not leave
+`--cluster-reset` on the service. K3s moves the replaced datastore aside under
+`etcd-old-*`. Keep that directory inside the same confidential boundary until
+the restored cluster and an independently retained snapshot are verified, then
+remove it through a separately reviewed exact-path cleanup.
+
+RPO is the exact completed snapshot point. RTO is measured from server stop
+through API readiness and Node `Ready`; the hosted gate records both snapshot
+and restore seconds in its workflow summary. Application recovery can take
+longer because a restored live-looking observation is immediately treated as
+stale until the node agent and protected path are freshly observed.
+
+Before reporting the row recovered, require all of the following:
+
+1. Namespace, Pod, and `VPNWorkloadBinding` UIDs return together and a
+   post-snapshot marker does not.
+2. The binding controller changes restored stale `Ready=True` and
+   `NodeReady=True` to current-generation `False` conditions.
+3. Host CNI attachment and deny state survive K3s/containerd restart, `CHECK`
+   remains denied, and the enrolled application container never starts.
+4. TCP, UDP, DNS over UDP and TCP, and fragmented-UDP direct packet counters do
+   not change through restore.
+5. Idempotent `DEL`/`GC` succeeds and a second unenrolled positive control proves
+   the primary CNI is functional.
+
+Any identity drift, surviving post-snapshot state, missing protected deny state,
+unavailable observation, or unexplained packet makes the cluster degraded. Keep
+enrolled workloads stopped and do not substitute ordinary egress.
 
 ## Create and retain portable state
 

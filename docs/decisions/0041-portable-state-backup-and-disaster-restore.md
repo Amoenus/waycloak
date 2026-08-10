@@ -80,6 +80,13 @@ conversion or call `helm upgrade` as a CRD migration substitute.
   recovery and are reported through conditions rather than hidden.
 - Distribution-snapshot RPO and RTO are support-row properties and are not
   inherited from the portable target.
+- The first supported row is K3s `v1.36.1+k3s1`, one server, embedded etcd,
+  bundled containerd and Flannel, a checksummed binary, and a local snapshot
+  retained with the same protected server token. Its RPO is the completed
+  snapshot point. Its measured RTO runs from server stop to API and Node-ready
+  recovery and is recorded by each exact hosted run. SQLite, external
+  datastores, multi-server restore, S3, and other distributions remain
+  unsupported by this row.
 - The fail-closed packet invariant has no recovery-time exception and applies
   before, during, and after both recovery mechanisms.
 
@@ -91,6 +98,11 @@ conversion or call `helm upgrade` as a CRD migration substitute.
   the application must acknowledge the new exact generation.
 - Exact UID preservation requires a coherent datastore restore, never a YAML
   export or object recreation.
+- A K3s snapshot contains Secrets and cluster CA private keys. The server token
+  protects confidential bootstrap data and is required at restore, so both are
+  credentials-at-rest and must share a root-only encrypted retention boundary.
+  The one-shot reset moves the replaced database to `etcd-old-*`; that copy is
+  confidential and is removed only after exact recovery verification.
 - Normal uninstall, portable backup, and destructive CRD purge remain separate
   operations.
 - Certificate material is regenerated or restored through the installation

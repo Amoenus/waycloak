@@ -487,3 +487,66 @@ jobs:
       - name: Remove k3d cluster
         if: always()
         run: k3d cluster delete waycloak-ci
+
+  k3s-datastore-recovery:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install checksummed K3s v1.36.1+k3s1
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/k3s" \
+            https://github.com/k3s-io/k3s/releases/download/v1.36.1%2Bk3s1/k3s
+          echo 'a443db3fe9820cd93617ae67e4386d87c1514c1e96ceb30f4c2791c39065653c  '"$RUNNER_TEMP/k3s" | sha256sum --check
+          sudo install -m 0755 "$RUNNER_TEMP/k3s" /usr/local/bin/k3s
+      - name: Start pinned single-server embedded-etcd row
+        shell: bash
+        run: |
+          sudo hack/ci/k3s-datastore-dr.sh setup
+          kubectl --kubeconfig=/tmp/waycloak-k3s-dr-kubeconfig apply --server-side --field-manager=waycloak-k3s-dr -f config/crd/bases
+      - name: Run coherent datastore snapshot and fail-closed recovery proof
+        shell: bash
+        env:
+          KUBECONFIG: /tmp/waycloak-k3s-dr-kubeconfig
+          WAYCLOAK_E2E_CNI: "1"
+          WAYCLOAK_E2E_CNI_CONFIG_DIR: /var/lib/waycloak-k3s-dr/data/agent/etc/cni/net.d
+          WAYCLOAK_E2E_CNI_CONFIG_NAME: 10-flannel.conflist
+          WAYCLOAK_E2E_CNI_BIN_DIR: /var/lib/waycloak-k3s-dr/data/data/cni
+          WAYCLOAK_E2E_CNI_SNAPSHOT_COMMAND: sudo hack/ci/k3s-datastore-dr.sh snapshot
+          WAYCLOAK_E2E_CNI_RESTORE_COMMAND: sudo hack/ci/k3s-datastore-dr.sh restore
+        run: |
+          node_name="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
+          WAYCLOAK_E2E_CNI_NODE="$node_name" \
+            go test -tags=e2e ./test/e2e/... \
+              -run '^TestChainedCNICreationTimeFailClosed$' \
+              -v -count=1 -timeout=25m
+      - name: Record exact hosted recovery timing
+        if: success()
+        shell: bash
+        run: |
+          metrics="$(sudo hack/ci/k3s-datastore-dr.sh metrics)"
+          snapshot_seconds="$(sed -n 's/^snapshot_seconds=//p' <<<"$metrics")"
+          restore_seconds="$(sed -n 's/^restore_seconds=//p' <<<"$metrics")"
+          {
+            printf '### K3s embedded-etcd recovery row\n\n'
+            printf -- '- K3s: `v1.36.1+k3s1`, single server, embedded etcd, Flannel/containerd\n'
+            printf -- '- Snapshot duration: `%ss`\n' "$snapshot_seconds"
+            printf -- '- API and Node-ready restore duration: `%ss`\n' "$restore_seconds"
+            printf -- '- Snapshot and retained server token were root-only and were not uploaded\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: Remove confidential K3s recovery fixture
+        if: always()
+        shell: bash
+        run: sudo hack/ci/k3s-datastore-dr.sh cleanup
