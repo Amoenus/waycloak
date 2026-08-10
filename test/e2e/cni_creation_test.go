@@ -17,11 +17,16 @@ import (
 	"testing"
 	"time"
 
+	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycni "github.com/Amoenus/waycloak/internal/cni"
+	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -35,6 +40,11 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_CNI") != "1" {
 		t.Skip("set WAYCLOAK_E2E_CNI=1 on a disposable or explicitly authorized node")
 	}
+	recovery, err := parseDatastoreRecoveryConfig(
+		os.Getenv("WAYCLOAK_E2E_CNI_SNAPSHOT_COMMAND"),
+		os.Getenv("WAYCLOAK_E2E_CNI_RESTORE_COMMAND"),
+	)
+	must(t, err)
 	contextName := strings.TrimSpace(command(t, nil, "kubectl", "config", "current-context"))
 	nodeName := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_CNI_NODE"))
 	if nodeName == "" && !strings.HasPrefix(contextName, "kind-") {
@@ -44,6 +54,7 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	must(t, rbacv1.AddToScheme(scheme))
+	must(t, wayv1.AddToScheme(scheme))
 	direct, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
 	must(t, err)
 	ctx := context.Background()
@@ -158,9 +169,11 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	}
 	var relabeled corev1.Pod
 	must(t, direct.Get(ctx, client.ObjectKeyFromObject(failing), &relabeled))
-	beforeRelabel := relabeled.DeepCopy()
-	delete(relabeled.Labels, cniRouteLabel)
-	must(t, direct.Patch(ctx, &relabeled, client.MergeFrom(beforeRelabel)))
+	if recovery.SnapshotCommand == "" {
+		beforeRelabel := relabeled.DeepCopy()
+		delete(relabeled.Labels, cniRouteLabel)
+		must(t, direct.Patch(ctx, &relabeled, client.MergeFrom(beforeRelabel)))
+	}
 	restartFixtureAgent(t, namespace, agentPod.Name)
 	if restartCommand := strings.TrimSpace(os.Getenv("WAYCLOAK_E2E_CNI_RESTART_RUNTIME_COMMAND")); restartCommand != "" {
 		runHostCommand(t, restartCommand)
@@ -192,6 +205,9 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	if len(observed.Spec.Containers) != 1 || len(observed.Spec.InitContainers) != 0 || observed.Spec.Containers[0].SecurityContext != nil {
 		t.Fatalf("CNI path mutated or privileged the application Pod: %#v", observed.Spec)
 	}
+	if recovery.SnapshotCommand != "" {
+		direct = runDatastoreRecoveryProof(t, scheme, direct, recovery, namespace, nodeName, failing, agentPod, installerPod, agentBinary, attachment, statePath, stateData, afterControl)
+	}
 	must(t, direct.Delete(ctx, failing, client.GracePeriodSeconds(0)))
 	runtimeCleaned := conditionWithin(10*time.Second, func() bool {
 		return commandSucceeds(namespace, installerPod.Name, "test -z \"$(find /host-state/waycloak-e2e -type f -name '*.json' -print -quit 2>/dev/null)\"")
@@ -219,6 +235,176 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 	waitForPodPhase(t, direct, secondControl, corev1.PodSucceeded, 90*time.Second)
 	if final := readCaptureCounts(t, namespace, agentPod.Name); !final.allIncreasedFrom(afterFailure) {
 		t.Fatalf("primary CNI did not restore every direct probe class after Waycloak failure and DEL: before=%#v after=%#v", afterFailure, final)
+	}
+}
+
+func runDatastoreRecoveryProof(
+	t *testing.T,
+	scheme *runtime.Scheme,
+	direct client.Client,
+	recovery datastoreRecoveryConfig,
+	namespace, nodeName string,
+	failing, agentPod, installerPod *corev1.Pod,
+	agentBinary string,
+	attachment waycni.Attachment,
+	statePath string,
+	stateData []byte,
+	baseline captureCounts,
+) client.Client {
+	t.Helper()
+	ctx := context.Background()
+	var currentNamespace corev1.Namespace
+	must(t, direct.Get(ctx, client.ObjectKey{Name: namespace}, &currentNamespace))
+	var currentPod corev1.Pod
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(failing), &currentPod))
+	observedAt := time.Now().UTC().Truncate(time.Second)
+	binding := &wayv1.VPNWorkloadBinding{
+		TypeMeta:   metav1.TypeMeta{APIVersion: wayv1.GroupVersion.String(), Kind: "VPNWorkloadBinding"},
+		ObjectMeta: metav1.ObjectMeta{Name: "snapshot-binding", Namespace: namespace},
+		Spec: wayv1.VPNWorkloadBindingSpec{
+			PodRef:     wayv1.LocalUIDReference{Name: wayv1.ObjectName(currentPod.Name), UID: wayv1.ObjectUID(currentPod.UID)},
+			RouteRef:   wayv1.LocalUIDReference{Name: "snapshot-route", UID: "00000000-0000-4000-8000-000000000001"},
+			GatewayRef: wayv1.NamespacedUIDReference{Namespace: wayv1.NamespaceName(namespace), Name: "snapshot-gateway", UID: "00000000-0000-4000-8000-000000000002"},
+			NodeName:   wayv1.ObjectName(nodeName),
+			Allocation: wayv1.WorkloadAllocation{Identity: "snapshot-allocation", Address: "100.96.0.2/32"},
+			Network: wayv1.WorkloadNetworkIntent{
+				GatewayGeneration: 1, OverlayCIDR: "100.96.0.0/24", GatewayAddress: "100.96.0.1",
+				GatewayEndpoint: "192.0.2.1:51820", GatewayHealthPort: 51821, VNI: 1042, MTU: 1380,
+				ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+			},
+		},
+	}
+	must(t, direct.Create(ctx, binding))
+	binding.Status = wayv1.VPNWorkloadBindingStatus{
+		ObservedGeneration: binding.Generation,
+		AppliedGeneration:  binding.Generation,
+		ObservedPodUID:     binding.Spec.PodRef.UID,
+		ObservedGatewayUID: binding.Spec.GatewayRef.UID,
+		Agent: &wayv1.NodeAgentObservation{
+			NodeName: binding.Spec.NodeName, NodeBootID: "snapshot-node-boot", InstanceID: "snapshot-agent",
+			ObservedAt: metav1.NewTime(observedAt),
+		},
+		Conditions: wayv1.BindingConditions{
+			freshCondition(wayv1.ConditionAccepted, metav1.ConditionTrue, wayv1.ReasonAccepted, binding.Generation, observedAt),
+			freshCondition(wayv1.ConditionResolvedRefs, metav1.ConditionTrue, wayv1.ReasonResolvedRefs, binding.Generation, observedAt),
+			freshCondition(wayv1.ConditionProgrammed, metav1.ConditionTrue, wayv1.ReasonProgrammed, binding.Generation, observedAt),
+			freshCondition(wayv1.ConditionReady, metav1.ConditionTrue, wayv1.ReasonReady, binding.Generation, observedAt),
+			freshCondition(wayv1.ConditionNodeReady, metav1.ConditionTrue, wayv1.ReasonNodeReady, binding.Generation, observedAt),
+		},
+	}
+	statusApply := &wayv1.VPNWorkloadBinding{
+		TypeMeta:   metav1.TypeMeta{APIVersion: wayv1.GroupVersion.String(), Kind: "VPNWorkloadBinding"},
+		ObjectMeta: metav1.ObjectMeta{Name: binding.Name, Namespace: binding.Namespace},
+		Status:     binding.Status,
+	}
+	statusData, marshalErr := json.Marshal(statusApply)
+	must(t, marshalErr)
+	must(t, direct.SubResource("status").Patch(ctx, statusApply, client.RawPatch(types.ApplyPatchType, statusData), client.FieldOwner(wayv1.FieldManagerBindingController)))
+	expected := restoredIdentities{
+		NamespaceUID: string(currentNamespace.UID), PodUID: string(currentPod.UID), BindingUID: string(binding.UID),
+	}
+
+	runHostCommand(t, recovery.SnapshotCommand)
+	marker := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "post-snapshot-marker", Namespace: namespace}}
+	must(t, direct.Create(ctx, marker))
+	var changed wayv1.VPNWorkloadBinding
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(binding), &changed))
+	changed.Annotations = map[string]string{"networking.waycloak.io/post-snapshot": "must-disappear"}
+	must(t, direct.Update(ctx, &changed))
+	runHostCommand(t, recovery.RestoreCommand)
+
+	var err error
+	direct, err = client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	must(t, err)
+	waitForNodeReady(t, direct, nodeName, 3*time.Minute)
+	waitForPodReady(t, direct, agentPod)
+	waitForPodReady(t, direct, installerPod)
+
+	var restoredNamespace corev1.Namespace
+	must(t, direct.Get(ctx, client.ObjectKey{Name: namespace}, &restoredNamespace))
+	var restoredPod corev1.Pod
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(failing), &restoredPod))
+	var restoredBinding wayv1.VPNWorkloadBinding
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(binding), &restoredBinding))
+	var restoredMarker corev1.ConfigMap
+	markerErr := direct.Get(ctx, client.ObjectKeyFromObject(marker), &restoredMarker)
+	if markerErr != nil && !apierrors.IsNotFound(markerErr) {
+		t.Fatalf("observe post-snapshot marker after restore: %v", markerErr)
+	}
+	actual := restoredIdentities{
+		NamespaceUID: string(restoredNamespace.UID), PodUID: string(restoredPod.UID), BindingUID: string(restoredBinding.UID),
+	}
+	if err := validateRestoredIdentities(expected, actual, markerErr == nil); err != nil {
+		t.Fatal(err)
+	}
+	if restoredPod.Labels[cniRouteLabel] != "missing" {
+		t.Fatalf("restored Pod lost exact enrollment label: %#v", restoredPod.Labels)
+	}
+	if restoredBinding.Annotations["networking.waycloak.io/post-snapshot"] != "" {
+		t.Fatal("post-snapshot binding mutation survived datastore restore")
+	}
+	if condition := meta.FindStatusCondition(restoredBinding.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionTrue {
+		t.Fatalf("snapshot did not restore the deliberately live-looking Ready condition: %#v", condition)
+	}
+
+	reconciler := &waycontroller.VPNWorkloadBindingReconciler{
+		Client: direct, APIReader: direct, ObservationTTL: 30 * time.Second,
+		Now: func() time.Time { return observedAt.Add(2 * time.Minute) },
+	}
+	_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&restoredBinding)})
+	must(t, err)
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(&restoredBinding), &restoredBinding))
+	for conditionType, reason := range map[string]string{
+		wayv1.ConditionReady: wayv1.ReasonNotReady, wayv1.ConditionNodeReady: wayv1.ReasonNodeNotReady,
+	} {
+		condition := meta.FindStatusCondition(restoredBinding.Status.Conditions, conditionType)
+		if condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != reason || condition.ObservedGeneration != restoredBinding.Generation {
+			t.Fatalf("restored stale %s condition was not withdrawn: %#v", conditionType, condition)
+		}
+	}
+
+	copyLocalFile(t, agentBinary, namespace, agentPod.Name, "/tmp/waycloak-cni-agent")
+	command(t, nil, "kubectl", "exec", "-n", namespace, agentPod.Name, "--", "sh", "-c", "if test -f /host-run/agent.pid; then kill $(cat /host-run/agent.pid) 2>/dev/null || true; fi; rm -f /host-run/agent.sock /host-run/agent.pid")
+	startFixtureAgent(t, namespace, agentPod.Name)
+	waitFor(t, 20*time.Second, func() bool { return commandSucceeds(namespace, installerPod.Name, "test -S /host-run/agent.sock") })
+	if output, checkErr := execCNI(namespace, installerPod.Name, "CHECK", attachment, attachment.Pod.NetNS, nil); checkErr == nil {
+		t.Fatalf("CHECK stopped failing closed after coherent datastore restore: %s", output)
+	}
+	_, restoredStatePath, restoredState := readRemoteAttachment(t, namespace, installerPod.Name)
+	var restoredAttachment waycni.Attachment
+	if !json.Valid(restoredState) || !json.Valid(stateData) || json.Unmarshal(restoredState, &restoredAttachment) != nil || restoredAttachment.Validate() != nil {
+		t.Fatalf("restored CNI attachment state is invalid: before=%q after=%q", statePath, restoredStatePath)
+	}
+	if restoredAttachment.Network != attachment.Network || restoredAttachment.Pod.UID != attachment.Pod.UID {
+		t.Fatalf("durable CNI Pod identity was lost across restore: before=%#v after=%#v", attachment.Pod, restoredAttachment.Pod)
+	}
+	waitForSandboxFailure(t, direct, &restoredPod, 60*time.Second)
+	must(t, direct.Get(ctx, client.ObjectKeyFromObject(&restoredPod), &restoredPod))
+	assertApplicationNeverStarted(t, &restoredPod)
+	time.Sleep(500 * time.Millisecond)
+	if after := readCaptureCounts(t, namespace, agentPod.Name); after != baseline {
+		t.Fatalf("captured direct packets during datastore recovery: baseline=%#v after=%#v", baseline, after)
+	}
+	return direct
+}
+
+func freshCondition(conditionType string, status metav1.ConditionStatus, reason string, generation int64, now time.Time) metav1.Condition {
+	return metav1.Condition{
+		Type: conditionType, Status: status, Reason: reason, Message: reason,
+		ObservedGeneration: generation, LastTransitionTime: metav1.NewTime(now),
+	}
+}
+
+func assertApplicationNeverStarted(t *testing.T, pod *corev1.Pod) {
+	t.Helper()
+	if len(pod.Status.InitContainerStatuses) != 0 {
+		t.Fatalf("application init container started after failed ADD: %#v", pod.Status.InitContainerStatuses)
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		started := status.Started != nil && *status.Started
+		if started || status.ContainerID != "" || status.State.Running != nil || status.State.Terminated != nil || status.LastTerminationState.Running != nil || status.LastTerminationState.Terminated != nil {
+			t.Fatalf("application container started after failed ADD: %#v", status)
+		}
 	}
 }
 

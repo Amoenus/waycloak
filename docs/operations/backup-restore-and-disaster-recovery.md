@@ -1,7 +1,8 @@
 # Backup, restore, and disaster recovery
 
-Status: portable exact-release slice implemented; full support-row disaster
-recovery certification remains open in issue #32
+Status: portable exact-release recovery and the hosted K3s embedded-etcd row
+are implemented; the authorized exact-artifact homelab drill remains open in
+issue #32
 
 Waycloak never relaxes fail-closed egress to accelerate recovery. Keep enrolled
 workloads stopped until newly restored intent has acquired new runtime identity
@@ -17,6 +18,74 @@ preservation from YAML.
 
 Use portable state for a fresh exact-release installation. It preserves
 operator/workload intent but deliberately reacquires every runtime identity.
+
+## Supported K3s embedded-etcd snapshot row
+
+The first distribution-native row is deliberately narrow:
+
+- K3s `v1.36.1+k3s1`, installed from its exact SHA-256-verified binary;
+- one server using embedded etcd through `--cluster-init`;
+- the bundled containerd and Flannel data plane; and
+- one local K3s etcd snapshot retained together with the exact server token.
+
+This row does not cover SQLite, an external datastore, multiple servers, S3
+snapshot transport, or a different Kubernetes distribution. Those are separate
+support rows and must not inherit this evidence.
+
+Use the distribution-native `k3s etcd-snapshot save` command. Retain the
+snapshot and server token in a root-only encrypted backup boundary. A K3s
+snapshot contains the complete datastore, including Kubernetes Secrets and
+cluster certificate authority private keys. The same server token is required
+to decrypt confidential bootstrap data during restore. Never upload either CI
+fixture artifact or print the token.
+
+This row supports only a cold restore. A service-only stop is insufficient:
+K3s can leave containerd workloads running, and the hosted proof observed an
+enrolled application continue with direct egress during such a warm reset.
+Before stopping K3s, enumerate every exact sandbox through the K3s containerd
+CRI endpoint, stop and remove each one, and require both the CRI container and
+sandbox inventories to be empty. If CRI cannot be queried or quiesced, abort.
+
+At snapshot time, retain a root-only digest set for Waycloak's exact CNI binary,
+active chained conflist, and durable attachment files, plus an exact copy of the
+active chained conflist. After CRI quiescence, stop K3s, verify that digest set,
+and run `k3s server --cluster-reset` with the exact
+`--cluster-reset-restore-path` and retained token. Before starting the ordinary
+server service, restore the saved chain both at its distribution path and as an
+independent Waycloak-owned `00-waycloak.conflist`; verify it is the
+lexicographically first CNI configuration. K3s may regenerate its Flannel file
+during startup, so relying only on that distribution-owned path is unsupported.
+The reset command is one-shot; do not leave `--cluster-reset` on the service.
+K3s moves the replaced datastore aside under `etcd-old-*`. Keep that directory
+inside the confidential boundary until the restored cluster and an independently
+retained snapshot are verified, then remove it through separately reviewed
+exact-path cleanup.
+
+RPO is the exact completed snapshot point. RTO is measured from server stop
+through API readiness and Node `Ready`; the hosted gate records both snapshot
+and restore seconds in its workflow summary. Application recovery can take
+longer because a restored live-looking observation is immediately treated as
+stale until the node agent and protected path are freshly observed.
+
+Before reporting the row recovered, require all of the following:
+
+1. Namespace, Pod, and `VPNWorkloadBinding` UIDs return together and a
+   post-snapshot marker does not.
+2. The binding controller changes restored stale `Ready=True` and
+   `NodeReady=True` to current-generation `False` conditions.
+3. CRI was empty before reset; the exact Waycloak CNI binary, first chained
+   configuration, attachment intent, and deny state survive recovery; `CHECK`
+   remains denied; and no enrolled application container starts after failed
+   `ADD`. A recreated sandbox may have a new CRI identity, but the exact
+   Kubernetes Pod UID and attachment authority must remain coherent.
+4. TCP, UDP, DNS over UDP and TCP, and fragmented-UDP direct packet counters do
+   not change through restore.
+5. Idempotent `DEL`/`GC` succeeds and a second unenrolled positive control proves
+   the primary CNI is functional.
+
+Any identity drift, surviving post-snapshot state, missing protected deny state,
+unavailable observation, or unexplained packet makes the cluster degraded. Keep
+enrolled workloads stopped and do not substitute ordinary egress.
 
 ## Create and retain portable state
 

@@ -50,6 +50,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+	lock, err := waycni.AcquireAttachmentLock(context.Background(), parsed.Conf.StateDir, parsed.Request.Pod.UID)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	plugin := waycni.NewPlugin(parsed, waycni.LinuxEnforcer{Backend: dataplane.NewBackend()})
 	if err := plugin.Add(context.Background(), parsed.Request); err != nil {
 		return err
@@ -62,6 +67,11 @@ func cmdCheck(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+	lock, err := waycni.AcquireAttachmentLock(context.Background(), parsed.Conf.StateDir, parsed.Request.Pod.UID)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	return waycni.NewPlugin(parsed, waycni.LinuxEnforcer{Backend: dataplane.NewBackend()}).Check(context.Background(), parsed.Request)
 }
 
@@ -71,6 +81,14 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 	key := waycni.Key{Network: parsed.Conf.Name, ContainerID: args.ContainerID, IfName: args.IfName}
+	attachment, loadErr := (waycni.FileStore{Directory: parsed.Conf.StateDir}).Load(key)
+	if loadErr == nil {
+		lock, lockErr := waycni.AcquireAttachmentLock(context.Background(), parsed.Conf.StateDir, attachment.Pod.UID)
+		if lockErr != nil {
+			return lockErr
+		}
+		defer lock.Close()
+	}
 	return waycni.NewPlugin(parsed, waycni.LinuxEnforcer{Backend: dataplane.NewBackend()}).Delete(context.Background(), key, args.Netns)
 }
 

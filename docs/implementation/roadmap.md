@@ -101,13 +101,17 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   verification. Continue with beta CRD lifecycle, upgrade/rollback, #32 DR,
   #33 observability, uninstall/purge, and support-row evidence.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
-  rollback (#175), journal-bound staged interruption recovery (#176), and
-  observation-certificate rotation (#177) are merged with exact hosted
-  evidence. The current slice adds a separate confirmation-bound repair for one
-  exact newer `pending-upgrade`/`failed` Helm Secret, immutable pre-deletion
-  evidence, UID-preconditioned cleanup, and original-checkpoint resume without
-  rewriting Helm storage or invoking opaque rollback. Supported distribution
-  snapshots remain; coherent UID preservation is distribution-snapshot-only.
+  rollback (#175), journal-bound staged interruption recovery (#176),
+  observation-certificate rotation (#177), and bounded pending/corrupt Helm
+  repair (#178) are merged with exact hosted evidence. PR #179 pins the first
+  distribution row to single-server K3s `v1.36.1+k3s1` embedded etcd. Exact-head
+  run `31361748255` passes cold CRI-quiesced snapshot/reset recovery with
+  coherent Pod UID return, fresh sandbox identity, stale-ready withdrawal,
+  exact first chained-CNI restoration, durable deny state, zero direct packets,
+  and primary-CNI controls. Warm service-only reset is explicitly unsupported
+  after it allowed an enrolled application to resume with direct egress. Keep
+  #32 open for the authorized homelab exact-artifact snapshot drill after
+  clean-break deployment.
 - [ ] #33 and #141: proceed after their declared dependencies and evidence.
 
 ## Phase 0 — repository and design baseline

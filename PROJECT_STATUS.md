@@ -326,8 +326,26 @@ Candidate drift, extra revisions, lost transition authority, and concurrent
 install/certificate changes remain hard failures. Unit tests cover deletion and
 post-Helm cleanup interruption; hosted Kind corrupts a real staged revision,
 kills the repair after exact deletion, proves enrolled startup remains denied,
-and resumes to the exact target. Supported distribution datastore-snapshot
-drills remain open #32 work.
+and resumes to the exact target.
+
+The sixth #32 slice adds the first distribution-native datastore row: a
+checksummed K3s `v1.36.1+k3s1` binary, one embedded-etcd server, bundled
+containerd/Flannel, and the retained root-only server token. Its dedicated
+hosted gate exposed that a warm service-only reset can leave an enrolled
+application container running and able to send direct packets. That procedure
+is rejected. The supported row enumerates and removes every exact CRI sandbox,
+requires zero remaining CRI containers or sandboxes, stops K3s, verifies the
+snapshot-bound Waycloak CNI binary/configuration/attachment digest, performs the
+documented cluster reset, and installs the exact saved chain as Waycloak-owned
+lexicographically first CNI configuration before ordinary kubelet startup.
+Exact-head CI run `31361748255` passed coherent Namespace/Pod/binding UID
+recovery, fresh sandbox identity, stale `Ready`/`NodeReady` withdrawal, durable
+host deny state, restarted node authority, unchanged TCP/UDP/DNS/fragment
+counters, no application startup after failed `ADD`, idempotent cleanup, and a
+second primary-CNI positive control. This evidence does not generalize to
+SQLite, external/multi-server datastores, S3, or another distribution. #32
+remains open until the authorized homelab exact-artifact snapshot drill passes
+after cutover.
 
 Fresh homelab reassessment on 2026-08-10 reached the authenticated k3s API and
 observed all three mixed-architecture nodes Ready. No mutation has begun; exact
