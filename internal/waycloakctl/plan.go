@@ -101,14 +101,38 @@ func (manifest ReleaseManifest) Validate() error {
 		return errors.New("release manifest does not attest the Core profile")
 	}
 	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"}
-	if len(manifest.Images) != len(requiredImages) {
-		return errors.New("release manifest image inventory must contain only the required artifacts")
+	optionalExtendedImages := []string{"waycloak-gateway-runtime", "waycloak-qbittorrent-adapter"}
+	if len(manifest.Images) != len(requiredImages) && len(manifest.Images) != len(requiredImages)+len(optionalExtendedImages) {
+		return errors.New("release manifest image inventory must contain the required Core artifacts and either all or none of the known Extended artifacts")
+	}
+	knownImages := make(map[string]struct{}, len(requiredImages)+len(optionalExtendedImages))
+	for _, name := range append(requiredImages, optionalExtendedImages...) {
+		knownImages[name] = struct{}{}
+	}
+	for name := range manifest.Images {
+		if _, ok := knownImages[name]; !ok {
+			return fmt.Errorf("release manifest contains unknown image %q", name)
+		}
 	}
 	for _, name := range requiredImages {
 		artifact, ok := manifest.Images[name]
 		if !ok || artifact.Repository == "" || !validDigest(artifact.Digest) || strings.Contains(artifact.Repository, "@") {
 			return fmt.Errorf("release manifest lacks exact %s image identity", name)
 		}
+	}
+	extendedPresent := 0
+	for _, name := range optionalExtendedImages {
+		artifact, ok := manifest.Images[name]
+		if !ok {
+			continue
+		}
+		extendedPresent++
+		if artifact.Repository == "" || !validDigest(artifact.Digest) || strings.Contains(artifact.Repository, "@") {
+			return fmt.Errorf("release manifest lacks exact %s image identity", name)
+		}
+	}
+	if extendedPresent != 0 && extendedPresent != len(optionalExtendedImages) {
+		return errors.New("release manifest Extended artifact inventory must be complete")
 	}
 	if manifest.Chart.Repository == "" || !validDigest(manifest.Chart.Digest) || strings.Contains(manifest.Chart.Repository, "@") {
 		return errors.New("release manifest lacks exact chart identity")

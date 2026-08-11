@@ -37,8 +37,26 @@ func TestRunProducesDeterministicLoadableCoreManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 6 || manifest.ManifestDigest == "" {
+	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 8 || manifest.ManifestDigest == "" {
 		t.Fatalf("unexpected generated manifest: %#v", manifest)
+	}
+}
+
+func TestRunContinuesToProduceLoadableCoreOnlyManifestForRollback(t *testing.T) {
+	output := &bytes.Buffer{}
+	if err := run(validCoreArguments(), output); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "release-manifest.json")
+	if err := os.WriteFile(path, output.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, _, err := waycloakctl.LoadReleaseManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Images) != 6 {
+		t.Fatalf("Core-only rollback manifest contains %d images", len(manifest.Images))
 	}
 }
 
@@ -48,8 +66,9 @@ func TestRunRejectsMissingExtraDuplicateAndMutableIdentities(t *testing.T) {
 		arguments []string
 		wanted    string
 	}{
-		{name: "missing", arguments: validArguments()[:len(validArguments())-2], wanted: "required artifacts"},
-		{name: "extra", arguments: append(validArguments(), "--image", exactImage("other", "other", "9")), wanted: "only the required artifacts"},
+		{name: "missing", arguments: withoutImage(validArguments(), "pause"), wanted: "required Core artifacts"},
+		{name: "partial extended", arguments: validArguments()[:len(validArguments())-2], wanted: "known Extended artifacts"},
+		{name: "extra", arguments: append(validArguments(), "--image", exactImage("other", "other", "9")), wanted: "required Core artifacts"},
 		{name: "duplicate", arguments: append(validArguments(), "--image", exactImage("pause", "pause-copy", "9")), wanted: "duplicated"},
 		{name: "tag", arguments: replaceArgument(validArguments(), "--chart", "oci://registry.invalid/charts/waycloak:v1"), wanted: "repository@sha256"},
 		{name: "uppercase", arguments: replaceArgument(validArguments(), "--chart", "oci://registry.invalid/charts/waycloak@sha256:"+strings.Repeat("A", 64)), wanted: "lowercase"},
@@ -64,6 +83,13 @@ func TestRunRejectsMissingExtraDuplicateAndMutableIdentities(t *testing.T) {
 }
 
 func validArguments() []string {
+	return append(validCoreArguments(),
+		"--image", exactImage("waycloak-gateway-runtime", "waycloak-gateway-runtime", "2"),
+		"--image", exactImage("waycloak-qbittorrent-adapter", "waycloak-qbittorrent-adapter", "3"),
+	)
+}
+
+func validCoreArguments() []string {
 	return []string{
 		"--version", "v1.0.0-beta.1",
 		"--chart", exactArtifact("oci://registry.invalid/charts/waycloak", "a"),
@@ -74,6 +100,18 @@ func validArguments() []string {
 		"--image", exactImage("gluetun", "gluetun", "f"),
 		"--image", exactImage("pause", "pause", "1"),
 	}
+}
+
+func withoutImage(arguments []string, name string) []string {
+	result := make([]string, 0, len(arguments)-2)
+	for index := 0; index < len(arguments); index++ {
+		if arguments[index] == "--image" && index+1 < len(arguments) && strings.HasPrefix(arguments[index+1], name+"=") {
+			index++
+			continue
+		}
+		result = append(result, arguments[index])
+	}
+	return result
 }
 
 func exactImage(name, repository, character string) string {
