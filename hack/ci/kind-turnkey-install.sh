@@ -242,8 +242,10 @@ CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X main.version=${release_version}" \
   -o "$work_dir/waycloakctl" ./cmd/waycloakctl
 
-"$work_dir/waycloakctl" preflight --output json >"$work_dir/preflight.json"
-if ! jq -e '.compatible == true and .profile == "networking.waycloak.io/Core-v1"' \
+preflight_status=0
+"$work_dir/waycloakctl" preflight --output json >"$work_dir/preflight.json" || preflight_status="$?"
+if [[ "$preflight_status" != 0 ]] || \
+  ! jq -e '.compatible == true and .profile == "networking.waycloak.io/Core-v1"' \
   "$work_dir/preflight.json" >/dev/null; then
   cat "$work_dir/preflight.json" >&2
   printf 'turnkey preflight did not accept the pinned support row\n' >&2
