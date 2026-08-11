@@ -139,7 +139,7 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, pr
 		return report, err
 	}
 	recovered := probePod(prefix+"-recovered", namespace, image, probeURL, probeCAConfigMap, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
-	recovered.Spec.Containers[0].Env = append(recovered.Spec.Containers[0].Env, corev1.EnvVar{Name: "PROBE_HOLD_AFTER_SUCCESS", Value: "3s"})
+	recovered.Spec.Containers[0].Env = append(recovered.Spec.Containers[0].Env, corev1.EnvVar{Name: "PROBE_HOLD_AFTER_SUCCESS", Value: "15s"})
 	recovered, err = clients.Kubernetes.CoreV1().Pods(namespace).Create(ctx, recovered, metav1.CreateOptions{})
 	if err != nil {
 		return report, err
