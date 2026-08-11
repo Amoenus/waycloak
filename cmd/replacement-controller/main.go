@@ -72,8 +72,8 @@ func main() {
 	flag.IntVar(&gatewayMTU, "gateway-mtu", 1320, "reviewed default gateway overlay MTU")
 	flag.UintVar(&gatewayVXLANPort, "gateway-vxlan-port", 4789, "default gateway VXLAN port")
 	flag.UintVar(&gatewayHealthPort, "gateway-health-port", 18080, "default gateway overlay health port")
-	flag.UintVar(&gatewayPortForwardRuntimePort, "gateway-port-forward-runtime-port", 9443, "gateway-local tokenless port-forward runtime HTTPS port")
-	flag.UintVar(&gatewayAdapterPort, "gateway-adapter-port", uint(portforward.DefaultAdapterPort), "deterministic out-of-process adapter HTTPS port")
+	flag.UintVar(&gatewayPortForwardRuntimePort, "gateway-port-forward-runtime-port", 0, "gateway-local tokenless port-forward runtime HTTPS port (zero disables Extended runtime)")
+	flag.UintVar(&gatewayAdapterPort, "gateway-adapter-port", 0, "deterministic out-of-process adapter HTTPS port (zero disables adapter integration)")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -140,9 +140,10 @@ func main() {
 			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
 			os.Exit(1)
 		}
-		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage,
-			PortForwardRuntimeImage: gatewayPortForwardRuntimeImage, PortForwardRuntimePort: uint16(gatewayPortForwardRuntimePort), AdapterPort: uint16(gatewayAdapterPort), AdapterEnabled: adapterConfigured,
+		provisioner := &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage,
 			ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+		configureExtendedGatewayRuntime(provisioner, portForwardConfigured, gatewayPortForwardRuntimeImage, gatewayPortForwardRuntimePort, adapterConfigured, gatewayAdapterPort)
+		gatewayRuntime = provisioner
 	}
 	credentialRoles := []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole}
 	if portForwardConfigured {
@@ -223,6 +224,17 @@ func main() {
 	if err = manager.Start(ctx); err != nil {
 		ctrl.Log.Error(err, "run replacement manager")
 		os.Exit(1)
+	}
+}
+
+func configureExtendedGatewayRuntime(provisioner *gatewayruntime.Provisioner, portForwardConfigured bool, runtimeImage string, runtimePort uint, adapterConfigured bool, adapterPort uint) {
+	if portForwardConfigured {
+		provisioner.PortForwardRuntimeImage = runtimeImage
+		provisioner.PortForwardRuntimePort = uint16(runtimePort)
+	}
+	if adapterConfigured {
+		provisioner.AdapterPort = uint16(adapterPort)
+		provisioner.AdapterEnabled = true
 	}
 }
 
