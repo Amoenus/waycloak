@@ -127,6 +127,9 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 		if err = netlink.LinkSetUp(link); err != nil {
 			return err
 		}
+		if err = netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: net.ParseIP("192.0.2.254")}); err != nil {
+			return err
+		}
 		if err = os.WriteFile(ipv4ForwardingPath, []byte("1\n"), 0o644); err != nil {
 			return err
 		}
@@ -175,6 +178,8 @@ func installGatewayEngineFilter(t *testing.T, networkNS pluginsns.NetNS) {
 		policy := nftables.ChainPolicyDrop
 		connection.AddChain(&nftables.Chain{Table: table, Name: engineInputChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
 		connection.AddChain(&nftables.Chain{Table: table, Name: engineForwardChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+		output := connection.AddChain(&nftables.Chain{Table: table, Name: engineOutputChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: output, Exprs: established()})
 		return connection.Flush()
 	}); err != nil {
 		t.Fatal(err)
