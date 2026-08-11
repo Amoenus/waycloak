@@ -66,9 +66,9 @@ func TestRunRejectsMissingExtraDuplicateAndMutableIdentities(t *testing.T) {
 		arguments []string
 		wanted    string
 	}{
-		{name: "missing", arguments: withoutImage(validArguments(), "pause"), wanted: "required Core artifacts"},
-		{name: "partial extended", arguments: validArguments()[:len(validArguments())-2], wanted: "known Extended artifacts"},
-		{name: "extra", arguments: append(validArguments(), "--image", exactImage("other", "other", "9")), wanted: "required Core artifacts"},
+		{name: "missing", arguments: withoutImage(validArguments(), "pause"), wanted: "required artifacts"},
+		{name: "partial port forwarding", arguments: validArguments()[:len(validArguments())-2], wanted: "known port-forward artifacts"},
+		{name: "extra", arguments: append(validArguments(), "--image", exactImage("other", "other", "9")), wanted: "required artifacts"},
 		{name: "duplicate", arguments: append(validArguments(), "--image", exactImage("pause", "pause-copy", "9")), wanted: "duplicated"},
 		{name: "tag", arguments: replaceArgument(validArguments(), "--chart", "oci://registry.invalid/charts/waycloak:v1"), wanted: "repository@sha256"},
 		{name: "uppercase", arguments: replaceArgument(validArguments(), "--chart", "oci://registry.invalid/charts/waycloak@sha256:"+strings.Repeat("A", 64)), wanted: "lowercase"},

@@ -163,20 +163,20 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		release := flags.String("release", "waycloak", "Helm release name")
 		overlay := flags.String("overlay-cidr", "100.96.0.0/16", "reviewed overlay CIDR")
 		nodeArchitecture := flags.String("node-architecture", "", "reviewed amd64 or arm64 support row; required on mixed-architecture clusters")
-		enableExtended := flags.Bool("enable-extended", false, "explicitly enable the release-attested Extended gateway runtime")
-		extendedTLSSecret := flags.String("extended-controller-tls-secret", "", "pre-created immutable controller mTLS Secret for Extended runtime")
-		enableAdapter := flags.Bool("enable-workload-adapter", false, "enable controller trust for the out-of-process WorkloadAdapter")
+		enablePortForwarding := flags.Bool("enable-port-forwarding", false, "explicitly enable the release-attested port-forward runtime")
+		portForwardTLSSecret := flags.String("port-forward-controller-tls-secret", "", "pre-created immutable controller mTLS Secret for port forwarding")
+		enableQBitTorrentAdapter := flags.Bool("enable-qbittorrent-adapter", false, "enable controller trust for the out-of-process qBittorrent WorkloadAdapter")
 		if err := flags.Parse(arguments[1:]); err != nil {
 			return err
 		}
 		if *manifestPath == "" {
 			return errors.New("--release-manifest is required")
 		}
-		if *enableAdapter && !*enableExtended {
-			return errors.New("--enable-workload-adapter requires --enable-extended")
+		if *enableQBitTorrentAdapter && !*enablePortForwarding {
+			return errors.New("--enable-qbittorrent-adapter requires --enable-port-forwarding")
 		}
-		if *enableExtended != (*extendedTLSSecret != "") {
-			return errors.New("--enable-extended and --extended-controller-tls-secret must be supplied together")
+		if *enablePortForwarding != (*portForwardTLSSecret != "") {
+			return errors.New("--enable-port-forwarding and --port-forward-controller-tls-secret must be supplied together")
 		}
 		manifest, _, err := LoadReleaseManifest(*manifestPath)
 		if err != nil {
@@ -209,15 +209,15 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		if err != nil {
 			return err
 		}
-		var extended *ExtendedInstallIdentity
-		if *enableExtended {
-			identity, identityErr := observeExtendedInstallIdentity(ctx, clients, *namespace, *extendedTLSSecret, *enableAdapter)
+		var portForwarding *PortForwardInstallIdentity
+		if *enablePortForwarding {
+			identity, identityErr := observePortForwardInstallIdentity(ctx, clients, *namespace, *portForwardTLSSecret, *enableQBitTorrentAdapter)
 			if identityErr != nil {
-				return fmt.Errorf("observe Extended controller TLS identity: %w", identityErr)
+				return fmt.Errorf("observe port-forward controller TLS identity: %w", identityErr)
 			}
-			extended = &identity
+			portForwarding = &identity
 		}
-		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report, source, targetCRDs, extended)
+		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report, source, targetCRDs, portForwarding)
 		if err != nil {
 			return err
 		}

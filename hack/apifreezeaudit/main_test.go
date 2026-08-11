@@ -28,9 +28,9 @@ func TestRejectsForbiddenAlphaSurface(t *testing.T) {
 	}
 }
 
-func TestRejectsCoreReferenceGrantDependency(t *testing.T) {
-	data := strings.Replace(string(repositoryContract(t)), `"referenceGrantCore": false`, `"referenceGrantCore": true`, 1)
-	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "ReferenceGrant Core boundary") {
+func TestRejectsBaselineReferenceGrantDependency(t *testing.T) {
+	data := strings.Replace(string(repositoryContract(t)), `"referenceGrantBaseline": false`, `"referenceGrantBaseline": true`, 1)
+	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "ReferenceGrant baseline boundary") {
 		t.Fatalf("audit() error = %v, want ReferenceGrant boundary failure", err)
 	}
 }
@@ -49,10 +49,10 @@ func TestRejectsObjectKeyedRouteParentStatus(t *testing.T) {
 	}
 }
 
-func TestRejectsIncompleteCoreFeatureSet(t *testing.T) {
+func TestRejectsIncompleteBaselineFeatureSet(t *testing.T) {
 	data := strings.Replace(string(repositoryContract(t)), `      "networking.waycloak.io/NodeRestartRecovery"`, `      "networking.waycloak.io/UnexpectedFeature"`, 1)
-	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "core features") {
-		t.Fatalf("audit() error = %v, want Core feature failure", err)
+	if err := audit([]byte(data)); err == nil || !strings.Contains(err.Error(), "baseline features") {
+		t.Fatalf("audit() error = %v, want baseline feature failure", err)
 	}
 }
 

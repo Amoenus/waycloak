@@ -73,7 +73,7 @@ and conflict semantics without any sidecar compatibility path.
 Exit: application containers have no Waycloak injection/capability and all
 required failure modes record zero direct-egress packets.
 
-## Phase 3 — gateway classes and Extended features
+## Phase 3 — gateway classes and optional capabilities
 
 1. Move release-owned engine/image identity into the bundled gateway class.
 2. Keep provider-native inputs and credential references namespaced on gateway.
@@ -147,7 +147,7 @@ links rather than relying on list order.
 
 - #6 and #107–#114 contain useful CNI/eBPF research; their preview assumptions
   must be reconciled with ADR 0034 rather than implemented blindly.
-- #5 remains an Extended adapter integration.
+- #5 remains an optional adapter integration.
 - #31 remains post-Core multi-gateway/sharding.
 - #32 and #33 become stable release dependencies.
 - #64 supports the documentation-heavy program.

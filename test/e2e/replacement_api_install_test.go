@@ -119,7 +119,7 @@ spec:
     version: v1.0.0-beta.1
     manifestDigest: sha256:1111111111111111111111111111111111111111111111111111111111111111
   supportedFeatures:
-    - networking.waycloak.io/CoreFailClosedEgress
+    - networking.waycloak.io/FailClosedEgress
     - networking.waycloak.io/TCP
     - networking.waycloak.io/UDP
     - networking.waycloak.io/DNSContainment
@@ -137,7 +137,7 @@ metadata:
 spec:
   gatewayClassName: %s
   requestedFeatures:
-    - networking.waycloak.io/CoreFailClosedEgress
+    - networking.waycloak.io/FailClosedEgress
   clusterTraffic:
     mode: TunnelAll
   dns:
@@ -157,7 +157,7 @@ spec:
 `, namespace, className, namespace, namespace)
 	applyInput(t, nil, gatewayAndRoute)
 	verifyGatewayClassContract(t, namespace, className)
-	patch := `{"status":{"observedGeneration":1,"supportedFeatures":["networking.waycloak.io/CoreFailClosedEgress","networking.waycloak.io/TCP","networking.waycloak.io/UDP","networking.waycloak.io/DNSContainment","networking.waycloak.io/GatewayReplacementRecovery","networking.waycloak.io/NodeRestartRecovery"],"addresses":[{"type":"networking.waycloak.io/OverlayCIDR","value":"198.51.100.0/29"},{"type":"networking.waycloak.io/OverlayAddress","value":"198.51.100.1"},{"type":"networking.waycloak.io/UnderlayEndpoint","value":"203.0.113.10:4789"},{"type":"networking.waycloak.io/OverlayHealthPort","value":"18080"},{"type":"networking.waycloak.io/VNI","value":"7999"},{"type":"networking.waycloak.io/MTU","value":"1320"}],"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
+	patch := `{"status":{"observedGeneration":1,"supportedFeatures":["networking.waycloak.io/FailClosedEgress","networking.waycloak.io/TCP","networking.waycloak.io/UDP","networking.waycloak.io/DNSContainment","networking.waycloak.io/GatewayReplacementRecovery","networking.waycloak.io/NodeRestartRecovery"],"addresses":[{"type":"networking.waycloak.io/OverlayCIDR","value":"198.51.100.0/29"},{"type":"networking.waycloak.io/OverlayAddress","value":"198.51.100.1"},{"type":"networking.waycloak.io/UnderlayEndpoint","value":"203.0.113.10:4789"},{"type":"networking.waycloak.io/OverlayHealthPort","value":"18080"},{"type":"networking.waycloak.io/VNI","value":"7999"},{"type":"networking.waycloak.io/MTU","value":"1320"}],"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
 	command(t, nil, "kubectl", "patch", "vpngateway", "private", "-n", namespace, "--subresource=status", "--type=merge", "-p", patch)
 	componentPatch := `{"status":{"conditions":[{"type":"Accepted","status":"True","reason":"Accepted","message":"Gateway intent is accepted","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Programmed","status":"True","reason":"Programmed","message":"Gateway is programmed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"Ready","status":"True","reason":"Ready","message":"Gateway data plane is ready","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"TunnelReady","status":"True","reason":"TunnelReady","message":"Tunnel is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"DNSReady","status":"True","reason":"DNSReady","message":"DNS is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"},{"type":"MembershipApplied","status":"True","reason":"MembershipApplied","message":"Membership is observed","observedGeneration":1,"lastTransitionTime":"2026-07-26T12:00:00Z"}]}}`
 	command(t, nil, "kubectl", "patch", "vpngateway", "private", "-n", namespace, "--subresource=status", "--type=merge", "-p", componentPatch)

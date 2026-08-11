@@ -204,7 +204,7 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 		t.Fatal(err)
 	}
 	manifest.ManifestDigest = digest
-	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "required Core artifacts") {
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "required artifacts") {
 		t.Fatalf("extra release artifact was accepted: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 	}
 	manifest.ManifestDigest = digest
 	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "all or none") {
-		t.Fatalf("partial Extended release inventory was accepted: %v", err)
+		t.Fatalf("partial port-forward release inventory was accepted: %v", err)
 	}
 	manifest.Images["waycloak-qbittorrent-adapter"] = Artifact{Repository: "example.invalid/qbittorrent-adapter", Digest: "sha256:" + strings.Repeat("8", 64)}
 	digest, err = manifest.IdentityDigest()
@@ -237,57 +237,36 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 	}
 	manifest.ManifestDigest = digest
 	if err := manifest.Validate(); err != nil {
-		t.Fatalf("complete known Extended release inventory was rejected: %v", err)
+		t.Fatalf("complete known port-forward release inventory was rejected: %v", err)
 	}
 
 	manifest = releaseManifest()
-	manifest.Profiles = append(manifest.Profiles, extendedCandidateConformanceProfile)
+	manifest.Profiles = append(manifest.Profiles, "networking.waycloak.io/PortForwardServiceSingleActive")
 	digest, err = manifest.IdentityDigest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest.ManifestDigest = digest
-	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "extended profile") {
-		t.Fatalf("Extended candidate profile without its artifact inventory was accepted: %v", err)
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "baseline conformance only") {
+		t.Fatalf("optional capability was accepted as a separate release profile: %v", err)
 	}
 }
 
-func TestReleaseManifestIdentityIsFormattingAndProfileOrderIndependent(t *testing.T) {
-	manifest := extendedReleaseManifest()
-	manifest.Profiles = []string{"networking.waycloak.io/ExtendedCandidate-v1", "networking.waycloak.io/Core-v1"}
-	first, err := manifest.IdentityDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Profiles[0], manifest.Profiles[1] = manifest.Profiles[1], manifest.Profiles[0]
-	second, err := manifest.IdentityDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("profile ordering changed canonical identity: %s != %s", first, second)
-	}
-	manifest.ManifestDigest = second
-	if err := manifest.Validate(); err != nil {
-		t.Fatalf("canonical manifest was rejected: %v", err)
-	}
-}
-
-func TestExtendedInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
-	manifest := extendedReleaseManifest()
+func TestPortForwardInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
+	manifest := portForwardReleaseManifest()
 	report, err := Preflight(context.Background(), supportedClients(t), "100.96.0.0/16")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source, crds := absentInstallInputs(t)
-	identity := &ExtendedInstallIdentity{ControllerTLSSecret: "waycloak-extended-controller-tls", SecretUID: "tls-uid", CADigest: "sha256:" + strings.Repeat("7", 64), CertificateDigest: "sha256:" + strings.Repeat("8", 64), AdapterEnabled: true}
+	identity := &PortForwardInstallIdentity{ControllerTLSSecret: "waycloak-port-forward-controller-tls", SecretUID: "tls-uid", CADigest: "sha256:" + strings.Repeat("7", 64), CertificateDigest: "sha256:" + strings.Repeat("8", 64), QBitTorrentAdapterEnabled: true}
 	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"extended:\n  enabled: true", `controllerTLSSecret: "waycloak-extended-controller-tls"`, `repository: "ghcr.io/amoenus/waycloak-gateway-runtime"`, "adapter:\n    enabled: true", `conformanceProfile: "networking.waycloak.io/ExtendedCandidate-v1"`} {
+	for _, expected := range []string{"portForwarding:\n  enabled: true", `controllerTLSSecret: "waycloak-port-forward-controller-tls"`, `repository: "ghcr.io/amoenus/waycloak-gateway-runtime"`, "adapter:\n    enabled: true", `conformanceProfile: "networking.waycloak.io/Core-v1"`} {
 		if !strings.Contains(plan.Values, expected) {
-			t.Fatalf("Extended install values lack %q:\n%s", expected, plan.Values)
+			t.Fatalf("port-forward install values lack %q:\n%s", expected, plan.Values)
 		}
 	}
 	encoded, err := EncodePlan(plan)
@@ -295,7 +274,7 @@ func TestExtendedInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(encoded), "tls.key") || strings.Contains(string(encoded), "PRIVATE KEY") {
-		t.Fatalf("Extended plan exposed private key material: %s", encoded)
+		t.Fatalf("port-forward plan exposed private key material: %s", encoded)
 	}
 
 	deployedClients := supportedClients(t)
@@ -313,33 +292,42 @@ func TestExtendedInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", deployedReport, deployed, deployedCRDs, identity); err == nil || !strings.Contains(err.Error(), "changed exact release") {
-		t.Fatalf("same-release Extended activation bypassed class replacement: %v", err)
+		t.Fatalf("same-release port-forward activation bypassed class replacement: %v", err)
 	}
 }
 
-func TestExtendedInstallPlanFlagsRequireCompleteExplicitActivation(t *testing.T) {
+func TestPortForwardInstallPlanFlagsRequireCompleteExplicitActivation(t *testing.T) {
 	for name, arguments := range map[string][]string{
-		"adapter without runtime": {"plan", "--release-manifest", "unused", "--enable-workload-adapter"},
-		"runtime without secret":  {"plan", "--release-manifest", "unused", "--enable-extended"},
-		"secret without runtime":  {"plan", "--release-manifest", "unused", "--extended-controller-tls-secret", "identity"},
+		"adapter without runtime": {"plan", "--release-manifest", "unused", "--enable-qbittorrent-adapter"},
+		"runtime without secret":  {"plan", "--release-manifest", "unused", "--enable-port-forwarding"},
+		"secret without runtime":  {"plan", "--release-manifest", "unused", "--port-forward-controller-tls-secret", "identity"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := runInstall(context.Background(), arguments, Dependencies{Stderr: io.Discard}); err == nil || !strings.Contains(err.Error(), "requires --enable-extended") && !strings.Contains(err.Error(), "must be supplied together") {
-				t.Fatalf("incomplete Extended activation flags reached cluster discovery: %v", err)
+			if err := runInstall(context.Background(), arguments, Dependencies{Stderr: io.Discard}); err == nil || !strings.Contains(err.Error(), "requires --enable-port-forwarding") && !strings.Contains(err.Error(), "must be supplied together") {
+				t.Fatalf("incomplete port-forward activation flags reached cluster discovery: %v", err)
 			}
 		})
 	}
 }
 
-func TestExtendedInstallApplyRejectsTLSIdentitySwapBeforeMutation(t *testing.T) {
+func TestInstallPlanRejectsRemovedTierFlags(t *testing.T) {
+	for _, removed := range []string{"--enable-extended", "--extended-controller-tls-secret", "--enable-workload-adapter"} {
+		err := runInstall(context.Background(), []string{"plan", "--release-manifest", "unused", removed}, Dependencies{Stderr: io.Discard})
+		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+			t.Fatalf("removed flag %s was not rejected: %v", removed, err)
+		}
+	}
+}
+
+func TestPortForwardInstallApplyRejectsTLSIdentitySwapBeforeMutation(t *testing.T) {
 	clients := supportedClients(t)
-	ca, certificate, key := extendedControllerIdentity(t)
+	ca, certificate, key := portForwardControllerIdentity(t)
 	immutable := true
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extended-controller-tls", Namespace: "waycloak-system", UID: "tls-uid"}, Immutable: &immutable, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"ca.crt": ca, "tls.crt": certificate, "tls.key": key}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "port-forward-controller-tls", Namespace: "waycloak-system", UID: "tls-uid"}, Immutable: &immutable, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"ca.crt": ca, "tls.crt": certificate, "tls.key": key}}
 	if _, err := clients.Kubernetes.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	identity, err := observeExtendedInstallIdentity(context.Background(), clients, secret.Namespace, secret.Name, true)
+	identity, err := observePortForwardInstallIdentity(context.Background(), clients, secret.Namespace, secret.Name, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +336,7 @@ func TestExtendedInstallApplyRejectsTLSIdentitySwapBeforeMutation(t *testing.T) 
 		t.Fatal(err)
 	}
 	source, crds := absentInstallInputs(t)
-	plan, err := BuildInstallPlan(extendedReleaseManifest(), secret.Namespace, "waycloak", "", report, source, crds, &identity)
+	plan, err := BuildInstallPlan(portForwardReleaseManifest(), secret.Namespace, "waycloak", "", report, source, crds, &identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,9 +358,9 @@ func TestExtendedInstallApplyRejectsTLSIdentitySwapBeforeMutation(t *testing.T) 
 	}
 }
 
-func TestExtendedInstallRejectsWrongTLSRoleAndIdentity(t *testing.T) {
+func TestPortForwardInstallRejectsWrongTLSRoleAndIdentity(t *testing.T) {
 	clients := supportedClients(t)
-	ca, certificate, key, err := observationIdentity("extended", "waycloak-system")
+	ca, certificate, key, err := observationIdentity("port-forward", "waycloak-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,8 +369,8 @@ func TestExtendedInstallRejectsWrongTLSRoleAndIdentity(t *testing.T) {
 	if _, err = clients.Kubernetes.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = observeExtendedInstallIdentity(context.Background(), clients, secret.Namespace, secret.Name, false); err == nil || !strings.Contains(err.Error(), "client authentication") {
-		t.Fatalf("server-only non-SPIFFE certificate passed Extended planning: %v", err)
+	if _, err = observePortForwardInstallIdentity(context.Background(), clients, secret.Namespace, secret.Name, false); err == nil || !strings.Contains(err.Error(), "client authentication") {
+		t.Fatalf("server-only non-SPIFFE certificate passed port-forward planning: %v", err)
 	}
 }
 
@@ -1180,16 +1168,15 @@ func releaseManifest() ReleaseManifest {
 	return manifest
 }
 
-func extendedReleaseManifest() ReleaseManifest {
+func portForwardReleaseManifest() ReleaseManifest {
 	manifest := releaseManifest()
 	manifest.Images["waycloak-gateway-runtime"] = Artifact{Repository: "ghcr.io/amoenus/waycloak-gateway-runtime", Digest: "sha256:" + strings.Repeat("7", 64)}
 	manifest.Images["waycloak-qbittorrent-adapter"] = Artifact{Repository: "ghcr.io/amoenus/waycloak-qbittorrent-adapter", Digest: "sha256:" + strings.Repeat("8", 64)}
-	manifest.Profiles = append(manifest.Profiles, extendedCandidateConformanceProfile)
 	manifest.ManifestDigest, _ = manifest.IdentityDigest()
 	return manifest
 }
 
-func extendedControllerIdentity(t *testing.T) ([]byte, []byte, []byte) {
+func portForwardControllerIdentity(t *testing.T) ([]byte, []byte, []byte) {
 	t.Helper()
 	now := time.Now().UTC()
 	caPublic, caPrivate, err := ed25519.GenerateKey(rand.Reader)
@@ -1200,7 +1187,7 @@ func extendedControllerIdentity(t *testing.T) ([]byte, []byte, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caTemplate := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Waycloak Extended test CA"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
+	caTemplate := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Waycloak port-forward test CA"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPublic, caPrivate)
 	if err != nil {
 		t.Fatal(err)
@@ -1213,11 +1200,11 @@ func extendedControllerIdentity(t *testing.T) ([]byte, []byte, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity, err := url.Parse(extendedControllerSPIFFEIdentity)
+	identity, err := url.Parse(portForwardControllerSPIFFEIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientTemplate := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Waycloak Extended controller"}, URIs: []*url.URL{identity}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	clientTemplate := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Waycloak port-forward controller"}, URIs: []*url.URL{identity}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
 	clientDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caTemplate, clientPublic, caPrivate)
 	if err != nil {
 		t.Fatal(err)

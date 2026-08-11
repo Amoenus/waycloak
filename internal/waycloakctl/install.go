@@ -75,18 +75,18 @@ func (plan InstallPlan) validate() error {
 	if err := plan.Target.Validate(); err != nil || plan.Target.ManifestDigest != plan.Manifest || plan.Target.Chart != plan.Chart {
 		return errors.New("install plan target release identity is inconsistent")
 	}
-	if plan.Extended == nil {
-		if strings.Contains(plan.Values, "\nextended:\n") {
-			return errors.New("core install plan contains an unbound Extended configuration")
+	if plan.PortForwarding == nil {
+		if strings.Contains(plan.Values, "portForwarding:\n") {
+			return errors.New("install plan contains an unbound port-forward configuration")
 		}
 	} else {
-		if err := plan.Extended.validate(); err != nil || !contains(plan.Target.Profiles, extendedCandidateConformanceProfile) {
-			return errors.New("install plan Extended identity is inconsistent")
+		if err := plan.PortForwarding.validate(); err != nil {
+			return errors.New("install plan port-forward identity is inconsistent")
 		}
 		runtime, ok := plan.Target.Images["waycloak-gateway-runtime"]
-		expected := fmt.Sprintf("extended:\n  enabled: true\n  controllerTLSSecret: %q\n  gatewayRuntime:\n    image:\n      repository: %q\n      digest: %q\n  adapter:\n    enabled: %t\n", plan.Extended.ControllerTLSSecret, runtime.Repository, runtime.Digest, plan.Extended.AdapterEnabled)
-		if !ok || !strings.Contains(plan.Values, expected) || strings.Count(plan.Values, "  conformanceProfile: \""+extendedCandidateConformanceProfile+"\"\n") != 1 || plan.Source.State == installStateDeployed && plan.Source.ManifestDigest == plan.Target.ManifestDigest {
-			return errors.New("install plan Extended configuration is not bound to a changed exact release")
+		expected := fmt.Sprintf("portForwarding:\n  enabled: true\n  controllerTLSSecret: %q\n  gatewayRuntime:\n    image:\n      repository: %q\n      digest: %q\n  adapter:\n    enabled: %t\n", plan.PortForwarding.ControllerTLSSecret, runtime.Repository, runtime.Digest, plan.PortForwarding.QBitTorrentAdapterEnabled)
+		if !ok || !strings.Contains(plan.Values, expected) || plan.Source.State == installStateDeployed && plan.Source.ManifestDigest == plan.Target.ManifestDigest {
+			return errors.New("install plan port-forward configuration is not bound to a changed exact release")
 		}
 	}
 	if err := plan.Source.validate(); err != nil {
@@ -240,13 +240,13 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if confirmation != plan.PlanID {
 		return fmt.Errorf("refusing mutation: --confirm must exactly equal %s", plan.PlanID)
 	}
-	if plan.Extended != nil {
-		current, err := observeExtendedInstallIdentity(ctx, clients, plan.Namespace, plan.Extended.ControllerTLSSecret, plan.Extended.AdapterEnabled)
+	if plan.PortForwarding != nil {
+		current, err := observePortForwardInstallIdentity(ctx, clients, plan.Namespace, plan.PortForwarding.ControllerTLSSecret, plan.PortForwarding.QBitTorrentAdapterEnabled)
 		if err != nil {
-			return fmt.Errorf("refusing mutation: re-observe Extended controller TLS identity: %w", err)
+			return fmt.Errorf("refusing mutation: re-observe port-forward controller TLS identity: %w", err)
 		}
-		if !reflect.DeepEqual(current, *plan.Extended) {
-			return errors.New("refusing mutation: Extended controller TLS identity changed after plan review")
+		if !reflect.DeepEqual(current, *plan.PortForwarding) {
+			return errors.New("refusing mutation: port-forward controller TLS identity changed after plan review")
 		}
 	}
 	if err := ensureNoCertificateRotation(ctx, clients, plan.Namespace, plan.Release); err != nil {
@@ -288,26 +288,26 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	return applyInstallPlanAtCheckpoint(ctx, clients, runner, plan, targetCRDs, checkpoint)
 }
 
-func observeExtendedInstallIdentity(ctx context.Context, clients *Clients, namespace, name string, adapterEnabled bool) (ExtendedInstallIdentity, error) {
-	identity := ExtendedInstallIdentity{ControllerTLSSecret: name, AdapterEnabled: adapterEnabled}
+func observePortForwardInstallIdentity(ctx context.Context, clients *Clients, namespace, name string, adapterEnabled bool) (PortForwardInstallIdentity, error) {
+	identity := PortForwardInstallIdentity{ControllerTLSSecret: name, QBitTorrentAdapterEnabled: adapterEnabled}
 	secret, err := clients.Kubernetes.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return ExtendedInstallIdentity{}, err
+		return PortForwardInstallIdentity{}, err
 	}
 	if secret.Immutable == nil || !*secret.Immutable || secret.Type != corev1.SecretTypeTLS || len(secret.Data["ca.crt"]) == 0 || len(secret.Data["tls.crt"]) == 0 || len(secret.Data["tls.key"]) == 0 {
-		return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret must be immutable and contain ca.crt, tls.crt, and tls.key")
+		return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret must be immutable and contain ca.crt, tls.crt, and tls.key")
 	}
 	authorities, err := parseCABundle(secret.Data["ca.crt"])
 	if err != nil {
-		return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret has an invalid CA bundle")
+		return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret has an invalid CA bundle")
 	}
 	pair, err := tls.X509KeyPair(secret.Data["tls.crt"], secret.Data["tls.key"])
 	if err != nil {
-		return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret has an invalid client key pair")
+		return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret has an invalid client key pair")
 	}
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {
-		return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret has an invalid client certificate")
+		return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret has an invalid client certificate")
 	}
 	intermediates := x509.NewCertPool()
 	roots := x509.NewCertPool()
@@ -317,21 +317,21 @@ func observeExtendedInstallIdentity(ctx context.Context, clients *Clients, names
 	for _, raw := range pair.Certificate[1:] {
 		certificate, parseErr := x509.ParseCertificate(raw)
 		if parseErr != nil {
-			return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret has an invalid client certificate chain")
+			return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret has an invalid client certificate chain")
 		}
 		intermediates.AddCert(certificate)
 	}
 	if _, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret client certificate is not trusted for client authentication")
+		return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret client certificate is not trusted for client authentication")
 	}
-	if len(leaf.URIs) != 1 || leaf.URIs[0].String() != extendedControllerSPIFFEIdentity {
-		return ExtendedInstallIdentity{}, errors.New("extended controller TLS Secret must contain the exact replacement-controller SPIFFE identity")
+	if len(leaf.URIs) != 1 || leaf.URIs[0].String() != portForwardControllerSPIFFEIdentity {
+		return PortForwardInstallIdentity{}, errors.New("port-forward controller TLS Secret must contain the exact replacement-controller SPIFFE identity")
 	}
 	identity.SecretUID = string(secret.UID)
 	identity.CADigest = digestBytes(secret.Data["ca.crt"])
 	identity.CertificateDigest = digestBytes(secret.Data["tls.crt"])
 	if err := identity.validate(); err != nil {
-		return ExtendedInstallIdentity{}, err
+		return PortForwardInstallIdentity{}, err
 	}
 	return identity, nil
 }

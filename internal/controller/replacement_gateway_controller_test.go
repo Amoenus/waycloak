@@ -123,7 +123,7 @@ func TestMinimalGatewayResolvesWithoutImagesAndCredentialValuesNeverReachStatus(
 	}
 }
 
-func TestExtendedGatewayRequiresExplicitFeatureAndRuntimeTLSReference(t *testing.T) {
+func TestPortForwardGatewayRequiresExplicitFeatureAndRuntimeTLSReference(t *testing.T) {
 	class := replacementClass()
 	features := append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
 	class.Spec.SupportedFeatures = features

@@ -5,7 +5,7 @@
   "minimumKubernetesVersion": "1.36.0",
   "unknownFields": "Reject",
   "claimsGatewayAPIConformance": false,
-  "referenceGrantCore": false,
+  "referenceGrantBaseline": false,
   "commonConditions": ["Accepted", "ResolvedRefs", "Programmed", "Ready"],
   "conditionReasons": {
     "Accepted": ["Accepted", "Invalid", "UnsupportedClass", "UnsupportedFeature", "ControllerNotFound", "Deleting", "ObservationUnavailable"],
@@ -20,16 +20,16 @@
     "Delivered": ["Delivered", "DeliveryPending", "ObservationUnavailable"],
     "Acknowledged": ["Acknowledged", "AcknowledgementPending", "ObservationUnavailable"]
   },
-  "featureChannels": {
-    "Core": [
-      "networking.waycloak.io/CoreFailClosedEgress",
+  "capabilityClasses": {
+    "Baseline": [
+      "networking.waycloak.io/FailClosedEgress",
       "networking.waycloak.io/TCP",
       "networking.waycloak.io/UDP",
       "networking.waycloak.io/DNSContainment",
       "networking.waycloak.io/GatewayReplacementRecovery",
       "networking.waycloak.io/NodeRestartRecovery"
     ],
-    "Extended": [
+    "Optional": [
       "networking.waycloak.io/PortForwardServiceSingleActive",
       "networking.waycloak.io/WorkloadAdapter"
     ],
@@ -38,7 +38,7 @@
   "fieldManagers": [
     {"name": "waycloak-class-controller", "owns": "VPNGatewayClass status only"},
     {"name": "waycloak-gateway-controller", "owns": "VPNGateway status and same-namespace generated dependents"},
-    {"name": "waycloak-route-<controller-name-hash>", "owns": "the Core VPNEgressRoute status.parents atomic list and matching summary status"},
+    {"name": "waycloak-route-<controller-name-hash>", "owns": "the baseline VPNEgressRoute status.parents atomic list and matching summary status"},
     {"name": "waycloak-binding-controller", "owns": "VPNWorkloadBinding metadata, spec, finalizer and status"},
     {"name": "waycloak-lease-controller", "owns": "PortForwardLease status and bounded provider-cleanup finalizer"},
     {"name": "waycloak-adapter-controller", "owns": "WorkloadAdapter status only"}

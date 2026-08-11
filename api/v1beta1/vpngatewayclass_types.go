@@ -16,7 +16,7 @@ type ReleaseIdentity struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="VPNGatewayClass spec is immutable"
-// +kubebuilder:validation:XValidation:rule="self.supportedFeatures.exists(f, f == 'networking.waycloak.io/CoreFailClosedEgress') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/TCP') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/UDP') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/DNSContainment') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/GatewayReplacementRecovery') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/NodeRestartRecovery')",message="every class must advertise the frozen Core feature baseline"
+// +kubebuilder:validation:XValidation:rule="self.supportedFeatures.exists(f, f == 'networking.waycloak.io/FailClosedEgress') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/TCP') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/UDP') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/DNSContainment') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/GatewayReplacementRecovery') && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/NodeRestartRecovery')",message="every class must advertise the frozen baseline feature set"
 // +kubebuilder:validation:XValidation:rule="!has(self.parametersRef) || (self.parametersRef.group.size() > 0 && self.parametersRef.kind != 'Secret')",message="parametersRef must target a named non-Secret API group"
 type VPNGatewayClassSpec struct {
 	// +required

@@ -37,8 +37,8 @@ var requiredKindConditions = map[string][]string{
 	"WorkloadAdapter":    {"Accepted", "ResolvedRefs", "Programmed", "Ready"},
 }
 
-var requiredCoreFeatures = []string{
-	"networking.waycloak.io/CoreFailClosedEgress",
+var requiredBaselineFeatures = []string{
+	"networking.waycloak.io/FailClosedEgress",
 	"networking.waycloak.io/TCP",
 	"networking.waycloak.io/UDP",
 	"networking.waycloak.io/DNSContainment",
@@ -58,10 +58,10 @@ type contract struct {
 	MinimumKubernetesVersion    string              `json:"minimumKubernetesVersion"`
 	UnknownFields               string              `json:"unknownFields"`
 	ClaimsGatewayAPIConformance bool                `json:"claimsGatewayAPIConformance"`
-	ReferenceGrantCore          bool                `json:"referenceGrantCore"`
+	ReferenceGrantBaseline      bool                `json:"referenceGrantBaseline"`
 	CommonConditions            []string            `json:"commonConditions"`
 	ConditionReasons            map[string][]string `json:"conditionReasons"`
-	FeatureChannels             map[string][]string `json:"featureChannels"`
+	CapabilityClasses           map[string][]string `json:"capabilityClasses"`
 	FieldManagers               []fieldManager      `json:"fieldManagers"`
 	Kinds                       []kindContract      `json:"kinds"`
 }
@@ -150,8 +150,8 @@ func audit(data []byte) error {
 	if value.SchemaVersion != 1 || value.APIGroup != "networking.waycloak.io" || value.APIVersion != "v1beta1" || value.MinimumKubernetesVersion != "1.36.0" {
 		return errors.New("group, version, Kubernetes minimum, or schema version is not frozen")
 	}
-	if value.UnknownFields != "Reject" || value.ClaimsGatewayAPIConformance || value.ReferenceGrantCore {
-		return errors.New("unknown-field, Gateway API, or ReferenceGrant Core boundary is unsafe")
+	if value.UnknownFields != "Reject" || value.ClaimsGatewayAPIConformance || value.ReferenceGrantBaseline {
+		return errors.New("unknown-field, Gateway API, or ReferenceGrant baseline boundary is unsafe")
 	}
 	if !slices.Equal(value.CommonConditions, requiredConditions) {
 		return fmt.Errorf("common conditions = %v, want %v", value.CommonConditions, requiredConditions)
@@ -161,13 +161,13 @@ func audit(data []byte) error {
 			return fmt.Errorf("condition %s has no stable reasons", condition)
 		}
 	}
-	for _, channel := range []string{"Core", "Extended", "Experimental"} {
-		if _, ok := value.FeatureChannels[channel]; !ok {
-			return fmt.Errorf("feature channel %s is not declared", channel)
+	for _, class := range []string{"Baseline", "Optional", "Experimental"} {
+		if _, ok := value.CapabilityClasses[class]; !ok {
+			return fmt.Errorf("capability class %s is not declared", class)
 		}
 	}
-	if !slices.Equal(value.FeatureChannels["Core"], requiredCoreFeatures) || len(value.FieldManagers) != len(requiredKinds) {
-		return errors.New("core features or field managers are incomplete")
+	if !slices.Equal(value.CapabilityClasses["Baseline"], requiredBaselineFeatures) || len(value.FieldManagers) != len(requiredKinds) {
+		return errors.New("baseline features or field managers are incomplete")
 	}
 	managerNames := map[string]bool{}
 	for _, manager := range value.FieldManagers {
@@ -250,7 +250,7 @@ func audit(data []byte) error {
 	}
 	route := findKind(value.Kinds, "VPNEgressRoute")
 	if route == nil || !hasList(route.Lists, "spec.parentRefs", "map", 1) {
-		return errors.New("VPNEgressRoute must have exactly one map-keyed Core parent")
+		return errors.New("VPNEgressRoute must have exactly one map-keyed baseline parent")
 	}
 	if !hasList(route.Lists, "status.parents", "atomic", 1) {
 		return errors.New("VPNEgressRoute status.parents must be an at-most-one atomic list")

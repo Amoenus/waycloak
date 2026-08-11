@@ -43,7 +43,7 @@ No cross-namespace owner reference is created.
 
 Route and replacement `PortForwardLease` dependencies share exact gateway,
 gateway-class, and source-Namespace index keys. The Core route controller
-consumes those mappings now. The Extended replacement lease controller consumes
+consumes those mappings now. The optional replacement lease controller consumes
 the lease mappings in #137; the alpha lease controller is intentionally not
 connected to the replacement authorization path.
 

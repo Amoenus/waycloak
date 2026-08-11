@@ -145,7 +145,7 @@ schema NetworkingWaycloakIoV1beta1PortForwardLeaseStatus:
         active endpoint
     conditions : [NetworkingWaycloakIoV1beta1PortForwardLeaseStatusConditionsItems0], default is Undefined, optional
         LeaseConditions adds the gateway-rule, delivery, and application
-        acknowledgement observations required for Extended lease readiness.
+        acknowledgement observations required for port-forward lease readiness.
     handoffGeneration : int, default is Undefined, optional
         handoff generation
     observedGeneration : int, default is Undefined, optional

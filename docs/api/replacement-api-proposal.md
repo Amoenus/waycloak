@@ -48,14 +48,14 @@ that boundary to generate Go types and CRDs; this review does not generate them.
 
 Core classes must advertise all of:
 
-- `networking.waycloak.io/CoreFailClosedEgress`
+- `networking.waycloak.io/FailClosedEgress`
 - `networking.waycloak.io/TCP`
 - `networking.waycloak.io/UDP`
 - `networking.waycloak.io/DNSContainment`
 - `networking.waycloak.io/GatewayReplacementRecovery`
 - `networking.waycloak.io/NodeRestartRecovery`
 
-Extended identifiers are
+Optional capability identifiers are
 `networking.waycloak.io/PortForwardServiceSingleActive` and
 `networking.waycloak.io/WorkloadAdapter`. Feature lists are set lists. Unknown
 required features produce `Accepted=False`, reason `UnsupportedFeature`, before
@@ -69,8 +69,8 @@ programming; they never select another backend.
 | `VPNGateway` | namespace | cluster/network operator | gateway controller | yes |
 | `VPNEgressRoute` | namespace | workload owner | route controller per parent | yes |
 | `VPNWorkloadBinding` | namespace | controller only | controller/node observations | yes, internal-facing |
-| `PortForwardLease` | namespace | workload owner | lease controller/manager observations | Extended |
-| `WorkloadAdapter` | namespace | operator | adapter controller | Extended |
+| `PortForwardLease` | namespace | workload owner | lease controller/manager observations | Optional capability |
+| `WorkloadAdapter` | namespace | operator | adapter controller | Optional capability |
 
 ## Common reference types
 
@@ -166,7 +166,7 @@ spec:
     version: v1.0.0-beta.1
     manifestDigest: sha256:<64-lowercase-hex>
   supportedFeatures:
-  - networking.waycloak.io/CoreFailClosedEgress
+  - networking.waycloak.io/FailClosedEgress
   - networking.waycloak.io/TCP
   - networking.waycloak.io/UDP
   - networking.waycloak.io/DNSContainment
@@ -418,7 +418,7 @@ exhaustion, verified release, and missing-record quarantine behavior.
 
 ## PortForwardLease direction
 
-The stable Extended API should target a typed Service backend rather than a raw
+The optional port-forward API should target a typed Service backend rather than a raw
 selector:
 
 ```yaml
@@ -439,9 +439,9 @@ spec:
 
 `SingleActive` needs explicit readiness, deterministic endpoint choice, drain,
 handoff, UID identity and return-path proof. Until those semantics pass E2E
-tests, the field is Experimental or the Extended feature remains unavailable.
+tests, the field is Experimental or the optional feature remains unavailable.
 
-The Extended schema is nevertheless fixed: `backendRef` targets a same-namespace
+The optional schema is nevertheless fixed: `backendRef` targets a same-namespace
 core `Service` and a typed name or number port; cross-namespace backends are not
 accepted. `protocols` is a non-empty TCP/UDP set. `endpointPolicy` defaults to
 and initially permits only `SingleActive`. The optional adapter reference is
@@ -450,7 +450,7 @@ handoff phase/generation and time-bounded provider observation. A bounded
 `networking.waycloak.io/provider-cleanup` finalizer gets ten minutes to withdraw
 the external mapping; timeout quarantines it and keeps `Ready=False`. #137 must
 prove drain, handoff, return-path symmetry and no cross-delivery before the
-Extended feature can be advertised.
+optional feature can be advertised.
 
 ## WorkloadAdapter direction
 
@@ -482,7 +482,7 @@ The trust record has no owner reference or finalizer.
 Core does not install or watch upstream `ReferenceGrant`. Its only public Core
 cross-namespace relation is route-to-gateway, for which the gateway owner is the
 correct consent authority and `allowedRoutes` supplies one complete handshake.
-All other Core references are local or cluster-scoped. Extended Service and
+All other baseline references are local or cluster-scoped. Optional Service and
 adapter refs are local. A future new cross-namespace reference must either adopt
 upstream `ReferenceGrant` as an explicitly versioned optional dependency or add
 no such feature; Waycloak will not invent a temporary grant kind.
@@ -575,7 +575,7 @@ deletion boundaries only.
 - Parent and status list identity, immutability, reference semantics, field
   managers, finalizers and admission split are frozen above and audited by CI.
 - Core does not use `ReferenceGrant` and does not claim Gateway API conformance.
-- Port forwarding remains Extended and cannot be advertised before #137 proof;
+- Port forwarding remains optional and cannot be advertised before #137 proof;
   its stable object shape and local reference boundary are frozen here.
 - #126 freezes alpha inventory and #139 teardown input. No replacement schema
   contains an alpha compatibility field or runtime image.

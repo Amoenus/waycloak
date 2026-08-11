@@ -123,8 +123,8 @@ spec:
             x-kubernetes-validations:
             - message: VPNGatewayClass spec is immutable
               rule: self == oldSelf
-            - message: every class must advertise the frozen Core feature baseline
-              rule: self.supportedFeatures.exists(f, f == 'networking.waycloak.io/CoreFailClosedEgress')
+            - message: every class must advertise the frozen baseline feature set
+              rule: self.supportedFeatures.exists(f, f == 'networking.waycloak.io/FailClosedEgress')
                 && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/TCP')
                 && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/UDP')
                 && self.supportedFeatures.exists(f, f == 'networking.waycloak.io/DNSContainment')

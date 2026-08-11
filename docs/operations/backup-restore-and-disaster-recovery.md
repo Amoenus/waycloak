@@ -133,7 +133,7 @@ provider mappings to the state file.
      --plan restore-plan.json --confirm <exact-planID>
    ```
 
-6. Confirm that gateways, routes, and any Extended leases acquire new UIDs and
+6. Confirm that gateways, routes, and any optional port-forward leases acquire new UIDs and
    current-generation conditions. Confirm no `VPNWorkloadBinding` existed before
    workload restart.
 7. Restart workloads in controlled batches. For every enrolled Pod, require a
@@ -252,7 +252,7 @@ and the journal.
 - Missing route, gateway, class, Secret, ConfigMap, CNI, node agent, tunnel, or
   DNS remains unavailable and fail closed.
 - A logical restore never imports `Ready=True`; readiness must be re-observed.
-- A provider mapping that cannot be reacquired leaves the Extended lease not
+- A provider mapping that cannot be reacquired leaves the port-forward lease not
   Ready and must not cross-deliver an old mapping.
 - Keep workloads stopped if target support, exact artifacts, or observation is
   uncertain. Do not use ordinary egress as a recovery backend.

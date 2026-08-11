@@ -371,7 +371,7 @@ func seedStateClass(t *testing.T, clients *Clients) {
 	t.Helper()
 	class := stateObject("VPNGatewayClass", "", "gluetun.waycloak.io", map[string]any{
 		"controllerName": "networking.waycloak.io/gluetun", "releaseIdentity": map[string]any{"version": "v1.0.0-beta.1", "manifestDigest": "sha256:" + strings.Repeat("b", 64)},
-		"supportedFeatures": []any{"networking.waycloak.io/CoreFailClosedEgress"}, "conformanceProfile": "networking.waycloak.io/Core-v1",
+		"supportedFeatures": []any{"networking.waycloak.io/FailClosedEgress"}, "conformanceProfile": "networking.waycloak.io/Core-v1",
 	})
 	if _, err := clients.Dynamic.Resource(gatewayClassGVR).Create(context.Background(), class, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)

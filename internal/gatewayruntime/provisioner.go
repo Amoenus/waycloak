@@ -151,7 +151,7 @@ func (provisioner *Provisioner) validate(gateway *wayv1.VPNGateway) error {
 	}
 	runtimeConfigured := provisioner.PortForwardRuntimeImage != "" || provisioner.PortForwardRuntimePort != 0 || provisioner.AdapterEnabled
 	if runtimeConfigured && (!ValidExactImage(provisioner.PortForwardRuntimeImage) || provisioner.PortForwardRuntimePort == 0 || provisioner.AdapterEnabled && provisioner.AdapterPort == 0) {
-		return errors.New("complete exact Extended gateway runtime configuration is required")
+		return errors.New("complete exact port-forward gateway runtime configuration is required")
 	}
 	if requestsFeature(gateway, wayv1.FeaturePortForwardSingleActive) && !runtimeConfigured {
 		return errors.New("SingleActive port forwarding runtime is unavailable")

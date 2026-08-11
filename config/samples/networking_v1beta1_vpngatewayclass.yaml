@@ -8,7 +8,7 @@ spec:
     version: v1.0.0-beta.1
     manifestDigest: sha256:1111111111111111111111111111111111111111111111111111111111111111
   supportedFeatures:
-    - networking.waycloak.io/CoreFailClosedEgress
+    - networking.waycloak.io/FailClosedEgress
     - networking.waycloak.io/TCP
     - networking.waycloak.io/UDP
     - networking.waycloak.io/DNSContainment

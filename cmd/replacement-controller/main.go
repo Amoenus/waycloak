@@ -54,7 +54,7 @@ func main() {
 	flag.StringVar(&releaseVersion, "release-version", "", "immutable signed release version")
 	flag.StringVar(&releaseManifestDigest, "release-manifest-digest", "", "immutable signed release manifest digest")
 	flag.StringVar(&conformanceProfile, "conformance-profile", "networking.waycloak.io/Core-v1", "immutable conformance profile identity")
-	flag.StringVar(&portForwardRuntimeCA, "port-forward-runtime-ca", "", "CA bundle for per-gateway runtime Services; empty disables Extended port forwarding")
+	flag.StringVar(&portForwardRuntimeCA, "port-forward-runtime-ca", "", "CA bundle for per-gateway runtime Services; empty disables port forwarding")
 	flag.StringVar(&portForwardRuntimeCert, "port-forward-runtime-client-cert", "", "controller mTLS certificate for gateway runtimes")
 	flag.StringVar(&portForwardRuntimeKey, "port-forward-runtime-client-key", "", "controller mTLS private key for gateway runtimes")
 	flag.UintVar(&portForwardRuntimePort, "port-forward-runtime-port", 9443, "deterministic gateway runtime Service HTTPS port")
@@ -72,7 +72,7 @@ func main() {
 	flag.IntVar(&gatewayMTU, "gateway-mtu", 1320, "reviewed default gateway overlay MTU")
 	flag.UintVar(&gatewayVXLANPort, "gateway-vxlan-port", 4789, "default gateway VXLAN port")
 	flag.UintVar(&gatewayHealthPort, "gateway-health-port", 18080, "default gateway overlay health port")
-	flag.UintVar(&gatewayPortForwardRuntimePort, "gateway-port-forward-runtime-port", 0, "gateway-local tokenless port-forward runtime HTTPS port (zero disables Extended runtime)")
+	flag.UintVar(&gatewayPortForwardRuntimePort, "gateway-port-forward-runtime-port", 0, "gateway-local tokenless port-forward runtime HTTPS port (zero disables the runtime)")
 	flag.UintVar(&gatewayAdapterPort, "gateway-adapter-port", 0, "deterministic out-of-process adapter HTTPS port (zero disables adapter integration)")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
@@ -142,7 +142,7 @@ func main() {
 		}
 		provisioner := &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage,
 			ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
-		configureExtendedGatewayRuntime(provisioner, portForwardConfigured, gatewayPortForwardRuntimeImage, gatewayPortForwardRuntimePort, adapterConfigured, gatewayAdapterPort)
+		configurePortForwardGatewayRuntime(provisioner, portForwardConfigured, gatewayPortForwardRuntimeImage, gatewayPortForwardRuntimePort, adapterConfigured, gatewayAdapterPort)
 		gatewayRuntime = provisioner
 	}
 	credentialRoles := []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole}
@@ -227,7 +227,7 @@ func main() {
 	}
 }
 
-func configureExtendedGatewayRuntime(provisioner *gatewayruntime.Provisioner, portForwardConfigured bool, runtimeImage string, runtimePort uint, adapterConfigured bool, adapterPort uint) {
+func configurePortForwardGatewayRuntime(provisioner *gatewayruntime.Provisioner, portForwardConfigured bool, runtimeImage string, runtimePort uint, adapterConfigured bool, adapterPort uint) {
 	if portForwardConfigured {
 		provisioner.PortForwardRuntimeImage = runtimeImage
 		provisioner.PortForwardRuntimePort = uint16(runtimePort)

@@ -73,7 +73,7 @@ trusting caller configuration.
 - Core avoids webhook TLS and Gateway API CRD dependencies without weakening
   creation-time or reference enforcement.
 - Port forwarding and adapters have stable object boundaries but cannot be
-  advertised until their Extended conformance work passes.
+  advertised until their capability-specific conformance work passes.
 - Any generated-schema divergence requires an ADR amendment and renewed API
   review; reconciler convenience cannot silently change the contract.
 

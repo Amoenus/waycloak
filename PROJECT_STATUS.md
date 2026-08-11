@@ -256,38 +256,40 @@ in the exact release inventory. Both are repeat-built for Linux amd64/arm64 and
 pass the same digest, vulnerability, SPDX, signature, provenance, and
 independent redownload gates as Core images. Prior six-image Core manifests
 remain valid for rollback, while partial or unknown optional inventories are
-rejected. Artifact availability does not enable the chart, change the default
-class feature set, or claim Extended conformance. #137 remains open for
+rejected. Artifact availability does not enable the chart or change the default
+class feature set. #137 remains open for
 confirmation-gated deployment and the real-provider SingleActive rolling
 handoff proof with zero wrong-Pod delivery and zero ordinary-egress fallback.
 
-The focused #137 deployment-boundary slice adds it without changing the
-default Core surface. Complete Extended chart configuration requires an exact
+The focused #137 deployment-boundary slice adds it without changing baseline
+egress. Complete port-forward chart configuration requires an exact
 gateway-runtime digest and a named pre-created controller mTLS Secret; partial
 configuration is rejected during rendering. Only a gateway that explicitly
 requests SingleActive and references a same-namespace `GatewayRuntimeTLS`
 Secret receives the tokenless third runtime container and its deterministic
 gateway-UID-owned Service. The runtime mounts only TLS material and receives no
-Kubernetes or VPN credential. Core gateways remain two-container, Extended-free
-Pods, and foreign same-name Services are rejected rather than adopted or
+Kubernetes or VPN credential. Gateways without the capability remain
+two-container Pods, and foreign same-name Services are rejected rather than adopted or
 deleted. The qBittorrent adapter remains an operator-authored out-of-process
 deployment; the chart configures controller trust but never injects it, while
 the immutable `WorkloadAdapter` and observed adapter Pod carry its exact image
 identity. This slice is deployment plumbing, not #137 acceptance or permission
-to advertise Extended as conformant.
+to advertise port forwarding as supported.
 
-The next #137 slice adds the confirmation boundary without prematurely claiming
-Extended conformance. `waycloakctl install plan --enable-extended` accepts only
-a distinct exact release manifest carrying the complete optional artifact pair
-and the `networking.waycloak.io/ExtendedCandidate-v1` test profile. It binds a
+PR #205 added the confirmation boundary, but incorrectly promoted internal
+maturity labels into separate installation profiles. The
+corrected surface uses `waycloakctl install plan --enable-port-forwarding` with
+one exact Waycloak release manifest carrying the complete optional artifact
+pair. It binds a
 named immutable controller mTLS Secret by UID plus public CA and certificate
 digests, verifies the exact replacement-controller SPIFFE client identity, and
-re-observes it before any apply mutation. The candidate profile is propagated
-to the controller and immutable default class; the chart rejects Extended
-feature advertisement under the Core profile. Disposable Kind acceptance
+re-observes it before any apply mutation. The same default class retains its
+baseline `Core-v1` conformance identity and advertises only the specific
+`PortForwardServiceSingleActive` and optional `WorkloadAdapter` capabilities.
+Disposable Kind acceptance
 covers wrong confirmation, Secret deletion/recreation, exact re-planning,
 journal-bound class replacement, controller trust wiring, and preservation of
-an Extended-free two-container Core gateway. This remains candidate plumbing:
+a two-container gateway when port forwarding is absent. This remains candidate plumbing:
 homelab activation and the provider-backed handoff proof are still required.
 
 Issue #138 is in progress on the turnkey bootstrap slice. `waycloakctl` now
@@ -398,7 +400,7 @@ source, every published image, and the pinned pause image on the vulnerability
 policy, attaches SPDX and keyless signatures, records GitHub provenance, and
 publishes one canonical manifest containing the six required Core images and,
 for new candidates, the complete known gateway-runtime/qBittorrent-adapter
-Extended artifact pair. A
+port-forward artifact pair. A
 second runner redownloads the release and verifies checksums, identities, SBOM
 attestations, provenance, platforms, chart contents, and manifest-to-registry
 digest equality through the reusable registry-native verifier.

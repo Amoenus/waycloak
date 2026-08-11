@@ -1,4 +1,4 @@
-# ADR 0025: Clean-break API redesign and feature channels
+# ADR 0025: Clean-break API redesign and capability maturity
 
 Status: Accepted by issue #127
 Date: 2026-07-26
@@ -40,14 +40,15 @@ There is no conversion webhook, object translator, dual-serving release,
 deprecated alias, annotation bridge, or import of alpha runtime state. Old
 manifests are reference material only and are not accepted by the new API.
 
-Features are classified independently of release numbers:
+Capabilities are classified independently of release numbers without creating
+separate Waycloak products or release channels:
 
-- **Core** is installed by default, portable across the supported matrix, and
-  must pass the complete fail-closed conformance profile.
-- **Extended** is versioned and supported but optional; capability is reported
-  before dependent intent is accepted.
+- **Baseline** behavior is always installed, portable across the supported
+  matrix, and must pass the complete fail-closed conformance profile.
+- **Optional capabilities** are versioned and supported only when their exact
+  feature identifier is advertised before dependent intent is accepted.
 - **Experimental** is disabled by default, isolated from stable kinds or fields
-  where practical, and never silently falls back to Core behavior.
+  where practical, and never silently falls back to baseline behavior.
 
 Stable `v1` graduation requires structural schemas, CEL validation, explicit
 defaulting/reference/deletion/status contracts, upgrade and downgrade evidence,

@@ -53,13 +53,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   privileged handoff tests, and the signed amd64/arm64 optional runtime pair are
   implemented. The default-disabled chart/runtime deployment boundary now
   requires an exact runtime image, named mTLS Secrets, explicit gateway feature
-  intent, and an exact gateway-owned Service while preserving an Extended-free
-  Core render. The adapter image remains exact in its operator-authored trust
+  intent, and an exact gateway-owned Service while preserving a port-forward-free
+  baseline render. The adapter image remains exact in its operator-authored trust
   record rather than becoming unused chart configuration. The next slice adds
   a confirmation-gated CLI transaction bound to a distinct exact release,
   complete optional artifact inventory, immutable mTLS Secret UID/public
-  digests, exact controller SPIFFE identity, and an explicit
-  `ExtendedCandidate-v1` test profile. Disposable Kind covers wrong
+  digests, and exact controller SPIFFE identity. PR #205 initially coupled this
+  to a separate candidate profile; the corrective slice keeps one Waycloak
+  release and represents port forwarding only as an optional class capability.
+  Disposable Kind covers wrong
   confirmation, Secret replacement, re-planning, immutable class replacement,
   and preservation of a two-container Core gateway. Next publish that slice and
   deploy the operator-owned adapter through the homelab GitOps canary.
@@ -67,7 +69,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   rolling-replacement test proves drain, successor handoff, return-path
   symmetry, zero wrong-Pod delivery, and zero ordinary-egress fallback.
 - [ ] #138: turnkey CLI and runtime installation are in progress independently
-  of the still-unadvertised Extended #137 capability. Do not close until signed
+  of the still-unadvertised port-forward #137 capability. Do not close until signed
   exact-artifact, clean-install, and under-15-minute provider evidence pass. A
   disposable Kind/local-OCI gate now exercises preflight,
   plan, refusal without exact confirmation, full apply, CNI receipt/chain,
