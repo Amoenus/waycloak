@@ -70,7 +70,7 @@
         "gateway": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["engineImage", "agentImage", "overlayCIDR", "vni", "mtu", "vxlanPort", "healthPort"],
+          "required": ["engineImage", "agentImage", "overlayCIDR", "clusterDNS", "vni", "mtu", "vxlanPort", "healthPort"],
           "properties": {
             "engineImage": {
               "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
@@ -81,6 +81,13 @@
               "properties": {"repository": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}}
             },
             "overlayCIDR": {"type": "string"},
+            "clusterDNS": {
+              "type": "object", "additionalProperties": false, "required": ["serviceIP", "domain"],
+              "properties": {
+                "serviceIP": {"type": "string", "pattern": "^$|^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"},
+                "domain": {"type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"}
+              }
+            },
             "vni": {"type": "integer", "minimum": 1, "maximum": 16777215},
             "mtu": {"type": "integer", "minimum": 576, "maximum": 9000},
             "vxlanPort": {"type": "integer", "minimum": 1, "maximum": 65535},

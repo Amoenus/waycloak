@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## Replacement architecture decision set
 
@@ -239,6 +239,19 @@ EndpointSlice, Web UI, and Traefik route returned healthy results. Argo CD
 converged Synced/Healthy without replacing the release-bound class or workload.
 The signed Core.16 doctor report was healthy. Protected-workload split-DNS
 semantics remain separate issue #191.
+
+Issue #191 is in implementation on `codex/issue-191-split-dns`. The vertical
+slice binds one unambiguous Kubernetes DNS Service address and CoreDNS-served
+cluster domain into preflight and the confirmed install plan, normalizes only
+enrolled Pods to `ndots:1`, and adds a bounded gateway protocol proxy. Cluster
+suffixes use a dedicated reviewed underlay route; external names use only the
+Gluetun loopback resolver. Active cluster/external UDP/TCP A/AAAA/EDNS probes,
+truncation retry and separate tunnel/DNS observation keep the gateway allow path
+withdrawn on DNS failure. Unit proxy coverage includes concurrent queries,
+search-name containment, oversized responses and TCP fallback; exact Kind,
+release and sole-canary qBittorrent evidence remain required before closure.
+Qui is not a target workload, and Bitmagnet remains intentionally scaled to zero
+during this resource-constrained canary phase.
 
 The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and

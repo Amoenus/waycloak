@@ -14,6 +14,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 func Preflight(ctx context.Context, clients *Clients, overlayCIDR string) (PreflightReport, error) {
@@ -86,12 +87,40 @@ func Preflight(ctx context.Context, clients *Clients, overlayCIDR string) (Prefl
 	if err != nil {
 		return report, fmt.Errorf("inspect cluster DNS: %w", err)
 	}
+	var dnsServiceIPs []string
 	for _, service := range services.Items {
 		if service.Labels["k8s-app"] == "kube-dns" || service.Name == "kube-dns" || service.Name == "coredns" {
-			report.Networking.DNSObserved = service.Spec.ClusterIP != "" && service.Spec.ClusterIP != "None"
+			if address, parseErr := netip.ParseAddr(service.Spec.ClusterIP); parseErr == nil && address.Is4() {
+				dnsServiceIPs = append(dnsServiceIPs, address.String())
+			}
 		}
 	}
-	report.add("cluster-dns", report.Networking.DNSObserved, "Cluster DNS Service is observable", "Install or repair CoreDNS before Waycloak")
+	sort.Strings(dnsServiceIPs)
+	dnsServiceIPs = compactStrings(dnsServiceIPs)
+	if len(dnsServiceIPs) == 1 {
+		report.Networking.DNSServiceIP = dnsServiceIPs[0]
+	}
+	configMaps, err := clients.Kubernetes.CoreV1().ConfigMaps("kube-system").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return report, fmt.Errorf("inspect cluster DNS configuration: %w", err)
+	}
+	domains := map[string]struct{}{}
+	for _, configMap := range configMaps.Items {
+		contents, exists := configMap.Data["Corefile"]
+		if !exists {
+			continue
+		}
+		for _, domain := range coreDNSClusterDomains(contents) {
+			domains[domain] = struct{}{}
+		}
+	}
+	if len(domains) == 1 {
+		for domain := range domains {
+			report.Networking.ClusterDomain = domain
+		}
+	}
+	report.Networking.DNSObserved = report.Networking.DNSServiceIP != "" && report.Networking.ClusterDomain != ""
+	report.add("cluster-dns", report.Networking.DNSObserved, "One reviewed CoreDNS Service address and cluster domain are observable", "Install or repair one unambiguous CoreDNS Service and kubernetes zone before Waycloak")
 
 	resources, err := clients.Discovery.ServerResourcesForGroupVersion("admissionregistration.k8s.io/v1")
 	declarativeAdmission := err == nil && hasResource(resources.APIResources, "validatingadmissionpolicies") && hasResource(resources.APIResources, "mutatingadmissionpolicies")
@@ -118,6 +147,47 @@ func Preflight(ctx context.Context, clients *Clients, overlayCIDR string) (Prefl
 		return report, err
 	}
 	return report, nil
+}
+
+func coreDNSClusterDomains(contents string) []string {
+	set := map[string]struct{}{}
+	for _, line := range strings.Split(contents, "\n") {
+		line = strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+		fields := strings.Fields(line)
+		for index, field := range fields {
+			if field != "kubernetes" {
+				continue
+			}
+			for _, candidate := range fields[index+1:] {
+				candidate = strings.TrimSuffix(strings.ToLower(candidate), ".")
+				if candidate == "{" {
+					break
+				}
+				if strings.HasSuffix(candidate, ".in-addr.arpa") || candidate == "in-addr.arpa" || strings.HasSuffix(candidate, ".ip6.arpa") || candidate == "ip6.arpa" {
+					continue
+				}
+				if len(utilvalidation.IsDNS1123Subdomain(candidate)) == 0 {
+					set[candidate] = struct{}{}
+				}
+			}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for domain := range set {
+		result = append(result, domain)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func compactStrings(values []string) []string {
+	result := values[:0]
+	for _, value := range values {
+		if len(result) == 0 || result[len(result)-1] != value {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func preflightObservationDigest(report PreflightReport) (string, error) {

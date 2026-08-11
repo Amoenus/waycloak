@@ -42,6 +42,9 @@ func TestPreflightSupportsPinnedK3sAndRejectsServedAlpha(t *testing.T) {
 	if err != nil || !report.Compatible || report.CNI.Name != "k3s-flannel" {
 		t.Fatalf("supported preflight failed: %#v %v", report, err)
 	}
+	if report.Networking.DNSServiceIP != "10.43.0.10" || report.Networking.ClusterDomain != "cluster.local" || !report.Networking.DNSObserved {
+		t.Fatalf("reviewed split-DNS identity was not observed: %#v", report.Networking)
+	}
 	alpha := &apiextensionsv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: "vpngateways.networking.waycloak.io"}, Spec: apiextensionsv1.CustomResourceDefinitionSpec{Group: "networking.waycloak.io", Names: apiextensionsv1.CustomResourceDefinitionNames{Plural: "vpngateways", Kind: "VPNGateway"}, Scope: apiextensionsv1.NamespaceScoped, Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{Name: "v1alpha1", Served: true, Storage: true}}}}
 	clients.APIExtensions = apiextensionsfake.NewSimpleClientset(alpha)
 	report, err = Preflight(context.Background(), clients, "100.96.0.0/16")
@@ -58,6 +61,25 @@ func TestPreflightRejectsOverlayOverlapAndUnsupportedNode(t *testing.T) {
 	report, err := Preflight(context.Background(), clients, "10.42.0.0/16")
 	if err != nil || report.Compatible || checkStatus(report, "nodes") != "Fail" || checkStatus(report, "overlay") != "Fail" {
 		t.Fatalf("unsafe node/network passed: %#v %v", report, err)
+	}
+}
+
+func TestPreflightRejectsAmbiguousClusterDNSIdentity(t *testing.T) {
+	clients := supportedClients(t)
+	_, err := clients.Kubernetes.CoreV1().Services("kube-system").Create(context.Background(), &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "coredns", Namespace: "kube-system"}, Spec: corev1.ServiceSpec{ClusterIP: "10.43.0.11"}}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil || report.Compatible || checkStatus(report, "cluster-dns") != "Fail" || report.Networking.DNSServiceIP != "" {
+		t.Fatalf("ambiguous DNS Service identity passed preflight: %#v %v", report, err)
+	}
+}
+
+func TestCoreDNSClusterDomainParserRejectsReverseAndInvalidZones(t *testing.T) {
+	contents := ".:53 {\n  kubernetes Cluster.Local. in-addr.arpa ip6.arpa {\n  }\n}\nexample:53 { kubernetes INVALID_ZONE { } }\n"
+	if got := coreDNSClusterDomains(contents); !reflect.DeepEqual(got, []string{"cluster.local"}) {
+		t.Fatalf("cluster domains = %#v", got)
 	}
 }
 
@@ -122,6 +144,9 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	nestedIdentity := "  releaseIdentity:\n    version: " + strconv.Quote(manifest.Version) + "\n    manifestDigest: " + strconv.Quote(manifest.ManifestDigest) + "\n"
 	if count := strings.Count(plan.Values, nestedIdentity); count != 2 {
 		t.Fatalf("install values contain %d nested runtime release identities, want node agent and default class", count)
+	}
+	if !strings.Contains(plan.Values, "serviceIP: \"10.43.0.10\"") || !strings.Contains(plan.Values, "domain: \"cluster.local\"") {
+		t.Fatalf("install values do not bind reviewed split DNS:\n%s", plan.Values)
 	}
 	if !strings.Contains(plan.Values, `observationRelayURL: "https://waycloak-controller.waycloak-system.svc:9443/node-observations/v1/report"`) {
 		t.Fatalf("install values do not use the controller observation relay contract: %s", plan.Values)
@@ -794,7 +819,8 @@ func supportedClients(t *testing.T) *Clients {
 	t.Helper()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node"}, Spec: corev1.NodeSpec{PodCIDRs: []string{"10.42.0.0/24"}}, Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{Architecture: "amd64", OperatingSystem: "linux", KernelVersion: "6.8.0", ContainerRuntimeVersion: "containerd://2.1.0"}}}
 	dns := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "kube-dns", Namespace: "kube-system", Labels: map[string]string{"k8s-app": "kube-dns"}}, Spec: corev1.ServiceSpec{ClusterIP: "10.43.0.10"}}
-	kube := kubernetesfake.NewSimpleClientset(node, dns,
+	coreDNS := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "coredns", Namespace: "kube-system"}, Data: map[string]string{"Corefile": ".:53 {\n  kubernetes cluster.local in-addr.arpa ip6.arpa {\n    pods insecure\n  }\n}\n"}}
+	kube := kubernetesfake.NewSimpleClientset(node, dns, coreDNS,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: "test-cluster-uid"}},
 		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "kube-system"}})

@@ -32,6 +32,9 @@ controller:
       repository: ghcr.io/amoenus/waycloak-gateway-agent
       digest: ""
     overlayCIDR: ""
+    clusterDNS:
+      serviceIP: ""
+      domain: ""
     vni: 7999
     mtu: 1320
     vxlanPort: 4789

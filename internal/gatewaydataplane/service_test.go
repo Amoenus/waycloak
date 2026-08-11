@@ -5,34 +5,72 @@ package gatewaydataplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"testing"
 
 	"github.com/Amoenus/waycloak/internal/provider"
 )
 
+func TestHealthHandlerSeparatesReadinessAndStatus(t *testing.T) {
+	service := &Service{}
+
+	readiness := httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(readiness, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if readiness.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unhealthy readiness status = %d", readiness.Code)
+	}
+
+	service.healthy.Store(true)
+	service.tunnelReady.Store(true)
+	service.dnsReady.Store(false)
+	readiness = httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(readiness, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if readiness.Code != http.StatusOK {
+		t.Fatalf("healthy readiness status = %d", readiness.Code)
+	}
+
+	status := httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/v1/status", nil))
+	var observed HealthStatus
+	if err := json.Unmarshal(status.Body.Bytes(), &observed); err != nil {
+		t.Fatal(err)
+	}
+	if status.Code != http.StatusOK || !observed.Ready || !observed.TunnelReady || observed.DNSReady {
+		t.Fatalf("status response = %d %#v", status.Code, observed)
+	}
+
+	missing := httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unrecognized health path status = %d", missing.Code)
+	}
+}
+
 func TestReconcileDoesNotWithdrawHealthyRulesBetweenObservations(t *testing.T) {
 	backend := &recordingBackend{}
 	engine := &recordingEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true}}
-	service := &Service{Config: testConfig(), Backend: backend, Engine: engine}
+	service := &Service{Config: testConfig(), Backend: backend, Engine: engine, DNSProber: recordingDNSProber{}}
 	if err := service.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(backend.health) != 1 || !backend.health[0] {
+	if len(backend.health) != 2 || backend.health[0] || !backend.health[1] {
 		t.Fatalf("healthy reconciliation transiently withdrew rules: %#v", backend.health)
 	}
 	if err := service.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(backend.health) != 2 || !backend.health[1] {
+	if len(backend.health) != 3 || !backend.health[2] {
 		t.Fatalf("second healthy reconciliation withdrew rules: %#v", backend.health)
 	}
 }
 func TestReconcileWithdrawsRulesBeforeReportingEngineFailure(t *testing.T) {
 	backend := &recordingBackend{}
 	engine := &recordingEngine{err: errors.New("tunnel down")}
-	service := &Service{Config: testConfig(), Backend: backend, Engine: engine}
+	service := &Service{Config: testConfig(), Backend: backend, Engine: engine, DNSProber: recordingDNSProber{}}
 	if err := service.Reconcile(context.Background()); err == nil {
 		t.Fatal("engine failure was hidden")
 	}
@@ -43,12 +81,27 @@ func TestReconcileWithdrawsRulesBeforeReportingEngineFailure(t *testing.T) {
 func TestReconcileReportsUnreadyObservation(t *testing.T) {
 	backend := &recordingBackend{}
 	engine := &recordingEngine{observation: provider.EngineObservation{TunnelReady: false, DNSReady: true}}
-	service := &Service{Config: testConfig(), Backend: backend, Engine: engine}
+	service := &Service{Config: testConfig(), Backend: backend, Engine: engine, DNSProber: recordingDNSProber{}}
 	if err := service.Reconcile(context.Background()); err == nil {
 		t.Fatal("unready observation was hidden")
 	}
 	if len(backend.health) != 1 || backend.health[0] {
 		t.Fatalf("unready observation did not install deny state: %#v", backend.health)
+	}
+}
+
+func TestReconcileWithdrawsRulesWhenSplitDNSProbeFails(t *testing.T) {
+	backend := &recordingBackend{}
+	engine := &recordingEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true}}
+	service := &Service{Config: testConfig(), Backend: backend, Engine: engine, DNSProber: recordingDNSProber{err: errors.New("cluster DNS unavailable")}}
+	if err := service.Reconcile(context.Background()); err == nil {
+		t.Fatal("split-DNS failure was hidden")
+	}
+	if len(backend.health) != 2 || backend.health[0] || backend.health[1] {
+		t.Fatalf("split-DNS failure did not retain deny state: %#v", backend.health)
+	}
+	if status := service.HealthStatus(); status.Ready || !status.TunnelReady || status.DNSReady {
+		t.Fatalf("split-DNS health status = %#v", status)
 	}
 }
 
@@ -87,9 +140,13 @@ type recordingEngine struct {
 	err         error
 }
 
+type recordingDNSProber struct{ err error }
+
+func (prober recordingDNSProber) Probe(context.Context) error { return prober.err }
+
 func (engine *recordingEngine) Observe(context.Context) (provider.EngineObservation, error) {
 	return engine.observation, engine.err
 }
 func testConfig() Config {
-	return Config{GatewayUID: "uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	return Config{GatewayUID: "uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local"}
 }

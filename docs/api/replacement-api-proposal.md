@@ -262,6 +262,21 @@ is required only for `Selector`. Namespace authorization labels must be managed
 outside tenant authority. Tolerations are an atomic bounded list because their
 ordering has no merge ownership contract.
 
+`Gateway` DNS is a protocol split, not permission for the application namespace
+to bypass the gateway. Bootstrap must observe exactly one Kubernetes DNS Service
+IPv4 address and one CoreDNS-served cluster domain and bind both observations
+into the confirmed install plan. The gateway proxy sends only names at or below
+that cluster suffix to the reviewed Kubernetes DNS address over a dedicated
+underlay route; every other name goes only to the engine's loopback resolver.
+The enrollment admission policy sets the sole Pod-local `ndots` option to `1`
+and rejects a conflicting value, while leaving kubelet nameserver and search
+domains intact. These are installed-system parameters, not user API fields.
+Current `DNSReady=True` requires successful cluster UDP/TCP and external
+UDP/TCP A/AAAA/EDNS observation through the overlay listener. Unavailable,
+malformed, truncated-without-TCP-recovery, or cross-classified DNS keeps
+`DNSReady` and composite `Ready` false and leaves the protected allow path
+withdrawn.
+
 ## VPNEgressRoute
 
 ```yaml

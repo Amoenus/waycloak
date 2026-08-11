@@ -31,9 +31,12 @@ const (
 	// The overlay return path must win before that rule or replies are sent to
 	// eth0 instead of the owned VXLAN interface.
 	gatewayOverlayReturnPriority = 90
+	gatewayClusterDNSPriority    = 89
+	gatewayClusterDNSTable       = 198
 	engineFilterTableName        = "filter"
 	engineInputChainName         = "INPUT"
 	engineForwardChainName       = "FORWARD"
+	engineOutputChainName        = "OUTPUT"
 	engineRuleMarkerPrefix       = "waycloak:gluetun:"
 )
 
@@ -98,11 +101,99 @@ func (LinuxBackend) EnsureOverlay(_ context.Context, config Config) error {
 	if err := ensureOverlayReturnRule(config.OverlayCIDR); err != nil {
 		return fmt.Errorf("install gateway overlay return-path rule: %w", err)
 	}
+	if err := ensureClusterDNSRoute(config, underlay); err != nil {
+		return fmt.Errorf("install reviewed cluster-DNS route: %w", err)
+	}
+	if err := ensureClusterDNSRule(config.ClusterDNSUpstream.Addr()); err != nil {
+		return fmt.Errorf("install reviewed cluster-DNS route rule: %w", err)
+	}
 	if err := requireIPv4Forwarding(ipv4ForwardingPath); err != nil {
 		return err
 	}
 	createdLink = false
 	return nil
+}
+
+func ensureClusterDNSRule(address netip.Addr) error {
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		return err
+	}
+	exact := false
+	for index := range rules {
+		if rules[index].Priority == gatewayClusterDNSPriority && rules[index].Protocol == uint8(gatewayRouteProtocol) {
+			if rules[index].Table == gatewayClusterDNSTable && rules[index].Dst != nil && rules[index].Dst.String() == address.String()+"/32" {
+				exact = true
+				continue
+			}
+			if err := netlink.RuleDel(&rules[index]); err != nil && !errors.Is(err, unix.ENOENT) {
+				return err
+			}
+		}
+	}
+	if exact {
+		return nil
+	}
+	rule := netlink.NewRule()
+	rule.Family = netlink.FAMILY_V4
+	rule.Priority = gatewayClusterDNSPriority
+	rule.Table = gatewayClusterDNSTable
+	rule.Protocol = uint8(gatewayRouteProtocol)
+	rule.Dst = netipPrefix(address, 32)
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, unix.EEXIST) {
+		return err
+	}
+	return nil
+}
+
+func ensureClusterDNSRoute(config Config, underlay netlink.Link) error {
+	mainRoutes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, &netlink.Route{Table: unix.RT_TABLE_MAIN, LinkIndex: underlay.Attrs().Index}, netlink.RT_FILTER_TABLE|netlink.RT_FILTER_OIF)
+	if err != nil {
+		return err
+	}
+	gateways := map[string]net.IP{}
+	for _, route := range mainRoutes {
+		if isIPv4DefaultRoute(route) && route.Gw != nil && route.Gw.To4() != nil {
+			gateways[route.Gw.String()] = route.Gw
+		}
+	}
+	if len(gateways) != 1 {
+		return errors.New("underlay has no unique IPv4 default gateway")
+	}
+	var gateway net.IP
+	for _, value := range gateways {
+		gateway = value
+	}
+	destination := netipPrefix(config.ClusterDNSUpstream.Addr(), 32)
+	existing, err := netlink.RouteListFiltered(netlink.FAMILY_V4, &netlink.Route{Table: gatewayClusterDNSTable}, netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return err
+	}
+	exact := false
+	for index := range existing {
+		if existing[index].Protocol != gatewayRouteProtocol {
+			continue
+		}
+		if existing[index].LinkIndex == underlay.Attrs().Index && existing[index].Dst != nil && existing[index].Dst.String() == destination.String() && existing[index].Gw.Equal(gateway) {
+			exact = true
+			continue
+		}
+		if err := netlink.RouteDel(&existing[index]); err != nil && !errors.Is(err, unix.ENOENT) {
+			return err
+		}
+	}
+	if exact {
+		return nil
+	}
+	return netlink.RouteReplace(&netlink.Route{LinkIndex: underlay.Attrs().Index, Dst: destination, Gw: gateway, Table: gatewayClusterDNSTable, Protocol: gatewayRouteProtocol})
+}
+
+func isIPv4DefaultRoute(route netlink.Route) bool {
+	if route.Dst == nil {
+		return true
+	}
+	ones, bits := route.Dst.Mask.Size()
+	return bits == 32 && ones == 0 && route.Dst.IP.To4() != nil
 }
 
 func ensureOverlayReturnRule(overlay netip.Prefix) error {
@@ -200,7 +291,7 @@ func gatewayRulesCurrent(connection *nftables.Conn, config Config, healthy bool)
 	if core == nil {
 		return false, nil
 	}
-	var coreForward, corePostrouting, engineInput, engineForward *nftables.Chain
+	var coreForward, corePostrouting, engineInput, engineForward, engineOutput *nftables.Chain
 	for _, chain := range chains {
 		if chain.Table == nil {
 			continue
@@ -214,6 +305,8 @@ func gatewayRulesCurrent(connection *nftables.Conn, config Config, healthy bool)
 			engineInput = chain
 		case chain.Table.Name == engineFilterTableName && chain.Name == engineForwardChainName:
 			engineForward = chain
+		case chain.Table.Name == engineFilterTableName && chain.Name == engineOutputChainName:
+			engineOutput = chain
 		}
 	}
 	if coreForward == nil || corePostrouting == nil || coreForward.Policy == nil || *coreForward.Policy != nftables.ChainPolicyDrop {
@@ -221,6 +314,7 @@ func gatewayRulesCurrent(connection *nftables.Conn, config Config, healthy bool)
 	}
 	forwardMarkers, postroutingMarkers := []string{}, []string{}
 	inputMarkers, engineForwardMarkers := []string{}, []string{}
+	outputMarkers := []string{engineRuleMarkerPrefix + "cluster-dns-udp-output", engineRuleMarkerPrefix + "cluster-dns-tcp-output"}
 	if healthy {
 		forwardMarkers = []string{"waycloak:overlay-to-tunnel", "waycloak:tunnel-to-overlay-established"}
 		postroutingMarkers = []string{"waycloak:overlay-masquerade"}
@@ -238,6 +332,7 @@ func gatewayRulesCurrent(connection *nftables.Conn, config Config, healthy bool)
 		{core, corePostrouting, "waycloak:", postroutingMarkers, true},
 		{filter, engineInput, engineRuleMarkerPrefix, inputMarkers, healthy},
 		{filter, engineForward, engineRuleMarkerPrefix, engineForwardMarkers, healthy},
+		{filter, engineOutput, engineRuleMarkerPrefix, outputMarkers, true},
 	} {
 		if check.table == nil || check.chain == nil {
 			if check.required {
@@ -298,7 +393,7 @@ func replaceEngineFilterRules(connection *nftables.Conn, config Config, healthy 
 		}
 		return nil
 	}
-	var input, forward *nftables.Chain
+	var input, forward, output *nftables.Chain
 	for _, chain := range chains {
 		if chain.Table == nil || chain.Table.Name != table.Name {
 			continue
@@ -308,12 +403,14 @@ func replaceEngineFilterRules(connection *nftables.Conn, config Config, healthy 
 			input = chain
 		case engineForwardChainName:
 			forward = chain
+		case engineOutputChainName:
+			output = chain
 		}
 	}
-	if healthy && (input == nil || forward == nil) {
-		return errors.New("gluetun INPUT and FORWARD chains are unavailable")
+	if output == nil || healthy && (input == nil || forward == nil) {
+		return errors.New("required Gluetun filter chains are unavailable")
 	}
-	for _, chain := range []*nftables.Chain{input, forward} {
+	for _, chain := range []*nftables.Chain{input, forward, output} {
 		if chain == nil {
 			continue
 		}
@@ -329,15 +426,33 @@ func replaceEngineFilterRules(connection *nftables.Conn, config Config, healthy 
 			}
 		}
 	}
-	if !healthy {
-		return nil
+	connection.AddRule(&nftables.Rule{Table: table, Chain: output, UserData: []byte(engineRuleMarkerPrefix + "cluster-dns-udp-output"), Exprs: outputDNS(config, unix.IPPROTO_UDP)})
+	connection.AddRule(&nftables.Rule{Table: table, Chain: output, UserData: []byte(engineRuleMarkerPrefix + "cluster-dns-tcp-output"), Exprs: outputDNS(config, unix.IPPROTO_TCP)})
+	if healthy {
+		connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "health-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_TCP, config.HealthPort)})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "dns-udp-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_UDP, DNSListenPort)})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "dns-tcp-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_TCP, DNSListenPort)})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "overlay-to-tunnel"), Exprs: interfacePair(config.OverlayInterface, config.TunnelInterface, true)})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "tunnel-to-overlay-established"), Exprs: append(interfacePair(config.TunnelInterface, config.OverlayInterface, false), established()...)})
 	}
-	connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "health-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_TCP, config.HealthPort)})
-	connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "dns-udp-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_UDP, DNSListenPort)})
-	connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "dns-tcp-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_TCP, DNSListenPort)})
-	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "overlay-to-tunnel"), Exprs: interfacePair(config.OverlayInterface, config.TunnelInterface, true)})
-	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "tunnel-to-overlay-established"), Exprs: append(interfacePair(config.TunnelInterface, config.OverlayInterface, false), established()...)})
 	return nil
+}
+
+func outputDNS(config Config, protocol byte) []expr.Any {
+	encodedPort := make([]byte, 2)
+	binary.BigEndian.PutUint16(encodedPort, config.ClusterDNSUpstream.Port())
+	address := config.ClusterDNSUpstream.Addr().As4()
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceBytes(config.UnderlayInterface)},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protocol}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: address[:]},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: encodedPort},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	}
 }
 
 func inputPort(input string, protocol byte, port uint16) []expr.Any {

@@ -6,6 +6,8 @@
 {{- $engineDigest := required "controller.gateway.engineImage.digest is required when controller.enabled=true" .Values.controller.gateway.engineImage.digest }}
 {{- $agentDigest := required "controller.gateway.agentImage.digest is required when controller.enabled=true" .Values.controller.gateway.agentImage.digest }}
 {{- $overlayCIDR := required "controller.gateway.overlayCIDR is required when controller.enabled=true" .Values.controller.gateway.overlayCIDR }}
+{{- $clusterDNSServiceIP := required "controller.gateway.clusterDNS.serviceIP is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.serviceIP }}
+{{- $clusterDNSDomain := required "controller.gateway.clusterDNS.domain is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.domain }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -74,6 +76,8 @@ spec:
             - --gateway-engine-image={{ .Values.controller.gateway.engineImage.repository }}@{{ $engineDigest }}
             - --gateway-agent-image={{ .Values.controller.gateway.agentImage.repository }}@{{ $agentDigest }}
             - --gateway-overlay-cidr={{ $overlayCIDR }}
+            - --gateway-cluster-dns-service-ip={{ $clusterDNSServiceIP }}
+            - --gateway-cluster-domain={{ $clusterDNSDomain }}
             - --gateway-vni={{ .Values.controller.gateway.vni }}
             - --gateway-mtu={{ .Values.controller.gateway.mtu }}
             - --gateway-vxlan-port={{ .Values.controller.gateway.vxlanPort }}

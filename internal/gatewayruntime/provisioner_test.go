@@ -59,6 +59,9 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if len(agent.Ports) != 4 || agent.Ports[2].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[2].Protocol != corev1.ProtocolUDP || agent.Ports[3].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[3].Protocol != corev1.ProtocolTCP {
 		t.Fatalf("gateway DNS listener does not match the workload redirect: %#v", agent.Ports)
 	}
+	if agent.ReadinessProbe == nil || agent.ReadinessProbe.HTTPGet == nil || agent.ReadinessProbe.HTTPGet.Path != "/readyz" {
+		t.Fatalf("gateway readiness probe does not use the workload-observed contract: %#v", agent.ReadinessProbe)
+	}
 	if statefulSet.Spec.Template.Spec.DNSConfig == nil || len(statefulSet.Spec.Template.Spec.DNSConfig.Options) != 1 || statefulSet.Spec.Template.Spec.DNSConfig.Options[0].Name != "ndots" || statefulSet.Spec.Template.Spec.DNSConfig.Options[0].Value == nil || *statefulSet.Spec.Template.Spec.DNSConfig.Options[0].Value != "1" {
 		t.Fatalf("gateway Pod does not bound Kubernetes DNS search expansion: %#v", statefulSet.Spec.Template.Spec.DNSConfig)
 	}
@@ -79,6 +82,13 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	observation, err = provisioner.Reconcile(context.Background(), gateway)
 	if err != nil || !observation.Ready || !hasAddress(observation.Addresses, wayv1.GatewayAddressTypeUnderlayEndpoint, "10.42.0.20:4789") {
 		t.Fatalf("exact ready Pod was not observed: %#v %v", observation, err)
+	}
+	provisioner.HTTPClient = &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":false,"tunnelReady":true,"dnsReady":false}`)), Header: http.Header{}}, nil
+	})}
+	observation, err = provisioner.Reconcile(context.Background(), gateway)
+	if err != nil || observation.Ready || !observation.TunnelReady || observation.DNSReady || observation.MembershipApplied {
+		t.Fatalf("DNS-specific failure was not preserved in gateway observation: %#v %v", observation, err)
 	}
 }
 
@@ -118,8 +128,8 @@ func TestProvisionerRejectsMutableImageBeforeCreatingObjects(t *testing.T) {
 }
 
 func fixture(kube client.Client) *Provisioner {
-	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}}, nil
+	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":true,"tunnelReady":true,"dnsReady":true}`)), Header: http.Header{}}, nil
 	})}}
 }
 

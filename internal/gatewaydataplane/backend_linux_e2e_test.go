@@ -65,7 +65,7 @@ func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
 	defer healthTCP.Close()
 	serveGatewayTCP(healthTCP, "health")
 	installGatewayEngineFilter(t, gateway)
-	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local"}
 	backend := LinuxBackend{}
 	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, false) }); err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 		t.Skip("set WAYCLOAK_E2E_GATEWAY_NETNS=1 in an authorized privileged environment")
 	}
 	gateway := newGatewayNS(t)
-	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local"}
 	if err := gateway.Do(func(pluginsns.NetNS) error {
 		if err := netlink.LinkAdd(&netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "eth0"}}); err != nil {
 			return err
@@ -125,6 +125,13 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 			return err
 		}
 		if err = netlink.LinkSetUp(link); err != nil {
+			return err
+		}
+		if err = netlink.RouteAdd(&netlink.Route{
+			LinkIndex: link.Attrs().Index,
+			Dst:       netipPrefix(netip.IPv4Unspecified(), 0),
+			Gw:        net.ParseIP("192.0.2.254"),
+		}); err != nil {
 			return err
 		}
 		if err = os.WriteFile(ipv4ForwardingPath, []byte("1\n"), 0o644); err != nil {
@@ -175,6 +182,8 @@ func installGatewayEngineFilter(t *testing.T, networkNS pluginsns.NetNS) {
 		policy := nftables.ChainPolicyDrop
 		connection.AddChain(&nftables.Chain{Table: table, Name: engineInputChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
 		connection.AddChain(&nftables.Chain{Table: table, Name: engineForwardChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+		output := connection.AddChain(&nftables.Chain{Table: table, Name: engineOutputChainName, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: output, Exprs: established()})
 		return connection.Flush()
 	}); err != nil {
 		t.Fatal(err)

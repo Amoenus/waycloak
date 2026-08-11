@@ -32,6 +32,15 @@ spec:
           value: "true"}] :
           [JSONPatch{op: "add", path: "/spec/nodeSelector",
           value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: >-
+          !has(object.spec.dnsConfig) ?
+          [JSONPatch{op: "add", path: "/spec/dnsConfig", value: {"options": [{"name": "ndots", "value": "1"}]}}] :
+          !has(object.spec.dnsConfig.options) ?
+          [JSONPatch{op: "add", path: "/spec/dnsConfig/options", value: [{"name": "ndots", "value": "1"}]}] :
+          !object.spec.dnsConfig.options.exists(option, option.name == "ndots") ?
+          [JSONPatch{op: "add", path: "/spec/dnsConfig/options/-", value: {"name": "ndots", "value": "1"}}] : []
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding
@@ -94,6 +103,14 @@ spec:
         "networking.waycloak.io.node-restriction.kubernetes.io/core-ready" in object.spec.nodeSelector &&
         object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true")
       message: enrolled Pods require the Waycloak Core-ready scheduling constraint
+      reason: Forbidden
+    - expression: >-
+        !has(object.metadata.labels) ||
+        !("networking.waycloak.io/egress-route" in object.metadata.labels) ||
+        (has(object.spec.dnsConfig) && has(object.spec.dnsConfig.options) &&
+        object.spec.dnsConfig.options.filter(option, option.name == "ndots").size() == 1 &&
+        object.spec.dnsConfig.options.exists(option, option.name == "ndots" && has(option.value) && option.value == "1"))
+      message: enrolled Pods require the release-owned ndots:1 DNS search bound
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
