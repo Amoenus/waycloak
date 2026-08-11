@@ -86,7 +86,7 @@ reviewed install plan, confirmation-gated apply, fresh gateway recipe, and
 doctor. Author new route/workload/lease/adapter manifests from source intent,
 not the purge plan or old objects.
 
-Restart protected workloads only after every selected node reports exact Core
+Restart protected workloads only after every selected node reports exact baseline
 capability and the new gateway reports current `Accepted`, `ResolvedRefs`,
 `Programmed`, and live `Ready`. New Pod UIDs must receive new bindings,
 allocations, and provider mappings.

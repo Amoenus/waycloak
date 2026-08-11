@@ -12,7 +12,7 @@ begins with the creation-time proof; class/route API implementation does not
 outpace evidence that the target CNI lifecycle is enforceable.
 
 The existing v0.4 eBPF research is reused as evidence, but neither the alpha
-sidecar nor eBPF itself is presumed to be stable Core. CNI is the stable
+sidecar nor eBPF itself is presumed to be the stable baseline. CNI is the stable
 lifecycle contract; its tested node backend may use nftables/netlink and later
 eBPF without changing workload intent.
 
@@ -44,7 +44,7 @@ safe failure. If this fails, redesign before generating stable APIs.
    The machine-readable ledger is
    [alpha-removal-inventory.json](alpha-removal-inventory.json); CI rejects an
    unlisted alpha marker or artifact. Runtime deletion remains assigned to
-   #135 after replacement Core conformance, and the confirmation-gated ordering
+   #135 after replacement baseline conformance, and the confirmation-gated ordering
    input is [alpha-removal-order.md](alpha-removal-order.md).
 2. Implement `VPNGatewayClass`, redesigned `VPNGateway`, `VPNEgressRoute`, and
    controller-only `VPNWorkloadBinding` schemas with CEL and list semantics.
@@ -82,7 +82,7 @@ required failure modes record zero direct-egress packets.
    single-active endpoint selection, drain, handoff and return path.
 5. Revalidate `WorkloadAdapter` trust, digest immutability and renewable delivery.
 
-Exit: unsupported features reject before programming; Core remains independent
+Exit: unsupported features reject before programming; the baseline remains independent
 of port forwarding and adapters.
 
 ## Phase 4 — clean cutover and turnkey workflow
@@ -148,10 +148,10 @@ links rather than relying on list order.
 - #6 and #107–#114 contain useful CNI/eBPF research; their preview assumptions
   must be reconciled with ADR 0034 rather than implemented blindly.
 - #5 remains an optional adapter integration.
-- #31 remains post-Core multi-gateway/sharding.
+- #31 remains post-baseline multi-gateway/sharding.
 - #32 and #33 become stable release dependencies.
 - #64 supports the documentation-heavy program.
-- #116 provides live gateway evidence but does not substitute for CNI Core soak.
+- #116 provides live gateway evidence but does not substitute for CNI baseline soak.
 
 ## Acceptance matrix
 

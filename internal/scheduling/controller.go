@@ -24,7 +24,7 @@ func (r *NodeCapabilityReconciler) Reconcile(ctx context.Context, request ctrl.R
 	if err := r.Get(ctx, request.NamespacedName, node); err != nil {
 		return ctrl.Result{}, IgnoreNotFound(err)
 	}
-	if node.Labels[CoreReadyLabel] != "true" {
+	if node.Labels[CNIReadyLabel] != "true" {
 		return ctrl.Result{}, nil
 	}
 	now := r.now()

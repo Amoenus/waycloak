@@ -219,10 +219,10 @@ spec:
 `, namespace)
 	assertApplyFails(t, "API server accepted CNI or scheduler bypass for an enrolled Pod", nil, unsafeEnrollment)
 
-	command(t, nil, "kubectl", "label", "nodes", "--all", scheduling.CoreReadyLabel+"-", scheduling.CapabilityEpochLabel+"-", "--overwrite")
+	command(t, nil, "kubectl", "label", "nodes", "--all", scheduling.CNIReadyLabel+"-", scheduling.CapabilityEpochLabel+"-", "--overwrite")
 	nodeName := strings.TrimSpace(command(t, nil, "kubectl", "get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"))
 	assertCommandFails(t, "kubelet identity spoofed the protected Waycloak readiness label", nil, "kubectl", "label", "node", nodeName,
-		scheduling.CoreReadyLabel+"=true", "--overwrite", "--as=system:node:"+nodeName, "--as-group=system:nodes")
+		scheduling.CNIReadyLabel+"=true", "--overwrite", "--as=system:node:"+nodeName, "--as-group=system:nodes")
 	unsupported := fmt.Sprintf(`apiVersion: v1
 kind: Pod
 metadata:
@@ -239,7 +239,7 @@ spec:
 	applyInput(t, nil, unsupported)
 	waitForPodUnschedulable(t, namespace, "unsupported-node")
 	command(t, nil, "kubectl", "delete", "pod", "unsupported-node", "-n", namespace, "--wait=true", "--timeout=30s")
-	command(t, nil, "kubectl", "label", "node", nodeName, scheduling.CoreReadyLabel+"=true", fmt.Sprintf("%s=%d", scheduling.CapabilityEpochLabel, time.Now().Unix()), "--overwrite")
+	command(t, nil, "kubectl", "label", "node", nodeName, scheduling.CNIReadyLabel+"=true", fmt.Sprintf("%s=%d", scheduling.CapabilityEpochLabel, time.Now().Unix()), "--overwrite")
 	pods := fmt.Sprintf(`apiVersion: v1
 kind: Pod
 metadata:
@@ -347,14 +347,14 @@ func verifyGatewayClassContract(t *testing.T, namespace, className string) {
 	}
 	classReconciler := &waycontroller.VPNGatewayClassReconciler{
 		Client: client, ControllerName: class.Spec.ControllerName, ReleaseIdentity: class.Spec.ReleaseIdentity,
-		ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+		ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.BaselineFeatures(),
 	}
 	if _, err := classReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(class)}); err != nil {
 		t.Fatal(err)
 	}
 	gatewayReconciler := &waycontroller.ReplacementVPNGatewayReconciler{
 		Client: client, APIReader: client, ControllerName: class.Spec.ControllerName,
-		ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+		ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.BaselineFeatures(),
 		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
 	}
 	request := ctrl.Request{NamespacedName: ctrlclient.ObjectKey{Namespace: namespace, Name: "private"}}
@@ -825,7 +825,7 @@ func setGatewayReady(t *testing.T, ctx context.Context, client ctrlclient.Client
 		t.Fatal(err)
 	}
 	gateway.Status.ObservedGeneration = gateway.Generation
-	gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+	gateway.Status.SupportedFeatures = wayv1.BaselineFeatures()
 	gateway.Status.Conditions = nil
 	for _, conditionType := range []string{wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady} {
 		gateway.Status.Conditions = append(gateway.Status.Conditions, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType, Message: "Gateway observation is current", ObservedGeneration: gateway.Generation, LastTransitionTime: metav1.Now()})
@@ -951,7 +951,7 @@ func assertApplicationPodUnmodified(t *testing.T, namespace, name, route string)
 		pod.Spec.HostNetwork || pod.Spec.HostPID || pod.Spec.HostIPC {
 		t.Fatalf("application Pod received credential, volume, capability, or host wiring: %#v", pod.Spec)
 	}
-	if len(pod.Spec.NodeSelector) != 2 || pod.Spec.NodeSelector["kubernetes.io/os"] != "linux" || pod.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" {
+	if len(pod.Spec.NodeSelector) != 2 || pod.Spec.NodeSelector["kubernetes.io/os"] != "linux" || pod.Spec.NodeSelector[scheduling.CNIReadyLabel] != "true" {
 		t.Fatalf("application Pod scheduling mutation = %#v", pod.Spec.NodeSelector)
 	}
 }
@@ -968,8 +968,8 @@ func waitForPodUnschedulable(t *testing.T, namespace, name string) {
 		if pod.Spec.NodeName != "" {
 			t.Fatalf("unsupported enrolled Pod reached node %q", pod.Spec.NodeName)
 		}
-		if pod.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" {
-			t.Fatalf("enrolled Pod lacks Core-ready selector: %#v", pod.Spec.NodeSelector)
+		if pod.Spec.NodeSelector[scheduling.CNIReadyLabel] != "true" {
+			t.Fatalf("enrolled Pod lacks CNI-ready selector: %#v", pod.Spec.NodeSelector)
 		}
 		for _, condition := range pod.Status.Conditions {
 			if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse && condition.Reason == corev1.PodReasonUnschedulable {

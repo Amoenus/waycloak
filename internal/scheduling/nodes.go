@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	CoreReadyLabel        = "networking.waycloak.io.node-restriction.kubernetes.io/core-ready"
+	CNIReadyLabel         = "networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"
 	CapabilityEpochLabel  = "networking.waycloak.io.node-restriction.kubernetes.io/capability-epoch"
 	ObservationEpochLabel = "networking.waycloak.io.node-restriction.kubernetes.io/observation-epoch"
 	FieldManager          = "waycloak-node-capability-controller"
@@ -28,7 +28,7 @@ const (
 	DefaultClockSkew      = time.Minute
 )
 
-var CoreCapabilities = []string{"dns-udp-tcp", "ipv4", "netlink", "nftables", "vxlan"}
+var BaselineCapabilities = []string{"dns-udp-tcp", "ipv4", "netlink", "nftables", "vxlan"}
 
 type Publisher struct {
 	Client             client.Client
@@ -61,7 +61,7 @@ func (p Publisher) Apply(ctx context.Context, agentPod *corev1.Pod, report nodea
 	}
 	labels := map[string]string{ObservationEpochLabel: strconv.FormatInt(now.UnixNano(), 10)}
 	if report.Ready {
-		labels[CoreReadyLabel] = "true"
+		labels[CNIReadyLabel] = "true"
 		labels[CapabilityEpochLabel] = strconv.FormatInt(now.Unix(), 10)
 	}
 	owned := coreapply.Node(report.NodeName).WithLabels(labels)
@@ -86,11 +86,11 @@ func (p Publisher) withdraw(ctx context.Context, nodeName string) error {
 	if err := p.Client.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if node.Labels[CoreReadyLabel] == "" && node.Labels[CapabilityEpochLabel] == "" {
+	if node.Labels[CNIReadyLabel] == "" && node.Labels[CapabilityEpochLabel] == "" {
 		return nil
 	}
 	before := node.DeepCopy()
-	delete(node.Labels, CoreReadyLabel)
+	delete(node.Labels, CNIReadyLabel)
 	delete(node.Labels, CapabilityEpochLabel)
 	if err := p.Client.Patch(ctx, node, client.MergeFrom(before), client.FieldOwner(FieldManager)); err != nil {
 		return fmt.Errorf("withdraw authenticated node capability: %w", err)
@@ -116,7 +116,7 @@ func (p Publisher) required() []string {
 	if len(p.Required) != 0 {
 		return p.Required
 	}
-	return CoreCapabilities
+	return BaselineCapabilities
 }
 
 func containsAll(actual, required []string) bool {
@@ -129,7 +129,7 @@ func containsAll(actual, required []string) bool {
 }
 
 func Stale(node *corev1.Node, now time.Time, freshness time.Duration) bool {
-	if node == nil || node.Labels[CoreReadyLabel] != "true" {
+	if node == nil || node.Labels[CNIReadyLabel] != "true" {
 		return false
 	}
 	epoch, err := strconv.ParseInt(node.Labels[CapabilityEpochLabel], 10, 64)

@@ -190,7 +190,7 @@ func (f *fakeRuntime) Quarantine(context.Context, *wayv1.VPNGateway, WithdrawalI
 
 func readyGateway(gateway *wayv1.VPNGateway) {
 	now := metav1.NewTime(time.Unix(1000, 0).UTC())
-	gateway.Status = wayv1.VPNGatewayStatus{ObservedGeneration: gateway.Generation, SupportedFeatures: append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive), Conditions: wayv1.GatewayConditions{
+	gateway.Status = wayv1.VPNGatewayStatus{ObservedGeneration: gateway.Generation, SupportedFeatures: append(wayv1.BaselineFeatures(), wayv1.FeaturePortForwardSingleActive), Conditions: wayv1.GatewayConditions{
 		{Type: wayv1.ConditionAccepted, Status: metav1.ConditionTrue, Reason: wayv1.ReasonAccepted, ObservedGeneration: gateway.Generation, LastTransitionTime: now},
 		{Type: wayv1.ConditionReady, Status: metav1.ConditionTrue, Reason: wayv1.ReasonReady, ObservedGeneration: gateway.Generation, LastTransitionTime: now},
 	}}

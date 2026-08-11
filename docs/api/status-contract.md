@@ -36,7 +36,7 @@ same status retains the existing timestamp.
 Status writers use the field-manager identities frozen in the replacement API
 contract and server-side apply without force ownership. Summary conditions are
 map entries keyed by type, so independent managers can own distinct entries.
-Core route parent status is an at-most-one atomic entry identified by the exact
+Baseline route parent status is an at-most-one atomic entry identified by the exact
 parent reference and immutable controller name; a competing manager receives a
 conflict instead of taking it over.
 

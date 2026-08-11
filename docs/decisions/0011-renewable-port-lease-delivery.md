@@ -27,7 +27,7 @@ generation, issue/renewal/expiry times, and observed state. The Pod-local
 Waycloak agent obtains only the lease records authorized for that Pod and does
 not expose Kubernetes credentials to application containers.
 
-Environment variables are an adapter behavior, not a live core API. An
+Environment variables are an adapter behavior, not a live baseline API. An
 application that reads values only at startup must explicitly run under a
 Waycloak environment supervisor. The supervisor waits for a current ready
 record, exports the documented variables, and starts the application as its

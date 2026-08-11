@@ -76,7 +76,7 @@ const (
 	GatewayAddressOverlayCIDR QualifiedName = "networking.waycloak.io/OverlayCIDR"
 )
 
-func CoreFeatures() []FeatureName {
+func BaselineFeatures() []FeatureName {
 	return []FeatureName{
 		FeatureFailClosedEgress,
 		FeatureTCP,

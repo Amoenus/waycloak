@@ -236,14 +236,17 @@ and node-agent dependency graphs are replacement-only. Exact-head CI run
 Helm/KCL/generated output, security, Kind/kindnet, k3d/Flannel, and privileged
 packet gates before merge commit 6f5e4b47d76945d43c685609e4d4ba68745359b5.
 
-Issue #136 implementation and acceptance are complete in PR #155. Kubernetes
-1.36 stable declarative mutation
-adds one hard Core-ready selector to enrolled Pods, while validation rejects
+Issue #136's original behavior passed in PR #155, but the issue is reopened for
+the pre-beta product-vocabulary clean break. Kubernetes 1.36 stable declarative mutation
+adds one hard CNI-ready selector to enrolled Pods, while validation rejects
 host-namespace and direct-node CNI bypass. An authenticated exact-release node
 report lets only the controller publish NodeRestriction-protected scheduling
 readiness; stale, unsupported, unready, foreign-node, and release-skewed reports
 withdraw it. Positive reports additionally require a root-owned release-bound
-receipt matching the exact CNI binary and active conflist; the agent mounts all
+receipt. The sole protected identity is
+`networking.waycloak.io.node-restriction.kubernetes.io/cni-ready`; the old
+preview label is neither published nor accepted and has no compatibility alias.
+The receipt must match the exact CNI binary and active conflist; the agent mounts all
 three files read-only and restores lockdown on mismatch. Admission remains
 outside the packet boundary and no admission webhook or admission TLS is
 introduced. Exact implementation commit
@@ -505,7 +508,7 @@ identity. Confirmation precedes private-key generation; the key exists only in
 an immutable staged Secret and the non-sensitive immutable journal contains
 only its UID and public digests. The controller reloads and validates its
 projected pair for every TLS handshake. Rotation publishes bounded old/new
-trust, keeps Core-ready scheduling withdrawn through a node-agent capability
+trust, keeps CNI-ready scheduling withdrawn through a node-agent capability
 hold, records fresh authenticated non-ready observations through the switched
 server and new-only trust, then restores live capability and removes old/staged
 material. Unit coverage enumerates every partial Secret/agent checkpoint,

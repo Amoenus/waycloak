@@ -82,7 +82,7 @@ func main() {
 		ctrl.Log.Error(nil, "exact signed release version and manifest digest are required")
 		os.Exit(1)
 	}
-	supportedFeatures := wayv1.CoreFeatures()
+	supportedFeatures := wayv1.BaselineFeatures()
 	var leaseRuntime portforward.Runtime
 	var adapterHealth portforward.AdapterHealthChecker
 	portForwardConfigured := portForwardRuntimeCA != "" || portForwardRuntimeCert != "" || portForwardRuntimeKey != ""

@@ -1,6 +1,6 @@
 # CNI to node-agent protocol
 
-Status: Core security contract; production programming operation reserved for
+Status: Baseline security contract; production programming operation reserved for
 issue #133
 
 Protocol identity: `networking.waycloak.io/cni-node/v1`
@@ -75,7 +75,7 @@ unredacted private endpoint.
 | Check | `POST /cni-node/v1/check` | confirms exact current ownership plus live programmed/observed generation |
 | Withdraw | `POST /cni-node/v1/withdraw` | withdraws only exact UID/sandbox/netns-owned state; idempotent missing state succeeds |
 
-Core does not add generic command execution, arbitrary nftables/netlink input,
+The baseline does not add generic command execution, arbitrary nftables/netlink input,
 filesystem paths outside the exact attachment, raw Kubernetes objects, log
 retrieval, Secret retrieval, gateway control, or provider operations. Adding an
 operation or field requires a protocol-version compatibility decision, threat

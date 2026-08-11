@@ -13,7 +13,7 @@ clean place for future portable behavior. Growing it would reproduce the
 annotation-extension problems that Gateway API replaced for ingress.
 
 Waycloak must also preserve a stronger invariant than ordinary selector-based
-policy: protection is explicit and visible in the workload Pod template. Core
+policy: protection is explicit and visible in the workload Pod template. The baseline
 `PodSpec` has no extension field into which Waycloak can add a typed reference.
 
 ## Decision

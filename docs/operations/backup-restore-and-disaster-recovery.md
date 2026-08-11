@@ -112,7 +112,7 @@ provider mappings to the state file.
 ## Portable restore
 
 1. Install the exact signed Waycloak release recorded by the required gateway
-   classes. Verify its CRDs and Core runtime.
+   classes. Verify its CRDs and baseline runtime.
 2. Restore namespaces, namespace consent labels, native ConfigMaps, and
    credential Secrets from their separate sources. Do not start enrolled
    workloads.
@@ -244,7 +244,7 @@ that plan with its original confirmation. Foreign/tampered material, changed
 release/preflight/Secret UID, an unenumerated bundle, or missing staged private
 material before the exact target is refused. Successful completion preserves
 the stable Secret UIDs, leaves one new CA and serving identity, removes the
-capability hold, restores fresh Core-ready capability, and deletes staged state
+capability hold, restores fresh CNI-ready capability, and deletes staged state
 and the journal.
 
 ## Failure and degraded-state handling

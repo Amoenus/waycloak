@@ -28,7 +28,7 @@ carrying the one enrollment label:
 ```yaml
 spec:
   nodeSelector:
-    networking.waycloak.io.node-restriction.kubernetes.io/core-ready: "true"
+    networking.waycloak.io.node-restriction.kubernetes.io/cni-ready: "true"
 ```
 
 The JSON patch adds only that map key, so all workload-owner `nodeSelector` and
@@ -42,9 +42,9 @@ infrastructure is installed, so there is no webhook timeout to configure.
 The node agent reports readiness through the existing TLS, Pod-bound,
 TokenReview-authenticated observation relay. A report contains a strict
 version, exact Node name, boot and agent instance identities, observation time,
-Core capabilities, immutable signed release identity, and conformance profile.
+Baseline capabilities, immutable signed release identity, and conformance profile.
 The controller accepts a report only for the authenticated agent Pod's assigned
-Node and only when every value matches its own Core contract. The node agent
+Node and only when every value matches its own baseline contract. The node agent
 keeps read-only Kubernetes RBAC. Only the controller can patch Nodes.
 
 Agent readiness also requires a root-owned installation receipt produced by
@@ -56,7 +56,7 @@ verification on every reconciliation. Missing, writable, symlinked, changed,
 release-skewed, or incorrectly chained artifacts force lockdown and a negative
 capability report. The runtime agent never writes the CNI directories.
 
-An accepted report publishes two controller-owned protected labels: the Core
+An accepted report publishes two controller-owned protected labels: the baseline
 readiness selector and a server-time capability epoch. Missing capability,
 unready backend, invalid installation receipt, clock rejection,
 release/profile skew, or an authenticated negative report withdraws both. The
@@ -83,7 +83,7 @@ skew deliberately causes denial until matching artifacts are running.
 ## Consequences
 
 - Unsupported nodes leave enrolled Pods Pending with the standard scheduler
-  `Unschedulable` condition and an event naming the missing Core-ready label.
+  `Unschedulable` condition and an event naming the missing CNI-ready label.
 - Admission outages cannot create direct egress, and no admission service or
   certificate becomes part of product availability.
 - A compromised kubelet cannot self-advertise on supported NodeRestriction

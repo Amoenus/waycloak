@@ -85,7 +85,7 @@ not infer that from desired configuration.
 - qSticky and qBitTorrent WebUI credentials are not part of Waycloak's core
   runtime or security boundary.
 - Future workload-specific adapters have a documented high bar and cannot
-  silently become core control-plane behavior.
+  silently become baseline control-plane behavior.
 - One workload manifest works across providers whose public-port behavior
   differs.
 - The target port remains stable across controller, gateway, and workload
@@ -102,7 +102,7 @@ not infer that from desired configuration.
   public port differs.
 - Emulate Gluetun's control API in the workload agent: this leaks a
   provider-engine compatibility contract into the canonical workload path.
-- Embed qBitTorrent WebUI calls in the controller: this makes core readiness
+- Embed qBitTorrent WebUI calls in the controller: this makes baseline readiness
   application-specific and requires application credentials in the control
   plane.
 - Rewrite BitTorrent tracker or DHT payloads in the gateway: this is a fragile,

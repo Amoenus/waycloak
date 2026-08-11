@@ -5,9 +5,9 @@ namespace only when the gateway owner explicitly authorizes the route's
 namespace through `VPNGateway.spec.allowedRoutes.namespaces`.
 
 The default is `Same`. `Selector` matches labels on the source Namespace, and
-`All` deliberately authorizes every namespace. Core does not install, read, or
+`All` deliberately authorizes every namespace. The baseline does not install, read, or
 watch Gateway API `ReferenceGrant`, and it defines no Waycloak-specific grant
-kind. Gateway-side `allowedRoutes` is the complete Core handshake.
+kind. Gateway-side `allowedRoutes` is the complete baseline handshake.
 
 ## Label authority is a security boundary
 
@@ -42,7 +42,7 @@ withdraws `Programmed` and `Ready`; an enrolled workload remains fail closed.
 No cross-namespace owner reference is created.
 
 Route and replacement `PortForwardLease` dependencies share exact gateway,
-gateway-class, and source-Namespace index keys. The Core route controller
+gateway-class, and source-Namespace index keys. The baseline route controller
 consumes those mappings now. The optional replacement lease controller consumes
 the lease mappings in #137; the alpha lease controller is intentionally not
 connected to the replacement authorization path.
@@ -52,5 +52,5 @@ from the workload template and creating a new Pod. Consent revocation never
 turns an already enrolled Pod into ordinary egress.
 
 See `config/samples/networking_v1beta1_cross_namespace.yaml` for the authored-
-from-scratch object relationship. Do not apply it until the complete Core CNI,
+from-scratch object relationship. Do not apply it until the complete baseline CNI,
 node agent, binding, gateway, and controller path is installed.

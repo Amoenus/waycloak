@@ -36,7 +36,7 @@ func TestCapabilityHoldAffectsOnlyPublishedReadiness(t *testing.T) {
 		t.Fatal("certificate hold disabled the local CNI readiness boundary")
 	}
 	if service.Report().Node.Ready {
-		t.Fatal("certificate hold published schedulable Core readiness")
+		t.Fatal("certificate hold published schedulable CNI readiness")
 	}
 	service.CapabilityHeld = false
 	if !service.Report().Node.Ready {

@@ -45,7 +45,7 @@ func TestDoctorFailsWhenSelectedNodeCapabilityIsUnavailable(t *testing.T) {
 	if err != nil || report.Healthy || report.Nodes["Unavailable"] != 1 || report.Nodes["NotSelected"] != 1 {
 		t.Fatalf("selected capability loss did not fail closed: %#v %v", report, err)
 	}
-	if !doctorProblem(report, "One or more nodes lack a current authenticated Core capability") {
+	if !doctorProblem(report, "One or more nodes lack a current authenticated CNI capability") {
 		t.Fatalf("selected capability loss lacks a precise problem: %#v", report.Problems)
 	}
 }
@@ -124,7 +124,7 @@ func doctorClients(t *testing.T, objects ...runtime.Object) *Clients {
 func doctorNode(name, architecture string, capable bool) *corev1.Node {
 	labels := map[string]string{"kubernetes.io/arch": architecture}
 	if capable {
-		labels[coreReadyNodeLabel] = "true"
+		labels[cniReadyNodeLabel] = "true"
 	}
 	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
 }

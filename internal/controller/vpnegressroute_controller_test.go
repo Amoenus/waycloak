@@ -226,6 +226,6 @@ func readyGateway(namespace string) *wayv1.VPNGateway {
 	}
 	return &wayv1.VPNGateway{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "gateway", Generation: generation},
-		Status:     wayv1.VPNGatewayStatus{ObservedGeneration: generation, SupportedFeatures: wayv1.CoreFeatures(), Conditions: conditions},
+		Status:     wayv1.VPNGatewayStatus{ObservedGeneration: generation, SupportedFeatures: wayv1.BaselineFeatures(), Conditions: conditions},
 	}
 }

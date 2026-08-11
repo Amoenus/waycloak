@@ -97,11 +97,11 @@ jobs:
             go test -tags=e2e ./internal/portforward \
               -run '^TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal$' \
               -v -count=1 -timeout=2m
-      - name: Prove Core gateway fail-closed packet path
+      - name: Prove baseline gateway fail-closed packet path
         run: |
           sudo env "PATH=$PATH" WAYCLOAK_E2E_GATEWAY_NETNS=1 \
             go test -tags=e2e ./internal/gatewaydataplane \
-              -run '^TestGatewayCoreFailClosedTCPUDPAndTunnelLoss$' \
+              -run '^TestGatewayBaselineFailClosedTCPUDPAndTunnelLoss$' \
               -v -count=1 -timeout=2m
       - name: Verify reproducible cross-platform waycloakctl artifacts
         run: |

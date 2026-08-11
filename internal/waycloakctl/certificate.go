@@ -81,7 +81,7 @@ func BuildCertificateRotationPlan(report PreflightReport, source InstalledReleas
 		APIVersion: OutputAPIVersion, Kind: "CertificateRotationPlan", RotationSequence: certificateRotationSequence,
 		Namespace: namespace, Release: release, OverlayCIDR: overlayCIDR, PreflightDigest: report.ObservationDigest, Source: source,
 		Commands: []string{"waycloakctl certificate rotation apply --plan <reviewed-plan.json> --confirm <exact-planID>"},
-		Security: []string{"stage a new release-owned private serving identity", "publish bounded old-and-new trust overlap", "withdraw Core-ready scheduling before each trust boundary", "delete the prior trust root only after fresh authenticated node capability"},
+		Security: []string{"stage a new release-owned private serving identity", "publish bounded old-and-new trust overlap", "withdraw CNI-ready scheduling before each trust boundary", "delete the prior trust root only after fresh authenticated node capability"},
 	}
 	plan.PlanID = certificateRotationPlanIdentity(plan)
 	plan.Commands[0] = "waycloakctl certificate rotation apply --plan <reviewed-plan.json> --confirm " + plan.PlanID
@@ -680,12 +680,12 @@ func withdrawRotationNodes(ctx context.Context, clients *Clients, plan Certifica
 			if getErr != nil {
 				return getErr
 			}
-			delete(current.Labels, scheduling.CoreReadyLabel)
+			delete(current.Labels, scheduling.CNIReadyLabel)
 			delete(current.Labels, scheduling.CapabilityEpochLabel)
 			_, updateErr := clients.Kubernetes.CoreV1().Nodes().Update(ctx, current, metav1.UpdateOptions{})
 			return updateErr
 		}); err != nil {
-			return fmt.Errorf("withdraw Core-ready node %s: %w", node.Name, err)
+			return fmt.Errorf("withdraw CNI-ready node %s: %w", node.Name, err)
 		}
 	}
 	return nil
@@ -759,7 +759,7 @@ func waitRotationNodesObserved(ctx context.Context, clients *Clients, plan Certi
 			}
 			matched++
 			epoch, parseErr := strconv.ParseInt(node.Labels[scheduling.ObservationEpochLabel], 10, 64)
-			if node.Labels[scheduling.CoreReadyLabel] != "" || parseErr != nil || time.Unix(0, epoch).UTC().Before(after) {
+			if node.Labels[scheduling.CNIReadyLabel] != "" || parseErr != nil || time.Unix(0, epoch).UTC().Before(after) {
 				return false, nil
 			}
 		}
@@ -785,7 +785,7 @@ func waitRotationNodesReady(ctx context.Context, clients *Clients, plan Certific
 			}
 			matched++
 			epoch, parseErr := strconv.ParseInt(node.Labels[scheduling.CapabilityEpochLabel], 10, 64)
-			if node.Labels[scheduling.CoreReadyLabel] != "true" || parseErr != nil || time.Unix(epoch, 0).UTC().Before(after.Add(-time.Second)) {
+			if node.Labels[scheduling.CNIReadyLabel] != "true" || parseErr != nil || time.Unix(epoch, 0).UTC().Before(after.Add(-time.Second)) {
 				return false, nil
 			}
 		}

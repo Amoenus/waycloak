@@ -130,7 +130,7 @@ when the target reuses an unchanged gateway binary digest.
 
 ### Observation certificate rotation
 
-The replacement Core has no admission webhook certificate. Its only owned TLS
+The replacement baseline has no admission webhook certificate. Its only owned TLS
 boundary is the authenticated node-agent observation relay. Rotation therefore
 uses a separate `waycloakctl certificate rotation plan/apply` transaction; an
 ordinary release transition must preserve this identity and cannot overlap an
@@ -148,10 +148,10 @@ Apply publishes the old-and-new CA bundle before changing the serving key,
 then rolls node agents with an explicit capability hold. Held agents keep the
 local CNI and existing deny state operational but report `Ready=False`; the
 controller records a fresh authenticated observation epoch without restoring
-the Core-ready scheduling label. After a held report succeeds through the new
+the CNI-ready scheduling label. After a held report succeeds through the new
 serving certificate, apply prunes old trust, rolls agents against new-only
 trust, requires another held observation, releases the hold, and finally
-requires fresh live Core capability.
+requires fresh live baseline capability.
 
 Each single-object Secret update is an exact restart checkpoint, including
 partial overlap publication and partial trust pruning. A retry accepts only the

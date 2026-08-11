@@ -29,7 +29,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
+func TestGatewayBaselineFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
 	if os.Getenv("WAYCLOAK_E2E_GATEWAY_NETNS") != "1" {
 		t.Skip("set WAYCLOAK_E2E_GATEWAY_NETNS=1 in an authorized privileged environment")
 	}

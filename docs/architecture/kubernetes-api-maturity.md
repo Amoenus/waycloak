@@ -148,8 +148,8 @@ Every reference passes four separate tests:
 
 `ResolvedRefs` summarizes the first three. `Programmed` and `Ready` summarize
 applied and live state. A cross-namespace route-to-gateway reference requires
-gateway-side allowed-route consent. Every other initial Core reference is local
-or cluster-scoped, so Core has no Gateway API CRD dependency. A future different
+gateway-side allowed-route consent. Every other initial baseline reference is local
+or cluster-scoped, so the baseline has no Gateway API CRD dependency. A future different
 cross-namespace reference requires a new review before adopting upstream
 `ReferenceGrant`; Waycloak defines no temporary grant. Unauthorized status does
 not reveal target existence before consent.

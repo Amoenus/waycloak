@@ -4,4 +4,4 @@ The distribution owns `VPNGatewayClass`; the cluster/network operator owns `VPNG
 
 Gateway credentials remain referenced by the gateway. The node agent receives no VPN credentials. Waycloak injects or projects no application container, init container, capability, host mount, VPN credential, or Kubernetes credential. Workload owners remain responsible for credentials they explicitly add to their own Pod templates. `Ready=True` is reserved for current, observed live data-plane health.
 
-Cross-namespace attachment requires explicit gateway-owner consent and does not reveal whether an unauthorized target exists. Core currently accepts exactly one effective parent.
+Cross-namespace attachment requires explicit gateway-owner consent and does not reveal whether an unauthorized target exists. The baseline currently accepts exactly one effective parent.

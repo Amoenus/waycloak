@@ -1,4 +1,4 @@
-# This replacement example is safe to apply only after the complete Core CNI,
+# This replacement example is safe to apply only after the complete baseline CNI,
 # node-agent, binding, gateway, and route path is installed. Replace the image
 # with the immutable digest of your application.
 apiVersion: apps/v1
