@@ -163,14 +163,20 @@ done
 publish_image() {
   local name="$1"
   local package="$2"
+  local image_label="${3:-}"
   local repository="${registry_host}:${registry_port}/waycloak/${name}"
+  local -a label_args=()
   local reference
+  if [[ -n "$image_label" ]]; then
+    label_args=(--image-label "$image_label")
+  fi
   reference="$(
     KO_DOCKER_REPO="$repository" \
       go run github.com/google/ko@v0.19.1 build \
         --bare \
         --sbom=spdx \
         --platform=linux/amd64 \
+        "${label_args[@]}" \
         "$package"
   )"
   if [[ ! "$reference" =~ ^${repository}@sha256:[a-f0-9]{64}$ ]]; then
@@ -185,6 +191,11 @@ cni_ref="$(publish_image waycloak-cni ./cmd/waycloak-cni)"
 node_agent_ref="$(publish_image waycloak-node-agent ./cmd/waycloak-node-agent)"
 gateway_agent_ref="$(publish_image waycloak-gateway-agent ./cmd/waycloak-gateway-agent)"
 gluetun_ref="$(publish_image fake-gluetun ./test/fixtures/fake-gluetun)"
+baseline_controller_ref="$(publish_image replacement-controller-baseline ./cmd/replacement-controller io.waycloak.lifecycle=baseline)"
+baseline_cni_ref="$(publish_image waycloak-cni-baseline ./cmd/waycloak-cni io.waycloak.lifecycle=baseline)"
+baseline_node_agent_ref="$(publish_image waycloak-node-agent-baseline ./cmd/waycloak-node-agent io.waycloak.lifecycle=baseline)"
+baseline_gateway_agent_ref="$(publish_image waycloak-gateway-agent-baseline ./cmd/waycloak-gateway-agent io.waycloak.lifecycle=baseline)"
+baseline_gluetun_ref="$(publish_image fake-gluetun-baseline ./test/fixtures/fake-gluetun io.waycloak.lifecycle=baseline)"
 observer_ref="$(publish_image egress-observer ./test/fixtures/egress-observer)"
 probe_ref="$(publish_image waycloak-probe ./cmd/waycloak-probe)"
 
@@ -232,11 +243,11 @@ go run ./hack/corerelease \
 go run ./hack/corerelease \
   --version "$baseline_release_version" \
   --chart "$baseline_chart_ref" \
-  --image "replacement-controller=$controller_ref" \
-  --image "waycloak-cni=$cni_ref" \
-  --image "waycloak-node-agent=$node_agent_ref" \
-  --image "waycloak-gateway-agent=$gateway_agent_ref" \
-  --image "gluetun=$gluetun_ref" \
+  --image "replacement-controller=$baseline_controller_ref" \
+  --image "waycloak-cni=$baseline_cni_ref" \
+  --image "waycloak-node-agent=$baseline_node_agent_ref" \
+  --image "waycloak-gateway-agent=$baseline_gateway_agent_ref" \
+  --image "gluetun=$baseline_gluetun_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/baseline-release-manifest.json"
 
@@ -774,6 +785,8 @@ apply_exact_transition() {
   local source_secret_path staged_revision repair_plan_path repair_plan_id repair_marker
   local direct_values_path direct_log target_chart
   local before_controller_image before_cni_image before_agent_image
+  local before_gateway_pod_uid before_gateway_pod_images
+  local expected_gateway_engine_image expected_gateway_agent_image
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
   current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -786,6 +799,12 @@ apply_exact_transition() {
   before_tls="$(kubectl get secret "${release_name}-observation-tls" --namespace "$system_namespace" -o json | \
     jq -r '[.metadata.uid, .data["ca.crt"], .data["tls.crt"]] | join("|")')"
   before_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
+  before_gateway_pod_uid="$(kubectl get pod waycloak-gateway-disposable-0 \
+    --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+  before_gateway_pod_images="$(kubectl get pod waycloak-gateway-disposable-0 \
+    --namespace "$smoke_namespace" -o jsonpath='{range .spec.containers[*]}{.name}={.image}{"\\n"}{end}')"
+  expected_gateway_engine_image="$(jq -r '.images.gluetun.repository + "@" + .images.gluetun.digest' "$manifest_path")"
+  expected_gateway_agent_image="$(jq -r '.images["waycloak-gateway-agent"].repository + "@" + .images["waycloak-gateway-agent"].digest' "$manifest_path")"
   source_secret_path="$work_dir/source-helm-revision-${label}.json"
   kubectl get secret "sh.helm.release.v1.${release_name}.v${before_revision}" \
     --namespace "$system_namespace" -o json >"$source_secret_path"
@@ -1121,6 +1140,16 @@ EOF
     -o jsonpath='{.spec.releaseIdentity.version}')" = "$expected_version"
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io \
     -o jsonpath='{.spec.releaseIdentity.manifestDigest}')" = "$expected_digest"
+  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" \
+    -o jsonpath='{.metadata.uid}')" = "$before_gateway_pod_uid"
+  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" \
+    -o jsonpath='{range .spec.containers[*]}{.name}={.image}{"\\n"}{end}')" = "$before_gateway_pod_images"
+  kubectl get statefulset waycloak-gateway-disposable --namespace "$smoke_namespace" -o json | \
+    jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" '
+      .spec.updateStrategy.type == "OnDelete" and
+      (.spec.template.spec.containers[] | select(.name == "vpn-engine") | .image) == $engine and
+      (.spec.template.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent
+    ' >/dev/null
   kubectl get deployment waycloak-controller --namespace "$system_namespace" -o json | \
     jq -e --arg version "$expected_version" --arg digest "$expected_digest" '
       .spec.template.spec.containers[] | select(.name == "controller") |

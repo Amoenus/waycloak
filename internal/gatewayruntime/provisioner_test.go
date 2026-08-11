@@ -41,6 +41,12 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	}
 	statefulSet := &appsv1.StatefulSet{}
 	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
+	if statefulSet.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
+		t.Fatalf("gateway update strategy = %q, want explicit operator activation", statefulSet.Spec.UpdateStrategy.Type)
+	}
+	if len(statefulSet.Spec.VolumeClaimTemplates) != 0 || statefulSet.Spec.Template.Spec.Volumes[1].EmptyDir == nil {
+		t.Fatalf("gateway StatefulSet unexpectedly carries durable application state: %#v", statefulSet.Spec)
+	}
 	statefulSet.UID = "statefulset-uid"
 	must(t, kube.Update(context.Background(), statefulSet))
 	if statefulSet.Spec.Template.Spec.AutomountServiceAccountToken == nil || *statefulSet.Spec.Template.Spec.AutomountServiceAccountToken || len(statefulSet.Spec.Template.Spec.Containers) != 2 {
@@ -89,6 +95,47 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	observation, err = provisioner.Reconcile(context.Background(), gateway)
 	if err != nil || observation.Ready || !observation.TunnelReady || observation.DNSReady || observation.MembershipApplied {
 		t.Fatalf("DNS-specific failure was not preserved in gateway observation: %#v %v", observation, err)
+	}
+}
+
+func TestProvisionerAdoptsExistingRollingUpdateWithoutReplacingGatewayPod(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
+	must(t, wayv1.AddToScheme(scheme))
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "media", UID: "gateway-uid", Generation: 1}, Spec: wayv1.VPNGatewaySpec{GatewayClassName: "gluetun.waycloak.io", NativeConfigRefs: []wayv1.RoleObjectReference{{Role: waycontroller.GluetunEnvironmentRole, Name: "engine"}}, CredentialRefs: []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: "credentials"}}, ClusterTraffic: wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll}}}
+	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "engine", Namespace: "media", ResourceVersion: "1"}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn"}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "media", ResourceVersion: "1"}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway, config, secret).Build()
+	provisioner := fixture(kube)
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	statefulSet := &appsv1.StatefulSet{}
+	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
+	statefulSet.UID = "statefulset-uid"
+	statefulSet.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{Type: appsv1.RollingUpdateStatefulSetStrategyType}
+	must(t, kube.Update(context.Background(), statefulSet))
+	controller := true
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-gateway-private-0", Namespace: "media", UID: "gateway-pod-uid", OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "StatefulSet", Name: statefulSet.Name, UID: statefulSet.UID, Controller: &controller}}}, Spec: *statefulSet.Spec.Template.Spec.DeepCopy()}
+	must(t, kube.Create(context.Background(), pod))
+	oldEngineImage := pod.Spec.Containers[0].Image
+	provisioner.EngineImage = "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("c", 64)
+	provisioner.AgentImage = "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("d", 64)
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(statefulSet), statefulSet))
+	if statefulSet.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
+		t.Fatalf("existing gateway update strategy = %q after adoption", statefulSet.Spec.UpdateStrategy.Type)
+	}
+	if got := statefulSet.Spec.Template.Spec.Containers[0].Image; got != provisioner.EngineImage {
+		t.Fatalf("desired gateway template image = %q, want %q", got, provisioner.EngineImage)
+	}
+	currentPod := &corev1.Pod{}
+	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(pod), currentPod))
+	if currentPod.UID != pod.UID || currentPod.Spec.Containers[0].Image != oldEngineImage {
+		t.Fatalf("existing gateway Pod changed during OnDelete adoption: uid=%q image=%q", currentPod.UID, currentPod.Spec.Containers[0].Image)
 	}
 }
 

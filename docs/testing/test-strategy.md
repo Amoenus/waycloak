@@ -187,6 +187,14 @@ rollback. Both transitions require a newer Helm revision, exact target runtime
 and CNI receipt, a new UID for the immutable target gateway class, preserved
 certificate identity, live node capability, and the full gateway-replacement
 startup-denial and packet exercise.
+The Core runtime transition must leave each existing singleton gateway Pod UID
+unchanged even when its StatefulSet template advances to target gateway image
+digests. The lifecycle fixture uses distinct source and target image digests.
+Tests require an explicit `OnDelete` strategy, existing/default strategy
+adoption before template mutation, and no gateway Pod deletion until the
+separate operator-confirmed activation step. That activation then requires a
+new exact gateway Pod UID running the target images, protected denial during
+loss, complete route/binding recovery, and zero direct packets.
 Before each supported forward and rollback transaction, the suite attempts the
 same changed release through raw Helm. Connected rendering must refuse it with
 the original class UID, deployed Helm revision, controller/CNI/node images, and

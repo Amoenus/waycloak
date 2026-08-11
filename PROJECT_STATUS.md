@@ -19,6 +19,36 @@ and teardown input, not the stable API baseline.
 
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
+
+## Core.18 homelab release-transition evidence
+
+The signed `v0.0.0-core.18` CLI executed the supported journal-bound transition
+from exact Core.17 Helm revision 20 to staged and active Core.18 revisions 21
+and 22. The default class changed from reviewed UID
+`269917aa-554b-411b-9f73-a840c8a322a2` to
+`eed747c2-17ec-4ae8-ad8a-70ee2743eb62`, while both observation Secret UIDs were
+preserved. The target class, controller, CNI receipt/installer, node agent, and
+Argo declaration converged to the signed Core.18 manifest; `waycloakctl doctor`
+reported the selected amd64 node and every class/gateway/route/binding condition
+current and Ready.
+
+A concurrent six-minute qBittorrent canary recorded 78 samples: 77 external
+HTTP successes, 75 protected egress successes, three denied egress probes, one
+HTTP failure, zero successful observations matching ordinary workstation
+egress, zero qBittorrent Pod UID changes, and zero container restarts. The
+denials coincide with four sampled gateway-not-Ready observations and preserve
+the fail-closed invariant.
+
+The same row exposed that the generated singleton gateway StatefulSet omitted
+`spec.updateStrategy`, so Kubernetes defaulted to `RollingUpdate` and activated
+the Core.18 gateway template during the release transaction. ADR 0042 requires
+that activation to be explicit. This #140 slice renders `OnDelete`, reconciles
+existing replacement StatefulSets to that policy, and tests that a desired
+image change leaves the exact existing gateway Pod untouched until operator
+deletion. A corrected
+published-artifact transition and explicit real-provider gateway activation are
+still required before this lifecycle row is complete.
+
 ## Clean-break implementation progress
 
 The #124 creation-time CNI feasibility gate passed and merged in

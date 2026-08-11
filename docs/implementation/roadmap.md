@@ -116,9 +116,19 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   leaving Argo CD OutOfSync. Core.13 renders those defaults explicitly, passed
   hosted and independent exact-artifact verification, and converged Argo CD to
   Healthy/Synced without replacing the controller or gateway or restarting
-  either container. Protected workload enrollment and churn/leak evidence now
-  precede beta CRD lifecycle, upgrade/rollback, #32 DR, uninstall/purge, and the
-  remaining support-row evidence.
+  either container. Core.17 to Core.18 then completed the signed, journal-bound
+  two-revision homelab transition: the immutable class received a new UID,
+  observation Secret UIDs were preserved, and 78 six-minute qBittorrent samples
+  observed zero ordinary-egress fallback, zero workload Pod replacement, and
+  zero workload restart. Three protected egress probes were denied and one
+  external HTTP probe failed during the bounded handoff. That live row also
+  exposed a lifecycle defect: the generated singleton gateway StatefulSet used
+  Kubernetes' default `RollingUpdate`, automatically activating the new gateway
+  template instead of waiting for the required operator action. The current
+  slice makes `OnDelete` explicit and adopts existing StatefulSets before future
+  template changes. Protected workload churn/leak evidence, a corrected exact
+  transition plus explicit gateway activation, beta CRD lifecycle, rollback,
+  #32 DR, uninstall/purge, and remaining support rows are still required.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm
