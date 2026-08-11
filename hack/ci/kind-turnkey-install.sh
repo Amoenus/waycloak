@@ -16,6 +16,7 @@ readonly release_version="v0.0.0-turnkey-ci"
 readonly baseline_release_version="v0.0.0-turnkey-ci-baseline"
 readonly system_namespace="waycloak-system"
 readonly release_name="waycloak"
+readonly smoke_namespace="waycloak-smoke"
 
 work_dir="$(mktemp -d)"
 metrics_forward_pid=""
@@ -242,8 +243,12 @@ CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -o "$work_dir/waycloakctl" ./cmd/waycloakctl
 
 "$work_dir/waycloakctl" preflight --output json >"$work_dir/preflight.json"
-jq -e '.compatible == true and .profile == "networking.waycloak.io/Core-v1"' \
-  "$work_dir/preflight.json" >/dev/null
+if ! jq -e '.compatible == true and .profile == "networking.waycloak.io/Core-v1"' \
+  "$work_dir/preflight.json" >/dev/null; then
+  cat "$work_dir/preflight.json" >&2
+  printf 'turnkey preflight did not accept the pinned support row\n' >&2
+  exit 1
+fi
 
 "$work_dir/waycloakctl" install plan \
   --release-manifest "$work_dir/baseline-release-manifest.json" \
@@ -381,7 +386,6 @@ if grep '^waycloak_' "$work_dir/metrics-initial.txt" \
   exit 1
 fi
 
-readonly smoke_namespace="waycloak-smoke"
 readonly observer_ip="198.18.0.1"
 readonly observer_port="8443"
 docker exec "$node" ip address add "${observer_ip}/32" dev lo
