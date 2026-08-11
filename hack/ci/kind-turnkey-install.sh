@@ -273,8 +273,8 @@ jq -e '
   .nodeArchitecture == "amd64" and
   .metadata.nodeArchitecture == "amd64" and
   (.valuesYAML | contains("kubernetes.io/arch:")) and
-  (.valuesYAML | contains("serviceIP: 10.96.0.10")) and
-  (.valuesYAML | contains("domain: cluster.local"))
+  (.valuesYAML | contains("serviceIP: \"10.96.0.10\"")) and
+  (.valuesYAML | contains("domain: \"cluster.local\""))
 ' "$work_dir/install-plan.json" >/dev/null
 if grep -Eqi 'password|privateKey|username|latest' "$work_dir/install-plan.json"; then
   printf 'install plan contains a forbidden mutable or credential field\n' >&2
