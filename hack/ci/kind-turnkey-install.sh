@@ -89,6 +89,19 @@ capture_metrics() {
   metrics_forward_pid=""
 }
 
+wait_for_agent_socket() {
+  local node_name="$1"
+  local deadline="$((SECONDS + 30))"
+  until docker exec "$node_name" test -S /run/waycloak/cni-agent.sock && \
+    docker exec "$node_name" test -f /run/waycloak/cni-auth.key; do
+    if (( SECONDS >= deadline )); then
+      printf 'node agent did not recreate its authenticated local socket within 30s\n' >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 mkdir -p "$work_dir/registry-tls"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
   -keyout "$work_dir/registry-tls/ca.key" \
@@ -378,7 +391,7 @@ kubectl delete pod --namespace "$system_namespace" \
   --selector app.kubernetes.io/component=node-agent --wait=true
 kubectl rollout status daemonset/waycloak-node-agent \
   --namespace "$system_namespace" --timeout=2m
-docker exec "$node" test -S /run/waycloak/cni-agent.sock
+wait_for_agent_socket "$node"
 
 doctor_deadline="$((SECONDS + 120))"
 until "$work_dir/waycloakctl" doctor --output json \
