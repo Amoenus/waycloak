@@ -280,6 +280,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return fmt.Errorf("refusing mutation: %w", err)
 	}
 	if checkpoint == installCheckpointTarget {
+		if err := ensureTargetGatewayPods(ctx, clients, plan.Target); err != nil {
+			return err
+		}
 		if err := deleteInstallTransitionJournal(ctx, clients, plan, false); err != nil {
 			return err
 		}
@@ -437,6 +440,9 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 	output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath)...)
 	if err != nil {
 		return fmt.Errorf("helm baseline activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
+	}
+	if err := ensureTargetGatewayPods(ctx, clients, plan.Target); err != nil {
+		return err
 	}
 	target, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
 	if err != nil {

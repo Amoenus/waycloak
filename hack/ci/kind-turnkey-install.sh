@@ -864,8 +864,8 @@ apply_exact_transition() {
   local source_secret_path staged_revision repair_plan_path repair_plan_id repair_marker
   local direct_values_path direct_log target_chart
   local before_controller_image before_cni_image before_agent_image
-  local before_gateway_pod_uid before_gateway_pod_images before_gateway_pod_revision
-  local before_gateway_release_version before_gateway_release_digest gateway_stage_ready
+  local before_gateway_pod_uid before_gateway_pod_revision after_gateway_pod_uid
+  local gateway_rollout_ready expected_gateway_revision
   local expected_gateway_engine_image expected_gateway_agent_image
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
@@ -881,15 +881,10 @@ apply_exact_transition() {
   before_class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
   before_gateway_pod_uid="$(kubectl get pod waycloak-gateway-disposable-0 \
     --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
-  before_gateway_pod_images="$(kubectl get pod waycloak-gateway-disposable-0 \
-    --namespace "$smoke_namespace" -o jsonpath='{range .spec.containers[*]}{.name}={.image}{"\\n"}{end}')"
   before_gateway_pod_revision="$(kubectl get pod waycloak-gateway-disposable-0 \
     --namespace "$smoke_namespace" -o jsonpath='{.metadata.labels.controller-revision-hash}')"
+  test -n "$before_gateway_pod_uid"
   test -n "$before_gateway_pod_revision"
-  before_gateway_release_version="$(kubectl get pod waycloak-gateway-disposable-0 \
-    --namespace "$smoke_namespace" -o jsonpath='{.metadata.annotations.runtime\.networking\.waycloak\.io/release-version}')"
-  before_gateway_release_digest="$(kubectl get pod waycloak-gateway-disposable-0 \
-    --namespace "$smoke_namespace" -o jsonpath='{.metadata.annotations.runtime\.networking\.waycloak\.io/release-manifest-digest}')"
   expected_gateway_engine_image="$(jq -r '.images.gluetun.repository + "@" + .images.gluetun.digest' "$manifest_path")"
   expected_gateway_agent_image="$(jq -r '.images["waycloak-gateway-agent"].repository + "@" + .images["waycloak-gateway-agent"].digest' "$manifest_path")"
   source_secret_path="$work_dir/source-helm-revision-${label}.json"
@@ -1227,35 +1222,45 @@ EOF
     -o jsonpath='{.spec.releaseIdentity.version}')" = "$expected_version"
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io \
     -o jsonpath='{.spec.releaseIdentity.manifestDigest}')" = "$expected_digest"
-  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" \
-    -o jsonpath='{.metadata.uid}')" = "$before_gateway_pod_uid"
-  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" \
-    -o jsonpath='{range .spec.containers[*]}{.name}={.image}{"\\n"}{end}')" = "$before_gateway_pod_images"
-  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" \
-    -o jsonpath='{.metadata.annotations.runtime\.networking\.waycloak\.io/release-version}')" = "$before_gateway_release_version"
-  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" \
-    -o jsonpath='{.metadata.annotations.runtime\.networking\.waycloak\.io/release-manifest-digest}')" = "$before_gateway_release_digest"
-  gateway_stage_ready=false
+  gateway_rollout_ready=false
   for _ in $(seq 1 60); do
-    if kubectl get statefulset waycloak-gateway-disposable --namespace "$smoke_namespace" -o json | \
+    expected_gateway_revision="$(kubectl get statefulset waycloak-gateway-disposable \
+      --namespace "$smoke_namespace" -o jsonpath='{.status.updateRevision}')"
+    if [[ -n "$expected_gateway_revision" && "$expected_gateway_revision" != "$before_gateway_pod_revision" ]] && \
+      kubectl get statefulset waycloak-gateway-disposable --namespace "$smoke_namespace" -o json | \
       jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" \
-        --arg version "$expected_version" --arg digest "$expected_digest" \
-        --arg liveRevision "$before_gateway_pod_revision" '
+        --arg version "$expected_version" --arg digest "$expected_digest" --arg revision "$expected_gateway_revision" '
         .spec.updateStrategy.type == "OnDelete" and
         (.spec.template.spec.containers[] | select(.name == "vpn-engine") | .image) == $engine and
         (.spec.template.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent and
         .spec.template.metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
         .spec.template.metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
-        .status.updateRevision != "" and .status.updateRevision != $liveRevision
+        .status.updateRevision == $revision
+      ' >/dev/null && \
+      kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" -o json | \
+      jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" \
+        --arg version "$expected_version" --arg digest "$expected_digest" --arg revision "$expected_gateway_revision" '
+        (.spec.containers[] | select(.name == "vpn-engine") | .image) == $engine and
+        (.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent and
+        .metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
+        .metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
+        .metadata.labels["controller-revision-hash"] == $revision and
+        ([.status.containerStatuses[] | select(.ready == true)] | length) == 2
       ' >/dev/null; then
-      gateway_stage_ready=true
+      gateway_rollout_ready=true
       break
     fi
     sleep 1
   done
-  if [[ "$gateway_stage_ready" != true ]]; then
-    printf '%s transition did not stage a distinct exact gateway revision\n' "$label" >&2
+  if [[ "$gateway_rollout_ready" != true ]]; then
+    printf '%s transition did not activate its distinct exact gateway revision\n' "$label" >&2
     kubectl get statefulset waycloak-gateway-disposable --namespace "$smoke_namespace" -o yaml >&2
+    return 1
+  fi
+  after_gateway_pod_uid="$(kubectl get pod waycloak-gateway-disposable-0 \
+    --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+  if [[ -z "$after_gateway_pod_uid" || "$after_gateway_pod_uid" == "$before_gateway_pod_uid" ]]; then
+    printf '%s transition did not replace the exact stale gateway Pod\n' "$label" >&2
     return 1
   fi
   kubectl get deployment waycloak-controller --namespace "$system_namespace" -o json | \
