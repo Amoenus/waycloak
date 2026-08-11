@@ -4,6 +4,9 @@
 {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) }}
 {{- fail "defaultGatewayClass.releaseIdentity.manifestDigest must be an exact sha256 digest" }}
 {{- end }}
+{{- if and .Values.extended.enabled (ne .Values.controller.conformanceProfile "networking.waycloak.io/ExtendedCandidate-v1") }}
+{{- fail "extended.enabled=true requires controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1" }}
+{{- end }}
 {{- $existing := lookup "networking.waycloak.io/v1beta1" "VPNGatewayClass" "" .Values.defaultGatewayClass.name }}
 {{- if $existing }}
 {{- $existingVersion := dig "spec" "releaseIdentity" "version" "" $existing }}
@@ -41,5 +44,5 @@ spec:
     - networking.waycloak.io/WorkloadAdapter
     {{- end }}
     {{- end }}
-  conformanceProfile: networking.waycloak.io/Core-v1
+  conformanceProfile: {{ .Values.controller.conformanceProfile }}
 {{- end }}

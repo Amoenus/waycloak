@@ -276,6 +276,20 @@ the immutable `WorkloadAdapter` and observed adapter Pod carry its exact image
 identity. This slice is deployment plumbing, not #137 acceptance or permission
 to advertise Extended as conformant.
 
+The next #137 slice adds the confirmation boundary without prematurely claiming
+Extended conformance. `waycloakctl install plan --enable-extended` accepts only
+a distinct exact release manifest carrying the complete optional artifact pair
+and the `networking.waycloak.io/ExtendedCandidate-v1` test profile. It binds a
+named immutable controller mTLS Secret by UID plus public CA and certificate
+digests, verifies the exact replacement-controller SPIFFE client identity, and
+re-observes it before any apply mutation. The candidate profile is propagated
+to the controller and immutable default class; the chart rejects Extended
+feature advertisement under the Core profile. Disposable Kind acceptance
+covers wrong confirmation, Secret deletion/recreation, exact re-planning,
+journal-bound class replacement, controller trust wiring, and preservation of
+an Extended-free two-container Core gateway. This remains candidate plumbing:
+homelab activation and the provider-backed handoff proof are still required.
+
 Issue #138 is in progress on the turnkey bootstrap slice. `waycloakctl` now
 implements read-only cluster preflight, exact release-manifest install planning,
 confirmation-gated Helm apply, a reviewed Proton/OpenVPN gateway recipe,

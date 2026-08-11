@@ -26,6 +26,16 @@ Install through a signed `waycloakctl` exact-artifact plan: development values
 do not invent image digests, release identity, observation trust, or root-owned
 host paths. The runtime agent never writes the host CNI directories.
 
+Extended port forwarding is disabled by default. Candidate testing must use a
+reviewed `waycloakctl install plan --enable-extended` transaction, a distinct
+exact release manifest with the complete optional artifact pair, and a
+pre-created immutable controller mTLS Secret containing the exact
+`spiffe://waycloak.io/replacement-controller` client identity. The chart rejects
+Extended feature advertisement unless the controller and default class use the
+`networking.waycloak.io/ExtendedCandidate-v1` test profile. That profile is not
+an `Extended-v1` conformance claim and must not be used as public support
+evidence.
+
 The privileged CNI installer is always host-networked and tokenless. Its Pod
 sandbox therefore does not invoke the chained plugin that it installs or
 upgrades, including while the node-agent socket is absent or the previous

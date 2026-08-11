@@ -55,8 +55,14 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   requires an exact runtime image, named mTLS Secrets, explicit gateway feature
   intent, and an exact gateway-owned Service while preserving an Extended-free
   Core render. The adapter image remains exact in its operator-authored trust
-  record rather than becoming unused chart configuration. Next add the
-  confirmation-gated CLI transaction and operator-owned adapter deployment.
+  record rather than becoming unused chart configuration. The next slice adds
+  a confirmation-gated CLI transaction bound to a distinct exact release,
+  complete optional artifact inventory, immutable mTLS Secret UID/public
+  digests, exact controller SPIFFE identity, and an explicit
+  `ExtendedCandidate-v1` test profile. Disposable Kind covers wrong
+  confirmation, Secret replacement, re-planning, immutable class replacement,
+  and preservation of a two-container Core gateway. Next publish that slice and
+  deploy the operator-owned adapter through the homelab GitOps canary.
   Keep the capability unadvertised until the real-provider
   rolling-replacement test proves drain, successor handoff, return-path
   symmetry, zero wrong-Pod delivery, and zero ordinary-egress fallback.

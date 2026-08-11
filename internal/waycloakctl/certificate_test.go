@@ -110,7 +110,7 @@ func TestCertificateRotationClassifiesEveryExactInterruption(t *testing.T) {
 	if target.ObservationRotationID != plan.PlanID || target.ObservationCADigest != journal.TargetCADigest || target.ObservationServingDigest != journal.TargetServingDigest || target.ObservationCAUID != plan.Source.ObservationCAUID || target.ObservationTLSUID != plan.Source.ObservationTLSUID {
 		t.Fatalf("completed rotation lost stable or target identity: %#v", target)
 	}
-	installPlan, err := BuildInstallPlan(releaseManifest(), plan.Namespace, plan.Release, "", report, target, target.CRDIdentities)
+	installPlan, err := BuildInstallPlan(releaseManifest(), plan.Namespace, plan.Release, "", report, target, target.CRDIdentities, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

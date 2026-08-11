@@ -226,7 +226,7 @@ func installRepairFixture(t *testing.T, checkpoint string) (*Clients, InstallRep
 	if err != nil {
 		t.Fatal(err)
 	}
-	transition, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crdIdentities)
+	transition, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crdIdentities, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

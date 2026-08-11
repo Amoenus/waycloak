@@ -8,8 +8,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -118,10 +125,10 @@ func TestInstallPlanRequiresExplicitArchitectureOnMixedCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 	source, crds := absentInstallInputs(t)
-	if _, err = BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "", report, source, crds); err == nil || !strings.Contains(err.Error(), "explicit --node-architecture") {
+	if _, err = BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "", report, source, crds, nil); err == nil || !strings.Contains(err.Error(), "explicit --node-architecture") {
 		t.Fatalf("mixed cluster did not require an explicit row: %v", err)
 	}
-	plan, err := BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "amd64", report, source, crds)
+	plan, err := BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "amd64", report, source, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +144,7 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 		t.Fatal(err)
 	}
 	source, crds := absentInstallInputs(t)
-	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds)
+	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,11 +239,22 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("complete known Extended release inventory was rejected: %v", err)
 	}
+
+	manifest = releaseManifest()
+	manifest.Profiles = append(manifest.Profiles, extendedCandidateConformanceProfile)
+	digest, err = manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ManifestDigest = digest
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "extended profile") {
+		t.Fatalf("Extended candidate profile without its artifact inventory was accepted: %v", err)
+	}
 }
 
 func TestReleaseManifestIdentityIsFormattingAndProfileOrderIndependent(t *testing.T) {
-	manifest := releaseManifest()
-	manifest.Profiles = []string{"networking.waycloak.io/Extended-v1", "networking.waycloak.io/Core-v1"}
+	manifest := extendedReleaseManifest()
+	manifest.Profiles = []string{"networking.waycloak.io/ExtendedCandidate-v1", "networking.waycloak.io/Core-v1"}
 	first, err := manifest.IdentityDigest()
 	if err != nil {
 		t.Fatal(err)
@@ -255,6 +273,119 @@ func TestReleaseManifestIdentityIsFormattingAndProfileOrderIndependent(t *testin
 	}
 }
 
+func TestExtendedInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
+	manifest := extendedReleaseManifest()
+	report, err := Preflight(context.Background(), supportedClients(t), "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, crds := absentInstallInputs(t)
+	identity := &ExtendedInstallIdentity{ControllerTLSSecret: "waycloak-extended-controller-tls", SecretUID: "tls-uid", CADigest: "sha256:" + strings.Repeat("7", 64), CertificateDigest: "sha256:" + strings.Repeat("8", 64), AdapterEnabled: true}
+	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"extended:\n  enabled: true", `controllerTLSSecret: "waycloak-extended-controller-tls"`, `repository: "ghcr.io/amoenus/waycloak-gateway-runtime"`, "adapter:\n    enabled: true", `conformanceProfile: "networking.waycloak.io/ExtendedCandidate-v1"`} {
+		if !strings.Contains(plan.Values, expected) {
+			t.Fatalf("Extended install values lack %q:\n%s", expected, plan.Values)
+		}
+	}
+	encoded, err := EncodePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "tls.key") || strings.Contains(string(encoded), "PRIVATE KEY") {
+		t.Fatalf("Extended plan exposed private key material: %s", encoded)
+	}
+
+	deployedClients := supportedClients(t)
+	testCRDs, deployedCRDs, _ := testInstallCRDBundle(t)
+	if _, _, err = ensureObservationSecrets(context.Background(), deployedClients, "waycloak-system", "waycloak", "sha256:"+strings.Repeat("9", 64)); err != nil {
+		t.Fatal(err)
+	}
+	seedInstalledRelease(t, deployedClients, manifest, "waycloak-system", "waycloak", 1, testCRDs)
+	deployed, err := ObserveInstalledRelease(context.Background(), deployedClients, "waycloak-system", "waycloak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployedReport, err := Preflight(context.Background(), deployedClients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", deployedReport, deployed, deployedCRDs, identity); err == nil || !strings.Contains(err.Error(), "changed exact release") {
+		t.Fatalf("same-release Extended activation bypassed class replacement: %v", err)
+	}
+}
+
+func TestExtendedInstallPlanFlagsRequireCompleteExplicitActivation(t *testing.T) {
+	for name, arguments := range map[string][]string{
+		"adapter without runtime": {"plan", "--release-manifest", "unused", "--enable-workload-adapter"},
+		"runtime without secret":  {"plan", "--release-manifest", "unused", "--enable-extended"},
+		"secret without runtime":  {"plan", "--release-manifest", "unused", "--extended-controller-tls-secret", "identity"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := runInstall(context.Background(), arguments, Dependencies{Stderr: io.Discard}); err == nil || !strings.Contains(err.Error(), "requires --enable-extended") && !strings.Contains(err.Error(), "must be supplied together") {
+				t.Fatalf("incomplete Extended activation flags reached cluster discovery: %v", err)
+			}
+		})
+	}
+}
+
+func TestExtendedInstallApplyRejectsTLSIdentitySwapBeforeMutation(t *testing.T) {
+	clients := supportedClients(t)
+	ca, certificate, key := extendedControllerIdentity(t)
+	immutable := true
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extended-controller-tls", Namespace: "waycloak-system", UID: "tls-uid"}, Immutable: &immutable, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"ca.crt": ca, "tls.crt": certificate, "tls.key": key}}
+	if _, err := clients.Kubernetes.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := observeExtendedInstallIdentity(context.Background(), clients, secret.Namespace, secret.Name, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(context.Background(), clients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, crds := absentInstallInputs(t)
+	plan, err := BuildInstallPlan(extendedReleaseManifest(), secret.Namespace, "waycloak", "", report, source, crds, &identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err = clients.Kubernetes.CoreV1().Secrets(secret.Namespace).Get(context.Background(), secret.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret.Data["ca.crt"] = []byte("swapped")
+	if _, err = clients.Kubernetes.CoreV1().Secrets(secret.Namespace).Update(context.Background(), secret, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	runnerCalled := false
+	err = ApplyInstallPlan(context.Background(), clients, func(context.Context, string, ...string) ([]byte, error) {
+		runnerCalled = true
+		return nil, nil
+	}, plan, plan.PlanID)
+	if err == nil || !strings.Contains(err.Error(), "refusing mutation") || runnerCalled {
+		t.Fatalf("TLS identity swap was not rejected before mutation: called=%t err=%v", runnerCalled, err)
+	}
+}
+
+func TestExtendedInstallRejectsWrongTLSRoleAndIdentity(t *testing.T) {
+	clients := supportedClients(t)
+	ca, certificate, key, err := observationIdentity("extended", "waycloak-system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	immutable := true
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "wrong-role", Namespace: "waycloak-system", UID: "wrong-role-uid"}, Immutable: &immutable, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"ca.crt": ca, "tls.crt": certificate, "tls.key": key}}
+	if _, err = clients.Kubernetes.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = observeExtendedInstallIdentity(context.Background(), clients, secret.Namespace, secret.Name, false); err == nil || !strings.Contains(err.Error(), "client authentication") {
+		t.Fatalf("server-only non-SPIFFE certificate passed Extended planning: %v", err)
+	}
+}
+
 func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	manifest := releaseManifest()
 	clients := supportedClients(t)
@@ -267,7 +398,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds)
+	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +495,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forwardPlan, err := BuildInstallPlan(forward, plan.Namespace, plan.Release, "", report, forwardSource, crds)
+	forwardPlan, err := BuildInstallPlan(forward, plan.Namespace, plan.Release, "", report, forwardSource, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +519,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rollbackPlan, err := BuildInstallPlan(manifest, plan.Namespace, plan.Release, "", report, rollbackSource, crds)
+	rollbackPlan, err := BuildInstallPlan(manifest, plan.Namespace, plan.Release, "", report, rollbackSource, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +539,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tamperPlan, err := BuildInstallPlan(forward, plan.Namespace, plan.Release, "", report, tamperSource, crds)
+	tamperPlan, err := BuildInstallPlan(forward, plan.Namespace, plan.Release, "", report, tamperSource, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +583,7 @@ func TestInstallApplyResumesOnlyJournalBoundExactCheckpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds)
+	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,7 +750,7 @@ func TestInstallApplyResumesAfterExactClassWithdrawal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds)
+	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +794,7 @@ func TestInstallApplyRejectsPreflightDriftBeforeMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	source, crds := absentInstallInputs(t)
-	plan, err := BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "", report, source, crds)
+	plan, err := BuildInstallPlan(releaseManifest(), "waycloak-system", "waycloak", "", report, source, crds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1047,6 +1178,55 @@ func releaseManifest() ReleaseManifest {
 	manifest := ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}}
 	manifest.ManifestDigest, _ = manifest.IdentityDigest()
 	return manifest
+}
+
+func extendedReleaseManifest() ReleaseManifest {
+	manifest := releaseManifest()
+	manifest.Images["waycloak-gateway-runtime"] = Artifact{Repository: "ghcr.io/amoenus/waycloak-gateway-runtime", Digest: "sha256:" + strings.Repeat("7", 64)}
+	manifest.Images["waycloak-qbittorrent-adapter"] = Artifact{Repository: "ghcr.io/amoenus/waycloak-qbittorrent-adapter", Digest: "sha256:" + strings.Repeat("8", 64)}
+	manifest.Profiles = append(manifest.Profiles, extendedCandidateConformanceProfile)
+	manifest.ManifestDigest, _ = manifest.IdentityDigest()
+	return manifest
+}
+
+func extendedControllerIdentity(t *testing.T) ([]byte, []byte, []byte) {
+	t.Helper()
+	now := time.Now().UTC()
+	caPublic, caPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTemplate := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Waycloak Extended test CA"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPublic, caPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientPublic, clientPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := url.Parse(extendedControllerSPIFFEIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientTemplate := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Waycloak Extended controller"}, URIs: []*url.URL{identity}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	clientDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caTemplate, clientPublic, caPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(clientPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientDER}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 }
 
 func checkStatus(report PreflightReport, name string) string {

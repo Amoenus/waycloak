@@ -281,6 +281,7 @@ jobs:
             --set extended.enabled=true
             --set-string extended.controllerTLSSecret=waycloak-extended-controller-tls
             --set-string extended.gatewayRuntime.image.digest="$digest"
+            --set-string controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1
             --set extended.adapter.enabled=true)
           helm template "${extended_args[@]}" >"$RUNNER_TEMP/extended-1.yaml"
           helm template "${extended_args[@]}" >"$RUNNER_TEMP/extended-2.yaml"
@@ -291,6 +292,16 @@ jobs:
           grep -q 'secretName: waycloak-extended-controller-tls' "$RUNNER_TEMP/extended-1.yaml"
           test "$(grep -c 'networking.waycloak.io/PortForwardServiceSingleActive' "$RUNNER_TEMP/extended-1.yaml")" -eq "$((core_port_forward_features + 1))"
           test "$(grep -c 'networking.waycloak.io/WorkloadAdapter' "$RUNNER_TEMP/extended-1.yaml")" -eq "$((core_adapter_features + 1))"
+          grep -q 'conformanceProfile: networking.waycloak.io/ExtendedCandidate-v1' "$RUNNER_TEMP/extended-1.yaml"
+          if helm template "${enabled_args[@]}" \
+            --set extended.enabled=true \
+            --set-string extended.controllerTLSSecret=waycloak-extended-controller-tls \
+            --set-string extended.gatewayRuntime.image.digest="$digest" \
+            >"$RUNNER_TEMP/extended-core-profile.yaml" 2>"$RUNNER_TEMP/extended-core-profile.err"; then
+            echo "Extended rendered with the Core conformance identity" >&2
+            exit 1
+          fi
+          grep -q 'requires controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1' "$RUNNER_TEMP/extended-core-profile.err"
           if helm template "${enabled_args[@]}" --set extended.enabled=true >"$RUNNER_TEMP/extended-partial.yaml" 2>"$RUNNER_TEMP/extended-partial.err"; then
             echo "partial Extended configuration rendered successfully" >&2
             exit 1
