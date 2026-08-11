@@ -49,9 +49,12 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   with stable declarative mutation, protected capability labels, exact
   authenticated release reports, CNI installation receipt verification,
   expiry, independent CNI refusal, and exact-head CI/Kind/k3d evidence.
-- [ ] #137 Service-backed SingleActive PortForwardLease: implementation is in
-  progress; keep the capability unadvertised until Kind and real-provider
-  rolling-replacement evidence passes.
+- [ ] #137 Service-backed SingleActive PortForwardLease: API, controller,
+  privileged handoff tests, and the signed amd64/arm64 optional runtime pair are
+  implemented. Keep the capability unadvertised until confirmation-gated
+  deployment and the real-provider rolling-replacement test prove drain,
+  successor handoff, return-path symmetry, zero wrong-Pod delivery, and zero
+  ordinary-egress fallback.
 - [ ] #138: turnkey CLI and runtime installation are in progress independently
   of the still-unadvertised Extended #137 capability. Do not close until signed
   exact-artifact, clean-install, and under-15-minute provider evidence pass. A
@@ -134,13 +137,19 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   replacement, and zero workload restart. The current-generation class,
   gateway, route, and binding recovered Ready, the node receipt identified the
   target manifest, and Argo CD converged Healthy/Synced. Corrected forward
-  transition and activation evidence are complete. The next lifecycle slice
-  binds the generated singleton template to the signed release version and
-  manifest digest and tests forward/rollback staging with unchanged gateway
-  binary digests, while the live Pod retains its source identity until explicit
-  activation. This is rollout evidence, not compatibility support. Beta CRD
-  lifecycle, live exact rollback, #32 DR, uninstall/purge, and remaining support
-  rows are still required.
+  transition and activation evidence are complete. Core.20 now binds the
+  generated singleton template to the signed release version and manifest
+  digest and proves forward/rollback staging even with unchanged gateway binary
+  digests while the live Pod retains its source identity. Its independently
+  verified homelab Core.19-to-Core.20-to-Core.19-to-Core.20 sequence preserved
+  the exact live gateway through each signed transaction, required explicit
+  activation, retained one qBittorrent Pod with zero restarts, and recorded zero
+  ordinary-egress matches. The final Core.20 activation recovered after three
+  fail-closed denials; the Core.19 rollback activation required 50 denied probes
+  before later partial recovery and remains part of #116. This is rollout
+  evidence, not compatibility support. Interrupted lifecycle, beta CRD
+  lifecycle, #32 DR, uninstall/purge, sustained soak, and remaining support rows
+  are still required.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm
@@ -158,7 +167,10 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   Grafana dashboard passed all eight jobs in exact-head run `31366217996`.
   Turnkey Kind proved live gateway/tunnel/DNS and missing-route protection state,
   application non-start, and privacy-canary absence from the installed scrape.
-- [ ] #141: proceed after its declared dependencies and evidence.
+- [ ] #141: one live amd64 K3s/Flannel real-provider forward/rollback/forward
+  row is recorded for Core.20. Proceed with live ARM, remaining protocol and
+  failure rows, destructive reinstall, DR, multi-day exact-artifact soak, beta
+  stability, and v1 graduation after their declared dependencies are complete.
 
 ## Phase 0 — repository and design baseline
 
