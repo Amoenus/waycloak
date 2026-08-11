@@ -1594,7 +1594,7 @@ apply_extended_candidate() {
   plan_id="$(jq -r '.planID' "$plan_path")"
   secret_uid="$(kubectl get secret waycloak-extended-controller-tls --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
   jq -e --arg uid "$secret_uid" '
-    .operation == "Transition" and
+    .operation == "ExactReleaseTransition" and
     .extended.secretUID == $uid and
     .extended.adapterEnabled == true and
     .metadata.featureProfile == "networking.waycloak.io/ExtendedCandidate-v1" and
