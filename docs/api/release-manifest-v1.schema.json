@@ -16,12 +16,14 @@
     "images": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"],
+      "required": ["replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-qbittorrent-adapter", "gluetun", "pause"],
       "properties": {
         "replacement-controller": { "$ref": "#/$defs/artifact" },
         "waycloak-cni": { "$ref": "#/$defs/artifact" },
         "waycloak-node-agent": { "$ref": "#/$defs/artifact" },
         "waycloak-gateway-agent": { "$ref": "#/$defs/artifact" },
+        "waycloak-gateway-runtime": { "$ref": "#/$defs/artifact" },
+        "waycloak-qbittorrent-adapter": { "$ref": "#/$defs/artifact" },
         "gluetun": { "$ref": "#/$defs/artifact" },
         "pause": { "$ref": "#/$defs/artifact" }
       }

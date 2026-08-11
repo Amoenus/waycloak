@@ -1,7 +1,7 @@
 // Copyright 2026 The Waycloak Authors.
 // SPDX-License-Identifier: MIT
 
-// Command corerelease assembles the publisher-owned exact Core artifact
+// Command release assembles the publisher-owned exact Waycloak artifact
 // inventory. It is not an installation fallback and never discovers or
 // substitutes artifact identities.
 package main
@@ -35,13 +35,13 @@ func main() {
 }
 
 func run(arguments []string, output io.Writer) error {
-	flags := flag.NewFlagSet("corerelease", flag.ContinueOnError)
+	flags := flag.NewFlagSet("release", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var version, chartValue string
 	var imageValues, profiles repeatedFlag
 	flags.StringVar(&version, "version", "", "immutable release version")
 	flags.StringVar(&chartValue, "chart", "", "exact chart repository@sha256:digest")
-	flags.Var(&imageValues, "image", "required name=repository@sha256:digest; repeat once per Core image")
+	flags.Var(&imageValues, "image", "required name=repository@sha256:digest; repeat once per release image")
 	flags.Var(&profiles, "profile", "conformance profile; defaults to Core-v1")
 	if err := flags.Parse(arguments); err != nil {
 		return err

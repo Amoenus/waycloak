@@ -79,7 +79,7 @@ func (identity PortForwardInstallIdentity) validate() error {
 	return nil
 }
 
-const failClosedLifecycleSequence = "FailClosedCoreLifecycle-v2"
+const failClosedLifecycleSequence = "FailClosedLifecycle-v3"
 
 func LoadReleaseManifest(path string) (ReleaseManifest, string, error) {
 	data, err := os.ReadFile(path)
@@ -119,18 +119,17 @@ func (manifest ReleaseManifest) Validate() error {
 		}
 	}
 	if !contains(profiles, "networking.waycloak.io/Core-v1") {
-		return errors.New("release manifest does not attest the Core profile")
+		return errors.New("release manifest does not attest the baseline conformance suite")
 	}
 	if len(profiles) != 1 {
 		return errors.New("release manifest profiles describe baseline conformance only; optional capabilities must not create release profiles")
 	}
-	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"}
-	optionalPortForwardImages := []string{"waycloak-gateway-runtime", "waycloak-qbittorrent-adapter"}
-	if len(manifest.Images) != len(requiredImages) && len(manifest.Images) != len(requiredImages)+len(optionalPortForwardImages) {
-		return errors.New("release manifest image inventory must contain the required artifacts and either all or none of the known port-forward artifacts")
+	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-qbittorrent-adapter", "gluetun", "pause"}
+	if len(manifest.Images) != len(requiredImages) {
+		return errors.New("release manifest image inventory must contain exactly the complete Waycloak artifact set")
 	}
-	knownImages := make(map[string]struct{}, len(requiredImages)+len(optionalPortForwardImages))
-	for _, name := range append(requiredImages, optionalPortForwardImages...) {
+	knownImages := make(map[string]struct{}, len(requiredImages))
+	for _, name := range requiredImages {
 		knownImages[name] = struct{}{}
 	}
 	for name := range manifest.Images {
@@ -143,20 +142,6 @@ func (manifest ReleaseManifest) Validate() error {
 		if !ok || artifact.Repository == "" || !validDigest(artifact.Digest) || strings.Contains(artifact.Repository, "@") {
 			return fmt.Errorf("release manifest lacks exact %s image identity", name)
 		}
-	}
-	portForwardPresent := 0
-	for _, name := range optionalPortForwardImages {
-		artifact, ok := manifest.Images[name]
-		if !ok {
-			continue
-		}
-		portForwardPresent++
-		if artifact.Repository == "" || !validDigest(artifact.Digest) || strings.Contains(artifact.Repository, "@") {
-			return fmt.Errorf("release manifest lacks exact %s image identity", name)
-		}
-	}
-	if portForwardPresent != 0 && portForwardPresent != len(optionalPortForwardImages) {
-		return errors.New("release manifest port-forward artifact inventory must be complete")
 	}
 	if manifest.Chart.Repository == "" || !validDigest(manifest.Chart.Digest) || strings.Contains(manifest.Chart.Repository, "@") {
 		return errors.New("release manifest lacks exact chart identity")

@@ -1,14 +1,14 @@
-name: Core release
+name: Waycloak release
 
 on:
   push:
     tags:
-      - "v*-core.*"
+      - "v*"
 
 permissions: {}
 
 concurrency:
-  group: core-release-${{ github.ref }}
+  group: waycloak-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -39,19 +39,16 @@ jobs:
       waycloak_cni_digest: ${{ steps.publish-images.outputs.waycloak_cni_digest }}
       waycloak_cni_repository: ${{ steps.publish-images.outputs.waycloak_cni_repository }}
     steps:
-      - name: Check out exact Core candidate tag
+      - name: Check out exact Waycloak release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate the immutable Core candidate tag
+      - name: Validate the immutable Waycloak release tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-core\.[0-9]+$ ]]; then
-            echo "Core publication requires vMAJOR.MINOR.PATCH-core.NUMBER" >&2
-            exit 1
-          fi
+          bash hack/validate-release-tag.sh "$RELEASE_TAG"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
@@ -106,7 +103,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          mkdir -p dist/core
+          mkdir -p dist/release
           release_version="${RELEASE_TAG#v}"
 
           publish_image() {
@@ -136,7 +133,7 @@ jobs:
             done
             tag_digest="$(docker buildx imagetools inspect "$repository:$release_version" | awk '$1 == "Digest:" {print $2; exit}')"
             test "$tag_digest" = "${reference#*@}"
-            printf '%s\n' "$reference" >"dist/core/${name}.ref"
+            printf '%s\n' "$reference" >"dist/release/${name}.ref"
             {
               printf '%s_repository=%s\n' "$key" "$repository"
               printf '%s_digest=%s\n' "$key" "${reference#*@}"
@@ -199,11 +196,11 @@ jobs:
             echo "derived Gluetun publisher did not return one exact index digest" >&2
             exit 1
           fi
-          printf '%s@%s\n' "$repository" "$digest" >dist/core/gluetun.ref
-          cp "$RUNNER_TEMP/gluetun-first/gluetun-dependency.patch" dist/core/
-          cp "$RUNNER_TEMP/gluetun-first/control-auth.toml" dist/core/gluetun-control-auth.toml
-          cp "$RUNNER_TEMP/gluetun-first/LICENSE" dist/core/gluetun.LICENSE
-          cp "$RUNNER_TEMP/gluetun-first/gluetun-binaries.SHA256SUMS" dist/core/
+          printf '%s@%s\n' "$repository" "$digest" >dist/release/gluetun.ref
+          cp "$RUNNER_TEMP/gluetun-first/gluetun-dependency.patch" dist/release/
+          cp "$RUNNER_TEMP/gluetun-first/control-auth.toml" dist/release/gluetun-control-auth.toml
+          cp "$RUNNER_TEMP/gluetun-first/LICENSE" dist/release/gluetun.LICENSE
+          cp "$RUNNER_TEMP/gluetun-first/gluetun-binaries.SHA256SUMS" dist/release/
           {
             printf 'repository=%s\n' "$repository"
             printf 'digest=%s\n' "$digest"
@@ -223,25 +220,25 @@ jobs:
               --destination "$RUNNER_TEMP/chart-$build" >/dev/null
           done
           cmp "$RUNNER_TEMP/chart-first/waycloak-$release_version.tgz" "$RUNNER_TEMP/chart-second/waycloak-$release_version.tgz"
-          cp "$RUNNER_TEMP/chart-first/waycloak-$release_version.tgz" dist/core/
-          helm push "dist/core/waycloak-$release_version.tgz" oci://ghcr.io/amoenus/charts >"$RUNNER_TEMP/chart-push.txt"
+          cp "$RUNNER_TEMP/chart-first/waycloak-$release_version.tgz" dist/release/
+          helm push "dist/release/waycloak-$release_version.tgz" oci://ghcr.io/amoenus/charts >"$RUNNER_TEMP/chart-push.txt"
           digest="$(awk '$1 == "Digest:" {print $2}' "$RUNNER_TEMP/chart-push.txt")"
           if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
             echo "Helm did not return an exact chart digest" >&2
             exit 1
           fi
-          printf 'oci://%s@%s\n' "$repository" "$digest" >dist/core/waycloak-chart.ref
+          printf 'oci://%s@%s\n' "$repository" "$digest" >dist/release/waycloak-chart.ref
           {
             printf 'repository=%s\n' "$repository"
             printf 'digest=%s\n' "$digest"
-            printf 'package=%s\n' "dist/core/waycloak-$release_version.tgz"
+            printf 'package=%s\n' "dist/release/waycloak-$release_version.tgz"
           } >>"$GITHUB_OUTPUT"
       - name: Generate replacement-controller SPDX SBOM
         uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
         with:
           image: ${{ steps.publish-images.outputs.replacement_controller_repository }}@${{ steps.publish-images.outputs.replacement_controller_digest }}
           format: spdx-json
-          output-file: dist/core/replacement-controller.spdx.json
+          output-file: dist/release/replacement-controller.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate CNI SPDX SBOM
@@ -249,7 +246,7 @@ jobs:
         with:
           image: ${{ steps.publish-images.outputs.waycloak_cni_repository }}@${{ steps.publish-images.outputs.waycloak_cni_digest }}
           format: spdx-json
-          output-file: dist/core/waycloak-cni.spdx.json
+          output-file: dist/release/waycloak-cni.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate node-agent SPDX SBOM
@@ -257,7 +254,7 @@ jobs:
         with:
           image: ${{ steps.publish-images.outputs.node_agent_repository }}@${{ steps.publish-images.outputs.node_agent_digest }}
           format: spdx-json
-          output-file: dist/core/waycloak-node-agent.spdx.json
+          output-file: dist/release/waycloak-node-agent.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate gateway-agent SPDX SBOM
@@ -265,7 +262,7 @@ jobs:
         with:
           image: ${{ steps.publish-images.outputs.gateway_agent_repository }}@${{ steps.publish-images.outputs.gateway_agent_digest }}
           format: spdx-json
-          output-file: dist/core/waycloak-gateway-agent.spdx.json
+          output-file: dist/release/waycloak-gateway-agent.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate gateway-runtime SPDX SBOM
@@ -273,7 +270,7 @@ jobs:
         with:
           image: ${{ steps.publish-images.outputs.gateway_runtime_repository }}@${{ steps.publish-images.outputs.gateway_runtime_digest }}
           format: spdx-json
-          output-file: dist/core/waycloak-gateway-runtime.spdx.json
+          output-file: dist/release/waycloak-gateway-runtime.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate qBittorrent adapter SPDX SBOM
@@ -281,7 +278,7 @@ jobs:
         with:
           image: ${{ steps.publish-images.outputs.qbittorrent_adapter_repository }}@${{ steps.publish-images.outputs.qbittorrent_adapter_digest }}
           format: spdx-json
-          output-file: dist/core/waycloak-qbittorrent-adapter.spdx.json
+          output-file: dist/release/waycloak-qbittorrent-adapter.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate Gluetun derivative SPDX SBOM
@@ -289,7 +286,7 @@ jobs:
         with:
           image: ${{ steps.publish-gluetun.outputs.repository }}@${{ steps.publish-gluetun.outputs.digest }}
           format: spdx-json
-          output-file: dist/core/gluetun.spdx.json
+          output-file: dist/release/gluetun.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Generate chart SPDX SBOM
@@ -297,33 +294,33 @@ jobs:
         with:
           file: ${{ steps.publish-chart.outputs.package }}
           format: spdx-json
-          output-file: dist/core/waycloak-chart.spdx.json
+          output-file: dist/release/waycloak-chart.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Enforce the release vulnerability policy
         run: |
           while read -r reference; do
             trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$reference"
-          done < <(cat dist/core/*.ref | grep -v '^oci://')
+          done < <(cat dist/release/*.ref | grep -v '^oci://')
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c
           trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
-      - name: Assemble the canonical exact Core release manifest
+      - name: Assemble the canonical exact Waycloak release manifest
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          go run ./hack/corerelease \
+          go run ./hack/release \
             --version "$RELEASE_TAG" \
-            --chart "$(cat dist/core/waycloak-chart.ref)" \
-            --image "replacement-controller=$(cat dist/core/replacement-controller.ref)" \
-            --image "waycloak-cni=$(cat dist/core/waycloak-cni.ref)" \
-            --image "waycloak-node-agent=$(cat dist/core/waycloak-node-agent.ref)" \
-            --image "waycloak-gateway-agent=$(cat dist/core/waycloak-gateway-agent.ref)" \
-            --image "waycloak-gateway-runtime=$(cat dist/core/waycloak-gateway-runtime.ref)" \
-            --image "waycloak-qbittorrent-adapter=$(cat dist/core/waycloak-qbittorrent-adapter.ref)" \
-            --image "gluetun=$(cat dist/core/gluetun.ref)" \
+            --chart "$(cat dist/release/waycloak-chart.ref)" \
+            --image "replacement-controller=$(cat dist/release/replacement-controller.ref)" \
+            --image "waycloak-cni=$(cat dist/release/waycloak-cni.ref)" \
+            --image "waycloak-node-agent=$(cat dist/release/waycloak-node-agent.ref)" \
+            --image "waycloak-gateway-agent=$(cat dist/release/waycloak-gateway-agent.ref)" \
+            --image "waycloak-gateway-runtime=$(cat dist/release/waycloak-gateway-runtime.ref)" \
+            --image "waycloak-qbittorrent-adapter=$(cat dist/release/waycloak-qbittorrent-adapter.ref)" \
+            --image "gluetun=$(cat dist/release/gluetun.ref)" \
             --image pause=registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c \
-            >dist/core/core-release-manifest.json
+            >dist/release/release-manifest.json
       - name: Sign exact OCI identities, SBOM attestations, and release inventory
         run: |
           sign_image() {
@@ -331,25 +328,25 @@ jobs:
             bash hack/cosign-retry.sh sign --yes "$reference"
             bash hack/cosign-retry.sh attest --yes --type spdxjson --predicate "$predicate" "$reference"
           }
-          sign_image "$(cat dist/core/replacement-controller.ref)" dist/core/replacement-controller.spdx.json
-          sign_image "$(cat dist/core/waycloak-cni.ref)" dist/core/waycloak-cni.spdx.json
-          sign_image "$(cat dist/core/waycloak-node-agent.ref)" dist/core/waycloak-node-agent.spdx.json
-          sign_image "$(cat dist/core/waycloak-gateway-agent.ref)" dist/core/waycloak-gateway-agent.spdx.json
-          sign_image "$(cat dist/core/waycloak-gateway-runtime.ref)" dist/core/waycloak-gateway-runtime.spdx.json
-          sign_image "$(cat dist/core/waycloak-qbittorrent-adapter.ref)" dist/core/waycloak-qbittorrent-adapter.spdx.json
-          sign_image "$(cat dist/core/gluetun.ref)" dist/core/gluetun.spdx.json
+          sign_image "$(cat dist/release/replacement-controller.ref)" dist/release/replacement-controller.spdx.json
+          sign_image "$(cat dist/release/waycloak-cni.ref)" dist/release/waycloak-cni.spdx.json
+          sign_image "$(cat dist/release/waycloak-node-agent.ref)" dist/release/waycloak-node-agent.spdx.json
+          sign_image "$(cat dist/release/waycloak-gateway-agent.ref)" dist/release/waycloak-gateway-agent.spdx.json
+          sign_image "$(cat dist/release/waycloak-gateway-runtime.ref)" dist/release/waycloak-gateway-runtime.spdx.json
+          sign_image "$(cat dist/release/waycloak-qbittorrent-adapter.ref)" dist/release/waycloak-qbittorrent-adapter.spdx.json
+          sign_image "$(cat dist/release/gluetun.ref)" dist/release/gluetun.spdx.json
 
-          chart_reference="$(sed 's|^oci://||' dist/core/waycloak-chart.ref)"
-          sign_image "$chart_reference" dist/core/waycloak-chart.spdx.json
+          chart_reference="$(sed 's|^oci://||' dist/release/waycloak-chart.ref)"
+          sign_image "$chart_reference" dist/release/waycloak-chart.spdx.json
           bash hack/cosign-retry.sh sign-blob --yes \
-            --bundle dist/core/core-release-manifest.sigstore.json \
-            dist/core/core-release-manifest.json
+            --bundle dist/release/release-manifest.sigstore.json \
+            dist/release/release-manifest.json
 
-          (cd dist/core && find . -maxdepth 1 -type f \
-            ! -name 'core-SHA256SUMS*' -printf '%f\n' | sort | xargs sha256sum >core-SHA256SUMS)
+          (cd dist/release && find . -maxdepth 1 -type f \
+            ! -name 'SHA256SUMS*' -printf '%f\n' | sort | xargs sha256sum >SHA256SUMS)
           bash hack/cosign-retry.sh sign-blob --yes \
-            --bundle dist/core/core-SHA256SUMS.sigstore.json \
-            dist/core/core-SHA256SUMS
+            --bundle dist/release/SHA256SUMS.sigstore.json \
+            dist/release/SHA256SUMS
       - name: Attest replacement-controller provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
@@ -398,19 +395,19 @@ jobs:
           subject-name: ${{ steps.publish-chart.outputs.repository }}
           subject-digest: ${{ steps.publish-chart.outputs.digest }}
           push-to-registry: true
-      - name: Attest downloadable Core artifacts
+      - name: Attest downloadable Waycloak artifacts
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
-          subject-path: dist/core/*
-      - name: Publish immutable Core candidate assets
+          subject-path: dist/release/*
+      - name: Publish immutable Waycloak release assets
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
           fail_on_unmatched_files: true
           generate_release_notes: true
-          prerelease: true
-          files: dist/core/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: dist/release/*
 
-  verify-published-core:
+  verify-published-release:
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -419,7 +416,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - name: Check out exact Core candidate tag
+      - name: Check out exact Waycloak release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -449,12 +446,12 @@ jobs:
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/published"
-      - name: Verify exact published Core release
+      - name: Verify exact published Waycloak release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          bash hack/verify-core-release.sh \
+          bash hack/verify-release.sh \
             "$RELEASE_TAG" \
             "$GITHUB_SHA" \
             "$GITHUB_REPOSITORY" \

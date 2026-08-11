@@ -194,7 +194,7 @@ rollback. Both transitions require a newer Helm revision, exact target runtime
 and CNI receipt, a new UID for the immutable target gateway class, preserved
 certificate identity, live node capability, and the full gateway-replacement
 startup-denial and packet exercise.
-The Core runtime transition must leave each existing singleton gateway Pod UID
+The Waycloak runtime transition must leave each existing singleton gateway Pod UID
 unchanged even when its StatefulSet template advances to target gateway image
 digests. The lifecycle fixture uses distinct source and target image digests.
 Tests require an explicit `OnDelete` strategy, correction of a default
@@ -446,8 +446,8 @@ the scrape is tested only as their bounded operational projection.
 
 A release cannot rely on manual observation alone. Required suites, artifact verification, supported-platform results, and any accepted failures are attached to the release manifest.
 
-Post-publication Core verification runs through
-`hack/verify-core-release.sh` on a separate runner. It redownloads the exact
+Post-publication Waycloak verification runs through
+`hack/verify-release.sh` on a separate runner. It redownloads the exact
 release inventory and uses pinned registry-native tooling rather than a Docker
 daemon to verify blob and OCI signatures, SPDX attestations, GitHub provenance,
 manifest-to-registry identity, exact amd64/arm64 indexes, Gluetun labels and

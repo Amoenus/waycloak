@@ -106,7 +106,7 @@ must independently request `PortForwardServiceSingleActive` and reference exactl
 deterministic runtime Service. The container mounts only that TLS Secret, has
 no service-account token or VPN credential, and does not appear in a Core
 gateway Pod. Removing the explicit request removes the owned Service and stages
-a Core-only `OnDelete` gateway template; a same-name Service not owned by the
+a port-forward-disabled baseline `OnDelete` gateway template; a same-name Service not owned by the
 exact gateway UID is never adopted or deleted.
 
 The chart does not deploy an application adapter. It can configure controller

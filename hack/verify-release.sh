@@ -5,7 +5,7 @@
 set -euo pipefail
 
 if [[ "$#" -ne 4 ]]; then
-  echo "usage: verify-core-release.sh RELEASE_TAG SOURCE_SHA REPOSITORY ASSET_DIR" >&2
+  echo "usage: verify-release.sh RELEASE_TAG SOURCE_SHA REPOSITORY ASSET_DIR" >&2
   exit 2
 fi
 
@@ -14,16 +14,13 @@ readonly source_sha="$2"
 readonly repository="$3"
 readonly asset_dir="$4"
 readonly issuer="https://token.actions.githubusercontent.com"
-readonly identity="https://github.com/${repository}/.github/workflows/core-release.yaml@refs/tags/${release_tag}"
-readonly signer_workflow="${repository}/.github/workflows/core-release.yaml"
+readonly identity="https://github.com/${repository}/.github/workflows/waycloak-release.yaml@refs/tags/${release_tag}"
+readonly signer_workflow="${repository}/.github/workflows/waycloak-release.yaml"
 readonly chart_archive="waycloak-${release_tag#v}.tgz"
 readonly gluetun_upstream_commit="7eed6eaf160440724a93ca66f66055068cebe4ac"
 readonly gluetun_upstream_image="docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461"
 
-if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-core\.[0-9]+$ ]]; then
-  echo "release tag must be vMAJOR.MINOR.PATCH-core.NUMBER" >&2
-  exit 1
-fi
+bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-tag.sh" "$release_tag"
 if [[ ! "$source_sha" =~ ^[a-f0-9]{40}$ ]]; then
   echo "source SHA must be one exact lowercase Git commit" >&2
   exit 1
@@ -86,10 +83,10 @@ retry_bounded_to_file() {
 }
 
 expected_assets=(
-  core-SHA256SUMS
-  core-SHA256SUMS.sigstore.json
-  core-release-manifest.json
-  core-release-manifest.sigstore.json
+  SHA256SUMS
+  SHA256SUMS.sigstore.json
+  release-manifest.json
+  release-manifest.sigstore.json
   gluetun-binaries.SHA256SUMS
   gluetun-control-auth.toml
   gluetun-dependency.patch
@@ -118,23 +115,25 @@ done
 
 (
   cd "$asset_dir"
-  sha256sum --check core-SHA256SUMS
+  sha256sum --check SHA256SUMS
 )
 retry_bounded_quiet "release manifest blob signature" cosign verify-blob \
-  --bundle "$asset_dir/core-release-manifest.sigstore.json" \
+  --bundle "$asset_dir/release-manifest.sigstore.json" \
   --certificate-identity "$identity" \
   --certificate-oidc-issuer "$issuer" \
-  "$asset_dir/core-release-manifest.json"
+  "$asset_dir/release-manifest.json"
 retry_bounded_quiet "checksum inventory blob signature" cosign verify-blob \
-  --bundle "$asset_dir/core-SHA256SUMS.sigstore.json" \
+  --bundle "$asset_dir/SHA256SUMS.sigstore.json" \
   --certificate-identity "$identity" \
   --certificate-oidc-issuer "$issuer" \
-  "$asset_dir/core-SHA256SUMS"
+  "$asset_dir/SHA256SUMS"
 
 jq -e --arg version "$release_tag" \
   '.version == $version and .apiVersion == "release.waycloak.io/v1"' \
-  "$asset_dir/core-release-manifest.json" >/dev/null
-test "$(jq -r '.chart.repository + "@" + .chart.digest' "$asset_dir/core-release-manifest.json")" = \
+  "$asset_dir/release-manifest.json" >/dev/null
+bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-inventory.sh" \
+  "$asset_dir/release-manifest.json"
+test "$(jq -r '.chart.repository + "@" + .chart.digest' "$asset_dir/release-manifest.json")" = \
   "$(cat "$asset_dir/waycloak-chart.ref")"
 
 image_ref_files=(
@@ -151,7 +150,7 @@ for ref_file in "${image_ref_files[@]}"; do
   reference="$(cat "$asset_dir/$ref_file")"
   test "$(jq -r --arg name "$image_name" \
     '.images[$name].repository + "@" + .images[$name].digest' \
-    "$asset_dir/core-release-manifest.json")" = "$reference"
+    "$asset_dir/release-manifest.json")" = "$reference"
   echo "verifying ${ref_file}: ${reference}" >&2
   retry_bounded_quiet "${ref_file} signature" cosign verify \
     --certificate-identity "$identity" \
@@ -237,13 +236,13 @@ while read -r artifact; do
     --source-ref "refs/tags/${release_tag}" \
     --source-digest "$source_sha" \
     --deny-self-hosted-runners
-done < <(awk '{print $2}' "$asset_dir/core-SHA256SUMS")
-retry_bounded_quiet "core-SHA256SUMS GitHub provenance" gh attestation verify "$asset_dir/core-SHA256SUMS" \
+done < <(awk '{print $2}' "$asset_dir/SHA256SUMS")
+retry_bounded_quiet "SHA256SUMS GitHub provenance" gh attestation verify "$asset_dir/SHA256SUMS" \
   --repo "$repository" \
   --signer-workflow "$signer_workflow" \
   --source-ref "refs/tags/${release_tag}" \
   --source-digest "$source_sha" \
   --deny-self-hosted-runners
 
-go test ./hack/corerelease ./internal/waycloakctl
-echo "exact Core release ${release_tag} verified at ${source_sha}"
+go test ./hack/release ./internal/waycloakctl
+echo "exact Waycloak release ${release_tag} verified at ${source_sha}"

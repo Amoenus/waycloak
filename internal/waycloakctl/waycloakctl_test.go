@@ -204,11 +204,13 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 		t.Fatal(err)
 	}
 	manifest.ManifestDigest = digest
-	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "required artifacts") {
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "complete Waycloak artifact set") {
 		t.Fatalf("extra release artifact was accepted: %v", err)
 	}
 
 	manifest = releaseManifest()
+	delete(manifest.Images, "waycloak-gateway-runtime")
+	delete(manifest.Images, "waycloak-qbittorrent-adapter")
 	manifest.Images["unknown-one"] = Artifact{Repository: "example.invalid/unknown-one", Digest: "sha256:" + strings.Repeat("5", 64)}
 	manifest.Images["unknown-two"] = Artifact{Repository: "example.invalid/unknown-two", Digest: "sha256:" + strings.Repeat("6", 64)}
 	digest, err = manifest.IdentityDigest()
@@ -221,23 +223,14 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 	}
 
 	manifest = releaseManifest()
-	manifest.Images["waycloak-gateway-runtime"] = Artifact{Repository: "example.invalid/gateway-runtime", Digest: "sha256:" + strings.Repeat("7", 64)}
+	delete(manifest.Images, "waycloak-qbittorrent-adapter")
 	digest, err = manifest.IdentityDigest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest.ManifestDigest = digest
-	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "all or none") {
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "complete Waycloak artifact set") {
 		t.Fatalf("partial port-forward release inventory was accepted: %v", err)
-	}
-	manifest.Images["waycloak-qbittorrent-adapter"] = Artifact{Repository: "example.invalid/qbittorrent-adapter", Digest: "sha256:" + strings.Repeat("8", 64)}
-	digest, err = manifest.IdentityDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.ManifestDigest = digest
-	if err := manifest.Validate(); err != nil {
-		t.Fatalf("complete known port-forward release inventory was rejected: %v", err)
 	}
 
 	manifest = releaseManifest()
@@ -1163,17 +1156,13 @@ func upsertTestDaemonSet(t *testing.T, clients *Clients, daemonSet *appsv1.Daemo
 
 func releaseManifest() ReleaseManifest {
 	digest := func(char string) string { return "sha256:" + strings.Repeat(char, 64) }
-	manifest := ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}}
+	manifest := ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "waycloak-gateway-runtime": {Repository: "ghcr.io/amoenus/waycloak-gateway-runtime", Digest: digest("7")}, "waycloak-qbittorrent-adapter": {Repository: "ghcr.io/amoenus/waycloak-qbittorrent-adapter", Digest: digest("8")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}}
 	manifest.ManifestDigest, _ = manifest.IdentityDigest()
 	return manifest
 }
 
 func portForwardReleaseManifest() ReleaseManifest {
-	manifest := releaseManifest()
-	manifest.Images["waycloak-gateway-runtime"] = Artifact{Repository: "ghcr.io/amoenus/waycloak-gateway-runtime", Digest: "sha256:" + strings.Repeat("7", 64)}
-	manifest.Images["waycloak-qbittorrent-adapter"] = Artifact{Repository: "ghcr.io/amoenus/waycloak-qbittorrent-adapter", Digest: "sha256:" + strings.Repeat("8", 64)}
-	manifest.ManifestDigest, _ = manifest.IdentityDigest()
-	return manifest
+	return releaseManifest()
 }
 
 func portForwardControllerIdentity(t *testing.T) ([]byte, []byte, []byte) {

@@ -24,7 +24,7 @@ deployed release. A deployed observation canonically binds:
 - the sole deployed Helm revision;
 - the release version and manifest digest reported consistently by the
   controller, CNI installer, node agent, and default gateway class;
-- every digest-resolved Core runtime image, including the gateway engine,
+- every digest-resolved Waycloak runtime image, including the gateway engine,
   gateway agent, and pause image;
 - the gateway-class UID and generation;
 - the observation CA and serving Secret UIDs plus public-certificate digests;

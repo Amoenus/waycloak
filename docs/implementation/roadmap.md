@@ -50,20 +50,20 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   authenticated release reports, CNI installation receipt verification,
   expiry, independent CNI refusal, and exact-head CI/Kind/k3d evidence.
 - [ ] #137 Service-backed SingleActive PortForwardLease: API, controller,
-  privileged handoff tests, and the signed amd64/arm64 optional runtime pair are
+  privileged handoff tests, and the signed amd64/arm64 runtime images are
   implemented. The default-disabled chart/runtime deployment boundary now
   requires an exact runtime image, named mTLS Secrets, explicit gateway feature
   intent, and an exact gateway-owned Service while preserving a port-forward-free
   baseline render. The adapter image remains exact in its operator-authored trust
   record rather than becoming unused chart configuration. The next slice adds
   a confirmation-gated CLI transaction bound to a distinct exact release,
-  complete optional artifact inventory, immutable mTLS Secret UID/public
+  complete release artifact inventory, immutable mTLS Secret UID/public
   digests, and exact controller SPIFFE identity. PR #205 initially coupled this
   to a separate candidate profile; the corrective slice keeps one Waycloak
   release and represents port forwarding only as an optional class capability.
   Disposable Kind covers wrong
   confirmation, Secret replacement, re-planning, immutable class replacement,
-  and preservation of a two-container Core gateway. Next publish that slice and
+  and preservation of a two-container baseline gateway. Next publish that slice and
   deploy the operator-owned adapter through the homelab GitOps canary.
   Keep the capability unadvertised until the real-provider
   rolling-replacement test proves drain, successor handoff, return-path
@@ -94,15 +94,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   workflow identity, issuer, source ref/commit, hosted-runner provenance, and
   SPDX signature. The `v0.0.0-turnkey.1` prerelease passed that exact publish
   and independent verification flow from main commit `21ffebea` in release run
-  `30360505871`. A separate Core-candidate tag workflow now publishes the four
-  Waycloak multi-platform binaries, a vulnerability-gated Gluetun derivative,
+  `30360505871`. The Waycloak release workflow publishes all six first-party
+  multi-platform binaries, a vulnerability-gated Gluetun derivative,
   a tag-versioned chart, per-artifact SPDX, keyless OCI signatures and
-  attestations, hosted-runner provenance, and the canonical six-image manifest;
+  attestations, hosted-runner provenance, and the canonical eight-image manifest;
   its independent job verifies the downloaded and registry-resolved identities.
   The Gluetun artifact preserves the exact upstream commit/image identity, MIT
   license, and dependency-only patch instead of accepting reachable fixed
   vulnerabilities in the current upstream image. This remains implementation-only until an
-  exact `vMAJOR.MINOR.PATCH-core.NUMBER` tag passes. The real-provider journey
+  exact `vMAJOR.MINOR.PATCH-beta.NUMBER` tag passes. The real-provider journey
   is still required before closure.
   Creation-time Pod UID and node assignment checks use direct API-server reads,
   never the node agent's eventually consistent reconciliation cache.
