@@ -38,8 +38,8 @@ func main() {
 	var portForwardRuntimePort uint
 	var adapterCA, adapterCert, adapterKey string
 	var adapterPort uint
-	var gatewayEngineImage, gatewayAgentImage, gatewayOverlayCIDR, gatewayClusterDNSServiceIP, gatewayClusterDomain string
-	var gatewayVNI, gatewayVXLANPort, gatewayHealthPort uint
+	var gatewayEngineImage, gatewayAgentImage, gatewayPortForwardRuntimeImage, gatewayOverlayCIDR, gatewayClusterDNSServiceIP, gatewayClusterDomain string
+	var gatewayVNI, gatewayVXLANPort, gatewayHealthPort, gatewayPortForwardRuntimePort, gatewayAdapterPort uint
 	var gatewayMTU int
 	var leaderElection bool
 	flag.StringVar(&metricsAddress, "metrics-bind-address", ":8080", "metrics listener")
@@ -64,6 +64,7 @@ func main() {
 	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic WorkloadAdapter Service HTTPS port")
 	flag.StringVar(&gatewayEngineImage, "gateway-engine-image", "", "exact default gateway engine image by digest")
 	flag.StringVar(&gatewayAgentImage, "gateway-agent-image", "", "exact default gateway agent image by digest")
+	flag.StringVar(&gatewayPortForwardRuntimeImage, "gateway-port-forward-runtime-image", "", "exact tokenless gateway port-forward runtime image by digest")
 	flag.StringVar(&gatewayOverlayCIDR, "gateway-overlay-cidr", "", "reviewed default gateway overlay CIDR")
 	flag.StringVar(&gatewayClusterDNSServiceIP, "gateway-cluster-dns-service-ip", "", "reviewed Kubernetes DNS Service IPv4 address")
 	flag.StringVar(&gatewayClusterDomain, "gateway-cluster-domain", "", "reviewed CoreDNS cluster domain")
@@ -71,6 +72,8 @@ func main() {
 	flag.IntVar(&gatewayMTU, "gateway-mtu", 1320, "reviewed default gateway overlay MTU")
 	flag.UintVar(&gatewayVXLANPort, "gateway-vxlan-port", 4789, "default gateway VXLAN port")
 	flag.UintVar(&gatewayHealthPort, "gateway-health-port", 18080, "default gateway overlay health port")
+	flag.UintVar(&gatewayPortForwardRuntimePort, "gateway-port-forward-runtime-port", 0, "gateway-local tokenless port-forward runtime HTTPS port (zero disables Extended runtime)")
+	flag.UintVar(&gatewayAdapterPort, "gateway-adapter-port", 0, "deterministic out-of-process adapter HTTPS port (zero disables adapter integration)")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -84,7 +87,8 @@ func main() {
 	var adapterHealth portforward.AdapterHealthChecker
 	portForwardConfigured := portForwardRuntimeCA != "" || portForwardRuntimeCert != "" || portForwardRuntimeKey != ""
 	if portForwardConfigured {
-		if portForwardRuntimeCA == "" || portForwardRuntimeCert == "" || portForwardRuntimeKey == "" || portForwardRuntimePort == 0 || portForwardRuntimePort > 65535 {
+		if portForwardRuntimeCA == "" || portForwardRuntimeCert == "" || portForwardRuntimeKey == "" || portForwardRuntimePort == 0 || portForwardRuntimePort > 65535 ||
+			!gatewayruntime.ValidExactImage(gatewayPortForwardRuntimeImage) || gatewayPortForwardRuntimePort == 0 || gatewayPortForwardRuntimePort > 65535 {
 			ctrl.Log.Error(nil, "complete port-forward runtime mTLS identity and valid port are required")
 			os.Exit(1)
 		}
@@ -98,7 +102,7 @@ func main() {
 	}
 	adapterConfigured := adapterCA != "" || adapterCert != "" || adapterKey != ""
 	if adapterConfigured {
-		if adapterCA == "" || adapterCert == "" || adapterKey == "" || adapterPort == 0 || adapterPort > 65535 {
+		if adapterCA == "" || adapterCert == "" || adapterKey == "" || adapterPort == 0 || adapterPort > 65535 || !portForwardConfigured || gatewayAdapterPort == 0 || gatewayAdapterPort > 65535 {
 			ctrl.Log.Error(nil, "complete adapter mTLS identity and valid port are required")
 			os.Exit(1)
 		}
@@ -136,7 +140,14 @@ func main() {
 			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
 			os.Exit(1)
 		}
-		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+		provisioner := &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage,
+			ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+		configureExtendedGatewayRuntime(provisioner, portForwardConfigured, gatewayPortForwardRuntimeImage, gatewayPortForwardRuntimePort, adapterConfigured, gatewayAdapterPort)
+		gatewayRuntime = provisioner
+	}
+	credentialRoles := []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole}
+	if portForwardConfigured {
+		credentialRoles = append(credentialRoles, waycontroller.GatewayRuntimeTLSRole)
 	}
 	classController := &waycontroller.VPNGatewayClassReconciler{
 		Client: manager.GetClient(), ControllerName: wayv1.ControllerName(gatewayControllerName),
@@ -151,7 +162,7 @@ func main() {
 		Client: manager.GetClient(), APIReader: manager.GetAPIReader(), ControllerName: wayv1.ControllerName(gatewayControllerName),
 		ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
 		ConformanceProfile: wayv1.QualifiedName(conformanceProfile), SupportedFeatures: supportedFeatures,
-		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole}, Runtime: gatewayRuntime,
+		NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: credentialRoles, Runtime: gatewayRuntime,
 	}).SetupWithManager(manager); err != nil {
 		ctrl.Log.Error(err, "setup VPNGateway controller")
 		os.Exit(1)
@@ -213,6 +224,17 @@ func main() {
 	if err = manager.Start(ctx); err != nil {
 		ctrl.Log.Error(err, "run replacement manager")
 		os.Exit(1)
+	}
+}
+
+func configureExtendedGatewayRuntime(provisioner *gatewayruntime.Provisioner, portForwardConfigured bool, runtimeImage string, runtimePort uint, adapterConfigured bool, adapterPort uint) {
+	if portForwardConfigured {
+		provisioner.PortForwardRuntimeImage = runtimeImage
+		provisioner.PortForwardRuntimePort = uint16(runtimePort)
+	}
+	if adapterConfigured {
+		provisioner.AdapterPort = uint16(adapterPort)
+		provisioner.AdapterEnabled = true
 	}
 }
 

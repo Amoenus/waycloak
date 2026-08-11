@@ -8,6 +8,17 @@
 {{- $overlayCIDR := required "controller.gateway.overlayCIDR is required when controller.enabled=true" .Values.controller.gateway.overlayCIDR }}
 {{- $clusterDNSServiceIP := required "controller.gateway.clusterDNS.serviceIP is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.serviceIP }}
 {{- $clusterDNSDomain := required "controller.gateway.clusterDNS.domain is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.domain }}
+{{- $extendedDigest := "" }}
+{{- $extendedTLSSecret := "" }}
+{{- if .Values.extended.enabled }}
+{{- $extendedDigest = required "extended.gatewayRuntime.image.digest is required when extended.enabled=true" .Values.extended.gatewayRuntime.image.digest }}
+{{- $extendedTLSSecret = required "extended.controllerTLSSecret is required when extended.enabled=true" .Values.extended.controllerTLSSecret }}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $extendedDigest) }}
+{{- fail "extended.gatewayRuntime.image.digest must be an exact sha256 digest" }}
+{{- end }}
+{{- else if .Values.extended.adapter.enabled }}
+{{- fail "extended.adapter.enabled requires extended.enabled=true" }}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -82,6 +93,21 @@ spec:
             - --gateway-mtu={{ .Values.controller.gateway.mtu }}
             - --gateway-vxlan-port={{ .Values.controller.gateway.vxlanPort }}
             - --gateway-health-port={{ .Values.controller.gateway.healthPort }}
+            {{- if .Values.extended.enabled }}
+            - --port-forward-runtime-ca=/var/run/secrets/waycloak-extended/ca.crt
+            - --port-forward-runtime-client-cert=/var/run/secrets/waycloak-extended/tls.crt
+            - --port-forward-runtime-client-key=/var/run/secrets/waycloak-extended/tls.key
+            - --port-forward-runtime-port={{ .Values.extended.gatewayRuntime.port }}
+            - --gateway-port-forward-runtime-image={{ .Values.extended.gatewayRuntime.image.repository }}@{{ $extendedDigest }}
+            - --gateway-port-forward-runtime-port={{ .Values.extended.gatewayRuntime.port }}
+            {{- if .Values.extended.adapter.enabled }}
+            - --adapter-ca=/var/run/secrets/waycloak-extended/ca.crt
+            - --adapter-client-cert=/var/run/secrets/waycloak-extended/tls.crt
+            - --adapter-client-key=/var/run/secrets/waycloak-extended/tls.key
+            - --adapter-port={{ .Values.extended.adapter.port }}
+            - --gateway-adapter-port={{ .Values.extended.adapter.port }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.observability.metrics.enabled }}
             - --metrics-bind-address=:{{ .Values.observability.metrics.port }}
             {{- else }}
@@ -119,6 +145,11 @@ spec:
             - name: observation-tls
               mountPath: /var/run/secrets/waycloak-observation
               readOnly: true
+            {{- if .Values.extended.enabled }}
+            - name: extended-tls
+              mountPath: /var/run/secrets/waycloak-extended
+              readOnly: true
+            {{- end }}
           resources:
             requests:
               cpu: 25m
@@ -130,4 +161,10 @@ spec:
           secret:
             secretName: {{ $tlsSecret }}
             defaultMode: 0400
+        {{- if .Values.extended.enabled }}
+        - name: extended-tls
+          secret:
+            secretName: {{ $extendedTLSSecret }}
+            defaultMode: 0400
+        {{- end }}
 {{- end }}

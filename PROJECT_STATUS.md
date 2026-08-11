@@ -261,6 +261,21 @@ class feature set, or claim Extended conformance. #137 remains open for
 confirmation-gated deployment and the real-provider SingleActive rolling
 handoff proof with zero wrong-Pod delivery and zero ordinary-egress fallback.
 
+The focused #137 deployment-boundary slice adds it without changing the
+default Core surface. Complete Extended chart configuration requires an exact
+gateway-runtime digest and a named pre-created controller mTLS Secret; partial
+configuration is rejected during rendering. Only a gateway that explicitly
+requests SingleActive and references a same-namespace `GatewayRuntimeTLS`
+Secret receives the tokenless third runtime container and its deterministic
+gateway-UID-owned Service. The runtime mounts only TLS material and receives no
+Kubernetes or VPN credential. Core gateways remain two-container, Extended-free
+Pods, and foreign same-name Services are rejected rather than adopted or
+deleted. The qBittorrent adapter remains an operator-authored out-of-process
+deployment; the chart configures controller trust but never injects it, while
+the immutable `WorkloadAdapter` and observed adapter Pod carry its exact image
+identity. This slice is deployment plumbing, not #137 acceptance or permission
+to advertise Extended as conformant.
+
 Issue #138 is in progress on the turnkey bootstrap slice. `waycloakctl` now
 implements read-only cluster preflight, exact release-manifest install planning,
 confirmation-gated Helm apply, a reviewed Proton/OpenVPN gateway recipe,
