@@ -486,6 +486,39 @@ func TestReplacementAPI(t *testing.T) {
 		}
 		assertManagedBy(t, binding, wayv1.FieldManagerBindingController)
 
+		// A fresh exact node observation is necessary but not sufficient: the
+		// referenced exact gateway must remain current and Ready as well.
+		binding.Status.ObservedPodUID = binding.Spec.PodRef.UID
+		binding.Status.Agent.ObservedAt = metav1.NewTime(now.Add(time.Second))
+		must(t, admin.Status().Update(ctx, binding))
+		lifecycle.Now = func() time.Time { return now.Add(time.Second) }
+		_, err = lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(binding)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionTrue {
+			t.Fatalf("exact live readiness = %#v", binding.Status)
+		}
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		for i := range gateway.Status.Conditions {
+			if gateway.Status.Conditions[i].Type == wayv1.ConditionReady {
+				gateway.Status.Conditions[i].Status = metav1.ConditionFalse
+				gateway.Status.Conditions[i].Reason = wayv1.ReasonNotReady
+				gateway.Status.Conditions[i].Message = "Gateway data plane is not ready"
+			}
+		}
+		must(t, admin.Status().Update(ctx, gateway))
+		lifecycle.Now = func() time.Time { return now.Add(2 * time.Second) }
+		_, err = lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(binding)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != wayv1.ReasonNotReady {
+			t.Fatalf("gateway-loss readiness = %#v", binding.Status)
+		}
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionNodeReady); condition == nil || condition.Status != metav1.ConditionTrue {
+			t.Fatalf("gateway loss incorrectly withdrew fresh node observation = %#v", binding.Status)
+		}
+
 		// An applied allocation cannot be silently reused when withdrawal is
 		// unconfirmed. The bounded finalizer recreates a missing reservation as
 		// a durable quarantine before allowing deletion.
