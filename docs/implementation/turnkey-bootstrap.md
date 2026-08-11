@@ -128,8 +128,13 @@ a separately verified prior release manifest and never delegates identity to
 an opaque Helm revision number. Ordinary transitions replace the exact old
 immutable gateway-class UID at its stable name, preserve observation trust
 identity, execute the two-revision CNI/agent transition, and verify the exact
-target runtime after Helm completes. The class replacement and transition
-windows remain fail closed behind the installed CNI deny path.
+target runtime after Helm completes. Because gateway StatefulSets use
+`OnDelete`, apply then inventories every exact UID-owned gateway runtime,
+deletes only a stale Pod with a UID precondition, and waits for its replacement
+to run the target gateway images at the StatefulSet update revision with a
+current `Ready` observation. Interrupted apply resumes this rollout from the
+immutable lifecycle journal. The class replacement and transition windows
+remain fail closed behind the installed CNI deny path.
 Connected Helm rendering refuses a changed live class identity before any
 release mutation. Argo CD's offline render cannot perform that lookup, so the
 class is assigned an earlier sync wave and a direct sync stops on immutable

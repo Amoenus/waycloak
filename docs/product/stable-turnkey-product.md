@@ -37,13 +37,13 @@ path is not observed healthy. Waycloak does not claim anonymity.
 
 ## Personas and owned resources
 
-| Persona | Owns | Must not own |
-| --- | --- | --- |
-| Distribution/infrastructure provider | `VPNGatewayClass`, immutable images, schemas, conformance reports | account credentials or tenant route intent |
-| Cluster/network operator | installation, `VPNGateway`, native input/Secret refs, route authorization, maintenance | application release manifests |
-| Workload owner | `VPNEgressRoute`, Pod-template route label, optional `PortForwardLease` | VPN credentials, overlay allocation or node programming |
-| Waycloak controllers/agents | `VPNWorkloadBinding`, dependents, status, kernel state | user-authored desired resources |
-| Application integrator | optional adapter implementation | Kubernetes or VPN credentials |
+| Persona                              | Owns                                                                                   | Must not own                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Distribution/infrastructure provider | `VPNGatewayClass`, immutable images, schemas, conformance reports                      | account credentials or tenant route intent              |
+| Cluster/network operator             | installation, `VPNGateway`, native input/Secret refs, route authorization, maintenance | application release manifests                           |
+| Workload owner                       | `VPNEgressRoute`, Pod-template route label, optional `PortForwardLease`                | VPN credentials, overlay allocation or node programming |
+| Waycloak controllers/agents          | `VPNWorkloadBinding`, dependents, status, kernel state                                 | user-authored desired resources                         |
+| Application integrator               | optional adapter implementation                                                        | Kubernetes or VPN credentials                           |
 
 ## First-use journey
 
@@ -136,12 +136,16 @@ doctor, smoke test and support bundle. Plain Kubernetes remains
 the source of truth and Helm the installation surface. Destructive or
 privilege-expanding operations require explicit confirmation.
 
-An exact Waycloak release transition may update the singleton gateway template but
-must not restart that gateway. The gateway has no persistent volume; its
-StatefulSet is only a deterministic singleton and `OnDelete` rollout-control
-primitive. After the Waycloak runtime converges, the operator activates each gateway
-explicitly during a monitored fail-closed window and verifies its new Pod UID,
-route/binding recovery, and absence of ordinary-egress fallback.
+An exact Waycloak release transition may update the singleton gateway template
+only through the confirmation-bound, journaled lifecycle transaction. The
+gateway has no persistent volume; its StatefulSet is only a deterministic
+singleton and `OnDelete` rollout-control primitive. After the chart runtime
+converges, the same transaction inventories every exact UID-owned gateway,
+deletes only a stale Pod with a UID precondition, and waits for the replacement
+to run the target images and regain current live readiness. An interrupted
+transaction resumes that ordered activation from its immutable journal. The
+fail-closed path remains installed throughout, and transition completion
+requires route/binding recovery with no ordinary-egress fallback.
 The controller binds every gateway Pod template to the immutable release version
 and manifest digest with controller-owned runtime annotations. They are observed
 rollout evidence, not workload configuration, compatibility aliases, or an
@@ -215,7 +219,7 @@ or sensitive endpoint disclosure.
 4. Baseline conformance passes on every published support-matrix row.
 5. Fresh install, patch/minor upgrade, rollback, backup/restore and uninstall
    preserve the fail-closed and identity contracts.
-6. Generic curl, qBitTorrent and Bitmagnet scenarios pass real-provider tests.
+6. Generic curl and qBittorrent scenarios pass their real-provider contracts.
 7. Gateway replacement and endpoint rotation recover without workload restart
    wherever the class claims that capability.
 8. Docs, schemas, Helm, examples, release metadata and runtime report one

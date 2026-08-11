@@ -39,6 +39,16 @@ inventory, SPDX SBOMs, provenance, checksums, and canonical release manifest
 `sha256:537d4c5b4b9a0c011c968d4fbe4ce16293c64e1b89a7869d9023f264effe915e`.
 This is beta evidence, not stable graduation.
 
+The corrective `v0.1.0-beta.2` release is published from exact commit
+`b1e4f442ef812bf091538648c1a48a486aa33922`. Runtime/chart release run
+`31525789848` and CLI release run `31525789860` independently verified the
+signed chart, CLI, complete amd64/arm64 image indexes, SPDX attestations,
+provenance, checksums, and canonical release manifest
+`sha256:5ab74387086d85bdd4f75a5df2895d4ba219bd3e8b92e14b930d408b8b62f06e`.
+Consumer-side verification repeated every OCI signature, attestation,
+provenance and platform check from downloaded release assets. This remains beta
+evidence, not stable graduation.
+
 ## First clean-break beta homelab canary
 
 The authorized homelab drill stopped the sole active protected workload,
@@ -59,20 +69,42 @@ canary; Qui remains removed. Twelve consecutive external DNS and HTTPS samples
 succeeded, and every qBittorrent public-egress observation matched the live
 gateway while differing from ordinary egress.
 
-Two explicit gateway-Pod replacement tests observed ten blocked outbound
-probes during loss and zero ordinary-egress matches. Both replacements
-recovered to a newly observed VPN address without restarting qBittorrent. The
-second test also found a release-blocking status defect: the binding retained
-`Ready=True` for three blocked probes after `VPNGateway Ready=False`, because a
-fresh node observation was sufficient until its 30-second TTL expired. The
-current correction makes binding readiness depend on the exact referenced
-gateway's current generation and live readiness, indexes gateway dependencies,
-and enqueues both affected Pods and bindings on every gateway change. Unit,
-Linux full-suite, Linux race, static analysis, and Kubernetes 1.36 envtest
-verification pass locally. Publication of a successor beta containing this
-correction, its exact-artifact homelab deployment, and repetition of the same
-fault test remain required before the correction counts as #141 evidence. The
-multi-day soak, arm64 conformance row, supported
+Two beta.1 gateway-Pod replacement tests observed ten blocked outbound probes
+during loss and zero ordinary-egress matches. They exposed a release-blocking
+status defect: the binding retained `Ready=True` for three blocked probes after
+`VPNGateway Ready=False`, because a fresh node observation was sufficient until
+its 30-second TTL expired. PR #209 corrected that dependency and beta.2 carried
+the fix through the complete signed release gates.
+
+The authorized beta.1-to-beta.2 homelab transition completed from an exact
+confirmation-bound plan in 31 seconds. Argo CD converged Healthy/Synced at the
+reviewed beta.2 chart, and the controller, CNI installer, node agent, class and
+gateway template all carried the exact beta.2 identities. A corrected
+qBittorrent-only gateway replacement monitor then recorded 41 samples: 28
+protected successes, 13 fail-closed denials, zero observations matching
+ordinary egress, six binding-not-Ready samples, two distinct gateway Pod UIDs,
+and recovery without replacing or restarting qBittorrent. The replacement
+gateway ran both exact beta.2 images with zero restarts. A later 16-request
+two-endpoint series returned the same VPN identity on all 15 successes and one
+public-observer timeout. Two transient split-DNS health timeouts briefly
+withdrew gateway and binding readiness after replacement, then recovered; this
+is fail-closed but remains churn evidence rather than an unexplained-outage-free
+soak. A subsequent five-minute watch recorded 36 protected successes, two
+public-observer timeouts, zero direct-egress matches, and one 17-second
+gateway/binding readiness withdrawal while successful traffic still used the
+VPN. Gateway logs tie the withdrawal to repeated UDP and occasional TCP
+split-DNS observation timeouts. The canary is safe but not yet churn-free; #116
+and #141 remain open for root-cause correction and sustained evidence.
+
+That transition also exposed a #140 lifecycle gap: successful install apply
+verified the controller's target gateway arguments and the `OnDelete`
+StatefulSet template, but did not activate an already-running source gateway
+Pod. The current focused correction inventories exact UID-owned gateways,
+deletes only stale Pods with UID preconditions, waits for target-revision image
+and live `Ready` observations, and resumes the same rollout from the immutable
+transition journal before declaring completion.
+
+The multi-day soak, arm64 conformance row, supported
 real-provider first-use timing, destructive reinstall certification,
 port-forward handoff, remaining #32 lifecycle evidence, beta-cycle hold, and
 v1 graduation review also remain open.
@@ -268,8 +300,7 @@ unsupported, unauthorized, or deleted inputs. Credential values are never
 copied into status. The chart renders the default class only when a verified
 release version and exact manifest digest are supplied. Unit, race, Kubernetes
 1.36 envtest, generated-artifact, Kind/kindnet, k3d/Flannel, and live missing,
-foreign-controller and unsupported-feature gates passed in exact CI run
-30199319231.
+foreign-controller and unsupported-feature gates passed in exact CI run 30199319231.
 
 Issue #135 is complete and merged in PR #154. The replacement build no longer
 contains or links the served alpha API, mutation webhook, Pod injection runtime,
@@ -301,8 +332,7 @@ packet/gateway-loss gates in CI run 30318076473.
 
 Correction commit bc1e66570efde95a4d245cea40ba235bf36eab91 passed the
 complete Linux verifier, Kind admission, Kind and k3d creation-time CNI,
-Gluetun, exact-artifact turnkey, and k3s datastore-recovery steps in CI run
-31509699770. The correction also separates successful `kubectl exec` stdout
+Gluetun, exact-artifact turnkey, and k3s datastore-recovery steps in CI run 31509699770. The correction also separates successful `kubectl exec` stdout
 from transient stderr diagnostics before decoding durable CNI attachment JSON;
 its platform-neutral regression test passes under Linux race instrumentation.
 The k3s job's GitHub wrapper lagged after every step, including `Complete job`,

@@ -279,7 +279,8 @@ func deleteExactGatewayPod(ctx context.Context, clients *Clients, namespace stri
 		return errors.New("exact gateway Pod is unavailable")
 	}
 	zero := int64(0)
-	return clients.Kubernetes.CoreV1().Pods(namespace).Delete(ctx, target.Name, metav1.DeleteOptions{GracePeriodSeconds: &zero})
+	uid := target.UID
+	return clients.Kubernetes.CoreV1().Pods(namespace).Delete(ctx, target.Name, metav1.DeleteOptions{GracePeriodSeconds: &zero, Preconditions: &metav1.Preconditions{UID: &uid}})
 }
 
 func waitGatewayReady(ctx context.Context, clients *Clients, gvr schema.GroupVersionResource, namespace, name string, wanted bool, timeout time.Duration) error {
