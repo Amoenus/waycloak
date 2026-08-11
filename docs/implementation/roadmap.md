@@ -124,11 +124,19 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   external HTTP probe failed during the bounded handoff. That live row also
   exposed a lifecycle defect: the generated singleton gateway StatefulSet used
   Kubernetes' default `RollingUpdate`, automatically activating the new gateway
-  template instead of waiting for the required operator action. The current
-  slice makes `OnDelete` explicit and adopts existing StatefulSets before future
-  template changes. Protected workload churn/leak evidence, a corrected exact
-  transition plus explicit gateway activation, beta CRD lifecycle, rollback,
-  #32 DR, uninstall/purge, and remaining support rows are still required.
+  template instead of waiting for the required operator action. Core.19 makes
+  `OnDelete` explicit and corrects existing replacement StatefulSets before
+  future template changes. Its signed Core.18-to-Core.19 homelab transaction
+  left the exact gateway Pod UID and Core.18 images unchanged while staging the
+  Core.19 template. The separate explicit activation produced a new exact
+  Core.19 gateway UID and 75/75 qBittorrent HTTP successes with three
+  fail-closed protected denials, zero ordinary-egress matches, zero workload
+  replacement, and zero workload restart. The current-generation class,
+  gateway, route, and binding recovered Ready, the node receipt identified the
+  target manifest, and Argo CD converged Healthy/Synced. Corrected forward
+  transition and activation evidence are complete; beta CRD lifecycle, exact
+  rollback, #32 DR, uninstall/purge, and remaining support rows are still
+  required.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm
