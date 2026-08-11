@@ -16,6 +16,12 @@ import (
 	"strings"
 
 	"github.com/Amoenus/waycloak/internal/observationrelay"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+)
+
+const (
+	extendedCandidateConformanceProfile = "networking.waycloak.io/ExtendedCandidate-v1"
+	extendedControllerSPIFFEIdentity    = "spiffe://waycloak.io/replacement-controller"
 )
 
 type Artifact struct {
@@ -56,6 +62,22 @@ type InstallPlan struct {
 	Purge            []string                    `json:"purge"`
 	SecretObjects    []string                    `json:"secretObjects"`
 	Metadata         map[string]string           `json:"metadata"`
+	Extended         *ExtendedInstallIdentity    `json:"extended,omitempty"`
+}
+
+type ExtendedInstallIdentity struct {
+	ControllerTLSSecret string `json:"controllerTLSSecret"`
+	SecretUID           string `json:"secretUID"`
+	CADigest            string `json:"caDigest"`
+	CertificateDigest   string `json:"certificateDigest"`
+	AdapterEnabled      bool   `json:"adapterEnabled"`
+}
+
+func (identity ExtendedInstallIdentity) validate() error {
+	if len(utilvalidation.IsDNS1123Subdomain(identity.ControllerTLSSecret)) != 0 || identity.SecretUID == "" || !validDigest(identity.CADigest) || !validDigest(identity.CertificateDigest) {
+		return errors.New("extended controller TLS identity is incomplete")
+	}
+	return nil
 }
 
 const failClosedLifecycleSequence = "FailClosedCoreLifecycle-v2"
@@ -134,6 +156,9 @@ func (manifest ReleaseManifest) Validate() error {
 	if extendedPresent != 0 && extendedPresent != len(optionalExtendedImages) {
 		return errors.New("release manifest Extended artifact inventory must be complete")
 	}
+	if contains(profiles, extendedCandidateConformanceProfile) && extendedPresent != len(optionalExtendedImages) {
+		return errors.New("release manifest extended profile lacks the complete Extended artifact inventory")
+	}
 	if manifest.Chart.Repository == "" || !validDigest(manifest.Chart.Digest) || strings.Contains(manifest.Chart.Repository, "@") {
 		return errors.New("release manifest lacks exact chart identity")
 	}
@@ -167,7 +192,11 @@ func (manifest ReleaseManifest) IdentityDigest() (string, error) {
 	return digestBytes(data), nil
 }
 
-func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string) (InstallPlan, error) {
+func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string, extended *ExtendedInstallIdentity) (InstallPlan, error) {
+	if extended != nil {
+		copy := *extended
+		extended = &copy
+	}
 	if err := manifest.Validate(); err != nil {
 		return InstallPlan{}, err
 	}
@@ -179,6 +208,17 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	}
 	if !report.Compatible || !validDigest(report.ObservationDigest) || report.CNI.ConfigPath == "" || namespace == "" || release == "" {
 		return InstallPlan{}, errors.New("a compatible preflight report and explicit namespace/release are required")
+	}
+	if extended != nil {
+		if err := extended.validate(); err != nil {
+			return InstallPlan{}, err
+		}
+		if !contains(manifest.Profiles, extendedCandidateConformanceProfile) {
+			return InstallPlan{}, errors.New("extended activation requires an exact release manifest attesting the ExtendedCandidate-v1 profile")
+		}
+		if source.State == installStateDeployed && source.ManifestDigest == manifest.ManifestDigest {
+			return InstallPlan{}, errors.New("extended activation requires a changed exact release identity for journal-bound gateway class replacement")
+		}
 	}
 	architecture, err := selectedArchitecture(report.Cluster.Architectures, nodeArchitecture)
 	if err != nil {
@@ -192,8 +232,12 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	engine := manifest.Images["gluetun"]
 	controllerService := chartFullname(release) + "-controller"
 	rotationID := initialObservationRotation
+	controllerConformanceProfile := "networking.waycloak.io/Core-v1"
 	if source.State == installStateDeployed {
 		rotationID = source.ObservationRotationID
+	}
+	if extended != nil {
+		controllerConformanceProfile = extendedCandidateConformanceProfile
 	}
 	values := fmt.Sprintf(`releaseIdentity:
   version: %q
@@ -204,6 +248,7 @@ controller:
     repository: %q
     digest: %q
   observationTLSSecret: %q
+  conformanceProfile: %q
   gateway:
     engineImage:
       repository: %q
@@ -248,11 +293,24 @@ defaultGatewayClass:
   releaseIdentity:
     version: %q
     manifestDigest: %q
-`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
+`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", controllerConformanceProfile, engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
 		report.CNI.ConfigPath, report.CNI.BinaryPath, rotationID, architecture, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
+	if extended != nil {
+		runtime := manifest.Images["waycloak-gateway-runtime"]
+		values += fmt.Sprintf(`extended:
+  enabled: true
+  controllerTLSSecret: %q
+  gatewayRuntime:
+    image:
+      repository: %q
+      digest: %q
+  adapter:
+    enabled: %t
+`, extended.ControllerTLSSecret, runtime.Repository, runtime.Digest, extended.AdapterEnabled)
+	}
 	operation := installOperationTransition
 	if source.State == installStateAbsent {
 		operation = installOperationClean
@@ -271,6 +329,12 @@ defaultGatewayClass:
 		Purge:         []string{"normal Helm uninstall does not delete CRDs or restore the CNI chain", "destructive CRD purge and CNI restoration are separate confirmation-gated operations"},
 		SecretObjects: []string{release + "-observation-ca", release + "-observation-tls"},
 		Metadata:      map[string]string{"cni": report.CNI.Name, "profile": report.Profile, "nodeArchitecture": architecture},
+		Extended:      extended,
+	}
+	if extended != nil {
+		plan.SecretObjects = append(plan.SecretObjects, extended.ControllerTLSSecret)
+		plan.Security = append(plan.Security, "mount the reviewed controller mTLS identity and enable the privileged tokenless gateway port-forward runtime only for explicit gateway intent")
+		plan.Metadata["featureProfile"] = extendedCandidateConformanceProfile
 	}
 	plan.PlanID = installPlanIdentity(plan)
 	plan.Commands[0] = "waycloakctl install apply --plan <reviewed-plan.json> --confirm " + plan.PlanID
@@ -290,10 +354,11 @@ func installPlanIdentity(plan InstallPlan) string {
 		Release          string                      `json:"release"`
 		InstallSequence  string                      `json:"installSequence"`
 		Values           string                      `json:"valuesYAML"`
+		Extended         *ExtendedInstallIdentity    `json:"extended,omitempty"`
 	}{
 		Operation: plan.Operation, Source: plan.Source, TargetCRDs: plan.TargetCRDs, Target: plan.Target,
 		PreflightDigest: plan.PreflightDigest, OverlayCIDR: plan.OverlayCIDR, NodeArchitecture: plan.NodeArchitecture,
-		Namespace: plan.Namespace, Release: plan.Release, InstallSequence: plan.InstallSequence, Values: plan.Values,
+		Namespace: plan.Namespace, Release: plan.Release, InstallSequence: plan.InstallSequence, Values: plan.Values, Extended: plan.Extended,
 	}
 	data, _ := json.Marshal(payload)
 	return digestBytes(data)

@@ -2,7 +2,7 @@
 # Copyright 2026 The Waycloak Authors.
 # SPDX-License-Identifier: MIT
 
-set -euo pipefail
+set -Eeuo pipefail
 
 trap 'printf "turnkey failure at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
@@ -16,6 +16,7 @@ readonly pause_ref="registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a
 readonly curl_ref="docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b"
 readonly release_version="v0.0.0-turnkey-ci"
 readonly baseline_release_version="v0.0.0-turnkey-ci-baseline"
+readonly extended_release_version="v0.0.0-turnkey-ci-extended-candidate"
 readonly system_namespace="waycloak-system"
 readonly release_name="waycloak"
 readonly smoke_namespace="waycloak-smoke"
@@ -86,6 +87,19 @@ capture_metrics() {
   kill "$metrics_forward_pid"
   wait "$metrics_forward_pid" >/dev/null 2>&1 || true
   metrics_forward_pid=""
+}
+
+wait_for_agent_socket() {
+  local node_name="$1"
+  local deadline="$((SECONDS + 30))"
+  until docker exec "$node_name" test -S /run/waycloak/cni-agent.sock && \
+    docker exec "$node_name" test -f /run/waycloak/cni-auth.key; do
+    if (( SECONDS >= deadline )); then
+      printf 'node agent did not recreate its authenticated local socket within 30s\n' >&2
+      return 1
+    fi
+    sleep 1
+  done
 }
 
 mkdir -p "$work_dir/registry-tls"
@@ -190,6 +204,8 @@ controller_ref="$(publish_image replacement-controller ./cmd/replacement-control
 cni_ref="$(publish_image waycloak-cni ./cmd/waycloak-cni)"
 node_agent_ref="$(publish_image waycloak-node-agent ./cmd/waycloak-node-agent)"
 gateway_agent_ref="$(publish_image waycloak-gateway-agent ./cmd/waycloak-gateway-agent)"
+gateway_runtime_ref="$(publish_image waycloak-gateway-runtime ./cmd/waycloak-gateway-runtime)"
+qbittorrent_adapter_ref="$(publish_image waycloak-qbittorrent-adapter ./cmd/waycloak-qbittorrent-adapter)"
 gluetun_ref="$(publish_image fake-gluetun ./test/fixtures/fake-gluetun)"
 baseline_controller_ref="$(publish_image replacement-controller-baseline ./cmd/replacement-controller io.waycloak.lifecycle=baseline)"
 baseline_cni_ref="$(publish_image waycloak-cni-baseline ./cmd/waycloak-cni io.waycloak.lifecycle=baseline)"
@@ -248,6 +264,21 @@ go run ./hack/corerelease \
   --image "gluetun=$gluetun_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/baseline-release-manifest.json"
+
+go run ./hack/corerelease \
+  --version "$extended_release_version" \
+  --chart "$chart_ref" \
+  --profile networking.waycloak.io/Core-v1 \
+  --profile networking.waycloak.io/ExtendedCandidate-v1 \
+  --image "replacement-controller=$controller_ref" \
+  --image "waycloak-cni=$cni_ref" \
+  --image "waycloak-node-agent=$node_agent_ref" \
+  --image "waycloak-gateway-agent=$gateway_agent_ref" \
+  --image "waycloak-gateway-runtime=$gateway_runtime_ref" \
+  --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
+  --image "gluetun=$gluetun_ref" \
+  --image "pause=$pause_ref" \
+  >"$work_dir/extended-release-manifest.json"
 
 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X main.version=${release_version}" \
@@ -360,7 +391,7 @@ kubectl delete pod --namespace "$system_namespace" \
   --selector app.kubernetes.io/component=node-agent --wait=true
 kubectl rollout status daemonset/waycloak-node-agent \
   --namespace "$system_namespace" --timeout=2m
-docker exec "$node" test -S /run/waycloak/cni-agent.sock
+wait_for_agent_socket "$node"
 
 doctor_deadline="$((SECONDS + 120))"
 until "$work_dir/waycloakctl" doctor --output json \
@@ -1499,6 +1530,126 @@ apply_certificate_rotation() {
   ' "$carry_plan" >/dev/null
 }
 
+create_extended_controller_secret() {
+  local generation="$1"
+  local identity_dir="$work_dir/extended-controller-${generation}"
+  mkdir -p "$identity_dir"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -keyout "$identity_dir/ca.key" \
+    -out "$identity_dir/ca.crt" \
+    -subj "/CN=Waycloak Extended candidate ${generation} CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null
+  cat >"$identity_dir/client.conf" <<EOF
+[req]
+distinguished_name = subject
+req_extensions = extensions
+prompt = no
+[subject]
+CN = Waycloak replacement controller
+[extensions]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = clientAuth
+subjectAltName = URI:spiffe://waycloak.io/replacement-controller
+EOF
+  openssl req -newkey rsa:2048 -nodes \
+    -keyout "$identity_dir/tls.key" \
+    -out "$identity_dir/tls.csr" \
+    -config "$identity_dir/client.conf" >/dev/null
+  openssl x509 -req -days 1 -sha256 \
+    -in "$identity_dir/tls.csr" \
+    -CA "$identity_dir/ca.crt" \
+    -CAkey "$identity_dir/ca.key" \
+    -CAcreateserial \
+    -out "$identity_dir/tls.crt" \
+    -extfile "$identity_dir/client.conf" \
+    -extensions extensions >/dev/null
+  openssl verify -purpose sslclient -CAfile "$identity_dir/ca.crt" \
+    "$identity_dir/tls.crt" >/dev/null
+  kubectl create secret generic waycloak-extended-controller-tls \
+    --namespace "$system_namespace" \
+    --type kubernetes.io/tls \
+    --from-file=ca.crt="$identity_dir/ca.crt" \
+    --from-file=tls.crt="$identity_dir/tls.crt" \
+    --from-file=tls.key="$identity_dir/tls.key" \
+    --dry-run=client -o json | jq '.immutable = true' | kubectl create -f - >/dev/null
+}
+
+apply_extended_candidate() {
+  local plan_path="$work_dir/extended-install-plan.json"
+  local rebound_plan_path="$work_dir/extended-install-plan-rebound.json"
+  local class_uid secret_uid plan_id rebound_plan_id
+
+  create_extended_controller_secret first
+  class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
+  "$work_dir/waycloakctl" install plan \
+    --release-manifest "$work_dir/extended-release-manifest.json" \
+    --namespace "$system_namespace" \
+    --release "$release_name" \
+    --enable-extended \
+    --extended-controller-tls-secret waycloak-extended-controller-tls \
+    --enable-workload-adapter \
+    --output json >"$plan_path"
+  plan_id="$(jq -r '.planID' "$plan_path")"
+  secret_uid="$(kubectl get secret waycloak-extended-controller-tls --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
+  jq -e --arg uid "$secret_uid" '
+    .operation == "ExactReleaseTransition" and
+    .extended.secretUID == $uid and
+    .extended.adapterEnabled == true and
+    .metadata.featureProfile == "networking.waycloak.io/ExtendedCandidate-v1" and
+    (.targetRelease.profiles | index("networking.waycloak.io/ExtendedCandidate-v1")) != null and
+    (.valuesYAML | contains("conformanceProfile: \"networking.waycloak.io/ExtendedCandidate-v1\"")) and
+    (.valuesYAML | contains("extended:\n  enabled: true"))
+  ' "$plan_path" >/dev/null
+  if grep -Eq 'PRIVATE KEY|tls\.key' "$plan_path"; then
+    printf 'Extended install plan exposed private key material\n' >&2
+    return 1
+  fi
+  if "$work_dir/waycloakctl" install apply --plan "$plan_path" \
+    --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; then
+    printf 'Extended install accepted the wrong confirmation\n' >&2
+    return 1
+  fi
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')" = "$class_uid"
+
+  kubectl delete secret waycloak-extended-controller-tls --namespace "$system_namespace" --wait=true
+  create_extended_controller_secret second
+  if "$work_dir/waycloakctl" install apply --plan "$plan_path" --confirm "$plan_id"; then
+    printf 'Extended install accepted a replaced TLS Secret identity\n' >&2
+    return 1
+  fi
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')" = "$class_uid"
+
+  "$work_dir/waycloakctl" install plan \
+    --release-manifest "$work_dir/extended-release-manifest.json" \
+    --namespace "$system_namespace" \
+    --release "$release_name" \
+    --enable-extended \
+    --extended-controller-tls-secret waycloak-extended-controller-tls \
+    --enable-workload-adapter \
+    --output json >"$rebound_plan_path"
+  rebound_plan_id="$(jq -r '.planID' "$rebound_plan_path")"
+  test "$rebound_plan_id" != "$plan_id"
+  "$work_dir/waycloakctl" install apply --plan "$rebound_plan_path" --confirm "$rebound_plan_id"
+
+  kubectl rollout status deployment/waycloak-controller --namespace "$system_namespace" --timeout=2m
+  kubectl rollout status daemonset/waycloak-cni-installer --namespace "$system_namespace" --timeout=2m
+  kubectl rollout status daemonset/waycloak-node-agent --namespace "$system_namespace" --timeout=2m
+  test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.conformanceProfile}')" = \
+    networking.waycloak.io/ExtendedCandidate-v1
+  kubectl get vpngatewayclass gluetun.waycloak.io -o json | jq -e '
+    (.spec.supportedFeatures | index("networking.waycloak.io/PortForwardServiceSingleActive")) != null and
+    (.spec.supportedFeatures | index("networking.waycloak.io/WorkloadAdapter")) != null
+  ' >/dev/null
+  kubectl get deployment/waycloak-controller --namespace "$system_namespace" -o json | jq -e --arg runtime "$gateway_runtime_ref" '
+    any(.spec.template.spec.containers[] | select(.name == "controller") | .args[]; . == "--gateway-port-forward-runtime-image=" + $runtime) and
+    any(.spec.template.spec.containers[] | select(.name == "controller") | .args[]; . == "--conformance-profile=networking.waycloak.io/ExtendedCandidate-v1") and
+    any(.spec.template.spec.volumes[]; .name == "extended-tls" and .secret.secretName == "waycloak-extended-controller-tls")
+  ' >/dev/null
+  test "$(kubectl get statefulset --namespace "$smoke_namespace" -l app.kubernetes.io/component=gateway -o json | jq '[.items[].spec.template.spec.containers[]] | length')" = 2
+}
+
 run_disruptive_verify baseline
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.waycloak.io/v1beta1
@@ -1674,5 +1825,7 @@ fi
 
 kubectl delete pod/recovery-probe vpnegressroute/recovery --namespace "$smoke_namespace" \
   --wait=true --timeout=2m
+
+apply_extended_candidate
 
 printf 'exact-artifact Kind install apply completed in %ss\n' "$apply_elapsed"

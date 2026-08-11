@@ -16,6 +16,9 @@
 {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $extendedDigest) }}
 {{- fail "extended.gatewayRuntime.image.digest must be an exact sha256 digest" }}
 {{- end }}
+{{- if ne .Values.controller.conformanceProfile "networking.waycloak.io/ExtendedCandidate-v1" }}
+{{- fail "extended.enabled=true requires controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1" }}
+{{- end }}
 {{- else if .Values.extended.adapter.enabled }}
 {{- fail "extended.adapter.enabled requires extended.enabled=true" }}
 {{- end }}

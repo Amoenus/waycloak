@@ -163,11 +163,20 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		release := flags.String("release", "waycloak", "Helm release name")
 		overlay := flags.String("overlay-cidr", "100.96.0.0/16", "reviewed overlay CIDR")
 		nodeArchitecture := flags.String("node-architecture", "", "reviewed amd64 or arm64 support row; required on mixed-architecture clusters")
+		enableExtended := flags.Bool("enable-extended", false, "explicitly enable the release-attested Extended gateway runtime")
+		extendedTLSSecret := flags.String("extended-controller-tls-secret", "", "pre-created immutable controller mTLS Secret for Extended runtime")
+		enableAdapter := flags.Bool("enable-workload-adapter", false, "enable controller trust for the out-of-process WorkloadAdapter")
 		if err := flags.Parse(arguments[1:]); err != nil {
 			return err
 		}
 		if *manifestPath == "" {
 			return errors.New("--release-manifest is required")
+		}
+		if *enableAdapter && !*enableExtended {
+			return errors.New("--enable-workload-adapter requires --enable-extended")
+		}
+		if *enableExtended != (*extendedTLSSecret != "") {
+			return errors.New("--enable-extended and --extended-controller-tls-secret must be supplied together")
 		}
 		manifest, _, err := LoadReleaseManifest(*manifestPath)
 		if err != nil {
@@ -200,7 +209,15 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		if err != nil {
 			return err
 		}
-		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report, source, targetCRDs)
+		var extended *ExtendedInstallIdentity
+		if *enableExtended {
+			identity, identityErr := observeExtendedInstallIdentity(ctx, clients, *namespace, *extendedTLSSecret, *enableAdapter)
+			if identityErr != nil {
+				return fmt.Errorf("observe Extended controller TLS identity: %w", identityErr)
+			}
+			extended = &identity
+		}
+		plan, err := BuildInstallPlan(manifest, *namespace, *release, *nodeArchitecture, report, source, targetCRDs, extended)
 		if err != nil {
 			return err
 		}

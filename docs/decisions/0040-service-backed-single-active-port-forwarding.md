@@ -87,10 +87,18 @@ runtime accepts only the configured controller SPIFFE URI, has no Kubernetes
 credential, and is the sole owner of provider mapping and gateway nftables
 state. The controller is the sole Kubernetes status writer.
 
-The distribution chart keeps this runtime boundary disabled by default. An
-Extended test installation supplies an exact digest-pinned runtime image and a
-named, pre-created controller mTLS Secret. A `VPNGateway` must independently
-request `PortForwardServiceSingleActive` and reference exactly one
+The distribution chart keeps this runtime boundary disabled by default. Before
+provider-backed acceptance, an Extended test installation uses the explicit
+`networking.waycloak.io/ExtendedCandidate-v1` conformance identity. Its signed
+release manifest contains the complete Core and Extended artifact inventory,
+and its confirmation-gated install plan binds the exact runtime image plus a
+named, immutable controller mTLS Secret UID and public CA/certificate digests.
+The client certificate must chain to that CA, permit client authentication, and
+contain only the exact `spiffe://waycloak.io/replacement-controller` URI. Apply
+re-observes this identity before any mutation. `ExtendedCandidate-v1` is a test
+channel, not an `Extended-v1` conformance claim; graduation requires a new exact
+release identity after all acceptance evidence below passes. A `VPNGateway`
+must independently request `PortForwardServiceSingleActive` and reference exactly one
 `GatewayRuntimeTLS` Secret before its Pod receives the runtime container and
 deterministic runtime Service. The container mounts only that TLS Secret, has
 no service-account token or VPN credential, and does not appear in a Core
