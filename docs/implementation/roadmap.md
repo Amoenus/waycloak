@@ -45,11 +45,12 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 - [x] #135 alpha runtime removal: completed in PR #154 after replacement-only
   dependency/audit proof and exact-head unit, race, envtest, generated,
   reproducibility, security, Kind/kindnet, k3d/Flannel, and packet gates passed.
-- [ ] #136 minimal admission and CNI-capable scheduling: PR #155 proved the
-  behavior, but the issue is reopened for the pre-beta clean break from the
-  externally visible `core-ready` preview label to the sole protected
-  `cni-ready` identity. No alias or dual acceptance is permitted; full
-  admission/CNI/Kind/k3d evidence must pass again before closure.
+- [x] #136 minimal admission and CNI-capable scheduling: PR #155 proved the
+  behavior, and PR #208 completed the pre-beta clean break from the externally
+  visible `core-ready` preview label to the sole protected `cni-ready`
+  identity. No alias or dual acceptance exists. Exact-head Linux verifier,
+  admission, Kind/kindnet, k3d/Flannel, Gluetun, turnkey, and datastore-recovery
+  step evidence passed again.
 - [ ] #137 Service-backed SingleActive PortForwardLease: API, controller,
   privileged handoff tests, and the signed amd64/arm64 runtime images are
   implemented. The default-disabled chart/runtime deployment boundary now

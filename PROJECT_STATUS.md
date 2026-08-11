@@ -236,8 +236,8 @@ and node-agent dependency graphs are replacement-only. Exact-head CI run
 Helm/KCL/generated output, security, Kind/kindnet, k3d/Flannel, and privileged
 packet gates before merge commit 6f5e4b47d76945d43c685609e4d4ba68745359b5.
 
-Issue #136's original behavior passed in PR #155, but the issue is reopened for
-the pre-beta product-vocabulary clean break. Kubernetes 1.36 stable declarative mutation
+Issue #136's original behavior passed in PR #155, and its pre-beta
+product-vocabulary clean break is complete in PR #208. Kubernetes 1.36 stable declarative mutation
 adds one hard CNI-ready selector to enrolled Pods, while validation rejects
 host-namespace and direct-node CNI bypass. An authenticated exact-release node
 report lets only the controller publish NodeRestriction-protected scheduling
@@ -254,6 +254,16 @@ aaad5b40f73e3abcba656e0ce55bf7f9a3e569c4 passed Linux race/static analysis,
 Kubernetes 1.36 envtest, deterministic generated/Helm/KCL output, security
 scans, Kind/kindnet, k3d/Flannel, fresh-install admission, and privileged
 packet/gateway-loss gates in CI run 30318076473.
+
+Correction commit bc1e66570efde95a4d245cea40ba235bf36eab91 passed the
+complete Linux verifier, Kind admission, Kind and k3d creation-time CNI,
+Gluetun, exact-artifact turnkey, and k3s datastore-recovery steps in CI run
+31509699770. The correction also separates successful `kubectl exec` stdout
+from transient stderr diagnostics before decoding durable CNI attachment JSON;
+its platform-neutral regression test passes under Linux race instrumentation.
+The k3s job's GitHub wrapper remained in progress after every step, including
+`Complete job`, had succeeded; the step-level evidence is retained instead of
+waiting indefinitely on the wrapper.
 
 Issue #137 is in progress and remains unadvertised. ADR 0040 freezes a
 same-namespace typed Service as identity input only, deterministic sticky
