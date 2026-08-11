@@ -261,9 +261,8 @@ Gluetun, exact-artifact turnkey, and k3s datastore-recovery steps in CI run
 31509699770. The correction also separates successful `kubectl exec` stdout
 from transient stderr diagnostics before decoding durable CNI attachment JSON;
 its platform-neutral regression test passes under Linux race instrumentation.
-The k3s job's GitHub wrapper remained in progress after every step, including
-`Complete job`, had succeeded; the step-level evidence is retained instead of
-waiting indefinitely on the wrapper.
+The k3s job's GitHub wrapper lagged after every step, including `Complete job`,
+had succeeded, then finalized successfully with the rest of the workflow.
 
 Issue #137 is in progress and remains unadvertised. ADR 0040 freezes a
 same-namespace typed Service as identity input only, deterministic sticky
