@@ -30,8 +30,52 @@ and stable SemVer publication. Every new release carries the complete signed
 eight-image amd64/arm64 inventory; artifact presence does not activate port
 forwarding. Historical six-image preview manifests are not accepted by the new
 publisher or installer. `Core-v1` remains only the baseline conformance-suite
-identifier inside the exact release manifest. Publication, homelab activation,
-provider-backed handoff, and beta/stable evidence remain pending.
+identifier inside the exact release manifest.
+
+The first one-product beta, `v0.1.0-beta.1`, is published from exact commit
+`5e43a8f65b1979a290a85dd7d4346f828d885f04`. Release run `31512800466`
+independently verified the signed chart, CLI, complete eight-image amd64/arm64
+inventory, SPDX SBOMs, provenance, checksums, and canonical release manifest
+`sha256:537d4c5b4b9a0c011c968d4fbe4ce16293c64e1b89a7869d9023f264effe915e`.
+This is beta evidence, not stable graduation.
+
+## First clean-break beta homelab canary
+
+The authorized homelab drill stopped the sole active protected workload,
+verified no enrolled application Pod remained, uninstalled the alpha runtime,
+separately purged the exact alpha CR instances and CRDs, and installed the
+signed beta from a confirmation-bound clean-install plan. The install apply
+completed in 20.3 seconds, then GitOps re-authored the new class, gateway,
+route, and workload from scratch. No alpha object, allocation, lease, runtime
+state, annotation, or compatibility path was imported. Normal uninstall took
+301 seconds and remains lifecycle evidence to investigate; destructive purge
+was still a separate, explicitly enumerated operation.
+
+qBittorrent is the sole active workload canary. Its replacement Pod has one
+application container, no Waycloak init or sidecar, no added capability, no
+Waycloak host mount or credential, an exact UID-bound binding, and zero
+restarts. Bitmagnet is intentionally held at zero replicas and is outside this
+canary; Qui remains removed. Twelve consecutive external DNS and HTTPS samples
+succeeded, and every qBittorrent public-egress observation matched the live
+gateway while differing from ordinary egress.
+
+Two explicit gateway-Pod replacement tests observed ten blocked outbound
+probes during loss and zero ordinary-egress matches. Both replacements
+recovered to a newly observed VPN address without restarting qBittorrent. The
+second test also found a release-blocking status defect: the binding retained
+`Ready=True` for three blocked probes after `VPNGateway Ready=False`, because a
+fresh node observation was sufficient until its 30-second TTL expired. The
+current correction makes binding readiness depend on the exact referenced
+gateway's current generation and live readiness, indexes gateway dependencies,
+and enqueues both affected Pods and bindings on every gateway change. Unit,
+Linux full-suite, Linux race, static analysis, and Kubernetes 1.36 envtest
+verification pass locally. Publication of a successor beta containing this
+correction, its exact-artifact homelab deployment, and repetition of the same
+fault test remain required before the correction counts as #141 evidence. The
+multi-day soak, arm64 conformance row, supported
+real-provider first-use timing, destructive reinstall certification,
+port-forward handoff, remaining #32 lifecycle evidence, beta-cycle hold, and
+v1 graduation review also remain open.
 
 ## Core.18 through Core.20 homelab release-transition evidence
 

@@ -30,6 +30,8 @@ import (
 const (
 	DataplaneCleanupFinalizer = "networking.waycloak.io/dataplane-cleanup"
 	podRouteIndex             = "networking.waycloak.io/pod-route"
+	routeGatewayIndex         = "networking.waycloak.io/route-gateway"
+	bindingGatewayIndex       = "networking.waycloak.io/binding-gateway"
 	defaultCleanupTimeout     = 10 * time.Minute
 	defaultObservationTTL     = 30 * time.Second
 )
@@ -209,9 +211,25 @@ func (r *PodBindingReconciler) SetupWithManager(manager ctrl.Manager) error {
 	}); err != nil {
 		return fmt.Errorf("index enrolled Pod routes: %w", err)
 	}
+	if err := manager.GetFieldIndexer().IndexField(context.Background(), &wayv1.VPNEgressRoute{}, routeGatewayIndex, func(object client.Object) []string {
+		route, ok := object.(*wayv1.VPNEgressRoute)
+		if !ok {
+			return nil
+		}
+		keys := make([]string, 0, len(route.Spec.ParentRefs))
+		for _, parent := range route.Spec.ParentRefs {
+			if parent.Group == wayv1.GroupName && parent.Kind == "VPNGateway" && parent.Namespace != "" && parent.Name != "" {
+				keys = append(keys, gatewayReferenceKey(string(parent.Namespace), string(parent.Name)))
+			}
+		}
+		return keys
+	}); err != nil {
+		return fmt.Errorf("index egress route gateways: %w", err)
+	}
 	return ctrl.NewControllerManagedBy(manager).
 		For(&corev1.Pod{}).
 		Watches(&wayv1.VPNEgressRoute{}, handler.EnqueueRequestsFromMapFunc(r.podsForRoute)).
+		Watches(&wayv1.VPNGateway{}, handler.EnqueueRequestsFromMapFunc(r.podsForGateway)).
 		Complete(r)
 }
 
@@ -223,6 +241,28 @@ func (r *PodBindingReconciler) podsForRoute(ctx context.Context, object client.O
 	requests := make([]reconcile.Request, 0, len(pods.Items))
 	for i := range pods.Items {
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&pods.Items[i])})
+	}
+	return requests
+}
+
+// podsForGateway maps one gateway event to every enrolled Pod whose route
+// references that exact namespace/name, so endpoint and generation changes are
+// projected without waiting for an unrelated Pod event.
+func (r *PodBindingReconciler) podsForGateway(ctx context.Context, object client.Object) []reconcile.Request {
+	routes := &wayv1.VPNEgressRouteList{}
+	if err := r.List(ctx, routes, client.MatchingFields{routeGatewayIndex: gatewayReferenceKey(object.GetNamespace(), object.GetName())}); err != nil {
+		return nil
+	}
+	seen := make(map[client.ObjectKey]struct{})
+	requests := make([]reconcile.Request, 0)
+	for i := range routes.Items {
+		for _, request := range r.podsForRoute(ctx, &routes.Items[i]) {
+			if _, exists := seen[request.NamespacedName]; exists {
+				continue
+			}
+			seen[request.NamespacedName] = struct{}{}
+			requests = append(requests, request)
+		}
 	}
 	return requests
 }
@@ -245,6 +285,13 @@ type VPNWorkloadBindingReconciler struct {
 	ObservationTTL time.Duration
 }
 
+// bindingGatewayObservation separates exact reference resolution from live
+// gateway readiness so a healthy node observation cannot mask gateway loss.
+type bindingGatewayObservation struct {
+	resolved wayconditions.State
+	ready    wayconditions.State
+}
+
 func (r *VPNWorkloadBindingReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	binding := &wayv1.VPNWorkloadBinding{}
 	if err := r.Get(ctx, request.NamespacedName, binding); err != nil {
@@ -253,7 +300,7 @@ func (r *VPNWorkloadBindingReconciler) Reconcile(ctx context.Context, request ct
 	if !binding.DeletionTimestamp.IsZero() {
 		return r.reconcileDeletion(ctx, binding)
 	}
-	desired, requeue := r.desiredStatus(binding)
+	desired, requeue := r.desiredStatus(binding, r.observeGateway(ctx, binding))
 	if reflect.DeepEqual(binding.Status, desired) {
 		return ctrl.Result{RequeueAfter: requeue}, nil
 	}
@@ -263,12 +310,12 @@ func (r *VPNWorkloadBindingReconciler) Reconcile(ctx context.Context, request ct
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
-func (r *VPNWorkloadBindingReconciler) desiredStatus(binding *wayv1.VPNWorkloadBinding) (wayv1.VPNWorkloadBindingStatus, time.Duration) {
+func (r *VPNWorkloadBindingReconciler) desiredStatus(binding *wayv1.VPNWorkloadBinding, gatewayObservation bindingGatewayObservation) (wayv1.VPNWorkloadBindingStatus, time.Duration) {
 	status := binding.Status
 	now := r.now()
 	states := map[string]wayconditions.State{
 		wayv1.ConditionAccepted:     wayconditions.True(wayv1.ReasonAccepted, "Binding intent is accepted"),
-		wayv1.ConditionResolvedRefs: wayconditions.True(wayv1.ReasonResolvedRefs, "UID-bound references are resolved"),
+		wayv1.ConditionResolvedRefs: gatewayObservation.resolved,
 		wayv1.ConditionProgrammed:   wayconditions.False(wayv1.ReasonPending, "Binding programming is pending"),
 		wayv1.ConditionReady:        wayconditions.Unknown("Live protected-path observation is unavailable"),
 		wayv1.ConditionNodeReady:    wayconditions.Unknown("Node-agent observation is unavailable"),
@@ -297,10 +344,49 @@ func (r *VPNWorkloadBindingReconciler) desiredStatus(binding *wayv1.VPNWorkloadB
 		states[wayv1.ConditionNodeReady] = wayconditions.False(wayv1.ReasonNodeNotReady, "Node-agent identity does not match binding")
 		states[wayv1.ConditionReady] = wayconditions.False(wayv1.ReasonNotReady, "Protected-path identity does not match binding")
 	}
+	if gatewayObservation.ready.Status != metav1.ConditionTrue {
+		states[wayv1.ConditionReady] = gatewayObservation.ready
+	}
 	status.ObservedGeneration = binding.Generation
 	status.Conditions = wayv1.BindingConditions(wayconditions.Build(binding.Status.Conditions, binding.Generation, now,
 		[]string{wayv1.ConditionAccepted, wayv1.ConditionResolvedRefs, wayv1.ConditionProgrammed, wayv1.ConditionReady, wayv1.ConditionNodeReady}, states))
 	return status, requeue
+}
+
+// observeGateway verifies the immutable reference UID, current desired network
+// generation, deletion state, and live Ready condition through the direct
+// reader before binding readiness may become true.
+func (r *VPNWorkloadBindingReconciler) observeGateway(ctx context.Context, binding *wayv1.VPNWorkloadBinding) bindingGatewayObservation {
+	observation := bindingGatewayObservation{
+		resolved: wayconditions.Unknown("Exact gateway reference observation is unavailable"),
+		ready:    wayconditions.Unknown("Referenced gateway readiness observation is unavailable"),
+	}
+	gateway := &wayv1.VPNGateway{}
+	err := r.reader().Get(ctx, client.ObjectKey{Namespace: string(binding.Spec.GatewayRef.Namespace), Name: string(binding.Spec.GatewayRef.Name)}, gateway)
+	if apierrors.IsNotFound(err) {
+		observation.resolved = wayconditions.False(wayv1.ReasonRefNotFound, "Exact gateway reference is unavailable")
+		observation.ready = wayconditions.False(wayv1.ReasonNotReady, "Referenced gateway data plane is unavailable")
+		return observation
+	}
+	if err != nil {
+		return observation
+	}
+	if gateway.UID == "" || wayv1.ObjectUID(gateway.UID) != binding.Spec.GatewayRef.UID || !gateway.DeletionTimestamp.IsZero() {
+		observation.resolved = wayconditions.False(wayv1.ReasonIncompatibleRef, "Exact gateway reference no longer matches")
+		observation.ready = wayconditions.False(wayv1.ReasonNotReady, "Referenced gateway data plane is unavailable")
+		return observation
+	}
+	observation.resolved = wayconditions.True(wayv1.ReasonResolvedRefs, "UID-bound references are resolved")
+	if binding.Spec.Network.GatewayGeneration != gateway.Generation {
+		observation.ready = wayconditions.False(wayv1.ReasonNotReady, "Binding network intent does not match the current gateway generation")
+		return observation
+	}
+	if !gatewayEligible(gateway) {
+		observation.ready = wayconditions.False(wayv1.ReasonNotReady, "Referenced gateway data plane is not ready")
+		return observation
+	}
+	observation.ready = wayconditions.True(wayv1.ReasonReady, "Referenced gateway live data plane is ready")
+	return observation
 }
 
 func (r *VPNWorkloadBindingReconciler) reconcileDeletion(ctx context.Context, binding *wayv1.VPNWorkloadBinding) (ctrl.Result, error) {
@@ -383,8 +469,38 @@ func (r *VPNWorkloadBindingReconciler) SetupWithManager(manager ctrl.Manager) er
 	if r.APIReader == nil {
 		r.APIReader = manager.GetAPIReader()
 	}
-	return ctrl.NewControllerManagedBy(manager).For(&wayv1.VPNWorkloadBinding{}).Complete(r)
+	if err := manager.GetFieldIndexer().IndexField(context.Background(), &wayv1.VPNWorkloadBinding{}, bindingGatewayIndex, func(object client.Object) []string {
+		binding, ok := object.(*wayv1.VPNWorkloadBinding)
+		if !ok || binding.Spec.GatewayRef.Namespace == "" || binding.Spec.GatewayRef.Name == "" {
+			return nil
+		}
+		return []string{gatewayReferenceKey(string(binding.Spec.GatewayRef.Namespace), string(binding.Spec.GatewayRef.Name))}
+	}); err != nil {
+		return fmt.Errorf("index workload binding gateways: %w", err)
+	}
+	return ctrl.NewControllerManagedBy(manager).
+		For(&wayv1.VPNWorkloadBinding{}).
+		Watches(&wayv1.VPNGateway{}, handler.EnqueueRequestsFromMapFunc(r.bindingsForGateway)).
+		Complete(r)
 }
+
+// bindingsForGateway maps gateway events directly to the affected status
+// owners, avoiding the observation TTL as a readiness-withdrawal delay.
+func (r *VPNWorkloadBindingReconciler) bindingsForGateway(ctx context.Context, object client.Object) []reconcile.Request {
+	bindings := &wayv1.VPNWorkloadBindingList{}
+	if err := r.List(ctx, bindings, client.MatchingFields{bindingGatewayIndex: gatewayReferenceKey(object.GetNamespace(), object.GetName())}); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(bindings.Items))
+	for i := range bindings.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&bindings.Items[i])})
+	}
+	return requests
+}
+
+// gatewayReferenceKey is the collision-free field-index key for Kubernetes
+// namespace and name values.
+func gatewayReferenceKey(namespace, name string) string { return namespace + "/" + name }
 
 func routeEligible(route *wayv1.VPNEgressRoute) bool {
 	if route == nil || route.UID == "" || !route.DeletionTimestamp.IsZero() || len(route.Spec.ParentRefs) != 1 || len(route.Status.Parents) != 1 {

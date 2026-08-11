@@ -69,23 +69,28 @@ Use Kind for every pull request where practical and k3d/k3s in scheduled/release
 
 Mandatory scenarios:
 
-1. unannotated Pod is not mutated and reaches the normal egress observer;
-2. annotated Pod is injected and reaches a different gateway egress observer;
-3. annotated Pod cannot reach the internet before overlay readiness;
+1. an unlabeled Pod is not enrolled or mutated and reaches the normal egress
+   observer;
+2. a labeled Pod receives no Waycloak container, has an exact UID-bound
+   binding, and reaches a different gateway egress observer;
+3. an enrolled Pod cannot reach the internet before exact binding and overlay
+   readiness;
 4. deleting the gateway blocks egress without exposing normal node IP;
 5. terminating the tunnel blocks egress;
 6. restarting controller leaves data-plane protection intact;
 7. agent repairs deleted owned routes/rules;
 8. DNS service discovery and external resolution follow configured policy;
-9. webhook outage does not affect unannotated Pods;
-10. annotated-but-uninjected Pod is rejected;
+9. controller or admission loss does not affect unlabeled Pods and prevents a
+   newly enrolled Pod from becoming runnable;
+10. a labeled Pod that bypasses scheduling admission is rejected by CNI on an
+    incapable node;
 11. adding/removing members does not renumber allocations;
 12. unrelated nftables rules survive agent setup and cleanup;
 13. no provider Secret or ServiceAccount token appears in an application container.
 14. engine-native ConfigMap changes reconcile, reserved conflicts fail
     `Accepted`, and no Secret file mount appears outside the engine container;
-15. legacy and native gateway shapes remain mutually exclusive across API and
-    controller version-skew tests.
+15. alpha CRDs, annotations, fields, runtime objects, and stored state are
+    rejected or absent; no dual-serving or compatibility path exists.
 16. a verified manifest input renders exactly one default Gluetun class while
     absent or malformed identity renders none or fails; a minimal gateway needs
     no Waycloak image digest;
@@ -106,6 +111,16 @@ Mandatory scenarios:
     search-expanded cluster-name containment, malformed replies and unavailable
     upstreams. Any failed active probe must withdraw `DNSReady`, composite
     `Ready`, and the protected allow path without direct DNS fallback.
+20. gateway deletion or replacement immediately enqueues every affected Pod and
+    binding. A fresh node observation alone must not retain
+    `VPNWorkloadBinding Ready=True` after the exact referenced gateway becomes
+    non-ready, is deleted, changes UID, or advances generation. Every outbound
+    attempt after an exact gateway UID or generation change must fail until the
+    replacement gateway and node path are both observed current. A same-UID
+    gateway-Pod replacement sample may only fail or match the concurrently
+    observed current VPN egress, never an earlier endpoint or ordinary egress;
+    binding readiness returns only after the exact gateway and node path are
+    both observed current.
 
 ### Port-forward tests
 

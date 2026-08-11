@@ -44,6 +44,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/yaml"
 )
 
@@ -486,6 +487,39 @@ func TestReplacementAPI(t *testing.T) {
 		}
 		assertManagedBy(t, binding, wayv1.FieldManagerBindingController)
 
+		// A fresh exact node observation is necessary but not sufficient: the
+		// referenced exact gateway must remain current and Ready as well.
+		binding.Status.ObservedPodUID = binding.Spec.PodRef.UID
+		binding.Status.Agent.ObservedAt = metav1.NewTime(now.Add(time.Second))
+		must(t, admin.Status().Update(ctx, binding))
+		lifecycle.Now = func() time.Time { return now.Add(time.Second) }
+		_, err = lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(binding)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionTrue {
+			t.Fatalf("exact live readiness = %#v", binding.Status)
+		}
+
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		for i := range gateway.Status.Conditions {
+			if gateway.Status.Conditions[i].Type == wayv1.ConditionReady {
+				gateway.Status.Conditions[i].Status = metav1.ConditionFalse
+				gateway.Status.Conditions[i].Reason = wayv1.ReasonNotReady
+				gateway.Status.Conditions[i].Message = "Gateway data plane is not ready"
+			}
+		}
+		must(t, admin.Status().Update(ctx, gateway))
+		lifecycle.Now = func() time.Time { return now.Add(2 * time.Second) }
+		_, err = lifecycle.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(binding)})
+		must(t, err)
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != wayv1.ReasonNotReady {
+			t.Fatalf("gateway-loss readiness = %#v", binding.Status)
+		}
+		if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, wayv1.ConditionNodeReady); condition == nil || condition.Status != metav1.ConditionTrue {
+			t.Fatalf("gateway loss incorrectly withdrew fresh node observation = %#v", binding.Status)
+		}
+
 		// An applied allocation cannot be silently reused when withdrawal is
 		// unconfirmed. The bounded finalizer recreates a missing reservation as
 		// a durable quarantine before allowing deletion.
@@ -531,6 +565,98 @@ func TestReplacementAPI(t *testing.T) {
 		if storedReservation.Annotations[waybinding.ReservationStateAnnotation] != waybinding.ReservationStateQuarantined {
 			t.Fatalf("reservation state = %q, want quarantine", storedReservation.Annotations[waybinding.ReservationStateAnnotation])
 		}
+	})
+
+	t.Run("gateway replacement watch withdraws exact binding readiness", func(t *testing.T) {
+		now := time.Date(2026, 8, 11, 18, 0, 0, 0, time.UTC)
+		gateway := validGateway("watch-binding-parent")
+		must(t, admin.Create(ctx, gateway))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
+		gateway.Status.ObservedGeneration = gateway.Generation
+		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
+		must(t, admin.Status().Update(ctx, gateway))
+
+		binding := validBinding("watch-binding")
+		binding.Spec.GatewayRef = wayv1.NamespacedUIDReference{
+			Namespace: wayv1.NamespaceName(gateway.Namespace), Name: wayv1.ObjectName(gateway.Name), UID: wayv1.ObjectUID(gateway.UID),
+		}
+		binding.Spec.Network.GatewayGeneration = gateway.Generation
+		must(t, admin.Create(ctx, binding))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+		binding.Status = wayv1.VPNWorkloadBindingStatus{
+			AppliedGeneration:  binding.Generation,
+			ObservedPodUID:     binding.Spec.PodRef.UID,
+			ObservedGatewayUID: binding.Spec.GatewayRef.UID,
+			Agent: &wayv1.NodeAgentObservation{
+				NodeName: binding.Spec.NodeName, NodeBootID: "watch-boot", InstanceID: "watch-agent", ObservedAt: metav1.NewTime(now),
+			},
+		}
+		must(t, admin.Status().Update(ctx, binding))
+
+		manager, err := ctrl.NewManager(config, ctrl.Options{
+			Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
+		})
+		must(t, err)
+		lifecycle := &waycontroller.VPNWorkloadBindingReconciler{
+			Client: manager.GetClient(), APIReader: manager.GetAPIReader(), Now: func() time.Time { return now }, ObservationTTL: time.Minute,
+		}
+		must(t, lifecycle.SetupWithManager(manager))
+		managerContext, cancelManager := context.WithCancel(ctx)
+		managerErrors := make(chan error, 1)
+		go func() { managerErrors <- manager.Start(managerContext) }()
+		defer func() {
+			cancelManager()
+			select {
+			case err := <-managerErrors:
+				if err != nil {
+					t.Errorf("stop binding watch manager: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Error("binding watch manager did not stop")
+			}
+		}()
+		if !manager.GetCache().WaitForCacheSync(managerContext) {
+			t.Fatal("binding watch manager cache did not synchronize")
+		}
+
+		waitForBindingCondition := func(conditionType string, expected metav1.ConditionStatus) {
+			t.Helper()
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(binding), binding))
+				if condition := apiMeta.FindStatusCondition(binding.Status.Conditions, conditionType); condition != nil && condition.Status == expected {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("binding %s did not become %s: %#v", conditionType, expected, binding.Status)
+				}
+				time.Sleep(25 * time.Millisecond)
+			}
+		}
+		waitForBindingCondition(wayv1.ConditionReady, metav1.ConditionTrue)
+
+		originalUID := gateway.UID
+		must(t, admin.Delete(ctx, gateway))
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			err := admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), &wayv1.VPNGateway{})
+			if apierrors.IsNotFound(err) {
+				break
+			}
+			must(t, err)
+			if time.Now().After(deadline) {
+				t.Fatal("original gateway did not delete")
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		replacement := validGateway(gateway.Name)
+		must(t, admin.Create(ctx, replacement))
+		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(replacement), replacement))
+		if replacement.UID == originalUID {
+			t.Fatal("same-name gateway replacement reused the old UID")
+		}
+		waitForBindingCondition(wayv1.ConditionResolvedRefs, metav1.ConditionFalse)
+		waitForBindingCondition(wayv1.ConditionReady, metav1.ConditionFalse)
 	})
 
 	t.Run("cross namespace consent is private and fail closed", func(t *testing.T) {
