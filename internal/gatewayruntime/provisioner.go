@@ -229,17 +229,6 @@ func currentPod(pods []corev1.Pod, statefulSet *appsv1.StatefulSet) *corev1.Pod 
 	}
 	return nil
 }
-func podReady(pod *corev1.Pod) bool {
-	if pod.Status.Phase != corev1.PodRunning {
-		return false
-	}
-	for _, condition := range pod.Status.Conditions {
-		if condition.Type == corev1.PodReady {
-			return condition.Status == corev1.ConditionTrue
-		}
-	}
-	return false
-}
 func gatewayAddress(prefix netip.Prefix) netip.Addr { return prefix.Masked().Addr().Next() }
 func runtimeName(name string) string {
 	value := "waycloak-gateway-" + name

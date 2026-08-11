@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+trap 'printf "turnkey failure at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
+
 readonly cluster_name="waycloak-turnkey-ci"
 readonly registry_name="waycloak-turnkey-registry"
 readonly registry_port="5001"
