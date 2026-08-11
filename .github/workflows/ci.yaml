@@ -108,21 +108,25 @@ jobs:
           make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-1" WAYCLOAK_VERSION=v0.0.0-ci
           make waycloakctl-release WAYCLOAKCTL_DIST="$RUNNER_TEMP/waycloakctl-2" WAYCLOAK_VERSION=v0.0.0-ci
           diff --recursive --no-dereference "$RUNNER_TEMP/waycloakctl-1" "$RUNNER_TEMP/waycloakctl-2"
-      - name: Verify reproducible multi-platform Core runtime images
+      - name: Verify reproducible multi-platform release runtime images
         run: |
           for build in 1 2; do
-            make core-runtime-images-oci \
+            make release-runtime-images-oci \
               REPLACEMENT_CONTROLLER_OCI_LAYOUT="$RUNNER_TEMP/core-$build/controller" \
               WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/core-$build/cni" \
               NODE_AGENT_OCI_LAYOUT="$RUNNER_TEMP/core-$build/node-agent" \
               GATEWAY_AGENT_OCI_LAYOUT="$RUNNER_TEMP/core-$build/gateway-agent" \
+              GATEWAY_RUNTIME_OCI_LAYOUT="$RUNNER_TEMP/core-$build/gateway-runtime" \
+              QBITTORRENT_ADAPTER_OCI_LAYOUT="$RUNNER_TEMP/core-$build/qbittorrent-adapter" \
               REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY=waycloak.invalid/replacement-controller \
               WAYCLOAK_CNI_IMAGE_REPOSITORY=waycloak.invalid/waycloak-cni \
               NODE_AGENT_IMAGE_REPOSITORY=waycloak.invalid/waycloak-node-agent \
-              GATEWAY_AGENT_IMAGE_REPOSITORY=waycloak.invalid/waycloak-gateway-agent
+              GATEWAY_AGENT_IMAGE_REPOSITORY=waycloak.invalid/waycloak-gateway-agent \
+              GATEWAY_RUNTIME_IMAGE_REPOSITORY=waycloak.invalid/waycloak-gateway-runtime \
+              QBITTORRENT_ADAPTER_IMAGE_REPOSITORY=waycloak.invalid/waycloak-qbittorrent-adapter
           done
           diff --recursive --no-dereference "$RUNNER_TEMP/core-1" "$RUNNER_TEMP/core-2"
-          for name in controller cni node-agent gateway-agent; do
+          for name in controller cni node-agent gateway-agent gateway-runtime qbittorrent-adapter; do
             layout="$RUNNER_TEMP/core-1/$name"
             test -f "$layout/oci-layout"
             test -f "$layout/index.json"
@@ -134,6 +138,8 @@ jobs:
               cni) entrypoint=/ko-app/waycloak-cni ;;
               node-agent) entrypoint=/ko-app/waycloak-node-agent ;;
               gateway-agent) entrypoint=/ko-app/waycloak-gateway-agent ;;
+              gateway-runtime) entrypoint=/ko-app/waycloak-gateway-runtime ;;
+              qbittorrent-adapter) entrypoint=/ko-app/waycloak-qbittorrent-adapter ;;
             esac
             while read -r image_digest; do
               image_manifest="$layout/blobs/sha256/${image_digest#sha256:}"
@@ -159,6 +165,8 @@ jobs:
             --image "waycloak-gateway-agent=registry.invalid/waycloak-gateway-agent@$digest_e"
             --image "gluetun=docker.io/qmcgaw/gluetun@$digest_f"
             --image "pause=registry.k8s.io/pause@$digest_a"
+            --image "waycloak-gateway-runtime=registry.invalid/waycloak-gateway-runtime@$digest_b"
+            --image "waycloak-qbittorrent-adapter=registry.invalid/waycloak-qbittorrent-adapter@$digest_c"
           )
           go run ./hack/corerelease "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-1.json"
           go run ./hack/corerelease "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-2.json"
@@ -167,7 +175,7 @@ jobs:
             .apiVersion == "release.waycloak.io/v1" and
             .version == "v0.0.0-ci" and
             (.manifestDigest | test("^sha256:[a-f0-9]{64}$")) and
-            (.images | keys | sort == ["gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-node-agent"])
+            (.images | keys | sort == ["gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-node-agent", "waycloak-qbittorrent-adapter"])
           ' "$RUNNER_TEMP/release-manifest-1.json"
       - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows

@@ -21,7 +21,7 @@ CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests api-reference test test-race vet envtest e2e core-runtime-images-oci waycloak-cni-image-oci node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference test test-race vet envtest e2e core-runtime-images-oci release-runtime-images-oci waycloak-cni-image-oci node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
 
@@ -54,6 +54,8 @@ e2e:
 	$(GO) test -tags=e2e ./test/e2e/... -v -count=1
 
 core-runtime-images-oci: replacement-controller-image-oci waycloak-cni-image-oci node-agent-image-oci gateway-agent-image-oci
+
+release-runtime-images-oci: core-runtime-images-oci gateway-runtime-image-oci qbittorrent-adapter-image-oci
 
 waycloak-cni-image-oci:
 	mkdir -p $(dir $(WAYCLOAK_CNI_OCI_LAYOUT))

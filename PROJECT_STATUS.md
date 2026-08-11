@@ -167,6 +167,15 @@ restart, and privileged TCP/UDP namespace handoff tests pass locally. Kind and
 real-provider rolling-replacement evidence are still required before the
 Extended capability can be advertised or #137 can close.
 
+The next #137 publication slice adds the existing gateway-runtime and
+qBittorrent-adapter binaries as one complete, known optional pair in the exact
+release inventory. Both are repeat-built for Linux amd64/arm64 and pass the
+same digest, vulnerability, SPDX, signature, provenance, and independent
+redownload gates as Core images. Prior six-image Core manifests remain valid
+for rollback, while partial or unknown optional inventories are rejected.
+Artifact availability does not enable the chart, change the default class
+feature set, or claim Extended conformance.
+
 Issue #138 is in progress on the turnkey bootstrap slice. `waycloakctl` now
 implements read-only cluster preflight, exact release-manifest install planning,
 confirmation-gated Helm apply, a reviewed Proton/OpenVPN gateway recipe,
@@ -273,7 +282,9 @@ with only the reachable fixed Go dependencies advanced; the upstream MIT
 license and exact dependency patch ship with the artifact. The workflow gates
 source, every published image, and the pinned pause image on the vulnerability
 policy, attaches SPDX and keyless signatures, records GitHub provenance, and
-publishes one canonical manifest containing only the six required images. A
+publishes one canonical manifest containing the six required Core images and,
+for new candidates, the complete known gateway-runtime/qBittorrent-adapter
+Extended artifact pair. A
 second runner redownloads the release and verifies checksums, identities, SBOM
 attestations, provenance, platforms, chart contents, and manifest-to-registry
 digest equality through the reusable registry-native verifier.

@@ -197,8 +197,40 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 		t.Fatal(err)
 	}
 	manifest.ManifestDigest = digest
-	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "only the required artifacts") {
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "required Core artifacts") {
 		t.Fatalf("extra release artifact was accepted: %v", err)
+	}
+
+	manifest = releaseManifest()
+	manifest.Images["unknown-one"] = Artifact{Repository: "example.invalid/unknown-one", Digest: "sha256:" + strings.Repeat("5", 64)}
+	manifest.Images["unknown-two"] = Artifact{Repository: "example.invalid/unknown-two", Digest: "sha256:" + strings.Repeat("6", 64)}
+	digest, err = manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ManifestDigest = digest
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "unknown image") {
+		t.Fatalf("count-matching unknown release inventory was accepted: %v", err)
+	}
+
+	manifest = releaseManifest()
+	manifest.Images["waycloak-gateway-runtime"] = Artifact{Repository: "example.invalid/gateway-runtime", Digest: "sha256:" + strings.Repeat("7", 64)}
+	digest, err = manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ManifestDigest = digest
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "all or none") {
+		t.Fatalf("partial Extended release inventory was accepted: %v", err)
+	}
+	manifest.Images["waycloak-qbittorrent-adapter"] = Artifact{Repository: "example.invalid/qbittorrent-adapter", Digest: "sha256:" + strings.Repeat("8", 64)}
+	digest, err = manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ManifestDigest = digest
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("complete known Extended release inventory was rejected: %v", err)
 	}
 }
 

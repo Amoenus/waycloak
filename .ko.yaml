@@ -43,3 +43,21 @@ builds:
       - -s
       - -w
       - -buildid=
+  - id: waycloak-gateway-runtime
+    dir: .
+    main: ./cmd/waycloak-gateway-runtime
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -buildid=
+  - id: waycloak-qbittorrent-adapter
+    dir: .
+    main: ./cmd/waycloak-qbittorrent-adapter
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -buildid=

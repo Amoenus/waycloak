@@ -26,12 +26,16 @@ jobs:
       chart_repository: ${{ steps.publish-chart.outputs.repository }}
       gateway_agent_digest: ${{ steps.publish-images.outputs.gateway_agent_digest }}
       gateway_agent_repository: ${{ steps.publish-images.outputs.gateway_agent_repository }}
+      gateway_runtime_digest: ${{ steps.publish-images.outputs.gateway_runtime_digest }}
+      gateway_runtime_repository: ${{ steps.publish-images.outputs.gateway_runtime_repository }}
       gluetun_digest: ${{ steps.publish-gluetun.outputs.digest }}
       gluetun_repository: ${{ steps.publish-gluetun.outputs.repository }}
       node_agent_digest: ${{ steps.publish-images.outputs.node_agent_digest }}
       node_agent_repository: ${{ steps.publish-images.outputs.node_agent_repository }}
       replacement_controller_digest: ${{ steps.publish-images.outputs.replacement_controller_digest }}
       replacement_controller_repository: ${{ steps.publish-images.outputs.replacement_controller_repository }}
+      qbittorrent_adapter_digest: ${{ steps.publish-images.outputs.qbittorrent_adapter_digest }}
+      qbittorrent_adapter_repository: ${{ steps.publish-images.outputs.qbittorrent_adapter_repository }}
       waycloak_cni_digest: ${{ steps.publish-images.outputs.waycloak_cni_digest }}
       waycloak_cni_repository: ${{ steps.publish-images.outputs.waycloak_cni_repository }}
     steps:
@@ -79,18 +83,22 @@ jobs:
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Set up the multi-platform container builder
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Reproduce the multi-platform Core images before publication
+      - name: Reproduce the multi-platform release images before publication
         run: |
           for build in first second; do
-            make core-runtime-images-oci \
+            make release-runtime-images-oci \
               REPLACEMENT_CONTROLLER_OCI_LAYOUT="$RUNNER_TEMP/repro-$build/controller" \
               WAYCLOAK_CNI_OCI_LAYOUT="$RUNNER_TEMP/repro-$build/cni" \
               NODE_AGENT_OCI_LAYOUT="$RUNNER_TEMP/repro-$build/node-agent" \
               GATEWAY_AGENT_OCI_LAYOUT="$RUNNER_TEMP/repro-$build/gateway-agent" \
+              GATEWAY_RUNTIME_OCI_LAYOUT="$RUNNER_TEMP/repro-$build/gateway-runtime" \
+              QBITTORRENT_ADAPTER_OCI_LAYOUT="$RUNNER_TEMP/repro-$build/qbittorrent-adapter" \
               REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-replacement-controller \
               WAYCLOAK_CNI_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-cni \
               NODE_AGENT_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-node-agent \
-              GATEWAY_AGENT_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-gateway-agent
+              GATEWAY_AGENT_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-gateway-agent \
+              GATEWAY_RUNTIME_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-gateway-runtime \
+              QBITTORRENT_ADAPTER_IMAGE_REPOSITORY=ghcr.io/amoenus/waycloak-qbittorrent-adapter
           done
           diff --recursive --no-dereference "$RUNNER_TEMP/repro-first" "$RUNNER_TEMP/repro-second"
       - name: Publish first-party images and capture only exact digests
@@ -139,6 +147,8 @@ jobs:
           publish_image waycloak_cni waycloak-cni ghcr.io/amoenus/waycloak-cni ./cmd/waycloak-cni
           publish_image node_agent waycloak-node-agent ghcr.io/amoenus/waycloak-node-agent ./cmd/waycloak-node-agent
           publish_image gateway_agent waycloak-gateway-agent ghcr.io/amoenus/waycloak-gateway-agent ./cmd/waycloak-gateway-agent
+          publish_image gateway_runtime waycloak-gateway-runtime ghcr.io/amoenus/waycloak-gateway-runtime ./cmd/waycloak-gateway-runtime
+          publish_image qbittorrent_adapter waycloak-qbittorrent-adapter ghcr.io/amoenus/waycloak-qbittorrent-adapter ./cmd/waycloak-qbittorrent-adapter
       - name: Build, test, and publish the vulnerability-gated Gluetun derivative
         id: publish-gluetun
         env:
@@ -258,6 +268,22 @@ jobs:
           output-file: dist/core/waycloak-gateway-agent.spdx.json
           upload-artifact: false
           upload-release-assets: false
+      - name: Generate gateway-runtime SPDX SBOM
+        uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
+        with:
+          image: ${{ steps.publish-images.outputs.gateway_runtime_repository }}@${{ steps.publish-images.outputs.gateway_runtime_digest }}
+          format: spdx-json
+          output-file: dist/core/waycloak-gateway-runtime.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Generate qBittorrent adapter SPDX SBOM
+        uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
+        with:
+          image: ${{ steps.publish-images.outputs.qbittorrent_adapter_repository }}@${{ steps.publish-images.outputs.qbittorrent_adapter_digest }}
+          format: spdx-json
+          output-file: dist/core/waycloak-qbittorrent-adapter.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - name: Generate Gluetun derivative SPDX SBOM
         uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
         with:
@@ -293,6 +319,8 @@ jobs:
             --image "waycloak-cni=$(cat dist/core/waycloak-cni.ref)" \
             --image "waycloak-node-agent=$(cat dist/core/waycloak-node-agent.ref)" \
             --image "waycloak-gateway-agent=$(cat dist/core/waycloak-gateway-agent.ref)" \
+            --image "waycloak-gateway-runtime=$(cat dist/core/waycloak-gateway-runtime.ref)" \
+            --image "waycloak-qbittorrent-adapter=$(cat dist/core/waycloak-qbittorrent-adapter.ref)" \
             --image "gluetun=$(cat dist/core/gluetun.ref)" \
             --image pause=registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c \
             >dist/core/core-release-manifest.json
@@ -307,6 +335,8 @@ jobs:
           sign_image "$(cat dist/core/waycloak-cni.ref)" dist/core/waycloak-cni.spdx.json
           sign_image "$(cat dist/core/waycloak-node-agent.ref)" dist/core/waycloak-node-agent.spdx.json
           sign_image "$(cat dist/core/waycloak-gateway-agent.ref)" dist/core/waycloak-gateway-agent.spdx.json
+          sign_image "$(cat dist/core/waycloak-gateway-runtime.ref)" dist/core/waycloak-gateway-runtime.spdx.json
+          sign_image "$(cat dist/core/waycloak-qbittorrent-adapter.ref)" dist/core/waycloak-qbittorrent-adapter.spdx.json
           sign_image "$(cat dist/core/gluetun.ref)" dist/core/gluetun.spdx.json
 
           chart_reference="$(sed 's|^oci://||' dist/core/waycloak-chart.ref)"
@@ -343,6 +373,18 @@ jobs:
         with:
           subject-name: ${{ steps.publish-images.outputs.gateway_agent_repository }}
           subject-digest: ${{ steps.publish-images.outputs.gateway_agent_digest }}
+          push-to-registry: true
+      - name: Attest gateway-runtime provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: ${{ steps.publish-images.outputs.gateway_runtime_repository }}
+          subject-digest: ${{ steps.publish-images.outputs.gateway_runtime_digest }}
+          push-to-registry: true
+      - name: Attest qBittorrent adapter provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: ${{ steps.publish-images.outputs.qbittorrent_adapter_repository }}
+          subject-digest: ${{ steps.publish-images.outputs.qbittorrent_adapter_digest }}
           push-to-registry: true
       - name: Attest Gluetun derivative provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0

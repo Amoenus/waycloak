@@ -104,6 +104,10 @@ expected_assets=(
   waycloak-node-agent.spdx.json
   waycloak-gateway-agent.ref
   waycloak-gateway-agent.spdx.json
+  waycloak-gateway-runtime.ref
+  waycloak-gateway-runtime.spdx.json
+  waycloak-qbittorrent-adapter.ref
+  waycloak-qbittorrent-adapter.spdx.json
   waycloak-chart.ref
   waycloak-chart.spdx.json
   "$chart_archive"
@@ -139,6 +143,8 @@ image_ref_files=(
   waycloak-cni.ref
   waycloak-node-agent.ref
   waycloak-gateway-agent.ref
+  waycloak-gateway-runtime.ref
+  waycloak-qbittorrent-adapter.ref
 )
 for ref_file in "${image_ref_files[@]}"; do
   image_name="${ref_file%.ref}"
