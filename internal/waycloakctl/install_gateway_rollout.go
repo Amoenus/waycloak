@@ -64,7 +64,11 @@ func ensureTargetGatewayPod(ctx context.Context, clients *Clients, gateway *unst
 		if statefulSet == nil {
 			// A rejected gateway has no runtime to roll. A gateway that still
 			// claims Ready must not let a missing runtime pass release completion.
-			return !gatewayCurrentReady(gateway), nil
+			current, retry, err := reobserveGateway(ctx, clients, gateway)
+			if err != nil || retry {
+				return false, err
+			}
+			return !gatewayCurrentReady(current), nil
 		}
 		if !gatewayTemplateIsTarget(&statefulSet.Spec.Template, engine, agent, target.Version, target.ManifestDigest) {
 			return false, nil
@@ -95,12 +99,9 @@ func ensureTargetGatewayPod(ctx context.Context, clients *Clients, gateway *unst
 		if !gatewayPodIsTarget(pod, statefulSet, engine, agent, target.Version, target.ManifestDigest) {
 			return false, nil
 		}
-		current, err := clients.Dynamic.Resource(vpnGatewayGVR).Namespace(gateway.GetNamespace()).Get(ctx, gateway.GetName(), metav1.GetOptions{})
-		if err != nil {
-			return false, nil
-		}
-		if current.GetUID() != gateway.GetUID() {
-			return false, errors.New("gateway UID changed during exact release rollout")
+		current, retry, err := reobserveGateway(ctx, clients, gateway)
+		if err != nil || retry {
+			return false, err
 		}
 		if !gatewayCurrentReady(current) {
 			return false, nil
@@ -111,6 +112,21 @@ func ensureTargetGatewayPod(ctx context.Context, clients *Clients, gateway *unst
 		return fmt.Errorf("wait for exact target gateway Pod and current Ready observation: %w", err)
 	}
 	return nil
+}
+
+func reobserveGateway(ctx context.Context, clients *Clients, gateway *unstructured.Unstructured) (*unstructured.Unstructured, bool, error) {
+	current, err := clients.Dynamic.Resource(vpnGatewayGVR).Namespace(gateway.GetNamespace()).Get(ctx, gateway.GetName(), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false, errors.New("gateway was removed during exact release rollout")
+	}
+	if err != nil {
+		// Transient API reads retry inside the bounded rollout deadline.
+		return nil, true, nil //nolint:nilerr
+	}
+	if current.GetUID() != gateway.GetUID() {
+		return nil, false, errors.New("gateway UID changed during exact release rollout")
+	}
+	return current, false, nil
 }
 
 func exactGatewayStatefulSet(ctx context.Context, clients *Clients, gateway *unstructured.Unstructured) (*appsv1.StatefulSet, error) {

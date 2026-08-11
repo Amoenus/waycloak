@@ -5,7 +5,9 @@ package waycloakctl
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -40,7 +42,7 @@ func TestEnsureTargetGatewayPodsReplacesStaleOnDeletePod(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	clients.Kubernetes.(*kubernetesfake.Clientset).Fake.PrependReactor("delete", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
+	clients.Kubernetes.(*kubernetesfake.Clientset).PrependReactor("delete", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
 		deleted := action.(clienttesting.DeleteAction)
 		if deleted.GetName() != old.Name {
 			t.Fatalf("deleted unexpected Pod %s", deleted.GetName())
@@ -135,6 +137,19 @@ func TestGatewayBindingsMustRecoverBeforeReleaseCompletion(t *testing.T) {
 	ready, err = gatewayBindingsCurrentReady(context.Background(), clients, gateway)
 	if err != nil || !ready {
 		t.Fatalf("current Ready exact gateway binding blocked release completion: ready=%t err=%v", ready, err)
+	}
+}
+
+func TestReadyGatewayWithoutRuntimeCannotPassReleaseCompletion(t *testing.T) {
+	clients := supportedClients(t)
+	gateway := rolloutGateway("gateway-uid")
+	if _, err := clients.Dynamic.Resource(vpnGatewayGVR).Namespace("media").Create(context.Background(), gateway, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	if err := ensureTargetGatewayPods(ctx, clients, releaseManifest()); err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Ready gateway without a runtime passed release completion: %v", err)
 	}
 }
 

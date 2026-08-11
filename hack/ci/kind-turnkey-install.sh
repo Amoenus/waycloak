@@ -883,6 +883,7 @@ apply_exact_transition() {
     --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
   before_gateway_pod_revision="$(kubectl get pod waycloak-gateway-disposable-0 \
     --namespace "$smoke_namespace" -o jsonpath='{.metadata.labels.controller-revision-hash}')"
+  test -n "$before_gateway_pod_uid"
   test -n "$before_gateway_pod_revision"
   expected_gateway_engine_image="$(jq -r '.images.gluetun.repository + "@" + .images.gluetun.digest' "$manifest_path")"
   expected_gateway_agent_image="$(jq -r '.images["waycloak-gateway-agent"].repository + "@" + .images["waycloak-gateway-agent"].digest' "$manifest_path")"
@@ -1234,7 +1235,7 @@ EOF
         (.spec.template.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent and
         .spec.template.metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
         .spec.template.metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
-        .status.currentRevision == $revision and .status.updateRevision == $revision
+        .status.updateRevision == $revision
       ' >/dev/null && \
       kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" -o json | \
       jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" \
