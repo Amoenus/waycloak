@@ -131,6 +131,8 @@ retry_bounded_quiet "checksum inventory blob signature" cosign verify-blob \
 jq -e --arg version "$release_tag" \
   '.version == $version and .apiVersion == "release.waycloak.io/v1"' \
   "$asset_dir/release-manifest.json" >/dev/null
+bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-inventory.sh" \
+  "$asset_dir/release-manifest.json"
 test "$(jq -r '.chart.repository + "@" + .chart.digest' "$asset_dir/release-manifest.json")" = \
   "$(cat "$asset_dir/waycloak-chart.ref")"
 

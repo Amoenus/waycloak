@@ -186,6 +186,19 @@ jobs:
             (.manifestDigest | test("^sha256:[a-f0-9]{64}$")) and
             (.images | keys | sort == ["gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-node-agent", "waycloak-qbittorrent-adapter"])
           ' "$RUNNER_TEMP/release-manifest-1.json"
+          bash hack/validate-release-inventory.sh "$RUNNER_TEMP/release-manifest-1.json"
+          jq 'del(.images["waycloak-gateway-runtime"], .images["waycloak-qbittorrent-adapter"])' \
+            "$RUNNER_TEMP/release-manifest-1.json" >"$RUNNER_TEMP/release-manifest-six-image.json"
+          jq 'del(.images.pause)' \
+            "$RUNNER_TEMP/release-manifest-1.json" >"$RUNNER_TEMP/release-manifest-missing-pause.json"
+          jq '.images.extra = .images.pause' \
+            "$RUNNER_TEMP/release-manifest-1.json" >"$RUNNER_TEMP/release-manifest-extra.json"
+          for invalid in six-image missing-pause extra; do
+            if bash hack/validate-release-inventory.sh "$RUNNER_TEMP/release-manifest-${invalid}.json"; then
+              echo "invalid ${invalid} release inventory was accepted" >&2
+              exit 1
+            fi
+          done
       - name: Verify generated CRDs, RBAC, API reference, and chart copies
         run: make verify-generated verify-workflows
       - name: Reject unlisted alpha contracts

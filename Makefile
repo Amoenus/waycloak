@@ -122,6 +122,7 @@ verify-kcl-generated:
 verify-workflows:
 	$(ACTIONLINT)
 	bash -n hack/validate-release-tag.sh
+	bash -n hack/validate-release-inventory.sh
 	bash -n hack/verify-release.sh
 
 alpha-audit:

@@ -49,6 +49,7 @@ func TestRunRejectsMissingExtraDuplicateAndMutableIdentities(t *testing.T) {
 		wanted    string
 	}{
 		{name: "missing", arguments: withoutImage(validArguments(), "pause"), wanted: "complete Waycloak artifact set"},
+		{name: "six image preview", arguments: withoutImage(withoutImage(validArguments(), "waycloak-gateway-runtime"), "waycloak-qbittorrent-adapter"), wanted: "complete Waycloak artifact set"},
 		{name: "partial port forwarding", arguments: withoutImage(validArguments(), "waycloak-qbittorrent-adapter"), wanted: "complete Waycloak artifact set"},
 		{name: "extra", arguments: append(validArguments(), "--image", exactImage("other", "other", "9")), wanted: "complete Waycloak artifact set"},
 		{name: "duplicate", arguments: append(validArguments(), "--image", exactImage("pause", "pause-copy", "9")), wanted: "duplicated"},
