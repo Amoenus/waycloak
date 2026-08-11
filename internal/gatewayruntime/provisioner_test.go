@@ -44,6 +44,9 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if statefulSet.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
 		t.Fatalf("gateway update strategy = %q, want explicit operator activation", statefulSet.Spec.UpdateStrategy.Type)
 	}
+	if statefulSet.Spec.Template.Annotations[releaseVersionAnnotation] != provisioner.ReleaseIdentity.Version || statefulSet.Spec.Template.Annotations[releaseManifestDigestAnnotation] != provisioner.ReleaseIdentity.ManifestDigest {
+		t.Fatalf("gateway template is not bound to the exact release: %#v", statefulSet.Spec.Template.Annotations)
+	}
 	if len(statefulSet.Spec.VolumeClaimTemplates) != 0 || statefulSet.Spec.Template.Spec.Volumes[1].EmptyDir == nil {
 		t.Fatalf("gateway StatefulSet unexpectedly carries durable application state: %#v", statefulSet.Spec)
 	}
@@ -117,25 +120,31 @@ func TestProvisionerCorrectsRollingUpdateWithoutReplacingGatewayPod(t *testing.T
 	statefulSet.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{Type: appsv1.RollingUpdateStatefulSetStrategyType}
 	must(t, kube.Update(context.Background(), statefulSet))
 	controller := true
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-gateway-private-0", Namespace: "media", UID: "gateway-pod-uid", OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "StatefulSet", Name: statefulSet.Name, UID: statefulSet.UID, Controller: &controller}}}, Spec: *statefulSet.Spec.Template.Spec.DeepCopy()}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "waycloak-gateway-private-0", Namespace: "media", UID: "gateway-pod-uid", Annotations: map[string]string{releaseVersionAnnotation: statefulSet.Spec.Template.Annotations[releaseVersionAnnotation], releaseManifestDigestAnnotation: statefulSet.Spec.Template.Annotations[releaseManifestDigestAnnotation]}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "StatefulSet", Name: statefulSet.Name, UID: statefulSet.UID, Controller: &controller}}}, Spec: *statefulSet.Spec.Template.Spec.DeepCopy()}
 	must(t, kube.Create(context.Background(), pod))
 	oldEngineImage := pod.Spec.Containers[0].Image
+	oldReleaseVersion := pod.Annotations[releaseVersionAnnotation]
+	oldReleaseDigest := pod.Annotations[releaseManifestDigestAnnotation]
 	provisioner.EngineImage = "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("c", 64)
 	provisioner.AgentImage = "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("d", 64)
+	provisioner.ReleaseIdentity = wayv1.ReleaseIdentity{Version: "v0.0.0-core.next", ManifestDigest: "sha256:" + strings.Repeat("e", 64)}
 	if _, err := provisioner.Reconcile(context.Background(), gateway); err != nil {
 		t.Fatal(err)
 	}
 	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(statefulSet), statefulSet))
 	if statefulSet.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
-		t.Fatalf("existing gateway update strategy = %q after adoption", statefulSet.Spec.UpdateStrategy.Type)
+		t.Fatalf("existing gateway update strategy = %q after correction", statefulSet.Spec.UpdateStrategy.Type)
 	}
 	if got := statefulSet.Spec.Template.Spec.Containers[0].Image; got != provisioner.EngineImage {
 		t.Fatalf("desired gateway template image = %q, want %q", got, provisioner.EngineImage)
 	}
+	if statefulSet.Spec.Template.Annotations[releaseVersionAnnotation] != provisioner.ReleaseIdentity.Version || statefulSet.Spec.Template.Annotations[releaseManifestDigestAnnotation] != provisioner.ReleaseIdentity.ManifestDigest {
+		t.Fatalf("desired gateway template release = %#v, want %#v", statefulSet.Spec.Template.Annotations, provisioner.ReleaseIdentity)
+	}
 	currentPod := &corev1.Pod{}
 	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(pod), currentPod))
-	if currentPod.UID != pod.UID || currentPod.Spec.Containers[0].Image != oldEngineImage {
-		t.Fatalf("existing gateway Pod changed during OnDelete adoption: uid=%q image=%q", currentPod.UID, currentPod.Spec.Containers[0].Image)
+	if currentPod.UID != pod.UID || currentPod.Spec.Containers[0].Image != oldEngineImage || currentPod.Annotations[releaseVersionAnnotation] != oldReleaseVersion || currentPod.Annotations[releaseManifestDigestAnnotation] != oldReleaseDigest {
+		t.Fatalf("existing gateway Pod changed during OnDelete correction: uid=%q image=%q release=%q digest=%q", currentPod.UID, currentPod.Spec.Containers[0].Image, currentPod.Annotations[releaseVersionAnnotation], currentPod.Annotations[releaseManifestDigestAnnotation])
 	}
 }
 
@@ -172,10 +181,15 @@ func TestProvisionerRejectsMutableImageBeforeCreatingObjects(t *testing.T) {
 	if _, err := provisioner.Reconcile(context.Background(), &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "default", UID: "uid"}}); err == nil {
 		t.Fatal("mutable gateway agent image accepted")
 	}
+	provisioner = fixture(kube)
+	provisioner.ReleaseIdentity.ManifestDigest = "sha256:not-exact"
+	if _, err := provisioner.Reconcile(context.Background(), &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "default", UID: "uid"}}); err == nil {
+		t.Fatal("invalid gateway release identity accepted")
+	}
 }
 
 func fixture(kube client.Client) *Provisioner {
-	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v0.0.0-core.test", ManifestDigest: "sha256:" + strings.Repeat("c", 64)}, OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":true,"tunnelReady":true,"dnsReady":true}`)), Header: http.Header{}}, nil
 	})}}
 }

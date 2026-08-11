@@ -134,9 +134,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   replacement, and zero workload restart. The current-generation class,
   gateway, route, and binding recovered Ready, the node receipt identified the
   target manifest, and Argo CD converged Healthy/Synced. Corrected forward
-  transition and activation evidence are complete; beta CRD lifecycle, exact
-  rollback, #32 DR, uninstall/purge, and remaining support rows are still
-  required.
+  transition and activation evidence are complete. The next lifecycle slice
+  binds the generated singleton template to the signed release version and
+  manifest digest and tests forward/rollback staging with unchanged gateway
+  binary digests, while the live Pod retains its source identity until explicit
+  activation. This is rollout evidence, not compatibility support. Beta CRD
+  lifecycle, live exact rollback, #32 DR, uninstall/purge, and remaining support
+  rows are still required.
 - [ ] #32: portable logical backup/restore (#174), exact source-bound forward/
   rollback (#175), journal-bound staged interruption recovery (#176),
   observation-certificate rotation (#177), and bounded pending/corrupt Helm

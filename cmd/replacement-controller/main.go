@@ -136,7 +136,7 @@ func main() {
 			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
 			os.Exit(1)
 		}
-		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
 	}
 	classController := &waycontroller.VPNGatewayClassReconciler{
 		Client: manager.GetClient(), ControllerName: wayv1.ControllerName(gatewayControllerName),

@@ -137,6 +137,11 @@ StatefulSet is only a deterministic singleton and `OnDelete` rollout-control
 primitive. After the Core runtime converges, the operator activates each gateway
 explicitly during a monitored fail-closed window and verifies its new Pod UID,
 route/binding recovery, and absence of ordinary-egress fallback.
+The controller binds every gateway Pod template to the immutable release version
+and manifest digest with controller-owned runtime annotations. They are observed
+rollout evidence, not workload configuration, compatibility aliases, or an
+annotation-based API. A release-identity change stages a distinct template even
+when one or both gateway binary digests are unchanged.
 
 ### ST-FR-10: API and CRD lifecycle
 

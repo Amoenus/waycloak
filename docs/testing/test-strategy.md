@@ -198,6 +198,10 @@ loss, a current-generation Ready recovery binding, complete route/binding
 cleanup, and zero direct packets. The lifecycle row asserts the Pod UID and
 images after each disruptive verifier run; the privileged CNI row independently
 counts packets while the application sandbox remains denied.
+The staged template must also carry the exact target release version and
+manifest digest as controller-owned runtime annotations while the live Pod keeps
+its source annotations. This makes forward and rollback identity observable
+even when an unchanged gateway binary is reused by both signed manifests.
 Before each supported forward and rollback transaction, the suite attempts the
 same changed release through raw Helm. Connected rendering must refuse it with
 the original class UID, deployed Helm revision, controller/CNI/node images, and

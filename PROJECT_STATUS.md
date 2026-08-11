@@ -71,6 +71,15 @@ Helm's two class-ownership annotations. Corrected forward transition and
 explicit real-provider activation evidence are complete; exact rollback and
 the remaining #140/#141 certification rows are not.
 
+The exact-rollback implementation slice now binds each controller-generated
+gateway Pod template to its signed release version and manifest digest. The
+turnkey lifecycle row deliberately reuses identical gateway engine and agent
+images across two different release manifests, proving `OnDelete` stages a
+distinct target identity while the live singleton retains its source identity
+until explicit activation. These controller-owned runtime annotations are
+rollout evidence only; they are not an alpha bridge or a user configuration API.
+Live Core.19-to-candidate rollback evidence remains pending publication.
+
 ## Clean-break implementation progress
 
 The #124 creation-time CNI feasibility gate passed and merged in
