@@ -21,19 +21,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const defaultVerifyProbeURL = "https://api.ipify.org"
 
 type VerifyReport struct {
-	APIVersion         string `json:"apiVersion"`
-	Kind               string `json:"kind"`
-	Verified           bool   `json:"verified"`
-	DistinctEgress     bool   `json:"distinctEgress"`
-	ProtectedSucceeded bool   `json:"protectedSucceeded"`
-	OrdinarySucceeded  bool   `json:"ordinarySucceeded"`
-	TunnelLossVerified bool   `json:"tunnelLossVerified"`
-	CleanupComplete    bool   `json:"cleanupComplete"`
+	APIVersion            string `json:"apiVersion"`
+	Kind                  string `json:"kind"`
+	Verified              bool   `json:"verified"`
+	DistinctEgress        bool   `json:"distinctEgress"`
+	ProtectedSucceeded    bool   `json:"protectedSucceeded"`
+	OrdinarySucceeded     bool   `json:"ordinarySucceeded"`
+	OutageProtectedDenied bool   `json:"outageProtectedDenied"`
+	RecoveryBindingReady  bool   `json:"recoveryBindingReady"`
+	TunnelLossVerified    bool   `json:"tunnelLossVerified"`
+	CleanupComplete       bool   `json:"cleanupComplete"`
 }
 
 func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, probeURL, probeCAConfigMap, confirmation string) (report VerifyReport, err error) {
@@ -131,20 +134,50 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, pr
 	} else {
 		return report, createErr
 	}
+	report.OutageProtectedDenied = protectedDenied
 	if err = waitGatewayReady(ctx, clients, gatewayGVR, namespace, gateway, true, 4*time.Minute); err != nil {
 		return report, err
 	}
 	recovered := probePod(prefix+"-recovered", namespace, image, probeURL, probeCAConfigMap, labels, map[string]string{"networking.waycloak.io/egress-route": createdRoute.GetName()})
+	recovered.Spec.Containers[0].Env = append(recovered.Spec.Containers[0].Env, corev1.EnvVar{Name: "PROBE_HOLD_AFTER_SUCCESS", Value: "15s"})
 	recovered, err = clients.Kubernetes.CoreV1().Pods(namespace).Create(ctx, recovered, metav1.CreateOptions{})
 	if err != nil {
 		return report, err
 	}
 	ownedPods = append(ownedPods, recovered)
+	// Observe the UID-bound allocation while the Pod is live. A short-lived
+	// probe may complete before a later read, after which withdrawal is correct
+	// and must not be mistaken for failure to recover.
+	report.RecoveryBindingReady = waitBindingReady(ctx, clients, namespace, recovered.UID, 2*time.Minute) == nil
 	recoveredIP, recoveredOK := waitProbe(ctx, clients, namespace, recovered.Name, 2*time.Minute)
 	_, recoveredErr := netip.ParseAddr(recoveredIP)
-	report.TunnelLossVerified = outageOrdinaryOK && protectedDenied && recoveredOK && recoveredErr == nil && recoveredIP != ordinaryIP
+	report.TunnelLossVerified = outageOrdinaryOK && report.OutageProtectedDenied && report.RecoveryBindingReady && recoveredOK && recoveredErr == nil && recoveredIP != ordinaryIP
 	report.Verified = report.OrdinarySucceeded && report.ProtectedSucceeded && report.DistinctEgress && report.TunnelLossVerified
 	return report, nil
+}
+
+func waitBindingReady(ctx context.Context, clients *Clients, namespace string, podUID types.UID, timeout time.Duration) error {
+	bindingGVR := schema.GroupVersionResource{Group: "networking.waycloak.io", Version: "v1beta1", Resource: "vpnworkloadbindings"}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		item, err := clients.Dynamic.Resource(bindingGVR).Namespace(namespace).Get(ctx, waybinding.BindingName(podUID), metav1.GetOptions{})
+		if err == nil {
+			conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
+			for _, raw := range conditions {
+				condition, _ := raw.(map[string]any)
+				observed, _ := condition["observedGeneration"].(int64)
+				if condition["type"] == "Ready" && condition["status"] == "True" && observed == item.GetGeneration() {
+					return nil
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return errors.New("recovered workload binding did not become Ready")
 }
 
 func cleanupVerification(ctx context.Context, clients *Clients, routeGVR schema.GroupVersionResource, namespace, routeName string, pods []*corev1.Pod) error {
