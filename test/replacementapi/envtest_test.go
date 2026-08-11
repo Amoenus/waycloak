@@ -136,9 +136,9 @@ func TestReplacementAPI(t *testing.T) {
 			t.Fatalf("endpointPolicy = %q, want SingleActive", storedLease.Spec.EndpointPolicy)
 		}
 
-		invalidClass := validClass("missing-core")
+		invalidClass := validClass("missing-baseline")
 		invalidClass.Spec.SupportedFeatures = invalidClass.Spec.SupportedFeatures[:5]
-		mustReject(t, admin.Create(ctx, invalidClass), "frozen Core feature")
+		mustReject(t, admin.Create(ctx, invalidClass), "frozen baseline feature")
 		secretParameters := validClass("secret-parameters")
 		secretParameters.Spec.ParametersRef = &wayv1.ClusterObjectReference{Group: "core.example.io", Kind: "Secret", Name: "credentials"}
 		mustReject(t, admin.Create(ctx, secretParameters), "non-Secret")
