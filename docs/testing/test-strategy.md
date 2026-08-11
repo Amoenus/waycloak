@@ -190,11 +190,14 @@ startup-denial and packet exercise.
 The Core runtime transition must leave each existing singleton gateway Pod UID
 unchanged even when its StatefulSet template advances to target gateway image
 digests. The lifecycle fixture uses distinct source and target image digests.
-Tests require an explicit `OnDelete` strategy, existing/default strategy
-adoption before template mutation, and no gateway Pod deletion until the
+Tests require an explicit `OnDelete` strategy, correction of a default
+`RollingUpdate` strategy before template mutation, and no gateway Pod deletion until the
 separate operator-confirmed activation step. That activation then requires a
 new exact gateway Pod UID running the target images, protected denial during
-loss, complete route/binding recovery, and zero direct packets.
+loss, a current-generation Ready recovery binding, complete route/binding
+cleanup, and zero direct packets. The lifecycle row asserts the Pod UID and
+images after each disruptive verifier run; the privileged CNI row independently
+counts packets while the application sandbox remains denied.
 Before each supported forward and rollback transaction, the suite attempts the
 same changed release through raw Helm. Connected rendering must refuse it with
 the original class UID, deployed Helm revision, controller/CNI/node images, and

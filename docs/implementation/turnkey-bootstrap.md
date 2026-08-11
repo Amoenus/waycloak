@@ -281,7 +281,10 @@ confirmation digest. It receives no service-account token or Secret. The command
 creates only run-labeled route/probe objects, proves ordinary and protected
 egress differ, deletes the exact UID-owned gateway Pod, proves new protected
 application containers do not start during loss while ordinary networking
-continues, waits for recovery, and deletes only its own objects.
+continues, waits for a current-generation Ready UID-bound recovery binding, and
+deletes only its own objects. The report exposes both the outage-denial and
+recovery-binding observations so lifecycle certification does not infer them
+from a later successful request.
 
 ## Diagnostics and support bundle
 

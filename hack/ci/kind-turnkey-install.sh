@@ -731,8 +731,16 @@ probe_url="https://${observer_ip}:${observer_port}/ip"
 run_disruptive_verify() {
   local label="$1"
   local before_owned_pods after_owned_pods required_confirmation
+  local before_gateway_pod_uid after_gateway_pod_uid
+  local expected_gateway_engine_image expected_gateway_agent_image
   before_owned_pods="$(kubectl get pods --namespace "$smoke_namespace" \
     --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)"
+  before_gateway_pod_uid="$(kubectl get pod waycloak-gateway-disposable-0 \
+    --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+  expected_gateway_engine_image="$(kubectl get statefulset waycloak-gateway-disposable \
+    --namespace "$smoke_namespace" -o jsonpath='{.spec.template.spec.containers[?(@.name=="vpn-engine")].image}')"
+  expected_gateway_agent_image="$(kubectl get statefulset waycloak-gateway-disposable \
+    --namespace "$smoke_namespace" -o jsonpath='{.spec.template.spec.containers[?(@.name=="gateway-agent")].image}')"
   if "$work_dir/waycloakctl" verify \
     --namespace "$smoke_namespace" \
     --gateway disposable \
@@ -768,8 +776,26 @@ run_disruptive_verify() {
   cp "$work_dir/verify-${label}.json" "$work_dir/verify.json"
   jq -e '.verified == true and .distinctEgress == true and
     .protectedSucceeded == true and .ordinarySucceeded == true and
+    .outageProtectedDenied == true and .recoveryBindingReady == true and
     .tunnelLossVerified == true and .cleanupComplete == true' \
     "$work_dir/verify-${label}.json" >/dev/null
+  after_gateway_pod_uid="$(kubectl get pod waycloak-gateway-disposable-0 \
+    --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
+  if [[ -z "$before_gateway_pod_uid" || -z "$after_gateway_pod_uid" || \
+    "$before_gateway_pod_uid" == "$after_gateway_pod_uid" ]]; then
+    printf '%s explicit activation did not replace the exact gateway Pod\n' "$label" >&2
+    return 1
+  fi
+  kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" -o json | \
+    jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" '
+      (.spec.containers[] | select(.name == "vpn-engine") | .image) == $engine and
+      (.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent and
+      ([.status.containerStatuses[] | select(.ready == true)] | length) == 2
+    ' >/dev/null
+  # The verifier observes current-generation Ready on the recovered UID-bound
+  # binding. Its outage Pod never receives an application process, so it can
+  # originate zero direct-egress packets; the separate privileged CNI row also
+  # proves this with node packet capture.
   test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
     --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
 }

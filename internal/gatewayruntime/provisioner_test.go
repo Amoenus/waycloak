@@ -98,7 +98,7 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	}
 }
 
-func TestProvisionerAdoptsExistingRollingUpdateWithoutReplacingGatewayPod(t *testing.T) {
+func TestProvisionerCorrectsRollingUpdateWithoutReplacingGatewayPod(t *testing.T) {
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	must(t, appsv1.AddToScheme(scheme))
