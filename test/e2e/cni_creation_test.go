@@ -421,11 +421,11 @@ func conditionWithin(timeout time.Duration, condition func() bool) bool {
 
 func readRemoteAttachment(t *testing.T, namespace, pod string) (waycni.Attachment, string, []byte) {
 	t.Helper()
-	statePath := strings.TrimSpace(command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "find", "/host-state/waycloak-e2e", "-type", "f", "-name", "*.json", "-print", "-quit"))
+	statePath := strings.TrimSpace(commandStdout(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "find", "/host-state/waycloak-e2e", "-type", "f", "-name", "*.json", "-print", "-quit"))
 	if statePath == "" {
 		t.Fatal("CNI attachment state path is empty")
 	}
-	data := []byte(command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "cat", statePath))
+	data := []byte(commandStdout(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "cat", statePath))
 	var attachment waycni.Attachment
 	must(t, json.Unmarshal(data, &attachment))
 	return attachment, statePath, data

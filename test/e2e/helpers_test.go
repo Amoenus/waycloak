@@ -6,7 +6,9 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +42,34 @@ func command(t *testing.T, environment []string, name string, arguments ...strin
 		t.Fatalf("%s %v: %v\n%s", name, arguments, err, output)
 	}
 	return string(output)
+}
+
+func commandStdout(t *testing.T, environment []string, name string, arguments ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, arguments...)
+	if environment != nil {
+		cmd.Env = environment
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, arguments, err, stderr.Bytes())
+	}
+	return string(output)
+}
+
+func TestCommandStdoutExcludesSuccessfulCommandStderr(t *testing.T) {
+	if os.Getenv("WAYCLOAK_TEST_COMMAND_STDOUT_HELPER") == "1" {
+		fmt.Fprint(os.Stdout, `{"ready":true}`)
+		fmt.Fprintln(os.Stderr, "E transient diagnostic")
+		os.Exit(0)
+	}
+	environment := append(os.Environ(), "WAYCLOAK_TEST_COMMAND_STDOUT_HELPER=1")
+	output := commandStdout(t, environment, os.Args[0], "-test.run=^TestCommandStdoutExcludesSuccessfulCommandStderr$")
+	if output != `{"ready":true}` {
+		t.Fatalf("structured stdout = %q", output)
+	}
 }
 
 func must(t *testing.T, err error) {
