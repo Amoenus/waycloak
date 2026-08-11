@@ -20,7 +20,7 @@ and teardown input, not the stable API baseline.
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
-## Core.18 homelab release-transition evidence
+## Core.18 and Core.19 homelab release-transition evidence
 
 The signed `v0.0.0-core.18` CLI executed the supported journal-bound transition
 from exact Core.17 Helm revision 20 to staged and active Core.18 revisions 21
@@ -39,15 +39,37 @@ egress, zero qBittorrent Pod UID changes, and zero container restarts. The
 denials coincide with four sampled gateway-not-Ready observations and preserve
 the fail-closed invariant.
 
-The same row exposed that the generated singleton gateway StatefulSet omitted
+The Core.18 row exposed that the generated singleton gateway StatefulSet omitted
 `spec.updateStrategy`, so Kubernetes defaulted to `RollingUpdate` and activated
 the Core.18 gateway template during the release transaction. ADR 0042 requires
-that activation to be explicit. This #140 slice renders `OnDelete`, reconciles
-existing replacement StatefulSets to that policy, and tests that a desired
-image change leaves the exact existing gateway Pod untouched until operator
-deletion. A corrected
-published-artifact transition and explicit real-provider gateway activation are
-still required before this lifecycle row is complete.
+that activation to be explicit.
+
+Core.19 corrected that defect and passed exact publication plus independent
+verification in run `31467923529`. Its signed CLI planned the deployed Core.18
+Helm revision 22 from reviewed class UID
+`eed747c2-17ec-4ae8-ad8a-70ee2743eb62`, applied target revisions 23 and 24 in
+33 seconds, replaced the immutable class with UID
+`38b830bb-82b2-4e64-857d-30f2adecbb91`, and preserved both observation Secret
+UIDs. During that transaction, the exact gateway Pod UID
+`fab94d47-b355-4277-815e-76a7f5cd9848` and its Core.18 images remained live
+while its StatefulSet changed from `RollingUpdate` to `OnDelete` and staged the
+distinct Core.19 engine and agent digests. Sixty qBittorrent samples recorded
+58 HTTP successes, 58 protected egress successes, two HTTP failures, two
+fail-closed protected denials, zero ordinary-egress matches, zero workload Pod
+replacement, and zero workload restart.
+
+The separately monitored activation deleted only that reviewed gateway Pod.
+Its replacement UID `473eeddd-b038-4c9a-8067-fd8de07c13af` ran both exact
+Core.19 images with zero restarts. Seventy-five qBittorrent samples recorded 75
+HTTP successes, 72 protected successes, three fail-closed denials, zero
+ordinary-egress matches, zero workload Pod replacement, and zero workload
+restart. Two samples observed gateway outage and 71 observed the replacement
+fully Ready. The current-generation class, gateway, route, and UID-bound binding
+then reported Ready; the amd64 host receipt identified the exact Core.19
+release manifest; and Argo CD converged Healthy/Synced while ignoring only
+Helm's two class-ownership annotations. Corrected forward transition and
+explicit real-provider activation evidence are complete; exact rollback and
+the remaining #140/#141 certification rows are not.
 
 ## Clean-break implementation progress
 
@@ -330,7 +352,7 @@ release run `31354593216` also passed publication and independent asset
 verification. This closes the missing exact hosted-artifact evidence; it does
 not substitute for the supported real-provider journey, destructive reinstall
 drill, support-row conformance, lifecycle/DR matrix, or soak required by
-#137–#141.
+issues #137–#141.
 
 Issue #32's first portable recovery slice merged in PR #174 with exact green CI
 run `31337381340`. ADR 0041 separates coherent distribution datastore snapshots
