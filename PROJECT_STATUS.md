@@ -20,6 +20,19 @@ and teardown input, not the stable API baseline.
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
+## One-product release publication correction
+
+PR #206 removed the unreleased split installation/profile model: Waycloak is
+one product with baseline fail-closed egress and explicitly advertised optional
+capabilities. The current #140 slice replaces the historical `core.*` preview tag,
+workflow, helper, verifier, asset, and checksum names with normal Waycloak beta
+and stable SemVer publication. Every new release carries the complete signed
+eight-image amd64/arm64 inventory; artifact presence does not activate port
+forwarding. Historical six-image preview manifests are not accepted by the new
+publisher or installer. `Core-v1` remains only the baseline conformance-suite
+identifier inside the exact release manifest. Publication, homelab activation,
+provider-backed handoff, and beta/stable evidence remain pending.
+
 ## Core.18 through Core.20 homelab release-transition evidence
 
 The signed `v0.0.0-core.18` CLI executed the supported journal-bound transition
@@ -251,12 +264,12 @@ credential-free Pod and supports a qBittorrent-specific declared
 provider-assigned application-port capability without changing Service routing
 or adding an application sidecar. Unit, Kubernetes 1.36 envtest, exact mTLS,
 restart, and privileged TCP/UDP namespace handoff tests pass. PR #199 published
-the gateway runtime and qBittorrent adapter as one complete known optional pair
-in the exact release inventory. Both are repeat-built for Linux amd64/arm64 and
+the gateway runtime and qBittorrent adapter as two implementation images in the
+complete release inventory. Both are repeat-built for Linux amd64/arm64 and
 pass the same digest, vulnerability, SPDX, signature, provenance, and
-independent redownload gates as Core images. Prior six-image Core manifests
-remain valid for rollback, while partial or unknown optional inventories are
-rejected. Artifact availability does not enable the chart or change the default
+independent redownload gates as every other release image. New manifests require
+the complete eight-image inventory and reject missing, partial, or unknown
+inventories. Artifact availability does not enable the chart or change the default
 class feature set. #137 remains open for
 confirmation-gated deployment and the real-provider SingleActive rolling
 handoff proof with zero wrong-Pod delivery and zero ordinary-egress fallback.
@@ -279,8 +292,8 @@ to advertise port forwarding as supported.
 PR #205 added the confirmation boundary, but incorrectly promoted internal
 maturity labels into separate installation profiles. The
 corrected surface uses `waycloakctl install plan --enable-port-forwarding` with
-one exact Waycloak release manifest carrying the complete optional artifact
-pair. It binds a
+one exact Waycloak release manifest carrying the complete eight-image
+inventory. It binds a
 named immutable controller mTLS Secret by UID plus public CA and certificate
 digests, verifies the exact replacement-controller SPIFFE client identity, and
 re-observes it before any apply mutation. The same default class retains its
@@ -306,8 +319,8 @@ required images, and profiles, rejecting a changed artifact, hidden extra image,
 or stale declared digest before an install plan can be built. The mandatory
 chained-CNI installer now has an explicit reproducible Linux amd64/arm64 OCI
 image target instead of remaining only a chart-level digest reference. A
-publisher-only manifest assembler now requires the exact chart plus all six
-Core image identities, rejects missing, extra, duplicate, tagged, or malformed
+publisher-only manifest assembler now requires the exact chart plus all eight
+Waycloak image identities, rejects missing, extra, duplicate, tagged, or malformed
 inputs, computes the canonical manifest identity, and emits deterministic JSON
 that the installer loader revalidates. A dedicated disposable Kind/local-OCI
 acceptance now exercises that manifest through CLI preflight, plan, exact

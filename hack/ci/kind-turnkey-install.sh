@@ -243,29 +243,33 @@ if [[ ! "$baseline_chart_digest" =~ ^sha256:[a-f0-9]{64}$ || "$baseline_chart_di
 fi
 baseline_chart_ref="oci://${registry_host}:${registry_port}/charts/waycloak@${baseline_chart_digest}"
 
-go run ./hack/corerelease \
+go run ./hack/release \
   --version "$release_version" \
   --chart "$chart_ref" \
   --image "replacement-controller=$controller_ref" \
   --image "waycloak-cni=$cni_ref" \
   --image "waycloak-node-agent=$node_agent_ref" \
   --image "waycloak-gateway-agent=$gateway_agent_ref" \
+  --image "waycloak-gateway-runtime=$gateway_runtime_ref" \
+  --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
   --image "gluetun=$gluetun_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/release-manifest.json"
 
-go run ./hack/corerelease \
+go run ./hack/release \
   --version "$baseline_release_version" \
   --chart "$baseline_chart_ref" \
   --image "replacement-controller=$baseline_controller_ref" \
   --image "waycloak-cni=$baseline_cni_ref" \
   --image "waycloak-node-agent=$baseline_node_agent_ref" \
   --image "waycloak-gateway-agent=$gateway_agent_ref" \
+  --image "waycloak-gateway-runtime=$gateway_runtime_ref" \
+  --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
   --image "gluetun=$gluetun_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/baseline-release-manifest.json"
 
-go run ./hack/corerelease \
+go run ./hack/release \
   --version "$port_forward_release_version" \
   --chart "$chart_ref" \
   --profile networking.waycloak.io/Core-v1 \

@@ -148,8 +148,17 @@ jobs:
               jq -e --arg entrypoint "$entrypoint" '.config.Entrypoint == [$entrypoint]' "$image_config"
             done < <(jq -r '.manifests[].digest' "$root_index")
           done
-      - name: Verify deterministic Core release-manifest assembly
+      - name: Verify deterministic Waycloak release-manifest assembly
         run: |
+          for release_tag in v0.1.0-beta.1 v1.0.0; do
+            bash hack/validate-release-tag.sh "$release_tag"
+          done
+          for release_tag in v0.0.0-core.20 v1.0.0-rc.1 v01.0.0 v1.0.0-beta.01 latest; do
+            if bash hack/validate-release-tag.sh "$release_tag"; then
+              echo "invalid release tag was accepted: $release_tag" >&2
+              exit 1
+            fi
+          done
           digest_a="sha256:$(printf 'a%.0s' {1..64})"
           digest_b="sha256:$(printf 'b%.0s' {1..64})"
           digest_c="sha256:$(printf 'c%.0s' {1..64})"
@@ -168,8 +177,8 @@ jobs:
             --image "waycloak-gateway-runtime=registry.invalid/waycloak-gateway-runtime@$digest_b"
             --image "waycloak-qbittorrent-adapter=registry.invalid/waycloak-qbittorrent-adapter@$digest_c"
           )
-          go run ./hack/corerelease "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-1.json"
-          go run ./hack/corerelease "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-2.json"
+          go run ./hack/release "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-1.json"
+          go run ./hack/release "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-2.json"
           cmp "$RUNNER_TEMP/release-manifest-1.json" "$RUNNER_TEMP/release-manifest-2.json"
           jq -e '
             .apiVersion == "release.waycloak.io/v1" and
@@ -398,7 +407,7 @@ jobs:
             test "$(git -C "$source_dir" rev-parse HEAD)" = "$upstream_commit"
             GO=go bash hack/build-gluetun-candidate.sh \
               "$source_dir" "$RUNNER_TEMP/gluetun-$build" \
-              "$upstream_commit" v0.0.0-core.0
+              "$upstream_commit" v0.1.0-beta.0
           done
           diff --recursive --no-dereference "$RUNNER_TEMP/gluetun-first" "$RUNNER_TEMP/gluetun-second"
           if ! (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...); then
@@ -415,7 +424,7 @@ jobs:
             --platform=linux/amd64 \
             --build-arg UPSTREAM_IMAGE=docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461 \
             --build-arg GLUETUN_UPSTREAM_COMMIT=7eed6eaf160440724a93ca66f66055068cebe4ac \
-            --build-arg WAYCLOAK_RELEASE=v0.0.0-core.0 \
+            --build-arg WAYCLOAK_RELEASE=v0.1.0-beta.0 \
             --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
             --provenance=false \
             --sbom=false \

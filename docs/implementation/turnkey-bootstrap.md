@@ -184,9 +184,10 @@ server's default audience; the audience-bound observation token is isolated and
 cannot be used as a portable Kubernetes API credential.
 
 Release automation, never the cluster operator, assembles this input with the
-publisher-only `go run ./hack/corerelease` command. The command requires an
+publisher-only `go run ./hack/release` command. The command requires an
 exact OCI chart identity and exactly the replacement controller, CNI, node
-agent, gateway agent, Gluetun, and pause image identities. It performs no tag
+agent, gateway agent, gateway runtime, qBittorrent adapter, Gluetun, and pause
+image identities. It performs no tag
 resolution or registry discovery and rejects missing, extra, duplicate, or
 mutable inputs before emitting deterministic JSON. The resulting manifest is
 then signed and published by the release lifecycle; installation consumes that
@@ -203,7 +204,7 @@ against one HTTPS observer reached through ordinary and protected paths. The
 gate proves refusal without mutation, distinct observed source addresses,
 exact-UID gateway replacement, protected application startup denial during the
 loss window, ordinary-network continuity, recovery, and exact cleanup. The
-fixture is CI evidence for the Core mechanics, not a supported VPN provider and
+fixture is CI evidence for the baseline fail-closed mechanics, not a supported VPN provider and
 not a substitute for the signed published-artifact or real-provider gates.
 
 The same exact-artifact journey exercises the first disaster-recovery slice.
@@ -316,22 +317,24 @@ redaction, deterministic bundles, and exact UID-scoped gateway disruption. A
 privileged network-namespace test proves the gateway deny-first path, healthy
 TCP/UDP forwarding, and tunnel-loss denial. The mandatory chained-CNI installer
 is built twice as a Linux amd64/arm64 OCI layout and compared byte-for-byte in
-CI. A release-wide composite OCI build target combines the four Core runtime
-images with the two known optional port-forward images, and deterministic manifest
-assembly is exercised as a command-line boundary in CI. A complete optional
-artifact pair may be carried by the exact release inventory without advertising
-port-forward capability claim; partial or unknown image inventories are rejected. Prior
-six-image Core manifests remain valid inputs for exact rollback.
+CI. A release-wide composite OCI build target combines the four baseline runtime
+images with the two port-forward implementation images, and deterministic manifest
+assembly is exercised as a command-line boundary in CI. Every release carries
+the complete inventory; this does not advertise or activate port forwarding.
+Missing, partial, or unknown image inventories are rejected, and supported
+rollback uses another complete signed release rather than a preview-manifest
+compatibility path.
 
 The `v0.0.0-turnkey.1` prerelease executed the signed CLI workflow from exact
 main commit `21ffebea3444f830ec2c9b29acebd9b36a2fd878`. Release run
 `30360505871` passed publication and the separate hosted-runner verification of
 the complete downloaded asset set.
 
-Core deployment candidates use `vMAJOR.MINOR.PATCH-core.NUMBER` tags. The Core
-workflow repeat-builds the six Waycloak amd64/arm64 binaries, packages the
+Waycloak beta candidates use `vMAJOR.MINOR.PATCH-beta.NUMBER` tags and stable
+releases use `vMAJOR.MINOR.PATCH`. The one release workflow repeat-builds the
+six Waycloak amd64/arm64 binaries, packages the
 chart with the tag-derived immutable version, publishes only digest-resolved
-identities, and assembles `core-release-manifest.json` with the derived Gluetun
+identities, and assembles `release-manifest.json` with the derived Gluetun
 and pinned pause identities. The Gluetun image is built from upstream commit
 `7eed6eaf160440724a93ca66f66055068cebe4ac` on upstream multi-platform image
 digest `sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461`.
@@ -349,7 +352,7 @@ their immutable artifacts available for explicitly enabled port-forward tests; i
 does not add the optional feature to a default class or claim its conformance.
 The workflow is not evidence until an exact tag run passes.
 
-Issue #138 must remain open until the published Core candidate completes the
+Issue #138 must remain open until the published Waycloak candidate completes the
 supported clean-cluster Proton/OpenVPN journey in under 15 minutes. The
 exact-artifact Kind installation and disruptive fixture coverage do not replace
 that provider proof.

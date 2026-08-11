@@ -131,10 +131,10 @@ doctor, smoke test and support bundle. Plain Kubernetes remains
 the source of truth and Helm the installation surface. Destructive or
 privilege-expanding operations require explicit confirmation.
 
-An exact Core release transition may update the singleton gateway template but
+An exact Waycloak release transition may update the singleton gateway template but
 must not restart that gateway. The gateway has no persistent volume; its
 StatefulSet is only a deterministic singleton and `OnDelete` rollout-control
-primitive. After the Core runtime converges, the operator activates each gateway
+primitive. After the Waycloak runtime converges, the operator activates each gateway
 explicitly during a monitored fail-closed window and verifies its new Pod UID,
 route/binding recovery, and absence of ordinary-egress fallback.
 The controller binds every gateway Pod template to the immutable release version

@@ -20,10 +20,7 @@ if [[ ! "$upstream_commit" =~ ^[a-f0-9]{40}$ ]]; then
   echo "upstream commit must be one exact lowercase Git commit" >&2
   exit 1
 fi
-if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-core\.[0-9]+$ ]]; then
-  echo "release version must be vMAJOR.MINOR.PATCH-core.NUMBER" >&2
-  exit 1
-fi
+bash "$script_dir/validate-release-tag.sh" "$release_version"
 if [[ "$(git -C "$source_dir" rev-parse HEAD)" != "$upstream_commit" ]] || \
   [[ -n "$(git -C "$source_dir" status --porcelain)" ]]; then
   echo "Gluetun source must be the clean exact upstream commit" >&2

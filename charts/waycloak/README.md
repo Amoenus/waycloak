@@ -28,7 +28,7 @@ host paths. The runtime agent never writes the host CNI directories.
 
 Provider port forwarding is disabled by default. Candidate testing must use a
 reviewed `waycloakctl install plan --enable-port-forwarding` transaction, a new
-exact Waycloak release manifest with the complete optional artifact pair, and a
+exact Waycloak release manifest with the complete eight-image inventory, and a
 pre-created immutable controller mTLS Secret containing the exact
 `spiffe://waycloak.io/replacement-controller` client identity. The chart rejects
 partial port-forward configuration. Enabling it adds the specific
