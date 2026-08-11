@@ -212,7 +212,7 @@ token, no added capability, zero restarts, matching protected/gateway public-IP
 hashes, and current route, gateway, binding, and node conditions. Bitmagnet is
 intentionally scaled to zero and Qui is retired from the workload canary.
 
-Issue #190 is in progress after that canary exposed a restart-recovery ordering
+Issue #190 is complete after that canary exposed a restart-recovery ordering
 defect. One exact Ready qBittorrent sandbox coexisted with 20 earlier failed-ADD
 LockedDown records for the same Pod UID. Flat file iteration verified the live
 sandbox and then allowed a later stale record to overwrite the Pod observation
@@ -222,8 +222,23 @@ bounded fresh-ADD grace, and removes old missing/reused attempts only after the
 current sandbox verifies or exact Pod absence is authenticated. Unit coverage
 reproduces both storage orders with 20 attempts, the real file store, failed
 verification, restart idempotency, ambiguity, grace, and one-shot group
-withdrawal. Privileged K3s/Flannel canary evidence remains required before the
-issue closes.
+withdrawal. PR #196 merged as `3f93f827e1d67ef31037297f1bebdd9413dd2ce2` after
+all hosted gates passed, including the privileged K3s/Flannel, Kind chained-CNI,
+K3s datastore-recovery, real-provider Gluetun, race, and exact-artifact lanes.
+The exact `v0.0.0-core.16` artifacts were then published and independently
+verified by Core release run `31445104917` and CLI release run `31445104920`.
+The homelab K3s/Flannel canary upgraded through the signed lifecycle plan to
+manifest `sha256:94c7c1d09effac4afbe5527bbc29bca577e5e9de2b1354da91e0bac75d7e7ba2`.
+It reproduced the old 20-record false observation on Core.15, then proved
+Core.16 removed all 20 canonical stale records and retained exactly one Ready
+qBittorrent attachment. An actual node-agent replacement recovered that
+attachment with current True conditions, no condition or transition-time
+flapping, and no qBittorrent restart. Protected and gateway public-egress hashes
+matched and differed from ordinary same-node egress; the qBittorrent Service,
+EndpointSlice, Web UI, and Traefik route returned healthy results. Argo CD
+converged Synced/Healthy without replacing the release-bound class or workload.
+The signed Core.16 doctor report was healthy. Protected-workload split-DNS
+semantics remain separate issue #191.
 
 The CLI release workflow now marks prerelease tags correctly and gates a
 successful run on a separate hosted runner redownloading the exact asset set and
