@@ -115,9 +115,12 @@ Mandatory scenarios:
     binding. A fresh node observation alone must not retain
     `VPNWorkloadBinding Ready=True` after the exact referenced gateway becomes
     non-ready, is deleted, changes UID, or advances generation. Every outbound
-    sample during replacement must either fail or match the current/previous
-    reviewed VPN endpoint, never ordinary egress; readiness returns only after
-    the exact gateway and node path are both observed current.
+    attempt after an exact gateway UID or generation change must fail until the
+    replacement gateway and node path are both observed current. A same-UID
+    gateway-Pod replacement sample may only fail or match the concurrently
+    observed current VPN egress, never an earlier endpoint or ordinary egress;
+    binding readiness returns only after the exact gateway and node path are
+    both observed current.
 
 ### Port-forward tests
 

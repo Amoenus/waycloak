@@ -245,6 +245,9 @@ func (r *PodBindingReconciler) podsForRoute(ctx context.Context, object client.O
 	return requests
 }
 
+// podsForGateway maps one gateway event to every enrolled Pod whose route
+// references that exact namespace/name, so endpoint and generation changes are
+// projected without waiting for an unrelated Pod event.
 func (r *PodBindingReconciler) podsForGateway(ctx context.Context, object client.Object) []reconcile.Request {
 	routes := &wayv1.VPNEgressRouteList{}
 	if err := r.List(ctx, routes, client.MatchingFields{routeGatewayIndex: gatewayReferenceKey(object.GetNamespace(), object.GetName())}); err != nil {
@@ -282,6 +285,8 @@ type VPNWorkloadBindingReconciler struct {
 	ObservationTTL time.Duration
 }
 
+// bindingGatewayObservation separates exact reference resolution from live
+// gateway readiness so a healthy node observation cannot mask gateway loss.
 type bindingGatewayObservation struct {
 	resolved wayconditions.State
 	ready    wayconditions.State
@@ -348,6 +353,9 @@ func (r *VPNWorkloadBindingReconciler) desiredStatus(binding *wayv1.VPNWorkloadB
 	return status, requeue
 }
 
+// observeGateway verifies the immutable reference UID, current desired network
+// generation, deletion state, and live Ready condition through the direct
+// reader before binding readiness may become true.
 func (r *VPNWorkloadBindingReconciler) observeGateway(ctx context.Context, binding *wayv1.VPNWorkloadBinding) bindingGatewayObservation {
 	observation := bindingGatewayObservation{
 		resolved: wayconditions.Unknown("Exact gateway reference observation is unavailable"),
@@ -476,6 +484,8 @@ func (r *VPNWorkloadBindingReconciler) SetupWithManager(manager ctrl.Manager) er
 		Complete(r)
 }
 
+// bindingsForGateway maps gateway events directly to the affected status
+// owners, avoiding the observation TTL as a readiness-withdrawal delay.
 func (r *VPNWorkloadBindingReconciler) bindingsForGateway(ctx context.Context, object client.Object) []reconcile.Request {
 	bindings := &wayv1.VPNWorkloadBindingList{}
 	if err := r.List(ctx, bindings, client.MatchingFields{bindingGatewayIndex: gatewayReferenceKey(object.GetNamespace(), object.GetName())}); err != nil {
@@ -488,6 +498,8 @@ func (r *VPNWorkloadBindingReconciler) bindingsForGateway(ctx context.Context, o
 	return requests
 }
 
+// gatewayReferenceKey is the collision-free field-index key for Kubernetes
+// namespace and name values.
 func gatewayReferenceKey(namespace, name string) string { return namespace + "/" + name }
 
 func routeEligible(route *wayv1.VPNEgressRoute) bool {

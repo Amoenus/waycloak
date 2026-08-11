@@ -102,8 +102,10 @@ with current `observedGeneration`. `Ready` means live end-to-end data-plane
 health, not object creation or desired-state publication. Component conditions
 identify tunnel, DNS, membership, node, lease and application failures.
 `VPNWorkloadBinding Ready=True` additionally requires both a fresh exact
-node-agent observation and the referenced exact `VPNGateway` generation to be
-currently `Ready`; either observation regressing withdraws binding readiness.
+node-agent observation and a non-deleting referenced `VPNGateway` whose exact
+UID matches, whose status observes its current generation, and whose current
+`Ready` condition is `True`; any mismatch or regression withdraws binding
+readiness.
 
 ### ST-FR-6: Capabilities and conformance
 

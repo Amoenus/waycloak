@@ -69,9 +69,10 @@ current correction makes binding readiness depend on the exact referenced
 gateway's current generation and live readiness, indexes gateway dependencies,
 and enqueues both affected Pods and bindings on every gateway change. Unit,
 Linux full-suite, Linux race, static analysis, and Kubernetes 1.36 envtest
-verification pass locally. Exact artifact publication, homelab deployment, and
-repetition of the same fault test remain required before this correction counts
-as #141 evidence. The multi-day soak, arm64 conformance row, supported
+verification pass locally. Publication of a successor beta containing this
+correction, its exact-artifact homelab deployment, and repetition of the same
+fault test remain required before the correction counts as #141 evidence. The
+multi-day soak, arm64 conformance row, supported
 real-provider first-use timing, destructive reinstall certification,
 port-forward handoff, remaining #32 lifecycle evidence, beta-cycle hold, and
 v1 graduation review also remain open.

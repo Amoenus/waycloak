@@ -109,8 +109,9 @@ verification and a destructive clean-break homelab install restored the sole
 qBittorrent canary without workload injection or direct-egress fallback. Live
 gateway replacement then exposed stale binding readiness while packets remained
 fail closed. The dependency-aware readiness correction passes unit, race,
-static, envtest, and full Linux tests, but still requires exact-artifact
-publication and repetition on the canary. This does not complete #141: the
+static, envtest, and full Linux tests, but a successor beta containing that
+correction still requires exact-artifact publication, homelab deployment, and
+repetition on the canary. This does not complete #141: the
 remaining #137–#140 work, open #32 lifecycle evidence, multi-day support-row
 soak, arm64 conformance, one beta cycle, and the v1 graduation review remain
 release gates. #33 is complete.
