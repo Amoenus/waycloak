@@ -122,6 +122,11 @@ node agent report the target release, the operator activates each singleton
 gateway one at a time during a declared fail-closed window and verifies a fresh
 gateway Pod UID, route/binding recovery, protected denial during loss, and no
 ordinary-egress fallback.
+Each gateway Pod template carries controller-owned runtime annotations for the
+exact release version and manifest digest. These annotations are rollout
+evidence rather than user configuration or a compatibility API. They ensure
+that a signed release transition stages an observable target revision even
+when the target reuses an unchanged gateway binary digest.
 
 ### Observation certificate rotation
 
