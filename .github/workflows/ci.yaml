@@ -302,7 +302,10 @@ jobs:
             exit 1
           fi
           grep -q 'requires controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1' "$RUNNER_TEMP/extended-core-profile.err"
-          if helm template "${enabled_args[@]}" --set extended.enabled=true >"$RUNNER_TEMP/extended-partial.yaml" 2>"$RUNNER_TEMP/extended-partial.err"; then
+          if helm template "${enabled_args[@]}" \
+            --set extended.enabled=true \
+            --set-string controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1 \
+            >"$RUNNER_TEMP/extended-partial.yaml" 2>"$RUNNER_TEMP/extended-partial.err"; then
             echo "partial Extended configuration rendered successfully" >&2
             exit 1
           fi

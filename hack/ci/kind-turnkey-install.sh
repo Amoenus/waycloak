@@ -2,7 +2,7 @@
 # Copyright 2026 The Waycloak Authors.
 # SPDX-License-Identifier: MIT
 
-set -euo pipefail
+set -Eeuo pipefail
 
 trap 'printf "turnkey failure at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
@@ -1539,7 +1539,7 @@ create_extended_controller_secret() {
     -out "$identity_dir/ca.crt" \
     -subj "/CN=Waycloak Extended candidate ${generation} CA" \
     -addext "basicConstraints=critical,CA:TRUE" \
-    -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
+    -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null
   cat >"$identity_dir/client.conf" <<EOF
 [req]
 distinguished_name = subject
@@ -1556,7 +1556,7 @@ EOF
   openssl req -newkey rsa:2048 -nodes \
     -keyout "$identity_dir/tls.key" \
     -out "$identity_dir/tls.csr" \
-    -config "$identity_dir/client.conf" >/dev/null 2>&1
+    -config "$identity_dir/client.conf" >/dev/null
   openssl x509 -req -days 1 -sha256 \
     -in "$identity_dir/tls.csr" \
     -CA "$identity_dir/ca.crt" \
@@ -1564,7 +1564,9 @@ EOF
     -CAcreateserial \
     -out "$identity_dir/tls.crt" \
     -extfile "$identity_dir/client.conf" \
-    -extensions extensions >/dev/null 2>&1
+    -extensions extensions >/dev/null
+  openssl verify -purpose sslclient -CAfile "$identity_dir/ca.crt" \
+    "$identity_dir/tls.crt" >/dev/null
   kubectl create secret generic waycloak-extended-controller-tls \
     --namespace "$system_namespace" \
     --type kubernetes.io/tls \
