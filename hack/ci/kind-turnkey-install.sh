@@ -352,7 +352,7 @@ kubectl rollout status daemonset/waycloak-cni-installer \
 kubectl rollout status daemonset/waycloak-node-agent \
   --namespace "$system_namespace" --timeout=2m
 kubectl wait node --all \
-  --for=jsonpath='{.metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/core-ready}'=true \
+  --for=jsonpath='{.metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/cni-ready}'=true \
   --timeout=2m
 
 manifest_digest="$(jq -r '.manifestDigest' "$work_dir/baseline-release-manifest.json")"
@@ -709,7 +709,7 @@ metrics_canary_deadline="$((SECONDS + 60))"
 until [[ -n "$(kubectl get pod/metrics-private-canary --namespace "$smoke_namespace" -o jsonpath='{.spec.nodeName}')" ]]; do
   if (( SECONDS >= metrics_canary_deadline )); then
     kubectl describe pod/metrics-private-canary --namespace "$smoke_namespace" >&2
-    printf 'metrics privacy canary was not scheduled to the Core-ready node\n' >&2
+    printf 'metrics privacy canary was not scheduled to the CNI-ready node\n' >&2
     exit 1
   fi
   sleep 1
@@ -1323,7 +1323,7 @@ assert_rotation_fail_closed() {
     printf '%s certificate interruption retained stale healthy doctor state\n' "$label" >&2
     return 1
   fi
-  test -z "$(kubectl get node -o jsonpath='{.items[0].metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/core-ready}')"
+  test -z "$(kubectl get node -o jsonpath='{.items[0].metadata.labels.networking\.waycloak\.io\.node-restriction\.kubernetes\.io/cni-ready}')"
 
   cat <<EOF | kubectl apply -f -
 apiVersion: v1

@@ -6,7 +6,7 @@ policies, replacement controller, mandatory chained-CNI installer, privileged
 node agent, and optional exact default gateway class. It rejects alpha Pod
 annotations, malformed enrollment labels, live-Pod enrollment mutation,
 host-namespace/direct-node bypass, and schedules enrolled Pods only to nodes
-with authenticated current Core capability.
+with authenticated current baseline capability.
 
 When `defaultGatewayClass.enabled=true`, the chart renders the tested Gluetun
 class only from an exact release version and `sha256` manifest digest supplied
@@ -49,15 +49,15 @@ Removing or changing enrollment requires changing the workload template and
 creating a new Pod; the admission policy rejects edits to an existing Pod.
 
 On Kubernetes 1.36, a stable `MutatingAdmissionPolicy` adds the hard
-`networking.waycloak.io.node-restriction.kubernetes.io/core-ready=true` node
+`networking.waycloak.io.node-restriction.kubernetes.io/cni-ready=true` node
 selector to enrolled Pods while preserving all user scheduling constraints.
 The authenticated controller publishes that protected label only for an exact
-release and Core capability report and expires it after agent loss. Stable
+release and baseline capability report and expires it after agent loss. Stable
 support requires the NodeRestriction admission plugin; the CNI independently
 fails closed if admission or a scheduling label is missing, stale, or bypassed.
 The chart installs no mutating/validating webhook or admission TLS resources.
 
-Cross-namespace gateway references use `VPNGateway.spec.allowedRoutes`; Core
+Cross-namespace gateway references use `VPNGateway.spec.allowedRoutes`; the baseline
 does not install Gateway API `ReferenceGrant`. Namespace labels selected for
 authorization must be operator controlled and outside tenant write authority.
 See [`cross-namespace-consent.md`](../../docs/security/cross-namespace-consent.md)

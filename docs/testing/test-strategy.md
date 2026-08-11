@@ -55,7 +55,7 @@ Use envtest for:
 Stable admission and scheduling acceptance additionally requires Kubernetes
 1.36 policy compilation, mutation that preserves user selectors, no mutation
 for unlabeled Pods, rejection of host-namespace and direct-node bypass,
-`Unschedulable` status on nodes without authenticated Core readiness,
+`Unschedulable` status on nodes without authenticated CNI readiness,
 foreign-node and release-skew report rejection, 20-second label expiry, and CNI
 refusal when admission or a readiness label is bypassed. Tests must assert that
 these paths start no application container and observe no ordinary-egress
@@ -154,7 +154,7 @@ for current, rotated, expired, missing, duplicate, wrong-UID, and stale
 generations. The suite verifies exact acknowledgement, bounded retry,
 least-privilege execution, and readiness regression without direct-egress
 fallback. The qBitTorrent adapter is the reference implementation, not a
-special core code path.
+special baseline code path.
 
 ### Data-plane backend conformance
 
@@ -363,7 +363,7 @@ CNI operations before readiness.
 The same hosted row must rotate the observation relay identity with an exact
 confirmation-bound plan. It injects failures after old-and-new overlap and
 after the serving-key switch, requires the immutable journal and staged UID to
-recover the identical plan, and proves Core-ready scheduling remains withdrawn
+recover the identical plan, and proves CNI-ready scheduling remains withdrawn
 while held agents publish fresh authenticated non-ready observations. Enrolled
 Pods at both interruptions must receive neither an application container nor a
 Pod IP. Completion must preserve stable Secret UIDs, remove old trust and all

@@ -28,10 +28,10 @@ spec:
         expression: >-
           has(object.spec.nodeSelector) ?
           [JSONPatch{op: "add", path: "/spec/nodeSelector/" +
-          jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/core-ready"),
+          jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"),
           value: "true"}] :
           [JSONPatch{op: "add", path: "/spec/nodeSelector",
-          value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]
+          value: {"networking.waycloak.io.node-restriction.kubernetes.io/cni-ready": "true"}}]
     - patchType: JSONPatch
       jsonPatch:
         expression: >-
@@ -100,9 +100,9 @@ spec:
         !has(object.metadata.labels) ||
         !("networking.waycloak.io/egress-route" in object.metadata.labels) ||
         (has(object.spec.nodeSelector) &&
-        "networking.waycloak.io.node-restriction.kubernetes.io/core-ready" in object.spec.nodeSelector &&
-        object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true")
-      message: enrolled Pods require the Waycloak Core-ready scheduling constraint
+        "networking.waycloak.io.node-restriction.kubernetes.io/cni-ready" in object.spec.nodeSelector &&
+        object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"] == "true")
+      message: enrolled Pods require the Waycloak CNI-ready scheduling constraint
       reason: Forbidden
     - expression: >-
         !has(object.metadata.labels) ||

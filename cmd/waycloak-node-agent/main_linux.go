@@ -68,7 +68,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 	}
 	releaseIdentity := wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}
 	if err := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
-		return fmt.Errorf("CNI installation is not eligible for Core readiness: %w", err)
+		return fmt.Errorf("CNI installation is not eligible for fail-closed readiness: %w", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

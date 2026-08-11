@@ -20,7 +20,7 @@ The gateway controller publishes its explicitly configured workload pool as a
 typed `VPNGateway.status.addresses` entry named
 `networking.waycloak.io/OverlayCIDR`. It derives that observation from reviewed
 native configuration; the binding controller never guesses a pool or reads VPN
-credentials. Initial Core allocation supports IPv4 `/16` through `/29`. The
+credentials. Initial baseline allocation supports IPv4 `/16` through `/29`. The
 network address, first host used by the gateway, and broadcast address are not
 allocatable.
 

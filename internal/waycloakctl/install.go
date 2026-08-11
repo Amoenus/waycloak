@@ -410,7 +410,7 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		}
 		output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath, bootstrapValuesPath)...)
 		if err != nil {
-			return fmt.Errorf("controller-first Helm bootstrap failed before Core activation: %w: %s", err, bounded(output, 4096))
+			return fmt.Errorf("controller-first Helm bootstrap failed before baseline activation: %w: %s", err, bounded(output, 4096))
 		}
 	} else if changedTransition && (checkpoint == installCheckpointClassWithdrawn || checkpoint == installCheckpointClassReplaced) {
 		holdValues, err := nodeAgentTransitionHoldValues(plan.Source)
@@ -436,7 +436,7 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 	}
 	output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath)...)
 	if err != nil {
-		return fmt.Errorf("helm Core activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
+		return fmt.Errorf("helm baseline activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
 	}
 	target, err := ObserveInstalledRelease(ctx, clients, plan.Namespace, plan.Release)
 	if err != nil {

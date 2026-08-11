@@ -48,7 +48,7 @@ func TestRelayBindsPodTokenToExactNodeAndBinding(t *testing.T) {
 	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
 		t.Fatal(err)
 	}
-	if node.Labels[scheduling.CoreReadyLabel] != "true" {
+	if node.Labels[scheduling.CNIReadyLabel] != "true" {
 		t.Fatalf("authenticated node readiness was not published: %#v", node.Labels)
 	}
 }
@@ -77,7 +77,7 @@ func TestRelayIgnoresObservationForBindingAlreadyDeleted(t *testing.T) {
 	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
 		t.Fatal(err)
 	}
-	if node.Labels[scheduling.CoreReadyLabel] != "true" {
+	if node.Labels[scheduling.CNIReadyLabel] != "true" {
 		t.Fatalf("obsolete binding observation poisoned node readiness: %#v", node.Labels)
 	}
 }
@@ -165,7 +165,7 @@ func report(t *testing.T, relay *Relay, observation nodeagent.Observation) *http
 	t.Helper()
 	body, err := json.Marshal(nodeagent.Report{APIVersion: nodeagent.ReportAPIVersion, Node: nodeagent.NodeReport{
 		NodeName: "node-a", NodeBootID: "boot", InstanceID: "instance", ObservedAt: time.Unix(2000, 0).UTC(), Ready: true,
-		Capabilities: scheduling.CoreCapabilities, ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}, ConformanceProfile: "networking.waycloak.io/Core-v1",
+		Capabilities: scheduling.BaselineCapabilities, ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}, ConformanceProfile: "networking.waycloak.io/Core-v1",
 	}, Observations: []nodeagent.Observation{observation}})
 	if err != nil {
 		t.Fatal(err)

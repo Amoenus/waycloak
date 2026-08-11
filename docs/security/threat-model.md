@@ -232,7 +232,7 @@ container-runtime takeover, host filesystem access, BPF persistence, or VPN
 credential access.
 
 **Controls:** explicit host-access matrix above; runtime agent has no CNI config
-write, runtime socket, host root, VPN device, bpffs/cgroupfs in nftables Core, or
+write, runtime socket, host root, VPN device, bpffs/cgroupfs in the nftables baseline, or
 Secret mount. Installer privilege is separate and ends after exact installation.
 Capabilities and mounts are conformance-tested per support row.
 
@@ -262,7 +262,7 @@ route or binding as protected and denied. Cross-namespace references require
 target-side consent and use privacy-preserving `RefNotPermitted` status.
 
 The stable declarative mutation adds a hard selector for the controller-owned
-`networking.waycloak.io.node-restriction.kubernetes.io/core-ready` Node label.
+`networking.waycloak.io.node-restriction.kubernetes.io/cni-ready` Node label.
 The authenticated relay accepts capability reports only from the exact
 Pod-bound agent identity on that Node and rejects release/profile skew. The
 agent additionally verifies the root-owned install receipt, exact binary and
@@ -359,7 +359,7 @@ Silent direct egress is not.
 | API watch/RBAC unavailable | resolve/program unknown, sandbox fails or live state stays denied; #133 abuse E2E |
 | Hostile route or cross-namespace ref | no target existence leak, no programming; #130 envtest/E2E |
 | Foreign nftables/routes/link | preserved; owned drift repaired; privileged tests |
-| Agent/tunnel/DNS/gateway/runtime/node restart | zero direct packets and no stale Ready; Core conformance |
+| Agent/tunnel/DNS/gateway/runtime/node restart | zero direct packets and no stale Ready; baseline conformance |
 | Support bundle with canary Secret/key/endpoint | value absent and redaction recorded; #138 acceptance |
 | Privileged/host-network workload enrollment | rejected unsupported before programming; preflight/admission/CNI E2E |
 
@@ -389,7 +389,7 @@ operator-owned because Kubernetes object absence cannot prove process absence.
 - nftables/netlink correctness depends on the supported kernel/CNI/runtime
   matrix and packet tests; version inference alone is not capability proof.
 - Shared gateway/provider failure can interrupt many workloads. It must remain
-  denied and observable; Core does not claim seamless tunnel failover.
+  denied and observable; Waycloak does not claim seamless tunnel failover.
 
 ## Security release gates
 

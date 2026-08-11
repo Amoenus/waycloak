@@ -52,7 +52,7 @@ waycloakctl install apply --context <context> --plan install-plan.json --confirm
 The architecture flag is optional only when preflight observes exactly one
 architecture. A mixed-architecture cluster requires an explicit reviewed row.
 The generated values constrain both the CNI installer and node agent to that
-architecture; only those nodes can publish the exact `core-ready` capability
+architecture; only those nodes can publish the exact `cni-ready` capability
 that enrolled workloads select. Building a multi-platform image is not treated
 as conformance evidence for an otherwise unproved node row.
 
@@ -79,9 +79,9 @@ Secrets, and never passes private key material through Helm.
 On a clean cluster, the reviewed apply is deliberately staged. The first Helm
 revision installs the CRDs and starts the controller while the CNI installer,
 node agent, and default class remain disabled. After that revision is Ready, a
-second revision activates the exact reviewed Core runtime. This prevents the
+second revision activates the exact reviewed baseline runtime. This prevents the
 new chained CNI from becoming authoritative before the ordinary-networked
-controller exists. New Pod sandboxes may fail closed during Core activation;
+controller exists. New Pod sandboxes may fail closed during baseline activation;
 there is no namespace bypass or fail-open interval. A same-manifest re-apply
 goes directly to the full reviewed revision. A changed deployed release never
 uses the clean-install bootstrap: its first transition revision deploys the
@@ -232,7 +232,7 @@ supported identical-schema beta row and exact staged-interruption recovery;
 the same gate now uses admission fault injection to stop an explicit observation
 certificate rotation after overlap and after serving-key switch. At both
 checkpoints the immutable plan/journal recovers exactly, held agents prove an
-authenticated TLS observation without publishing Core-ready scheduling, and an
+authenticated TLS observation without publishing CNI-ready scheduling, and an
 enrolled Pod receives no container or Pod IP. Completion preserves stable
 Secret UIDs, removes old trust and staged private state, and carries the new
 rotation identity into later release plans. Distribution snapshots remain
@@ -296,7 +296,7 @@ The command reads the installed CNI-installer and node-agent DaemonSet selectors
 and requires them to identify one installation with the same selected nodes.
 Nodes outside an explicit reviewed architecture row are counted as
 `NotSelected`; every selected node must retain the current authenticated
-`core-ready` capability. Missing or inconsistent components and selectors that
+`cni-ready` capability. Missing or inconsistent components and selectors that
 match no node are unhealthy rather than silently widening or narrowing the
 diagnostic scope.
 

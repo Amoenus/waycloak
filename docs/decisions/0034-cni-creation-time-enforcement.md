@@ -20,7 +20,7 @@ the first application packet.
 
 ## Decision
 
-The stable Core data plane is CNI-first and node owned.
+The stable baseline data plane is CNI-first and node owned.
 
 For every Pod carrying the route label, the chained Waycloak CNI plugin:
 
@@ -103,7 +103,7 @@ revocation contract for that boundary.
   containers.
 - Installation requires CNI configuration and a privileged DaemonSet, so
   managed clusters that forbid chained CNI plugins are explicitly unsupported
-  for stable Core rather than receiving a weaker fallback.
+  for the stable baseline rather than receiving a weaker fallback.
 - The node-agent privilege review and support matrix include host networking as
   part of the accepted node-wide trust boundary.
 - Runtime/CNI compatibility and node upgrade testing become substantial release

@@ -19,6 +19,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func TestCNIReadyLabelUsesTheCleanBreakProductNeutralIdentity(t *testing.T) {
+	const expected = "networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"
+	if CNIReadyLabel != expected {
+		t.Fatalf("CNIReadyLabel = %q, want %q", CNIReadyLabel, expected)
+	}
+}
+
 func TestPublisherUsesExactAuthenticatedNodeAndPreservesForeignLabels(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	kube := fakeClient(t, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"topology.kubernetes.io/zone": "test"}}})
@@ -30,7 +37,7 @@ func TestPublisherUsesExactAuthenticatedNodeAndPreservesForeignLabels(t *testing
 	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
 		t.Fatal(err)
 	}
-	if node.Labels[CoreReadyLabel] != "true" || node.Labels[CapabilityEpochLabel] != "2000" || node.Labels[ObservationEpochLabel] != "2000000000000" || node.Labels["topology.kubernetes.io/zone"] != "test" {
+	if node.Labels[CNIReadyLabel] != "true" || node.Labels[CapabilityEpochLabel] != "2000" || node.Labels[ObservationEpochLabel] != "2000000000000" || node.Labels["topology.kubernetes.io/zone"] != "test" {
 		t.Fatalf("published labels = %#v", node.Labels)
 	}
 }
@@ -57,7 +64,7 @@ func TestPublisherWithdrawsSkewedOrUnsupportedReportsAndRejectsForeignNode(t *te
 			if getErr := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); getErr != nil {
 				t.Fatal(getErr)
 			}
-			if node.Labels[CoreReadyLabel] != "" || node.Labels[CapabilityEpochLabel] != "" {
+			if node.Labels[CNIReadyLabel] != "" || node.Labels[CapabilityEpochLabel] != "" {
 				t.Fatalf("invalid report retained readiness: %#v", node.Labels)
 			}
 			if name == "not ready" && node.Labels[ObservationEpochLabel] != "2000000000000" {
@@ -82,7 +89,7 @@ func TestNodeCapabilityReconcilerWithdrawsStaleLabels(t *testing.T) {
 	if err := kube.Get(context.Background(), client.ObjectKey{Name: "stale"}, stale); err != nil {
 		t.Fatal(err)
 	}
-	if stale.Labels[CoreReadyLabel] != "" {
+	if stale.Labels[CNIReadyLabel] != "" {
 		t.Fatalf("stale readiness remained: %#v", stale.Labels)
 	}
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKey{Name: "fresh"}})
@@ -97,7 +104,7 @@ func fixturePublisher(kube client.Client, now time.Time) Publisher {
 
 func validReport(nodeName string, now time.Time) nodeagent.NodeReport {
 	return nodeagent.NodeReport{NodeName: nodeName, NodeBootID: "boot", InstanceID: "instance", ObservedAt: now, Ready: true,
-		Capabilities: append([]string(nil), CoreCapabilities...), ReleaseIdentity: releaseIdentity(), ConformanceProfile: "networking.waycloak.io/Core-v1"}
+		Capabilities: append([]string(nil), BaselineCapabilities...), ReleaseIdentity: releaseIdentity(), ConformanceProfile: "networking.waycloak.io/Core-v1"}
 }
 
 func releaseIdentity() wayv1.ReleaseIdentity {
@@ -109,7 +116,7 @@ func agentPod(nodeName string) *corev1.Pod {
 }
 
 func readyNode(name string, observed time.Time) *corev1.Node {
-	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{CoreReadyLabel: "true", CapabilityEpochLabel: strconv.FormatInt(observed.Unix(), 10)}}}
+	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{CNIReadyLabel: "true", CapabilityEpochLabel: strconv.FormatInt(observed.Unix(), 10)}}}
 }
 
 func fakeClient(t *testing.T, objects ...client.Object) client.Client {

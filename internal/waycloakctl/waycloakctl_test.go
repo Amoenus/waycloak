@@ -425,7 +425,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 		}
 		if upgradeCalls == 2 || upgradeCalls == 4 || upgradeCalls == 6 {
 			if len(values) != 1 {
-				t.Fatalf("final Core activation used staging overrides: %#v", values)
+				t.Fatalf("final baseline activation used staging overrides: %#v", values)
 			}
 		}
 		if upgradeCalls == 3 || upgradeCalls == 5 {

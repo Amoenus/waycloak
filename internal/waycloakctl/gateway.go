@@ -27,7 +27,7 @@ func RenderGatewayRecipe(recipe GatewayRecipe) (string, error) {
 		return "", errors.New("namespace, gateway, class, ConfigMap, and Secret reference names are required")
 	}
 	if recipe.Provider != "protonvpn" || recipe.Protocol != "openvpn" {
-		return "", errors.New("the Core quick path supports only the reviewed Proton/OpenVPN recipe")
+		return "", errors.New("the baseline quick path supports only the reviewed Proton/OpenVPN recipe")
 	}
 	overlay, err := netip.ParsePrefix(recipe.OverlayCIDR)
 	if err != nil || !overlay.Addr().Is4() || overlay.Bits() < 16 || overlay.Bits() > 29 {

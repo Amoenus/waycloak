@@ -11,7 +11,7 @@ CI evidence: [run 30182972742](https://github.com/Amoenus/waycloak/actions/runs/
 
 ## Decision
 
-Proceed with the chained-CNI, node-owned Core architecture in ADR 0034. The
+Proceed with the chained-CNI, node-owned baseline architecture in ADR 0034. The
 creation-time boundary is feasible on the tested Linux/containerd rows without
 a sidecar or a fallback data plane.
 

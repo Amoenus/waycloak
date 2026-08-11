@@ -76,7 +76,7 @@ and overall `Ready` remain false until workload delivery is observed.
 ## Alternatives rejected
 
 - Let Gluetun own NAT-PMP and scrape its status file: prevents independent
-  stable multi-lease identities and creates an engine-specific core contract.
+  stable multi-lease identities and creates an engine-specific baseline contract.
 - Run NAT-PMP in the Kubernetes controller: cannot prove packets traverse the
   selected tunnel and expands provider networking into the control plane.
 - Hash the lease UID into a 16-bit port: collision safety would be

@@ -26,7 +26,7 @@ func TestGatewayClassPublishesReadyOnlyForExactReleaseProfileAndFeatures(t *test
 	class := replacementClass()
 	reconciler := &VPNGatewayClassReconciler{
 		ControllerName: DefaultGatewayControllerName, ReleaseIdentity: replacementRelease,
-		ConformanceProfile: "networking.waycloak.io/Core-v1", SupportedFeatures: wayv1.CoreFeatures(),
+		ConformanceProfile: "networking.waycloak.io/Core-v1", SupportedFeatures: wayv1.BaselineFeatures(),
 		Now: func() time.Time { return time.Unix(1000, 0).UTC() },
 	}
 	status := reconciler.desiredStatus(class)
@@ -107,7 +107,7 @@ func TestMinimalGatewayResolvesWithoutImagesAndCredentialValuesNeverReachStatus(
 	assertReplacementCondition(t, status.Conditions, wayv1.ConditionAccepted, metav1.ConditionTrue, wayv1.ReasonAccepted)
 	assertReplacementCondition(t, status.Conditions, wayv1.ConditionResolvedRefs, metav1.ConditionTrue, wayv1.ReasonResolvedRefs)
 	assertReplacementCondition(t, status.Conditions, wayv1.ConditionProgrammed, metav1.ConditionFalse, wayv1.ReasonPending)
-	if status.GatewayClass == nil || status.GatewayClass.ReleaseIdentity != replacementRelease || len(status.SupportedFeatures) != len(wayv1.CoreFeatures()) {
+	if status.GatewayClass == nil || status.GatewayClass.ReleaseIdentity != replacementRelease || len(status.SupportedFeatures) != len(wayv1.BaselineFeatures()) {
 		t.Fatalf("minimal gateway status = %#v", status)
 	}
 	if strings.Contains(strings.ToLower(replacementStatusText(status)), "password") || strings.Contains(replacementStatusText(status), "must-not-appear") {
@@ -125,7 +125,7 @@ func TestMinimalGatewayResolvesWithoutImagesAndCredentialValuesNeverReachStatus(
 
 func TestPortForwardGatewayRequiresExplicitFeatureAndRuntimeTLSReference(t *testing.T) {
 	class := replacementClass()
-	features := append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
+	features := append(wayv1.BaselineFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
 	class.Spec.SupportedFeatures = features
 	class.Status = (&VPNGatewayClassReconciler{ControllerName: DefaultGatewayControllerName, ReleaseIdentity: replacementRelease, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: features, Now: func() time.Time { return time.Unix(1000, 0).UTC() }}).desiredStatus(class)
 	runtimeTLS := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "runtime-tls", Namespace: "network"}}
@@ -190,7 +190,7 @@ func replacementGatewayReconciler(t *testing.T, objects ...runtime.Object) *Repl
 	client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objects...).Build()
 	return &ReplacementVPNGatewayReconciler{
 		Client: client, APIReader: client, ControllerName: DefaultGatewayControllerName,
-		ReleaseIdentity: replacementRelease, ConformanceProfile: "networking.waycloak.io/Core-v1", SupportedFeatures: wayv1.CoreFeatures(),
+		ReleaseIdentity: replacementRelease, ConformanceProfile: "networking.waycloak.io/Core-v1", SupportedFeatures: wayv1.BaselineFeatures(),
 		NativeConfigRoles: []wayv1.QualifiedName{GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{OpenVPNCredentialsRole},
 		Now: func() time.Time { return time.Unix(1000, 0).UTC() },
 	}
@@ -199,9 +199,9 @@ func replacementGatewayReconciler(t *testing.T, objects ...runtime.Object) *Repl
 func replacementClass() *wayv1.VPNGatewayClass {
 	class := &wayv1.VPNGatewayClass{ObjectMeta: metav1.ObjectMeta{Name: "gluetun.waycloak.io", Generation: 1}, Spec: wayv1.VPNGatewayClassSpec{
 		ControllerName: DefaultGatewayControllerName, ReleaseIdentity: replacementRelease,
-		SupportedFeatures: wayv1.CoreFeatures(), ConformanceProfile: "networking.waycloak.io/Core-v1",
+		SupportedFeatures: wayv1.BaselineFeatures(), ConformanceProfile: "networking.waycloak.io/Core-v1",
 	}}
-	class.Status = (&VPNGatewayClassReconciler{ControllerName: DefaultGatewayControllerName, ReleaseIdentity: replacementRelease, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(), Now: func() time.Time { return time.Unix(1000, 0).UTC() }}).desiredStatus(class)
+	class.Status = (&VPNGatewayClassReconciler{ControllerName: DefaultGatewayControllerName, ReleaseIdentity: replacementRelease, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.BaselineFeatures(), Now: func() time.Time { return time.Unix(1000, 0).UTC() }}).desiredStatus(class)
 	return class
 }
 

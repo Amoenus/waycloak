@@ -42,7 +42,7 @@ destructive cleanup are never implicit.
 
 For a clean install, one confirmation-bound apply uses two Helm revisions. It
 first starts the controller with the CNI installer, node agent, and default
-class disabled, then activates the exact reviewed Core values only after that
+class disabled, then activates the exact reviewed baseline values only after that
 bootstrap revision is Ready. Existing deployed releases skip the bootstrap
 revision. This ordering avoids making the chained CNI authoritative before its
 control plane exists without exempting application namespaces or weakening
@@ -53,14 +53,14 @@ includes hashed cluster identity plus exact Kubernetes/runtime/kernel,
 architecture, CNI, and network facts. Apply re-runs preflight and refuses drift
 before creating any object. Mixed-architecture clusters require the operator to
 select one explicit `amd64` or `arm64` row; the CNI installer and node agent are
-scheduled only there, so an unproved architecture cannot advertise Core
+scheduled only there, so an unproved architecture cannot advertise baseline
 capability merely because its image was built.
 
 `waycloakctl doctor` derives its expected node set from those two installed
 DaemonSet selectors. Both components must identify the same installation and
 select exactly the same nodes. Nodes outside that reviewed row are reported as
 `NotSelected`; they do not make that row unhealthy. Every selected node must
-still publish a current authenticated Core capability, and missing components,
+still publish a current authenticated baseline capability, and missing components,
 selector disagreement, or an empty matching node set is unhealthy.
 
 If a minimal dynamic admission webhook remains necessary, its TLS follows ADR

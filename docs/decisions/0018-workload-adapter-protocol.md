@@ -57,7 +57,7 @@ Released reference adapters are independent, signed multi-architecture OCI
 artifacts with SBOM, provenance, protocol compatibility metadata, and
 immutable references in the release manifest. qBitTorrent is the first
 reference adapter and remains application-specific; its semantics do not enter
-the core protocol.
+the baseline protocol.
 
 The qBitTorrent reference adapter acknowledges a changed advertised endpoint
 only after applying the provider address and port, observing the listener, and

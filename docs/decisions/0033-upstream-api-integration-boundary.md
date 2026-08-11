@@ -24,11 +24,11 @@ boundary and keeps Waycloak CRDs for the remaining domain intent.
 - Gateway API design principles guide role separation, references, status,
   capability discovery, conformance, and extension policy. Waycloak does not
   claim to implement Gateway API for private egress.
-- Core gateway attachment uses gateway-owned `allowedRoutes` consent and has no
+- Baseline gateway attachment uses gateway-owned `allowedRoutes` consent and has no
   Gateway API CRD dependency. A future different cross-namespace reference uses
   upstream `ReferenceGrant` only after an explicit dependency/API review;
   Waycloak does not create a temporary grant kind.
-- CNI chaining is the Core creation-time enforcement boundary and preserves
+- CNI chaining is the baseline creation-time enforcement boundary and preserves
   `prevResult`, `ADD`, `CHECK`, `DEL`, `GC`, ordering, and unrelated state.
 - Kubernetes `Service` becomes the preferred future stable abstraction for
   rolling port-forward targets only after UID, endpoint handoff, drain, and
@@ -57,7 +57,7 @@ stable API milestone. Adoption requires a migration and conformance plan.
 - Some Waycloak-specific CRDs remain necessary and must carry full API quality
   obligations.
 - Optional adapters can integrate Gateway API or other ecosystems without
-  entering the fail-closed Core profile.
+  entering the fail-closed baseline profile.
 - Upstream changes may supersede local APIs after `v1`, requiring an explicit
   future version decision rather than indefinite duplication.
 

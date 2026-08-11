@@ -236,14 +236,17 @@ and node-agent dependency graphs are replacement-only. Exact-head CI run
 Helm/KCL/generated output, security, Kind/kindnet, k3d/Flannel, and privileged
 packet gates before merge commit 6f5e4b47d76945d43c685609e4d4ba68745359b5.
 
-Issue #136 implementation and acceptance are complete in PR #155. Kubernetes
-1.36 stable declarative mutation
-adds one hard Core-ready selector to enrolled Pods, while validation rejects
+Issue #136's original behavior passed in PR #155, and its pre-beta
+product-vocabulary clean break is complete in PR #208. Kubernetes 1.36 stable declarative mutation
+adds one hard CNI-ready selector to enrolled Pods, while validation rejects
 host-namespace and direct-node CNI bypass. An authenticated exact-release node
 report lets only the controller publish NodeRestriction-protected scheduling
 readiness; stale, unsupported, unready, foreign-node, and release-skewed reports
 withdraw it. Positive reports additionally require a root-owned release-bound
-receipt matching the exact CNI binary and active conflist; the agent mounts all
+receipt. The sole protected identity is
+`networking.waycloak.io.node-restriction.kubernetes.io/cni-ready`; the old
+preview label is neither published nor accepted and has no compatibility alias.
+The receipt must match the exact CNI binary and active conflist; the agent mounts all
 three files read-only and restores lockdown on mismatch. Admission remains
 outside the packet boundary and no admission webhook or admission TLS is
 introduced. Exact implementation commit
@@ -251,6 +254,15 @@ aaad5b40f73e3abcba656e0ce55bf7f9a3e569c4 passed Linux race/static analysis,
 Kubernetes 1.36 envtest, deterministic generated/Helm/KCL output, security
 scans, Kind/kindnet, k3d/Flannel, fresh-install admission, and privileged
 packet/gateway-loss gates in CI run 30318076473.
+
+Correction commit bc1e66570efde95a4d245cea40ba235bf36eab91 passed the
+complete Linux verifier, Kind admission, Kind and k3d creation-time CNI,
+Gluetun, exact-artifact turnkey, and k3s datastore-recovery steps in CI run
+31509699770. The correction also separates successful `kubectl exec` stdout
+from transient stderr diagnostics before decoding durable CNI attachment JSON;
+its platform-neutral regression test passes under Linux race instrumentation.
+The k3s job's GitHub wrapper lagged after every step, including `Complete job`,
+had succeeded, then finalized successfully with the rest of the workflow.
 
 Issue #137 is in progress and remains unadvertised. ADR 0040 freezes a
 same-namespace typed Service as identity input only, deterministic sticky
@@ -505,7 +517,7 @@ identity. Confirmation precedes private-key generation; the key exists only in
 an immutable staged Secret and the non-sensitive immutable journal contains
 only its UID and public digests. The controller reloads and validates its
 projected pair for every TLS handshake. Rotation publishes bounded old/new
-trust, keeps Core-ready scheduling withdrawn through a node-agent capability
+trust, keeps CNI-ready scheduling withdrawn through a node-agent capability
 hold, records fresh authenticated non-ready observations through the switched
 server and new-only trust, then restores live capability and removes old/staged
 material. Unit coverage enumerates every partial Secret/agent checkpoint,

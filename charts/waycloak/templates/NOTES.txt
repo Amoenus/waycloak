@@ -17,11 +17,11 @@ gateway is created.
 
 {{- if and .Values.controller.enabled .Values.cniInstaller.enabled .Values.nodeAgent.enabled }}
 The controller, deny-first chained CNI, and node agent were enabled from the
-reviewed exact release identity. Wait for every node Core capability and run
+reviewed exact release identity. Wait for every node CNI capability and run
 `waycloakctl doctor` before enrolling a workload.
 {{- else }}
 Runtime components are disabled. This is an API-only render; do not enroll
-workloads until an exact signed install plan enables the complete Core path.
+workloads until an exact signed install plan enables the complete baseline path.
 {{- end }}
 
 The reserved enrollment label is

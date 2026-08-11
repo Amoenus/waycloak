@@ -104,7 +104,7 @@ passes. A `VPNGateway`
 must independently request `PortForwardServiceSingleActive` and reference exactly one
 `GatewayRuntimeTLS` Secret before its Pod receives the runtime container and
 deterministic runtime Service. The container mounts only that TLS Secret, has
-no service-account token or VPN credential, and does not appear in a Core
+no service-account token or VPN credential, and does not appear in a baseline
 gateway Pod. Removing the explicit request removes the owned Service and stages
 a port-forward-disabled baseline `OnDelete` gateway template; a same-name Service not owned by the
 exact gateway UID is never adopted or deleted.

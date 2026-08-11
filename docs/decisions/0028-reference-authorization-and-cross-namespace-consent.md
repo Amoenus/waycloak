@@ -26,12 +26,12 @@ uncached or coherently observed Namespace object, documented as security
 policy, and accompanied by guidance that access labels must not be writable by
 the consuming tenant.
 
-Core has no other cross-namespace reference. Gateway native configuration and
+The baseline has no other cross-namespace reference. Gateway native configuration and
 credential refs are local, class refs are cluster scoped, binding identities are
 controller resolved, and optional Service/adapter refs are local. The baseline therefore
 does not install or watch upstream `ReferenceGrant` and defines no temporary
 Waycloak grant kind. A future feature that needs another cross-namespace
-reference must adopt upstream `ReferenceGrant` as an explicit optional or Core
+reference must adopt upstream `ReferenceGrant` as an explicit optional or baseline
 dependency through a new API review, or remain same namespace.
 
 Unauthorized references produce `ResolvedRefs=False` with reason
@@ -51,7 +51,7 @@ and controller reconciliation implement those lifecycles.
   tunnel.
 - Reference changes become watched runtime dependencies rather than admission-
   time checks only.
-- Core has no Gateway API CRD dependency. A future upstream `ReferenceGrant`
+- The baseline has no Gateway API CRD dependency. A future upstream `ReferenceGrant`
   dependency requires an explicit feature/API decision.
 - Tenant-controlled namespace labels cannot safely authorize themselves.
 

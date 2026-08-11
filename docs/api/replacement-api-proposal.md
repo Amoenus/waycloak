@@ -14,7 +14,7 @@ Last updated: 2026-07-26
 The replacement API group/version is `networking.waycloak.io/v1beta1`. The
 minimum supported Kubernetes version is 1.36. This deliberately permits stable
 `admissionregistration.k8s.io/v1` mutating admission policy for static Pod
-placement metadata without carrying a mutating webhook into Core. Kubernetes
+placement metadata without carrying a mutating webhook into the baseline. Kubernetes
 1.35 CNI feasibility evidence remains useful but is not a published replacement
 support row.
 
@@ -36,7 +36,7 @@ that boundary to generate Go types and CRDs; this review does not generate them.
 - Defaults are constant and round-trip stable. A namespace is never dynamically
   guessed. Cross-namespace-capable references therefore require an explicit
   namespace, including same-namespace values.
-- Core permits exactly one `VPNEgressRoute.spec.parentRefs` entry. Loosening the
+- The baseline permits exactly one `VPNEgressRoute.spec.parentRefs` entry. Loosening the
   maximum is future additive work; no failover behavior is implied now.
 - The six kinds exist because their actors, lifecycle, authorization, or status
   differ. A manager process may reconcile several kinds without changing the
@@ -46,7 +46,7 @@ that boundary to generate Go types and CRDs; this review does not generate them.
 
 ## Frozen feature identities
 
-Core classes must advertise all of:
+Baseline classes must advertise all of:
 
 - `networking.waycloak.io/FailClosedEgress`
 - `networking.waycloak.io/TCP`
@@ -63,7 +63,7 @@ programming; they never select another backend.
 
 ## Kinds at a glance
 
-| Kind | Scope | Writable spec owner | Status owner | Core |
+| Kind | Scope | Writable spec owner | Status owner | Baseline |
 | --- | --- | --- | --- | --- |
 | `VPNGatewayClass` | cluster | distribution/provider | class controller | yes |
 | `VPNGateway` | namespace | cluster/network operator | gateway controller | yes |
@@ -133,12 +133,12 @@ weakening them:
 
 | Field | Frozen rule |
 | --- | --- |
-| class `controllerName`, feature IDs and conformance profile | required qualified names; class must contain every frozen Core feature |
+| class `controllerName`, feature IDs and conformance profile | required qualified names; class must contain every frozen baseline feature |
 | class release version / manifest digest | non-empty immutable version and `sha256:` plus exactly 64 lowercase hexadecimal characters |
 | class `parametersRef` | optional complete group/kind/name tuple; cluster-scoped and never `Secret` |
 | gateway role refs | unique non-empty DNS-label role and local object name; native refs are `ConfigMap`, credential refs are `Secret` |
 | gateway route consent | namespace mode enum `Same`, `Selector`, or `All`; `Selector` alone requires a selector |
-| gateway cluster traffic / DNS | cluster mode is `BypassCluster` or `TunnelAll` and must be explicit; DNS mode defaults to the sole Core value `Gateway` |
+| gateway cluster traffic / DNS | cluster mode is `BypassCluster` or `TunnelAll` and must be explicit; DNS mode defaults to the sole baseline value `Gateway` |
 | route parent | required explicit group `networking.waycloak.io`, kind `VPNGateway`, namespace and name; exactly one entry |
 | binding identities | required non-empty Kubernetes UIDs, node name, opaque allocation identity and canonical address prefix; all controller-authored identity fields immutable |
 | lease gateway | required explicit namespace and name |
@@ -256,7 +256,7 @@ Secrets, whose values are mounted only into the gateway engine and are never
 read into status. `requestedFeatures` and `bypassCIDRs` are bounded set lists.
 `clusterTraffic.mode` is required and is `BypassCluster` or `TunnelAll`;
 `BypassCluster` requires at least one explicitly reviewed CIDR. `dns.mode`
-defaults to the sole Core value `Gateway`. `allowedRoutes.namespaces.from`
+defaults to the sole baseline value `Gateway`. `allowedRoutes.namespaces.from`
 defaults to `Same` and supports `Same`, `Selector`, or explicit `All`; a selector
 is required only for `Selector`. Namespace authorization labels must be managed
 outside tenant authority. Tolerations are an atomic bounded list because their
@@ -304,7 +304,7 @@ status:
     conditions: []
 ```
 
-Core initially permits exactly one effective parent. The list shape and keyed
+The baseline initially permits exactly one effective parent. The list shape and keyed
 status follow route conventions so deliberate future multi-parent behavior does
 not require replacing status ownership. Multiple parents are rejected until a
 separate failover/sharding contract is accepted.
@@ -315,7 +315,7 @@ canonical. `requiredFeatures` is a bounded set. Because `parentRef` is an object
 and Kubernetes list-map keys must be scalar, `status.parents` is a bounded atomic
 list, not a map list. Each entry is logically keyed by the complete canonical
 `parentRef` plus immutable qualified `controllerName`; duplicates are forbidden
-by CEL. In Core the maximum of one gives the responsible route manager exclusive
+by CEL. In the baseline the maximum of one gives the responsible route manager exclusive
 ownership of the atomic list and matching summary status. A future multi-parent
 feature must first define conflict-safe status ownership rather than changing
 this bound silently.
@@ -393,7 +393,7 @@ atomically reserves a canonical address with a non-expiring, gateway-owned
 `coordination.k8s.io/Lease` before creating the binding. That internal Lease
 contains only exact UIDs, opaque identity, address, and `Active` or
 `Quarantined` state. It is not a workload projection or CNI handshake, and the
-node agent cannot read it. Initial Core supports IPv4 `/16` through `/29` pools
+node agent cannot read it. The initial baseline supports IPv4 `/16` through `/29` pools
 and reserves the network address, first gateway host, and broadcast address.
 
 Every reference and `nodeName` is immutable and UID-bound. `spec.network` is a
@@ -479,7 +479,7 @@ The trust record has no owner reference or finalizer.
 | lease gateway ref | local or remote `VPNGateway` | same gateway-side namespace consent as routes | same non-disclosure rule |
 | lease backend/adapter refs | local Service/WorkloadAdapter | same-namespace RBAC; deletion drains then withdraws | only selected Pod UID enters status |
 
-Core does not install or watch upstream `ReferenceGrant`. Its only public Core
+The baseline does not install or watch upstream `ReferenceGrant`. Its only public baseline
 cross-namespace relation is route-to-gateway, for which the gateway owner is the
 correct consent authority and `allowedRoutes` supplies one complete handshake.
 All other baseline references are local or cluster-scoped. Optional Service and
@@ -501,7 +501,7 @@ no such feature; Waycloak will not invent a temporary grant kind.
 
 Admission success never substitutes for CNI or runtime readiness.
 
-Core has no admission webhook. On Kubernetes 1.36, a stable
+The baseline has no admission webhook. On Kubernetes 1.36, a stable
 `MutatingAdmissionPolicy` adds only required CNI-capable-node scheduling metadata
 to explicitly enrolled Pods. A stable `ValidatingAdmissionPolicy` rejects alpha
 markers and non-controller binding writes. Both fail closed for their matched
@@ -515,7 +515,7 @@ controller work so controller loss cannot turn admission success into egress.
 | --- | --- |
 | `waycloak-class-controller` | `VPNGatewayClass.status` |
 | `waycloak-gateway-controller` | `VPNGateway.status` and generated dependent specs it creates |
-| `waycloak-route-<controller-name-hash>` | the Core route's sole-parent atomic status list plus matching route summary status |
+| `waycloak-route-<controller-name-hash>` | the baseline route's sole-parent atomic status list plus matching route summary status |
 | `waycloak-binding-controller` | binding metadata/spec/finalizer/status |
 | `waycloak-lease-controller` | lease status and provider-cleanup finalizer |
 | `waycloak-adapter-controller` | adapter status |
@@ -523,7 +523,7 @@ controller work so controller loss cannot turn admission success into egress.
 Controllers never apply user spec fields and never use force to take them.
 Status managers use the status subresource and apply only their declared fields.
 They retry conflicts with a fresh read and issue no write for semantic no-ops.
-The route manager owns the whole bounded atomic `status.parents` list in Core;
+The route manager owns the whole bounded atomic `status.parents` list in the baseline;
 condition lists remain map lists owned entry-by-entry. The node agent has no
 field manager because it has no Kubernetes write credential.
 
@@ -574,7 +574,7 @@ deletion boundaries only.
 - #125 and ADR 0035 freeze node-agent authentication and Kubernetes read scope.
 - Parent and status list identity, immutability, reference semantics, field
   managers, finalizers and admission split are frozen above and audited by CI.
-- Core does not use `ReferenceGrant` and does not claim Gateway API conformance.
+- The baseline does not use `ReferenceGrant` and does not claim Gateway API conformance.
 - Port forwarding remains optional and cannot be advertised before #137 proof;
   its stable object shape and local reference boundary are frozen here.
 - #126 freezes alpha inventory and #139 teardown input. No replacement schema

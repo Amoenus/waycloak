@@ -48,7 +48,7 @@ func verifyPortForwardSingleActiveHandoff(t *testing.T, namespace, serviceAccoun
 	gateway := &wayv1.VPNGateway{}
 	must(t, admin.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: "private"}, gateway))
 	gateway.Status.ObservedGeneration = gateway.Generation
-	gateway.Status.SupportedFeatures = append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive)
+	gateway.Status.SupportedFeatures = append(wayv1.BaselineFeatures(), wayv1.FeaturePortForwardSingleActive)
 	gateway.Status.Conditions = currentE2EConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionReady)
 	must(t, admin.Status().Update(ctx, gateway))
 

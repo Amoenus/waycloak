@@ -207,7 +207,7 @@ or sensitive endpoint disclosure.
 2. The 15-minute first-use journey succeeds without source-code knowledge.
 3. No alpha attachment annotation or sidecar compatibility path remains in the
    stable runtime.
-4. Core conformance passes on every published support-matrix row.
+4. Baseline conformance passes on every published support-matrix row.
 5. Fresh install, patch/minor upgrade, rollback, backup/restore and uninstall
    preserve the fail-closed and identity contracts.
 6. Generic curl, qBitTorrent and Bitmagnet scenarios pass real-provider tests.
@@ -228,7 +228,7 @@ or sensitive endpoint disclosure.
 - Hard runtime dependencies on Gateway API, cert-manager, KCL, Crossplane,
   Argo CD, ESO, a service mesh or Prometheus Operator.
 - Multiple stable data planes maintained for legacy compatibility.
-- Multi-gateway sharding, UI, or broad provider catalog before Core proof.
+- Multi-gateway sharding, UI, or broad provider catalog before baseline proof.
 
 ## Normative design inputs
 

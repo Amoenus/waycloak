@@ -16,7 +16,7 @@ Putting qBitTorrent calls in the controller would make the control plane
 application-specific and require application credentials outside the workload.
 Letting an unprivileged adapter modify nftables would add capabilities to the
 workload integration. Pointing gateway DNAT directly at an adapter-reported
-port would also couple core gateway desired state to a proprietary API.
+port would also couple baseline gateway desired state to a proprietary API.
 
 ## Decision
 
@@ -71,7 +71,7 @@ Kubernetes or VPN credentials, and runs without Linux capabilities.
 - Ordinary workloads remain operationally unaware of Waycloak after their
   declarative opt-in.
 - Provider-assigned applications have a generic exact-generation handoff; the
-  core does not know which application implements it.
+  baseline does not know which application implements it.
 - qBitTorrent-specific code and credentials remain in a separate sidecar.
 - Rotation has a deliberate fail-closed interval while the new application
   port and kernel redirect are being observed.

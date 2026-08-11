@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	componentLabel     = "app.kubernetes.io/component"
-	instanceLabel      = "app.kubernetes.io/instance"
-	coreReadyNodeLabel = "networking.waycloak.io.node-restriction.kubernetes.io/core-ready"
+	componentLabel    = "app.kubernetes.io/component"
+	instanceLabel     = "app.kubernetes.io/instance"
+	cniReadyNodeLabel = "networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"
 
 	cniInstallerComponent = "cni-installer"
 	nodeAgentComponent    = "node-agent"
@@ -106,7 +106,7 @@ func Doctor(ctx context.Context, clients *Clients, namespace, route string) (Doc
 		}
 		selectedNodes++
 		state := "Unavailable"
-		if node.Labels[coreReadyNodeLabel] == "true" {
+		if node.Labels[cniReadyNodeLabel] == "true" {
 			state = "CNICapable"
 		}
 		report.Nodes[state]++
@@ -117,7 +117,7 @@ func Doctor(ctx context.Context, clients *Clients, namespace, route string) (Doc
 	}
 	if report.Nodes["Unavailable"] > 0 {
 		report.Healthy = false
-		report.Problems = append(report.Problems, "One or more nodes lack a current authenticated Core capability")
+		report.Problems = append(report.Problems, "One or more nodes lack a current authenticated CNI capability")
 	}
 	if selectionProblem == "" && selectedNodes == 0 {
 		report.Healthy = false

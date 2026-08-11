@@ -288,7 +288,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Create(ctx, gateway))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
 		gateway.Status.ObservedGeneration = gateway.Generation
-		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.SupportedFeatures = wayv1.BaselineFeatures()
 		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
 		must(t, admin.Status().Update(ctx, gateway))
 
@@ -348,7 +348,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Create(ctx, gateway))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
 		gateway.Status.ObservedGeneration = gateway.Generation
-		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.SupportedFeatures = wayv1.BaselineFeatures()
 		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
 		must(t, admin.Status().Update(ctx, gateway))
 
@@ -397,7 +397,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Create(ctx, gateway))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
 		gateway.Status.ObservedGeneration = gateway.Generation
-		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.SupportedFeatures = wayv1.BaselineFeatures()
 		gateway.Status.Addresses = []wayv1.GatewayAddress{
 			{Type: wayv1.GatewayAddressTypeOverlayCIDR, Value: "198.51.100.0/29"},
 			{Type: wayv1.GatewayAddressTypeOverlayAddress, Value: "198.51.100.1"},
@@ -546,7 +546,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Create(ctx, gateway))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(gateway), gateway))
 		gateway.Status.ObservedGeneration = gateway.Generation
-		gateway.Status.SupportedFeatures = wayv1.CoreFeatures()
+		gateway.Status.SupportedFeatures = wayv1.BaselineFeatures()
 		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionProgrammed, wayv1.ConditionReady)
 		must(t, admin.Status().Update(ctx, gateway))
 		route := validRoute("cross-private")
@@ -598,7 +598,7 @@ func TestReplacementAPI(t *testing.T) {
 		mustReject(t, admin.Create(ctx, invalid), "same-namespace DNS label")
 		unlabeled := testPod("unlabeled", nil, nil)
 		must(t, admin.Create(ctx, unlabeled))
-		if unlabeled.Spec.NodeSelector[scheduling.CoreReadyLabel] != "" {
+		if unlabeled.Spec.NodeSelector[scheduling.CNIReadyLabel] != "" {
 			t.Fatalf("unlabeled Pod received Waycloak scheduling: %#v", unlabeled.Spec.NodeSelector)
 		}
 		if unlabeled.Spec.DNSConfig != nil {
@@ -608,7 +608,7 @@ func TestReplacementAPI(t *testing.T) {
 		valid.Spec.NodeSelector = map[string]string{"kubernetes.io/os": "linux"}
 		valid.Spec.DNSConfig = &corev1.PodDNSConfig{Options: []corev1.PodDNSConfigOption{{Name: "single-request-reopen"}}}
 		must(t, admin.Create(ctx, valid))
-		if valid.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" || valid.Spec.NodeSelector["kubernetes.io/os"] != "linux" {
+		if valid.Spec.NodeSelector[scheduling.CNIReadyLabel] != "true" || valid.Spec.NodeSelector["kubernetes.io/os"] != "linux" {
 			t.Fatalf("enrolled Pod scheduling mutation = %#v", valid.Spec.NodeSelector)
 		}
 		if valid.Spec.DNSConfig == nil || len(valid.Spec.DNSConfig.Options) != 2 || valid.Spec.DNSConfig.Options[0].Name != "single-request-reopen" || valid.Spec.DNSConfig.Options[1].Name != "ndots" || valid.Spec.DNSConfig.Options[1].Value == nil || *valid.Spec.DNSConfig.Options[1].Value != "1" {
@@ -635,10 +635,10 @@ func TestReplacementAPI(t *testing.T) {
 		agentPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "capability-agent", Namespace: testNamespace, UID: "capability-agent-uid"}, Spec: corev1.PodSpec{NodeName: node.Name}}
 		release := wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
 		publisher := scheduling.Publisher{Client: admin, ReleaseIdentity: release, ConformanceProfile: "networking.waycloak.io/Core-v1", Now: func() time.Time { return now }}
-		report := nodeagent.NodeReport{NodeName: node.Name, NodeBootID: "boot", InstanceID: "instance", ObservedAt: now, Ready: true, Capabilities: append([]string(nil), scheduling.CoreCapabilities...), ReleaseIdentity: release, ConformanceProfile: "networking.waycloak.io/Core-v1"}
+		report := nodeagent.NodeReport{NodeName: node.Name, NodeBootID: "boot", InstanceID: "instance", ObservedAt: now, Ready: true, Capabilities: append([]string(nil), scheduling.BaselineCapabilities...), ReleaseIdentity: release, ConformanceProfile: "networking.waycloak.io/Core-v1"}
 		must(t, publisher.Apply(ctx, agentPod, report))
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(node), node))
-		if node.Labels[scheduling.CoreReadyLabel] != "true" || node.Labels["topology.kubernetes.io/zone"] != "test" {
+		if node.Labels[scheduling.CNIReadyLabel] != "true" || node.Labels["topology.kubernetes.io/zone"] != "test" {
 			t.Fatalf("published Node labels = %#v", node.Labels)
 		}
 		owned := false
@@ -656,7 +656,7 @@ func TestReplacementAPI(t *testing.T) {
 			t.Fatal("release-skewed node capability was accepted")
 		}
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(node), node))
-		if node.Labels[scheduling.CoreReadyLabel] != "" {
+		if node.Labels[scheduling.CNIReadyLabel] != "" {
 			t.Fatal("release skew retained scheduling readiness")
 		}
 		report.ReleaseIdentity = release
@@ -665,7 +665,7 @@ func TestReplacementAPI(t *testing.T) {
 		_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(node)})
 		must(t, err)
 		must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(node), node))
-		if node.Labels[scheduling.CoreReadyLabel] != "" {
+		if node.Labels[scheduling.CNIReadyLabel] != "" {
 			t.Fatal("stale capability retained scheduling readiness")
 		}
 	})
@@ -740,7 +740,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Create(ctx, class))
 		classReconciler := &waycontroller.VPNGatewayClassReconciler{
 			Client: admin, ControllerName: class.Spec.ControllerName, ReleaseIdentity: class.Spec.ReleaseIdentity,
-			ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+			ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.BaselineFeatures(),
 		}
 		_, err := classReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(class)})
 		must(t, err)
@@ -771,7 +771,7 @@ func TestReplacementAPI(t *testing.T) {
 		must(t, admin.Create(ctx, gateway))
 		gatewayReconciler := &waycontroller.ReplacementVPNGatewayReconciler{
 			Client: admin, APIReader: admin, ControllerName: class.Spec.ControllerName,
-			ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.CoreFeatures(),
+			ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: wayv1.BaselineFeatures(),
 			NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole}, CredentialRoles: []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole},
 		}
 		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(gateway)}
@@ -811,7 +811,7 @@ func TestReplacementAPI(t *testing.T) {
 	})
 
 	t.Run("port-forward gateway requires explicit SingleActive intent and runtime TLS identity", func(t *testing.T) {
-		features := append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
+		features := append(wayv1.BaselineFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
 		class := validClass("extended-runtime-contract")
 		class.Spec.ControllerName = waycontroller.DefaultGatewayControllerName
 		class.Spec.SupportedFeatures = features
@@ -879,7 +879,7 @@ func TestReplacementAPI(t *testing.T) {
 		gateway.Spec.RequestedFeatures = []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive}
 		must(t, admin.Create(ctx, gateway))
 		gateway.Status.ObservedGeneration = gateway.Generation
-		gateway.Status.SupportedFeatures = append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive)
+		gateway.Status.SupportedFeatures = append(wayv1.BaselineFeatures(), wayv1.FeaturePortForwardSingleActive)
 		gateway.Status.Conditions = currentTrueConditions(gateway.Generation, wayv1.ConditionAccepted, wayv1.ConditionReady)
 		must(t, admin.Status().Update(ctx, gateway))
 
@@ -1080,7 +1080,7 @@ func validClass(name string) *wayv1.VPNGatewayClass {
 		Spec: wayv1.VPNGatewayClassSpec{
 			ControllerName:     "example.waycloak.io/controller",
 			ReleaseIdentity:    wayv1.ReleaseIdentity{Version: "v1.0.0-beta.1", ManifestDigest: "sha256:" + strings.Repeat("1", 64)},
-			SupportedFeatures:  wayv1.CoreFeatures(),
+			SupportedFeatures:  wayv1.BaselineFeatures(),
 			ConformanceProfile: "networking.waycloak.io/Core-v1",
 		},
 	}
@@ -1226,7 +1226,7 @@ func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 		}}}},
 		MatchConditions: []admissionv1.MatchCondition{{Name: "explicitly-enrolled", Expression: `has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels`}},
 		Mutations: []admissionv1.Mutation{
-			{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `has(object.spec.nodeSelector) ? [JSONPatch{op: "add", path: "/spec/nodeSelector/" + jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/core-ready"), value: "true"}] : [JSONPatch{op: "add", path: "/spec/nodeSelector", value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]`}},
+			{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `has(object.spec.nodeSelector) ? [JSONPatch{op: "add", path: "/spec/nodeSelector/" + jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"), value: "true"}] : [JSONPatch{op: "add", path: "/spec/nodeSelector", value: {"networking.waycloak.io.node-restriction.kubernetes.io/cni-ready": "true"}}]`}},
 			{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `!has(object.spec.dnsConfig) ? [JSONPatch{op: "add", path: "/spec/dnsConfig", value: {"options": [{"name": "ndots", "value": "1"}]}}] : !has(object.spec.dnsConfig.options) ? [JSONPatch{op: "add", path: "/spec/dnsConfig/options", value: [{"name": "ndots", "value": "1"}]}] : !object.spec.dnsConfig.options.exists(option, option.name == "ndots") ? [JSONPatch{op: "add", path: "/spec/dnsConfig/options/-", value: {"name": "ndots", "value": "1"}}] : []`}},
 		},
 	}}
@@ -1255,7 +1255,7 @@ func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || object.metadata.labels["networking.waycloak.io/egress-route"].matches("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")`, Message: "the Waycloak egress-route label must contain one same-namespace DNS label", Reason: &invalid},
 				{Expression: `request.operation != "UPDATE" || (has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels ? object.metadata.labels["networking.waycloak.io/egress-route"] : "") == (has(oldObject.metadata.labels) && "networking.waycloak.io/egress-route" in oldObject.metadata.labels ? oldObject.metadata.labels["networking.waycloak.io/egress-route"] : "")`, Message: "enrollment on an existing Pod is immutable; update the Pod template and create a new Pod", Reason: &forbidden},
 				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || ((!has(object.spec.hostNetwork) || !object.spec.hostNetwork) && (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.nodeName) || object.spec.nodeName == ""))`, Message: "enrolled Pods cannot bypass CNI or scheduler placement with host namespaces or spec.nodeName", Reason: &forbidden},
-				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || (has(object.spec.nodeSelector) && "networking.waycloak.io.node-restriction.kubernetes.io/core-ready" in object.spec.nodeSelector && object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true")`, Message: "enrolled Pods require the Waycloak Core-ready scheduling constraint", Reason: &forbidden},
+				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || (has(object.spec.nodeSelector) && "networking.waycloak.io.node-restriction.kubernetes.io/cni-ready" in object.spec.nodeSelector && object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/cni-ready"] == "true")`, Message: "enrolled Pods require the Waycloak CNI-ready scheduling constraint", Reason: &forbidden},
 				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || (has(object.spec.dnsConfig) && has(object.spec.dnsConfig.options) && object.spec.dnsConfig.options.filter(option, option.name == "ndots").size() == 1 && object.spec.dnsConfig.options.exists(option, option.name == "ndots" && has(option.value) && option.value == "1"))`, Message: "enrolled Pods require the release-owned ndots:1 DNS search bound", Reason: &forbidden},
 			},
 		},
@@ -1288,7 +1288,7 @@ func waitForPodSchedulingPolicy(t *testing.T, ctx context.Context, client ctrlcl
 	for {
 		probe := testPod("scheduling-policy-probe", nil, map[string]string{enrollment.RouteLabel: "private"})
 		err := client.Create(ctx, probe, &ctrlclient.CreateOptions{DryRun: []string{metav1.DryRunAll}})
-		if err == nil && probe.Spec.NodeSelector[scheduling.CoreReadyLabel] == "true" {
+		if err == nil && probe.Spec.NodeSelector[scheduling.CNIReadyLabel] == "true" {
 			return
 		}
 		if time.Now().After(deadline) {

@@ -10,7 +10,7 @@ spec:
         networking.waycloak.io/egress-route: private-egress
 ```
 
-The Core security boundary is a mandatory chained CNI plugin backed by a privileged per-node agent. It installs deny-first state before CNI `ADD` succeeds. Waycloak injects no application sidecar or init container, Linux capability, host mount, VPN credential, or Kubernetes credential. A missing, rejected, unauthorized, unhealthy, or unprogrammed route fails closed; it never silently selects ordinary egress.
+The baseline security boundary is a mandatory chained CNI plugin backed by a privileged per-node agent. It installs deny-first state before CNI `ADD` succeeds. Waycloak injects no application sidecar or init container, Linux capability, host mount, VPN credential, or Kubernetes credential. A missing, rejected, unauthorized, unhealthy, or unprogrammed route fails closed; it never silently selects ordinary egress.
 
 ## Current state
 

@@ -14,7 +14,7 @@ implementation would make security and compatibility accidental.
 
 Kubernetes 1.36 makes `MutatingAdmissionPolicy` stable. Gateway API
 `ReferenceGrant` is GA, but adding its CRDs solely for a relationship already
-owned by `VPNGateway.allowedRoutes` would create an unnecessary Core dependency.
+owned by `VPNGateway.allowedRoutes` would create an unnecessary baseline dependency.
 
 ## Decision
 
@@ -33,13 +33,13 @@ Kubernetes 1.36 or newer. The six kinds and scopes are:
 All user-visible resources use `Accepted`, `ResolvedRefs`, `Programmed`, and
 `Ready`; route status additionally has bounded atomic parent entries logically
 identified by the explicit parent reference and immutable controller name. The
-list cannot be map-keyed because the parent reference is an object. Core route
+list cannot be map-keyed because the parent reference is an object. Baseline route
 spec has exactly one map-keyed parent and status has at most one parent entry.
 
 Every reference has explicit existence, compatibility, consent, revocation and
-privacy semantics. Gateway-side `allowedRoutes` is the sole Core
-cross-namespace consent relationship. Other Core references are local or
-cluster-scoped. Core neither installs `ReferenceGrant` nor defines a local grant
+privacy semantics. Gateway-side `allowedRoutes` is the sole baseline
+cross-namespace consent relationship. Other baseline references are local or
+cluster-scoped. The baseline neither installs `ReferenceGrant` nor defines a local grant
 kind and does not claim Gateway API conformance.
 
 Controllers use distinct server-side field managers for status, generated
@@ -49,7 +49,7 @@ references are same-scope real dependencies only. Finalizers exist only for
 bounded external data-plane or provider cleanup and have explicit quarantine
 outcomes.
 
-Core has no admission webhook. Stable mutating policy may add only CNI-capable
+The baseline has no admission webhook. Stable mutating policy may add only CNI-capable
 node placement metadata to enrolled Pods. Stable validating policy rejects
 alpha markers and non-controller binding writes. Dynamic references reconcile
 asynchronously, and chained CNI remains the independent packet-security gate.
@@ -70,7 +70,7 @@ trusting caller configuration.
   from its initial release.
 - Kubernetes 1.35 proof remains feasibility evidence but is not a published
   stable support row.
-- Core avoids webhook TLS and Gateway API CRD dependencies without weakening
+- The baseline avoids webhook TLS and Gateway API CRD dependencies without weakening
   creation-time or reference enforcement.
 - Port forwarding and adapters have stable object boundaries but cannot be
   advertised until their capability-specific conformance work passes.
@@ -81,10 +81,10 @@ trusting caller configuration.
 
 - Start another alpha version: defers compatibility decisions already resolved
   by the clean-break review and delays the required beta stability cycle.
-- Support Kubernetes 1.35 and retain a mutation webhook: expands the Core
+- Support Kubernetes 1.35 and retain a mutation webhook: expands the baseline
   failure and certificate surface for one older row.
 - Require Gateway API for `ReferenceGrant`: adds a cluster API dependency with
-  no Core reference that needs it.
+  no baseline reference that needs it.
 - Let controllers infer fields, defaults or ownership: makes round trips,
   conflicts and security behavior implementation-specific.
 

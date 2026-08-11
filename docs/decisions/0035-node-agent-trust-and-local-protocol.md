@@ -61,7 +61,7 @@ after the resource contract is frozen by #127 and the allocation protocol by
 
 The agent's Kubernetes credential is projected only into the privileged agent,
 with a short lifetime and the API server's default audience. It is separate from
-the explicitly audience-bound observation-relay token. Initial Core RBAC is read
+the explicitly audience-bound observation-relay token. Initial baseline RBAC is read
 only: `get/list/watch` Pods and `VPNWorkloadBinding` objects. Kubernetes RBAC
 cannot restrict list/watch to one node, so the informer filters by immutable
 node assignment before reconciliation and this cluster-wide metadata visibility
@@ -79,10 +79,10 @@ The agent has only the host access required for the supported backend:
   to enter target netns and manage Waycloak-owned nftables/netlink state.
 
 It has no CNI configuration-directory write mount, container-runtime socket,
-host root mount, bpffs/cgroupfs mount for nftables Core, VPN device, gateway
+host root mount, bpffs/cgroupfs mount for the nftables baseline, VPN device, gateway
 Secret, provider credential, or workload ServiceAccount token. eBPF-specific
 host mounts and capabilities require a separate conformance profile and cannot
-appear in Core by implication.
+appear in the baseline by implication.
 
 ## Failure and revocation
 
