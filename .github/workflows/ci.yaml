@@ -271,6 +271,36 @@ jobs:
           test "$(grep -c -- '/var/lib/cni/waycloak/install-receipt.json' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^      hostNetwork: true$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c '^      dnsPolicy: ClusterFirstWithHostNet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
+          if grep -Eq 'waycloak-extended|gateway-port-forward-runtime-image|ghcr.io/amoenus/waycloak-gateway-runtime@sha256:' "$RUNNER_TEMP/enabled-1.yaml"; then
+            echo "Core chart rendering contains an Extended runtime surface" >&2
+            exit 1
+          fi
+          core_port_forward_features="$(grep -c 'networking.waycloak.io/PortForwardServiceSingleActive' "$RUNNER_TEMP/enabled-1.yaml" || true)"
+          core_adapter_features="$(grep -c 'networking.waycloak.io/WorkloadAdapter' "$RUNNER_TEMP/enabled-1.yaml" || true)"
+          extended_args=("${enabled_args[@]}"
+            --set extended.enabled=true
+            --set-string extended.controllerTLSSecret=waycloak-extended-controller-tls
+            --set-string extended.gatewayRuntime.image.digest="$digest"
+            --set extended.adapter.enabled=true)
+          helm template "${extended_args[@]}" >"$RUNNER_TEMP/extended-1.yaml"
+          helm template "${extended_args[@]}" >"$RUNNER_TEMP/extended-2.yaml"
+          cmp "$RUNNER_TEMP/extended-1.yaml" "$RUNNER_TEMP/extended-2.yaml"
+          grep -q -- '--gateway-port-forward-runtime-image=ghcr.io/amoenus/waycloak-gateway-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RUNNER_TEMP/extended-1.yaml"
+          grep -q -- '--port-forward-runtime-ca=/var/run/secrets/waycloak-extended/ca.crt' "$RUNNER_TEMP/extended-1.yaml"
+          grep -q -- '--adapter-ca=/var/run/secrets/waycloak-extended/ca.crt' "$RUNNER_TEMP/extended-1.yaml"
+          grep -q 'secretName: waycloak-extended-controller-tls' "$RUNNER_TEMP/extended-1.yaml"
+          test "$(grep -c 'networking.waycloak.io/PortForwardServiceSingleActive' "$RUNNER_TEMP/extended-1.yaml")" -eq "$((core_port_forward_features + 1))"
+          test "$(grep -c 'networking.waycloak.io/WorkloadAdapter' "$RUNNER_TEMP/extended-1.yaml")" -eq "$((core_adapter_features + 1))"
+          if helm template "${enabled_args[@]}" --set extended.enabled=true >"$RUNNER_TEMP/extended-partial.yaml" 2>"$RUNNER_TEMP/extended-partial.err"; then
+            echo "partial Extended configuration rendered successfully" >&2
+            exit 1
+          fi
+          grep -q 'extended.gatewayRuntime.image.digest is required' "$RUNNER_TEMP/extended-partial.err"
+          if helm template "${enabled_args[@]}" --set extended.adapter.enabled=true >"$RUNNER_TEMP/adapter-without-runtime.yaml" 2>"$RUNNER_TEMP/adapter-without-runtime.err"; then
+            echo "adapter-only Extended configuration rendered successfully" >&2
+            exit 1
+          fi
+          grep -q 'extended.adapter.enabled requires extended.enabled=true' "$RUNNER_TEMP/adapter-without-runtime.err"
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

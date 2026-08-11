@@ -87,6 +87,24 @@ runtime accepts only the configured controller SPIFFE URI, has no Kubernetes
 credential, and is the sole owner of provider mapping and gateway nftables
 state. The controller is the sole Kubernetes status writer.
 
+The distribution chart keeps this runtime boundary disabled by default. An
+Extended test installation supplies an exact digest-pinned runtime image and a
+named, pre-created controller mTLS Secret. A `VPNGateway` must independently
+request `PortForwardServiceSingleActive` and reference exactly one
+`GatewayRuntimeTLS` Secret before its Pod receives the runtime container and
+deterministic runtime Service. The container mounts only that TLS Secret, has
+no service-account token or VPN credential, and does not appear in a Core
+gateway Pod. Removing the explicit request removes the owned Service and stages
+a Core-only `OnDelete` gateway template; a same-name Service not owned by the
+exact gateway UID is never adopted or deleted.
+
+The chart does not deploy an application adapter. It can configure controller
+trust for the signed reference adapter, but the network operator must deploy
+the immutable-digest adapter out of process and author its `WorkloadAdapter`
+trust record. Public Extended advertisement remains gated on the packet,
+handoff, and real-provider evidence below; temporary test enablement is not a
+conformance claim.
+
 Provider mapping, gateway rules, delivery, and acknowledgement are separate
 observations. `Accepted`, `ResolvedRefs`, `Programmed`, `Ready`,
 `GatewayRulesReady`, `Delivered`, and `Acknowledged` use the common positive

@@ -17,8 +17,10 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/gatewaydataplane"
+	"github.com/Amoenus/waycloak/internal/portforward"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -145,6 +147,104 @@ func TestProvisionerCorrectsRollingUpdateWithoutReplacingGatewayPod(t *testing.T
 	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(pod), currentPod))
 	if currentPod.UID != pod.UID || currentPod.Spec.Containers[0].Image != oldEngineImage || currentPod.Annotations[releaseVersionAnnotation] != oldReleaseVersion || currentPod.Annotations[releaseManifestDigestAnnotation] != oldReleaseDigest {
 		t.Fatalf("existing gateway Pod changed during OnDelete correction: uid=%q image=%q release=%q digest=%q", currentPod.UID, currentPod.Spec.Containers[0].Image, currentPod.Annotations[releaseVersionAnnotation], currentPod.Annotations[releaseManifestDigestAnnotation])
+	}
+}
+
+func TestProvisionerAddsOnlyExplicitTokenlessExtendedRuntime(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
+	must(t, wayv1.AddToScheme(scheme))
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "media", UID: "gateway-uid", Generation: 1}, Spec: wayv1.VPNGatewaySpec{
+		GatewayClassName: "gluetun.waycloak.io", RequestedFeatures: []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter},
+		NativeConfigRefs: []wayv1.RoleObjectReference{{Role: waycontroller.GluetunEnvironmentRole, Name: "engine"}},
+		CredentialRefs:   []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: "credentials"}, {Role: waycontroller.GatewayRuntimeTLSRole, Name: "runtime-tls"}},
+		ClusterTraffic:   wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+	}}
+	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "engine", Namespace: "media", ResourceVersion: "1"}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn"}}
+	credentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "media", ResourceVersion: "1"}}
+	runtimeTLS := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "runtime-tls", Namespace: "media", ResourceVersion: "2"}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway, config, credentials, runtimeTLS).Build()
+	provisioner := fixture(kube)
+	provisioner.PortForwardRuntimeImage = "ghcr.io/amoenus/waycloak-gateway-runtime@sha256:" + strings.Repeat("d", 64)
+	provisioner.PortForwardRuntimePort = 9443
+	provisioner.AdapterPort = 9444
+	provisioner.AdapterEnabled = true
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	statefulSet := &appsv1.StatefulSet{}
+	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
+	if len(statefulSet.Spec.Template.Spec.Containers) != 3 || len(statefulSet.Spec.Template.Spec.Volumes) != 3 {
+		t.Fatalf("Extended gateway Pod shape = %d containers, %d volumes", len(statefulSet.Spec.Template.Spec.Containers), len(statefulSet.Spec.Template.Spec.Volumes))
+	}
+	runtimeContainer := statefulSet.Spec.Template.Spec.Containers[2]
+	if runtimeContainer.Name != "port-forward-runtime" || runtimeContainer.Image != provisioner.PortForwardRuntimeImage || len(runtimeContainer.Env) != 0 || len(runtimeContainer.EnvFrom) != 0 || len(runtimeContainer.VolumeMounts) != 1 || runtimeContainer.VolumeMounts[0].Name != "port-forward-runtime-tls" {
+		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
+	}
+	joinedArgs := strings.Join(runtimeContainer.Args, " ")
+	for _, required := range []string{"--gateway-uid=gateway-uid", "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt"} {
+		if !strings.Contains(joinedArgs, required) {
+			t.Fatalf("runtime args %q lack %q", joinedArgs, required)
+		}
+	}
+	if strings.Contains(joinedArgs, "OPENVPN") || strings.Contains(joinedArgs, "credentials") {
+		t.Fatalf("runtime args expose VPN credential identity: %q", joinedArgs)
+	}
+	service := &corev1.Service{}
+	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: portforward.GatewayRuntimeServiceName("media", "private")}, service))
+	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != 9443 || !ownedByGateway(service.OwnerReferences, gateway) {
+		t.Fatalf("runtime Service is not exact gateway-owned identity: %#v", service)
+	}
+
+	gateway.Spec.RequestedFeatures = nil
+	gateway.Spec.CredentialRefs = []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: "credentials"}}
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Get(context.Background(), client.ObjectKeyFromObject(service), service); !apierrors.IsNotFound(err) {
+		t.Fatalf("unrequested runtime Service was retained: %v", err)
+	}
+	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(statefulSet), statefulSet))
+	if len(statefulSet.Spec.Template.Spec.Containers) != 2 || len(statefulSet.Spec.Template.Spec.Volumes) != 2 {
+		t.Fatalf("Core gateway retained Extended runtime: %#v", statefulSet.Spec.Template.Spec)
+	}
+}
+
+func TestProvisionerDoesNotDeleteForeignRuntimeService(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
+	must(t, wayv1.AddToScheme(scheme))
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "media", UID: "gateway-uid", Generation: 1}, Spec: wayv1.VPNGatewaySpec{
+		GatewayClassName: "gluetun.waycloak.io",
+		NativeConfigRefs: []wayv1.RoleObjectReference{{Role: waycontroller.GluetunEnvironmentRole, Name: "engine"}},
+		CredentialRefs:   []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: "credentials"}},
+		ClusterTraffic:   wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+	}}
+	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "engine", Namespace: "media", ResourceVersion: "1"}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn", "VPN_TYPE": "openvpn"}}
+	credentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "media", ResourceVersion: "1"}}
+	foreign := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: portforward.GatewayRuntimeServiceName("media", "private"), Namespace: "media", UID: "foreign-service"}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway, config, credentials, foreign).Build()
+	provisioner := fixture(kube)
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err == nil || !strings.Contains(err.Error(), "owned by another object") {
+		t.Fatalf("foreign runtime Service collision error = %v", err)
+	}
+	current := &corev1.Service{}
+	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(foreign), current))
+	if current.UID != foreign.UID {
+		t.Fatalf("foreign runtime Service was replaced: %#v", current)
+	}
+}
+
+func TestProvisionerRejectsPartialExtendedConfiguration(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	provisioner := fixture(fake.NewClientBuilder().WithScheme(scheme).Build())
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
+	provisioner.PortForwardRuntimeImage = "ghcr.io/amoenus/waycloak-gateway-runtime@sha256:" + strings.Repeat("d", 64)
+	if err := provisioner.validate(gateway); err == nil || !strings.Contains(err.Error(), "complete exact Extended") {
+		t.Fatalf("partial Extended configuration error = %v", err)
 	}
 }
 

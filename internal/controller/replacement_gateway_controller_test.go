@@ -123,6 +123,35 @@ func TestMinimalGatewayResolvesWithoutImagesAndCredentialValuesNeverReachStatus(
 	}
 }
 
+func TestExtendedGatewayRequiresExplicitFeatureAndRuntimeTLSReference(t *testing.T) {
+	class := replacementClass()
+	features := append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
+	class.Spec.SupportedFeatures = features
+	class.Status = (&VPNGatewayClassReconciler{ControllerName: DefaultGatewayControllerName, ReleaseIdentity: replacementRelease, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: features, Now: func() time.Time { return time.Unix(1000, 0).UTC() }}).desiredStatus(class)
+	runtimeTLS := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "runtime-tls", Namespace: "network"}}
+	reconciler := replacementGatewayReconciler(t, class, runtimeTLS)
+	reconciler.SupportedFeatures = features
+	reconciler.CredentialRoles = append(reconciler.CredentialRoles, GatewayRuntimeTLSRole)
+
+	gateway := replacementGateway()
+	gateway.Spec.RequestedFeatures = []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive}
+	status := reconciler.desiredStatus(context.Background(), gateway)
+	assertReplacementCondition(t, status.Conditions, wayv1.ConditionResolvedRefs, metav1.ConditionFalse, wayv1.ReasonRefNotFound)
+
+	gateway.Spec.CredentialRefs = []wayv1.RoleObjectReference{{Role: GatewayRuntimeTLSRole, Name: "runtime-tls"}}
+	status = reconciler.desiredStatus(context.Background(), gateway)
+	assertReplacementCondition(t, status.Conditions, wayv1.ConditionAccepted, metav1.ConditionTrue, wayv1.ReasonAccepted)
+	assertReplacementCondition(t, status.Conditions, wayv1.ConditionResolvedRefs, metav1.ConditionTrue, wayv1.ReasonResolvedRefs)
+
+	gateway.Spec.RequestedFeatures = nil
+	status = reconciler.desiredStatus(context.Background(), gateway)
+	assertReplacementCondition(t, status.Conditions, wayv1.ConditionResolvedRefs, metav1.ConditionFalse, wayv1.ReasonIncompatibleRef)
+
+	gateway.Spec.RequestedFeatures = []wayv1.FeatureName{wayv1.FeatureWorkloadAdapter}
+	status = reconciler.desiredStatus(context.Background(), gateway)
+	assertReplacementCondition(t, status.Conditions, wayv1.ConditionAccepted, metav1.ConditionFalse, wayv1.ReasonUnsupportedFeature)
+}
+
 func TestGatewayReadyRequiresCompleteLiveRuntimeObservation(t *testing.T) {
 	class := replacementClass()
 	gateway := replacementGateway()

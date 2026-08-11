@@ -123,6 +123,13 @@ Mandatory scenarios:
 - exact TLS 1.3 controller-to-gateway runtime identity, strict versioned
   messages, exact gateway UID, oversized/unknown input rejection, and no
   Kubernetes credential in the runtime;
+- deterministic Helm rendering proves Core contains no Extended container,
+  mount, flag, Service, or feature advertisement; complete Extended input
+  renders exact digest and named mTLS identity, while partial or adapter-only
+  input fails before installation;
+- gateway provisioning creates the tokenless runtime and deterministic Service
+  only for explicit SingleActive intent plus the supported TLS reference, and
+  refuses to adopt or delete a foreign same-name Service;
 - privileged TCP and UDP packet delivery to only the selected overlay address,
   provider-port return symmetry, atomic generation handoff, unmatched-tunnel
   drop, withdrawal, drift, and runtime restart;

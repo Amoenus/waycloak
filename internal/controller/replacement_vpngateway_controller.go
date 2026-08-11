@@ -28,6 +28,7 @@ import (
 const (
 	GluetunEnvironmentRole wayv1.QualifiedName = "networking.waycloak.io/GluetunEnvironment"
 	OpenVPNCredentialsRole wayv1.QualifiedName = "networking.waycloak.io/OpenVPNCredentials"
+	GatewayRuntimeTLSRole  wayv1.QualifiedName = "networking.waycloak.io/GatewayRuntimeTLS"
 )
 
 type ReplacementVPNGatewayReconciler struct {
@@ -113,6 +114,11 @@ func (r *ReplacementVPNGatewayReconciler) desiredStatus(ctx context.Context, gat
 		states[wayv1.ConditionResolvedRefs] = wayconditions.True(wayv1.ReasonResolvedRefs, "Gateway class reference is resolved")
 		return r.finishStatus(gateway, status, states)
 	}
+	if hasFeature(gateway.Spec.RequestedFeatures, wayv1.FeatureWorkloadAdapter) && !hasFeature(gateway.Spec.RequestedFeatures, wayv1.FeaturePortForwardSingleActive) {
+		states[wayv1.ConditionAccepted] = wayconditions.False(wayv1.ReasonUnsupportedFeature, "WorkloadAdapter requires SingleActive port forwarding")
+		states[wayv1.ConditionResolvedRefs] = wayconditions.True(wayv1.ReasonResolvedRefs, "Gateway class reference is resolved")
+		return r.finishStatus(gateway, status, states)
+	}
 	states[wayv1.ConditionAccepted] = wayconditions.True(wayv1.ReasonAccepted, "Gateway intent is accepted")
 	if state, unresolved := r.resolveInputs(ctx, gateway); unresolved {
 		states[wayv1.ConditionResolvedRefs] = state
@@ -165,6 +171,8 @@ func (r *ReplacementVPNGatewayReconciler) finishStatus(gateway *wayv1.VPNGateway
 }
 
 func (r *ReplacementVPNGatewayReconciler) resolveInputs(ctx context.Context, gateway *wayv1.VPNGateway) (wayconditions.State, bool) {
+	runtimeRequested := hasFeature(gateway.Spec.RequestedFeatures, wayv1.FeaturePortForwardSingleActive)
+	runtimeTLSRef := false
 	for _, ref := range gateway.Spec.NativeConfigRefs {
 		if !hasRole(r.NativeConfigRoles, ref.Role) {
 			return wayconditions.False(wayv1.ReasonIncompatibleRef, "Gateway native configuration role is unsupported"), true
@@ -183,6 +191,15 @@ func (r *ReplacementVPNGatewayReconciler) resolveInputs(ctx context.Context, gat
 		if err := r.reader().Get(ctx, client.ObjectKey{Namespace: gateway.Namespace, Name: string(ref.Name)}, object); err != nil {
 			return unresolvedReference(err, "Gateway credential reference is unavailable"), true
 		}
+		if ref.Role == GatewayRuntimeTLSRole {
+			runtimeTLSRef = true
+		}
+	}
+	if runtimeRequested && !runtimeTLSRef {
+		return wayconditions.False(wayv1.ReasonRefNotFound, "Gateway runtime TLS reference is required"), true
+	}
+	if !runtimeRequested && runtimeTLSRef {
+		return wayconditions.False(wayv1.ReasonIncompatibleRef, "Gateway runtime TLS reference requires SingleActive port forwarding"), true
 	}
 	return wayconditions.State{}, false
 }

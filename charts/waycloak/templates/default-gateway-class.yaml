@@ -35,5 +35,11 @@ spec:
     - networking.waycloak.io/DNSContainment
     - networking.waycloak.io/GatewayReplacementRecovery
     - networking.waycloak.io/NodeRestartRecovery
+    {{- if .Values.extended.enabled }}
+    - networking.waycloak.io/PortForwardServiceSingleActive
+    {{- if .Values.extended.adapter.enabled }}
+    - networking.waycloak.io/WorkloadAdapter
+    {{- end }}
+    {{- end }}
   conformanceProfile: networking.waycloak.io/Core-v1
 {{- end }}

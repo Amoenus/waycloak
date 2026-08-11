@@ -51,10 +51,15 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
   expiry, independent CNI refusal, and exact-head CI/Kind/k3d evidence.
 - [ ] #137 Service-backed SingleActive PortForwardLease: API, controller,
   privileged handoff tests, and the signed amd64/arm64 optional runtime pair are
-  implemented. Keep the capability unadvertised until confirmation-gated
-  deployment and the real-provider rolling-replacement test prove drain,
-  successor handoff, return-path symmetry, zero wrong-Pod delivery, and zero
-  ordinary-egress fallback.
+  implemented. The default-disabled chart/runtime deployment boundary now
+  requires an exact runtime image, named mTLS Secrets, explicit gateway feature
+  intent, and an exact gateway-owned Service while preserving an Extended-free
+  Core render. The adapter image remains exact in its operator-authored trust
+  record rather than becoming unused chart configuration. Next add the
+  confirmation-gated CLI transaction and operator-owned adapter deployment.
+  Keep the capability unadvertised until the real-provider
+  rolling-replacement test proves drain, successor handoff, return-path
+  symmetry, zero wrong-Pod delivery, and zero ordinary-egress fallback.
 - [ ] #138: turnkey CLI and runtime installation are in progress independently
   of the still-unadvertised Extended #137 capability. Do not close until signed
   exact-artifact, clean-install, and under-15-minute provider evidence pass. A

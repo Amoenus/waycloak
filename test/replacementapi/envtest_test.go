@@ -810,6 +810,69 @@ func TestReplacementAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("Extended gateway requires explicit SingleActive intent and runtime TLS identity", func(t *testing.T) {
+		features := append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
+		class := validClass("extended-runtime-contract")
+		class.Spec.ControllerName = waycontroller.DefaultGatewayControllerName
+		class.Spec.SupportedFeatures = features
+		must(t, admin.Create(ctx, class))
+		classReconciler := &waycontroller.VPNGatewayClassReconciler{
+			Client: admin, ControllerName: class.Spec.ControllerName, ReleaseIdentity: class.Spec.ReleaseIdentity,
+			ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: features,
+		}
+		_, err := classReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(class)})
+		must(t, err)
+
+		configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "extended-native", Namespace: testNamespace}}
+		credentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extended-credentials", Namespace: testNamespace}}
+		runtimeTLS := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "extended-runtime-tls", Namespace: testNamespace}}
+		must(t, admin.Create(ctx, configMap))
+		must(t, admin.Create(ctx, credentials))
+		must(t, admin.Create(ctx, runtimeTLS))
+
+		gateway := validGateway("extended-runtime-contract")
+		gateway.Spec.GatewayClassName = wayv1.ObjectName(class.Name)
+		gateway.Spec.RequestedFeatures = []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter}
+		gateway.Spec.NativeConfigRefs = []wayv1.RoleObjectReference{{Role: waycontroller.GluetunEnvironmentRole, Name: wayv1.ObjectName(configMap.Name)}}
+		gateway.Spec.CredentialRefs = []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: wayv1.ObjectName(credentials.Name)}}
+		must(t, admin.Create(ctx, gateway))
+		reconciler := &waycontroller.ReplacementVPNGatewayReconciler{
+			Client: admin, APIReader: admin, ControllerName: class.Spec.ControllerName,
+			ReleaseIdentity: class.Spec.ReleaseIdentity, ConformanceProfile: class.Spec.ConformanceProfile, SupportedFeatures: features,
+			NativeConfigRoles: []wayv1.QualifiedName{waycontroller.GluetunEnvironmentRole},
+			CredentialRoles:   []wayv1.QualifiedName{waycontroller.OpenVPNCredentialsRole, waycontroller.GatewayRuntimeTLSRole},
+		}
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(gateway)}
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, gateway))
+		missingTLS := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionResolvedRefs)
+		if missingTLS == nil || missingTLS.Status != metav1.ConditionFalse || missingTLS.Reason != wayv1.ReasonRefNotFound {
+			t.Fatalf("missing runtime TLS status = %#v", gateway.Status)
+		}
+
+		gateway.Spec.CredentialRefs = append(gateway.Spec.CredentialRefs, wayv1.RoleObjectReference{Role: waycontroller.GatewayRuntimeTLSRole, Name: wayv1.ObjectName(runtimeTLS.Name)})
+		must(t, admin.Update(ctx, gateway))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, gateway))
+		resolved := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionResolvedRefs)
+		programmed := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionProgrammed)
+		if resolved == nil || resolved.Status != metav1.ConditionTrue || programmed == nil || programmed.Status != metav1.ConditionFalse || programmed.Reason != wayv1.ReasonPending {
+			t.Fatalf("resolved Extended gateway status = %#v", gateway.Status)
+		}
+
+		gateway.Spec.RequestedFeatures = nil
+		must(t, admin.Update(ctx, gateway))
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, gateway))
+		unrequestedTLS := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionResolvedRefs)
+		if unrequestedTLS == nil || unrequestedTLS.Status != metav1.ConditionFalse || unrequestedTLS.Reason != wayv1.ReasonIncompatibleRef {
+			t.Fatalf("unrequested runtime TLS status = %#v", gateway.Status)
+		}
+	})
+
 	t.Run("Service-backed lease reconciliation is UID-bound and no-op stable", func(t *testing.T) {
 		now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
 		gateway := validGateway("lease-runtime")
