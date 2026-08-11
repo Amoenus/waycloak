@@ -144,8 +144,11 @@ func Verify(ctx context.Context, clients *Clients, namespace, gateway, image, pr
 		return report, err
 	}
 	ownedPods = append(ownedPods, recovered)
+	// Observe the UID-bound allocation while the Pod is live. A short-lived
+	// probe may complete before a later read, after which withdrawal is correct
+	// and must not be mistaken for failure to recover.
+	report.RecoveryBindingReady = waitBindingReady(ctx, clients, namespace, recovered.UID, 2*time.Minute) == nil
 	recoveredIP, recoveredOK := waitProbe(ctx, clients, namespace, recovered.Name, 2*time.Minute)
-	report.RecoveryBindingReady = waitBindingReady(ctx, clients, namespace, recovered.UID, 30*time.Second) == nil
 	_, recoveredErr := netip.ParseAddr(recoveredIP)
 	report.TunnelLossVerified = outageOrdinaryOK && report.OutageProtectedDenied && report.RecoveryBindingReady && recoveredOK && recoveredErr == nil && recoveredIP != ordinaryIP
 	report.Verified = report.OrdinarySucceeded && report.ProtectedSucceeded && report.DistinctEgress && report.TunnelLossVerified

@@ -765,14 +765,17 @@ run_disruptive_verify() {
   test "$(kubectl get vpnegressroutes --namespace "$smoke_namespace" \
     --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)" = "0"
 
-  "$work_dir/waycloakctl" verify \
+  if ! "$work_dir/waycloakctl" verify \
     --namespace "$smoke_namespace" \
     --gateway disposable \
     --probe-image "$probe_ref" \
     --probe-url "$probe_url" \
     --probe-ca-configmap observer-ca \
     --confirm "$required_confirmation" \
-    --output json >"$work_dir/verify-${label}.json"
+    --output json >"$work_dir/verify-${label}.json"; then
+    cp "$work_dir/verify-${label}.json" "$work_dir/verify.json"
+    return 1
+  fi
   cp "$work_dir/verify-${label}.json" "$work_dir/verify.json"
   jq -e '.verified == true and .distinctEgress == true and
     .protectedSucceeded == true and .ordinarySucceeded == true and
