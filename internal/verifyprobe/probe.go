@@ -18,11 +18,22 @@ import (
 	"time"
 )
 
-const maximumResponseBytes = 128
+const (
+	maximumResponseBytes = 128
+	maximumSuccessHold   = 30 * time.Second
+)
 
 func Run(ctx context.Context, getenv func(string) string) error {
 	if getenv == nil {
 		return errors.New("environment reader is required")
+	}
+	holdAfterSuccess := time.Duration(0)
+	if raw := getenv("PROBE_HOLD_AFTER_SUCCESS"); raw != "" {
+		parsed, parseErr := time.ParseDuration(raw)
+		if parseErr != nil || parsed <= 0 || parsed > maximumSuccessHold {
+			return errors.New("PROBE_HOLD_AFTER_SUCCESS must be a positive duration no greater than 30s")
+		}
+		holdAfterSuccess = parsed
 	}
 	probeURL := getenv("PROBE_URL")
 	parsed, err := url.Parse(probeURL)
@@ -72,6 +83,15 @@ func Run(ctx context.Context, getenv func(string) string) error {
 	}
 	if err := os.WriteFile(terminationPath, []byte(address), 0o600); err != nil {
 		return fmt.Errorf("write termination result: %w", err)
+	}
+	if holdAfterSuccess > 0 {
+		timer := time.NewTimer(holdAfterSuccess)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 	return nil
 }
