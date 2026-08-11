@@ -732,6 +732,7 @@ run_disruptive_verify() {
   local before_gateway_pod_uid after_gateway_pod_uid
   local expected_gateway_engine_image expected_gateway_agent_image
   local expected_gateway_release_version expected_gateway_release_digest
+  local expected_gateway_revision
   before_owned_pods="$(kubectl get pods --namespace "$smoke_namespace" \
     --selector app.kubernetes.io/managed-by=waycloakctl --no-headers 2>/dev/null | wc -l)"
   before_gateway_pod_uid="$(kubectl get pod waycloak-gateway-disposable-0 \
@@ -744,6 +745,9 @@ run_disruptive_verify() {
     --namespace "$smoke_namespace" -o jsonpath='{.spec.template.metadata.annotations.runtime\.networking\.waycloak\.io/release-version}')"
   expected_gateway_release_digest="$(kubectl get statefulset waycloak-gateway-disposable \
     --namespace "$smoke_namespace" -o jsonpath='{.spec.template.metadata.annotations.runtime\.networking\.waycloak\.io/release-manifest-digest}')"
+  expected_gateway_revision="$(kubectl get statefulset waycloak-gateway-disposable \
+    --namespace "$smoke_namespace" -o jsonpath='{.status.updateRevision}')"
+  test -n "$expected_gateway_revision"
   test "$expected_gateway_release_version" = "$(kubectl get vpngatewayclass gluetun.waycloak.io \
     -o jsonpath='{.spec.releaseIdentity.version}')"
   test "$expected_gateway_release_digest" = "$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -798,11 +802,13 @@ run_disruptive_verify() {
   fi
   kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" -o json | \
     jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" \
-      --arg version "$expected_gateway_release_version" --arg digest "$expected_gateway_release_digest" '
+      --arg version "$expected_gateway_release_version" --arg digest "$expected_gateway_release_digest" \
+      --arg revision "$expected_gateway_revision" '
       (.spec.containers[] | select(.name == "vpn-engine") | .image) == $engine and
       (.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent and
       .metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
       .metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
+      .metadata.labels["controller-revision-hash"] == $revision and
       ([.status.containerStatuses[] | select(.ready == true)] | length) == 2
     ' >/dev/null
   # The verifier observes current-generation Ready on the recovered UID-bound
