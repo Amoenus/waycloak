@@ -282,6 +282,15 @@ a component is unavailable.
 observation deadlines, `Unknown` when observation is unavailable, no transition
 timestamp refresh on no-op, deny retained in kernel, and level-based restart
 recovery. Registration or desired publication alone never means Ready.
+Gateway DNS uses a one-question protocol split. Only the preflight-bound cluster
+suffix can reach the preflight-bound Kubernetes DNS Service, through a dedicated
+host route and exact engine-firewall UDP/TCP allowances; all other queries can
+reach only the engine loopback resolver. Search-expanded cluster names therefore
+cannot leak to a provider resolver, and external names cannot turn CoreDNS into
+an ordinary-egress fallback. Enrolled Pods receive `ndots:1`; ambiguity or a
+conflicting setting is rejected. Active cluster and external UDP/TCP probes,
+including concurrent A/AAAA, EDNS and truncation retry, gate `DNSReady` and the
+gateway allow path. The application never receives a direct CoreDNS bypass.
 
 ### Credential propagation
 

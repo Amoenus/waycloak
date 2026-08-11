@@ -59,6 +59,13 @@ The node agent verifies the CNI-supplied Pod UID and node assignment with a
 direct API-server read. An eventually consistent informer cache is not an
 authority for sandbox creation or Pod name/UID reuse.
 
+Static admission may normalize an explicitly enrolled Pod's resolver option to
+the reviewed `ndots:1` value and reject conflicts, but admission is not the DNS
+packet-security boundary. CNI and node-owned denial still prevent sandbox
+startup or packet fallback when that policy, the controller, or the gateway DNS
+proxy is unavailable. The gateway's reviewed cluster/external DNS split is an
+observed data-plane prerequisite before its protected allow path becomes live.
+
 A privileged per-node agent owns ongoing nftables/netlink/eBPF state, node
 capability reporting, drift repair and tunnel-loss enforcement. Application
 Pods receive no Waycloak sidecars, init containers, host mounts, or Linux

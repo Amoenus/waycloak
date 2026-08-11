@@ -188,6 +188,9 @@ controller:
       repository: %q
       digest: %q
     overlayCIDR: %q
+    clusterDNS:
+      serviceIP: %q
+      domain: %q
 cniInstaller:
   enabled: true
   nodeSelector:
@@ -221,7 +224,7 @@ defaultGatewayClass:
   releaseIdentity:
     version: %q
     manifestDigest: %q
-`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
+`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
 		report.CNI.ConfigPath, report.CNI.BinaryPath, rotationID, architecture, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,

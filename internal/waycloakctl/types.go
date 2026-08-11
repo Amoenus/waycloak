@@ -77,7 +77,9 @@ type CNISummary struct {
 }
 
 type NetworkSummary struct {
-	PodCIDRs    []string `json:"podCIDRs,omitempty"`
-	OverlayCIDR string   `json:"overlayCIDR"`
-	DNSObserved bool     `json:"dnsObserved"`
+	PodCIDRs      []string `json:"podCIDRs,omitempty"`
+	OverlayCIDR   string   `json:"overlayCIDR"`
+	DNSObserved   bool     `json:"dnsObserved"`
+	DNSServiceIP  string   `json:"dnsServiceIP,omitempty"`
+	ClusterDomain string   `json:"clusterDomain,omitempty"`
 }

@@ -93,11 +93,19 @@ Mandatory scenarios:
     credential-reference loss produce stable conditions before any data-plane
     object or address is published.
 18. a Gluetun-like priority-99 overlay policy route and default-drop
-    `INPUT`/`FORWARD` chains are present in the privileged gateway fixture;
+    `INPUT`/`FORWARD`/`OUTPUT` chains are present in the privileged gateway fixture;
     Waycloak must win the overlay return path, admit only its health/DNS and
     overlay-to-tunnel traffic, preserve handles on a no-op reconcile, remove
     permission on tunnel loss, and repair an engine firewall reset before
     readiness returns.
+19. an enrolled libcurl asynchronous-resolver Pod receives exactly `ndots:1`,
+    resolves the fully qualified Kubernetes service name through the reviewed
+    cluster DNS path, and resolves an external name only through the engine and
+    disposable tunnel. Proxy tests concurrently exercise A/AAAA, UDP and TCP,
+    EDNS0, responses larger than a typical MTU, UDP truncation with TCP retry,
+    search-expanded cluster-name containment, malformed replies and unavailable
+    upstreams. Any failed active probe must withdraw `DNSReady`, composite
+    `Ready`, and the protected allow path without direct DNS fallback.
 
 ### Port-forward tests
 

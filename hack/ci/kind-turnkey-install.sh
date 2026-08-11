@@ -11,6 +11,7 @@ readonly registry_host="waycloak-registry.invalid"
 readonly registry_image="registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 readonly kind_node_image="kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
 readonly pause_ref="registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
+readonly curl_ref="docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b"
 readonly release_version="v0.0.0-turnkey-ci"
 readonly baseline_release_version="v0.0.0-turnkey-ci-baseline"
 readonly system_namespace="waycloak-system"
@@ -262,7 +263,9 @@ jq -e '
   (.preflightDigest | test("^sha256:[a-f0-9]{64}$")) and
   .nodeArchitecture == "amd64" and
   .metadata.nodeArchitecture == "amd64" and
-  (.valuesYAML | contains("kubernetes.io/arch:"))
+  (.valuesYAML | contains("kubernetes.io/arch:")) and
+  (.valuesYAML | contains("serviceIP: 10.96.0.10")) and
+  (.valuesYAML | contains("domain: cluster.local"))
 ' "$work_dir/install-plan.json" >/dev/null
 if grep -Eqi 'password|privateKey|username|latest' "$work_dir/install-plan.json"; then
   printf 'install plan contains a forbidden mutable or credential field\n' >&2
@@ -530,6 +533,7 @@ metadata:
   namespace: ${smoke_namespace}
 data:
   FIREWALL_OUTBOUND_SUBNETS: "100.96.0.0/16"
+  FAKE_DNS_A: "${observer_ip}"
   WIREGUARD_ENDPOINT: "fake-wireguard-exit.${smoke_namespace}.svc:51820"
   WIREGUARD_STARTUP_DELAY: "40s"
 ---
@@ -564,6 +568,65 @@ kubectl rollout status deployment/fake-wireguard-exit --namespace "$smoke_namesp
 kubectl rollout status deployment/egress-observer --namespace "$smoke_namespace" --timeout=2m
 kubectl wait vpngateway/disposable --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=3m
+
+# Exercise the application-facing resolver contract with libcurl after the
+# gateway's UDP/TCP A/AAAA/EDNS probes have made DNSReady current and true.
+# The cluster-qualified lookup must remain on the reviewed Kubernetes DNS path;
+# the external lookup must resolve only through the gateway engine and traverse
+# the disposable tunnel to the observer.
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.waycloak.io/v1beta1
+kind: VPNEgressRoute
+metadata:
+  name: dns-contract
+  namespace: ${smoke_namespace}
+spec:
+  parentRefs:
+    - group: networking.waycloak.io
+      kind: VPNGateway
+      namespace: ${smoke_namespace}
+      name: disposable
+  requiredFeatures:
+    - networking.waycloak.io/TCP
+    - networking.waycloak.io/DNSContainment
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curl-dns-contract
+  namespace: ${smoke_namespace}
+  labels:
+    networking.waycloak.io/egress-route: dns-contract
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: ${curl_ref}
+      command:
+        - sh
+        - -ec
+        - |
+          grep -Eq '^options .*ndots:1([[:space:]]|$)' /etc/resolv.conf
+          curl -V | grep -q AsynchDNS
+          curl -vk --connect-timeout 3 https://kubernetes.default.svc.cluster.local/version 2>&1 | grep -Eq 'Trying 10\.'
+          curl -ksSf --connect-timeout 10 https://external.waycloak.test:${observer_port}/ip | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+EOF
+kubectl wait vpnegressroute/dns-contract --namespace "$smoke_namespace" \
+  --for=condition=Ready --timeout=2m
+kubectl wait pod/curl-dns-contract --namespace "$smoke_namespace" \
+  --for=jsonpath='{.status.phase}'=Succeeded --timeout=2m
+test "$(kubectl get pod/curl-dns-contract --namespace "$smoke_namespace" \
+  -o json | jq '[.spec.dnsConfig.options[]? | select(.name == "ndots" and .value == "1")] | length')" = "1"
+kubectl delete pod/curl-dns-contract vpnegressroute/dns-contract \
+  --namespace "$smoke_namespace" --wait=true
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1

@@ -601,12 +601,23 @@ func TestReplacementAPI(t *testing.T) {
 		if unlabeled.Spec.NodeSelector[scheduling.CoreReadyLabel] != "" {
 			t.Fatalf("unlabeled Pod received Waycloak scheduling: %#v", unlabeled.Spec.NodeSelector)
 		}
+		if unlabeled.Spec.DNSConfig != nil {
+			t.Fatalf("unlabeled Pod received Waycloak DNS mutation: %#v", unlabeled.Spec.DNSConfig)
+		}
 		valid := testPod("valid-enrollment", nil, map[string]string{enrollment.RouteLabel: "route-may-arrive-later"})
 		valid.Spec.NodeSelector = map[string]string{"kubernetes.io/os": "linux"}
+		valid.Spec.DNSConfig = &corev1.PodDNSConfig{Options: []corev1.PodDNSConfigOption{{Name: "single-request-reopen"}}}
 		must(t, admin.Create(ctx, valid))
 		if valid.Spec.NodeSelector[scheduling.CoreReadyLabel] != "true" || valid.Spec.NodeSelector["kubernetes.io/os"] != "linux" {
 			t.Fatalf("enrolled Pod scheduling mutation = %#v", valid.Spec.NodeSelector)
 		}
+		if valid.Spec.DNSConfig == nil || len(valid.Spec.DNSConfig.Options) != 2 || valid.Spec.DNSConfig.Options[0].Name != "single-request-reopen" || valid.Spec.DNSConfig.Options[1].Name != "ndots" || valid.Spec.DNSConfig.Options[1].Value == nil || *valid.Spec.DNSConfig.Options[1].Value != "1" {
+			t.Fatalf("enrolled Pod DNS mutation = %#v", valid.Spec.DNSConfig)
+		}
+		conflicting := testPod("conflicting-dns", nil, map[string]string{enrollment.RouteLabel: "private"})
+		conflictingNDots := "5"
+		conflicting.Spec.DNSConfig = &corev1.PodDNSConfig{Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: &conflictingNDots}}}
+		mustRejectForbidden(t, admin.Create(ctx, conflicting))
 		unsafe := testPod("unsafe-enrollment", nil, map[string]string{enrollment.RouteLabel: "private"})
 		unsafe.Spec.HostNetwork = true
 		mustRejectForbidden(t, admin.Create(ctx, unsafe))
@@ -1151,7 +1162,10 @@ func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 			Operations: []admissionv1.OperationType{admissionv1.Create}, Rule: admissionv1.Rule{APIGroups: []string{""}, APIVersions: []string{"v1"}, Resources: []string{"pods"}, Scope: scope(admissionv1.NamespacedScope)},
 		}}}},
 		MatchConditions: []admissionv1.MatchCondition{{Name: "explicitly-enrolled", Expression: `has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels`}},
-		Mutations:       []admissionv1.Mutation{{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `has(object.spec.nodeSelector) ? [JSONPatch{op: "add", path: "/spec/nodeSelector/" + jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/core-ready"), value: "true"}] : [JSONPatch{op: "add", path: "/spec/nodeSelector", value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]`}}},
+		Mutations: []admissionv1.Mutation{
+			{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `has(object.spec.nodeSelector) ? [JSONPatch{op: "add", path: "/spec/nodeSelector/" + jsonpatch.escapeKey("networking.waycloak.io.node-restriction.kubernetes.io/core-ready"), value: "true"}] : [JSONPatch{op: "add", path: "/spec/nodeSelector", value: {"networking.waycloak.io.node-restriction.kubernetes.io/core-ready": "true"}}]`}},
+			{PatchType: admissionv1.PatchTypeJSONPatch, JSONPatch: &admissionv1.JSONPatch{Expression: `!has(object.spec.dnsConfig) ? [JSONPatch{op: "add", path: "/spec/dnsConfig", value: {"options": [{"name": "ndots", "value": "1"}]}}] : !has(object.spec.dnsConfig.options) ? [JSONPatch{op: "add", path: "/spec/dnsConfig/options", value: [{"name": "ndots", "value": "1"}]}] : !object.spec.dnsConfig.options.exists(option, option.name == "ndots") ? [JSONPatch{op: "add", path: "/spec/dnsConfig/options/-", value: {"name": "ndots", "value": "1"}}] : []`}},
+		},
 	}}
 	must(t, client.Create(ctx, mutation))
 	must(t, client.Create(ctx, &admissionv1.MutatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: mutation.Name}, Spec: admissionv1.MutatingAdmissionPolicyBindingSpec{PolicyName: mutation.Name}}))
@@ -1179,6 +1193,7 @@ func installPodEnrollmentPolicy(t *testing.T, ctx context.Context, client ctrlcl
 				{Expression: `request.operation != "UPDATE" || (has(object.metadata.labels) && "networking.waycloak.io/egress-route" in object.metadata.labels ? object.metadata.labels["networking.waycloak.io/egress-route"] : "") == (has(oldObject.metadata.labels) && "networking.waycloak.io/egress-route" in oldObject.metadata.labels ? oldObject.metadata.labels["networking.waycloak.io/egress-route"] : "")`, Message: "enrollment on an existing Pod is immutable; update the Pod template and create a new Pod", Reason: &forbidden},
 				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || ((!has(object.spec.hostNetwork) || !object.spec.hostNetwork) && (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.nodeName) || object.spec.nodeName == ""))`, Message: "enrolled Pods cannot bypass CNI or scheduler placement with host namespaces or spec.nodeName", Reason: &forbidden},
 				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || (has(object.spec.nodeSelector) && "networking.waycloak.io.node-restriction.kubernetes.io/core-ready" in object.spec.nodeSelector && object.spec.nodeSelector["networking.waycloak.io.node-restriction.kubernetes.io/core-ready"] == "true")`, Message: "enrolled Pods require the Waycloak Core-ready scheduling constraint", Reason: &forbidden},
+				{Expression: `!has(object.metadata.labels) || !("networking.waycloak.io/egress-route" in object.metadata.labels) || (has(object.spec.dnsConfig) && has(object.spec.dnsConfig.options) && object.spec.dnsConfig.options.filter(option, option.name == "ndots").size() == 1 && object.spec.dnsConfig.options.exists(option, option.name == "ndots" && has(option.value) && option.value == "1"))`, Message: "enrolled Pods require the release-owned ndots:1 DNS search bound", Reason: &forbidden},
 			},
 		},
 	}

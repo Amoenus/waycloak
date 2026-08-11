@@ -13,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -25,6 +26,7 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -269,6 +271,7 @@ func installGatewayFirewallBase() error {
 	table := connection.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: gatewayTableName})
 	connection.AddChain(&nftables.Chain{Table: table, Name: "INPUT"})
 	connection.AddChain(&nftables.Chain{Table: table, Name: "FORWARD"})
+	connection.AddChain(&nftables.Chain{Table: table, Name: "OUTPUT"})
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install fixture gateway firewall: %w", err)
 	}
@@ -276,6 +279,19 @@ func installGatewayFirewallBase() error {
 }
 
 func serveObservation(ctx context.Context) error {
+	udpDNS, err := net.ListenPacket("udp4", "127.0.0.1:53")
+	if err != nil {
+		return fmt.Errorf("listen fixture DNS UDP: %w", err)
+	}
+	tcpDNS, err := net.Listen("tcp4", "127.0.0.1:53")
+	if err != nil {
+		_ = udpDNS.Close()
+		return fmt.Errorf("listen fixture DNS TCP: %w", err)
+	}
+	defer udpDNS.Close()
+	defer tcpDNS.Close()
+	go serveFixtureDNSUDP(udpDNS)
+	go serveFixtureDNSTCP(tcpDNS)
 	health := &http.Server{Addr: "127.0.0.1:9999", Handler: http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) }), ReadHeaderTimeout: 2 * time.Second}
 	controlMux := http.NewServeMux()
 	controlMux.HandleFunc("/v1/vpn/status", jsonResponse(`{"status":"running"}`))
@@ -297,6 +313,78 @@ func serveObservation(ctx context.Context) error {
 	_ = health.Shutdown(shutdownCtx)
 	_ = control.Shutdown(shutdownCtx)
 	return nil
+}
+
+func serveFixtureDNSUDP(listener net.PacketConn) {
+	buffer := make([]byte, 65535)
+	for {
+		count, peer, err := listener.ReadFrom(buffer)
+		if err != nil {
+			return
+		}
+		response, err := fixtureDNSResponse(buffer[:count])
+		if err == nil {
+			_, _ = listener.WriteTo(response, peer)
+		}
+	}
+}
+
+func serveFixtureDNSTCP(listener net.Listener) {
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer connection.Close()
+			var length [2]byte
+			if _, err := io.ReadFull(connection, length[:]); err != nil {
+				return
+			}
+			size := int(binary.BigEndian.Uint16(length[:]))
+			if size < 12 || size > 65535 {
+				return
+			}
+			request := make([]byte, size)
+			if _, err := io.ReadFull(connection, request); err != nil {
+				return
+			}
+			response, err := fixtureDNSResponse(request)
+			if err != nil {
+				return
+			}
+			binary.BigEndian.PutUint16(length[:], uint16(len(response)))
+			_, _ = connection.Write(length[:])
+			_, _ = connection.Write(response)
+		}()
+	}
+}
+
+func fixtureDNSResponse(request []byte) ([]byte, error) {
+	var query dnsmessage.Message
+	if err := query.Unpack(request); err != nil || query.Response || len(query.Questions) != 1 {
+		return nil, errors.New("invalid fixture DNS query")
+	}
+	question := query.Questions[0]
+	response := dnsmessage.Message{Header: dnsmessage.Header{ID: query.ID, Response: true, RecursionDesired: query.RecursionDesired, RecursionAvailable: true}, Questions: query.Questions}
+	header := dnsmessage.ResourceHeader{Name: question.Name, Class: dnsmessage.ClassINET, TTL: 30}
+	switch question.Type {
+	case dnsmessage.TypeA:
+		address := netip.MustParseAddr("192.0.2.10")
+		if value := strings.TrimSpace(os.Getenv("FAKE_DNS_A")); value != "" {
+			parsed, err := netip.ParseAddr(value)
+			if err != nil || !parsed.Is4() {
+				return nil, errors.New("FAKE_DNS_A must be one IPv4 address")
+			}
+			address = parsed
+		}
+		header.Type = dnsmessage.TypeA
+		response.Answers = []dnsmessage.Resource{{Header: header, Body: &dnsmessage.AResource{A: address.As4()}}}
+	case dnsmessage.TypeAAAA:
+		header.Type = dnsmessage.TypeAAAA
+		response.Answers = []dnsmessage.Resource{{Header: header, Body: &dnsmessage.AAAAResource{AAAA: netip.MustParseAddr("2001:db8::10").As16()}}}
+	}
+	return response.Pack()
 }
 
 func requiredEnvironment(name string) string {

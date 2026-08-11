@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	var uid, overlayCIDR, gatewayAddress, overlayInterface, underlayInterface, tunnelInterface, dnsUpstream string
+	var uid, overlayCIDR, gatewayAddress, overlayInterface, underlayInterface, tunnelInterface, dnsUpstream, clusterDNSUpstream, clusterDomain string
 	var vxlanPort, healthPort uint
 	var vni uint
 	var mtu int
@@ -31,6 +31,8 @@ func main() {
 	flag.StringVar(&underlayInterface, "underlay-interface", "eth0", "Pod underlay interface")
 	flag.StringVar(&tunnelInterface, "tunnel-interface", "tun0", "VPN tunnel interface")
 	flag.StringVar(&dnsUpstream, "dns-upstream", "127.0.0.1:53", "loopback engine DNS upstream")
+	flag.StringVar(&clusterDNSUpstream, "cluster-dns-upstream", "", "reviewed Kubernetes DNS Service upstream")
+	flag.StringVar(&clusterDomain, "cluster-domain", "", "reviewed Kubernetes cluster DNS suffix")
 	flag.UintVar(&vxlanPort, "vxlan-port", 4789, "VXLAN UDP port")
 	flag.UintVar(&healthPort, "health-port", 18080, "overlay health port")
 	flag.UintVar(&vni, "vni", 7999, "reviewed VXLAN network identifier")
@@ -49,7 +51,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	service := &gatewaydataplane.Service{Config: gatewaydataplane.Config{GatewayUID: uid, OverlayCIDR: pool.Masked(), GatewayAddress: address, OverlayInterface: overlayInterface, UnderlayInterface: underlayInterface, TunnelInterface: tunnelInterface, DNSUpstream: upstream, VXLANPort: uint16(vxlanPort), HealthPort: uint16(healthPort), VNI: uint32(vni), MTU: mtu}, Backend: gatewaydataplane.LinuxBackend{}, Engine: gluetun.New(), ReconcileErrorHook: func(err error) { log.Printf("gateway reconciliation remains fail closed: %v", err) }}
+	clusterUpstream, err := netip.ParseAddrPort(clusterDNSUpstream)
+	if err != nil {
+		log.Fatal(err)
+	}
+	service := &gatewaydataplane.Service{Config: gatewaydataplane.Config{GatewayUID: uid, OverlayCIDR: pool.Masked(), GatewayAddress: address, OverlayInterface: overlayInterface, UnderlayInterface: underlayInterface, TunnelInterface: tunnelInterface, DNSUpstream: upstream, ClusterDNSUpstream: clusterUpstream, ClusterDomain: clusterDomain, VXLANPort: uint16(vxlanPort), HealthPort: uint16(healthPort), VNI: uint32(vni), MTU: mtu}, Backend: gatewaydataplane.LinuxBackend{}, Engine: gluetun.New(), ReconcileErrorHook: func(err error) { log.Printf("gateway reconciliation remains fail closed: %v", err) }}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	if err := service.Run(ctx, interval); err != nil {

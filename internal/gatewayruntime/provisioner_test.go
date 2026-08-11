@@ -80,6 +80,13 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if err != nil || !observation.Ready || !hasAddress(observation.Addresses, wayv1.GatewayAddressTypeUnderlayEndpoint, "10.42.0.20:4789") {
 		t.Fatalf("exact ready Pod was not observed: %#v %v", observation, err)
 	}
+	provisioner.HTTPClient = &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":false,"tunnelReady":true,"dnsReady":false}`)), Header: http.Header{}}, nil
+	})}
+	observation, err = provisioner.Reconcile(context.Background(), gateway)
+	if err != nil || observation.Ready || !observation.TunnelReady || observation.DNSReady || observation.MembershipApplied {
+		t.Fatalf("DNS-specific failure was not preserved in gateway observation: %#v %v", observation, err)
+	}
 }
 
 func TestValidateEngineConfigRejectsControlAuthenticationOverrides(t *testing.T) {
@@ -118,8 +125,8 @@ func TestProvisionerRejectsMutableImageBeforeCreatingObjects(t *testing.T) {
 }
 
 func fixture(kube client.Client) *Provisioner {
-	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}}, nil
+	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":true,"tunnelReady":true,"dnsReady":true}`)), Header: http.Header{}}, nil
 	})}}
 }
 

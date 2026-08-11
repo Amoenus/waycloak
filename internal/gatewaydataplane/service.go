@@ -5,9 +5,9 @@ package gatewaydataplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -29,19 +29,32 @@ type Service struct {
 	Config             Config
 	Backend            Backend
 	Engine             Engine
+	DNSProber          DNSProber
 	ReconcileErrorHook func(error)
 	healthy            atomic.Bool
+	tunnelReady        atomic.Bool
+	dnsReady           atomic.Bool
+}
+
+type HealthStatus struct {
+	Ready       bool `json:"ready"`
+	TunnelReady bool `json:"tunnelReady"`
+	DNSReady    bool `json:"dnsReady"`
 }
 
 func (service *Service) Reconcile(ctx context.Context) error {
-	if service.Backend == nil || service.Engine == nil {
-		return errors.New("gateway backend and engine observation are required")
+	if service.Backend == nil || service.Engine == nil || service.DNSProber == nil {
+		return errors.New("gateway backend, engine observation, and split-DNS probe are required")
 	}
 	if err := service.Backend.EnsureOverlay(ctx, service.Config); err != nil {
 		service.healthy.Store(false)
-		return err
+		service.tunnelReady.Store(false)
+		service.dnsReady.Store(false)
+		return errors.Join(err, service.Backend.ReplaceRules(ctx, service.Config, false))
 	}
 	observation, err := service.Engine.Observe(ctx)
+	service.tunnelReady.Store(err == nil && observation.TunnelReady)
+	service.dnsReady.Store(false)
 	if err != nil || !observation.TunnelReady || !observation.DNSReady {
 		service.healthy.Store(false)
 		rulesErr := service.Backend.ReplaceRules(ctx, service.Config, false)
@@ -50,9 +63,23 @@ func (service *Service) Reconcile(ctx context.Context) error {
 		}
 		return errors.Join(err, rulesErr)
 	}
+	// A recovering gateway needs its exact cluster-DNS route and OUTPUT
+	// allowance before the end-to-end probe can succeed. Reassert only while
+	// unready so stable reconciliation never withdraws a healthy forward path.
+	if !service.healthy.Load() {
+		if err := service.Backend.ReplaceRules(ctx, service.Config, false); err != nil {
+			return err
+		}
+	}
+	if err := service.DNSProber.Probe(ctx); err != nil {
+		service.healthy.Store(false)
+		rulesErr := service.Backend.ReplaceRules(ctx, service.Config, false)
+		return errors.Join(fmt.Errorf("gateway split-DNS observation failed: %w", err), rulesErr)
+	}
+	service.dnsReady.Store(true)
 	if err := service.Backend.ReplaceRules(ctx, service.Config, true); err != nil {
 		service.healthy.Store(false)
-		return err
+		return errors.Join(err, service.Backend.ReplaceRules(ctx, service.Config, false))
 	}
 	service.healthy.Store(true)
 	return nil
@@ -75,7 +102,16 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("listen gateway health endpoint: %w", err)
 	}
-	healthServer := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	healthServer := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/status" {
+			writer.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(writer).Encode(service.HealthStatus())
+			return
+		}
+		if request.URL.Path != "/" {
+			http.NotFound(writer, request)
+			return
+		}
 		if !service.healthy.Load() {
 			http.Error(writer, "not ready", http.StatusServiceUnavailable)
 			return
@@ -89,10 +125,12 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		_ = healthServer.Shutdown(shutdown)
 	}()
 	go func() { _ = healthServer.Serve(healthListener) }()
-	if err := runDNS(ctx, service.Config); err != nil {
+	dnsProxy, err := startDNSProxy(ctx, service.Config)
+	if err != nil {
 		_ = healthServer.Close()
 		return err
 	}
+	service.DNSProber = dnsProxy
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	lastReconcileError := ""
@@ -113,6 +151,10 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 	}
 }
 
+func (service *Service) HealthStatus() HealthStatus {
+	return HealthStatus{Ready: service.healthy.Load(), TunnelReady: service.tunnelReady.Load(), DNSReady: service.dnsReady.Load()}
+}
+
 func (service *Service) reportReconcileError(err error, previous string) string {
 	if err == nil {
 		return ""
@@ -124,92 +166,6 @@ func (service *Service) reportReconcileError(err error, previous string) string 
 	return current
 }
 
-func runDNS(ctx context.Context, config Config) error {
-	address := dnsListenAddress(config)
-	upstream := config.DNSUpstream.String()
-	udp, err := net.ListenPacket("udp4", address)
-	if err != nil {
-		return fmt.Errorf("listen gateway DNS UDP: %w", err)
-	}
-	tcp, err := net.Listen("tcp4", address)
-	if err != nil {
-		udp.Close()
-		return fmt.Errorf("listen gateway DNS TCP: %w", err)
-	}
-	go func() { <-ctx.Done(); udp.Close(); tcp.Close() }()
-	go serveUDP(ctx, udp, upstream)
-	go serveTCP(ctx, tcp, upstream)
-	return nil
-}
-
 func dnsListenAddress(config Config) string {
 	return net.JoinHostPort(config.GatewayAddress.String(), strconv.Itoa(int(DNSListenPort)))
-}
-
-func serveUDP(ctx context.Context, listener net.PacketConn, upstream string) {
-	const maximumConcurrentRequests = 128
-	semaphore := make(chan struct{}, maximumConcurrentRequests)
-	buffer := make([]byte, 65535)
-	for {
-		count, peer, err := listener.ReadFrom(buffer)
-		if err != nil {
-			return
-		}
-		request := append([]byte(nil), buffer[:count]...)
-		select {
-		case semaphore <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-		go func() {
-			defer func() { <-semaphore }()
-			dialer := net.Dialer{Timeout: 2 * time.Second}
-			connection, err := dialer.DialContext(ctx, "udp4", upstream)
-			if err != nil {
-				return
-			}
-			defer connection.Close()
-			_ = connection.SetDeadline(time.Now().Add(3 * time.Second))
-			if _, err = connection.Write(request); err != nil {
-				return
-			}
-			response := make([]byte, 65535)
-			count, err := connection.Read(response)
-			if err == nil {
-				_, _ = listener.WriteTo(response[:count], peer)
-			}
-		}()
-	}
-}
-func serveTCP(ctx context.Context, listener net.Listener, upstream string) {
-	const maximumConcurrentConnections = 128
-	semaphore := make(chan struct{}, maximumConcurrentConnections)
-	for {
-		client, err := listener.Accept()
-		if err != nil {
-			return
-		}
-		select {
-		case semaphore <- struct{}{}:
-		case <-ctx.Done():
-			_ = client.Close()
-			return
-		}
-		go func() {
-			defer func() { <-semaphore }()
-			defer client.Close()
-			upstreamConnection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp4", upstream)
-			if err != nil {
-				return
-			}
-			defer upstreamConnection.Close()
-			go func() {
-				_, _ = io.Copy(upstreamConnection, client)
-				if connection, ok := upstreamConnection.(*net.TCPConn); ok {
-					_ = connection.CloseWrite()
-				}
-			}()
-			_, _ = io.Copy(client, upstreamConnection)
-		}()
-	}
 }

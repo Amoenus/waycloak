@@ -65,7 +65,7 @@ func TestGatewayCoreFailClosedTCPUDPAndTunnelLoss(t *testing.T) {
 	defer healthTCP.Close()
 	serveGatewayTCP(healthTCP, "health")
 	installGatewayEngineFilter(t, gateway)
-	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local"}
 	backend := LinuxBackend{}
 	if err := gateway.Do(func(pluginsns.NetNS) error { return backend.ReplaceRules(context.Background(), config, false) }); err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 		t.Skip("set WAYCLOAK_E2E_GATEWAY_NETNS=1 in an authorized privileged environment")
 	}
 	gateway := newGatewayNS(t)
-	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53")}
+	config := Config{GatewayUID: "gateway-uid", OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), GatewayAddress: netip.MustParseAddr("100.96.0.1"), OverlayInterface: "waycloak0", UnderlayInterface: "eth0", TunnelInterface: "tun0", VXLANPort: 4789, VNI: 7999, MTU: 1320, HealthPort: 18080, DNSUpstream: netip.MustParseAddrPort("127.0.0.1:53"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local"}
 	if err := gateway.Do(func(pluginsns.NetNS) error {
 		if err := netlink.LinkAdd(&netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "eth0"}}); err != nil {
 			return err

@@ -21,6 +21,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/scheduling"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,7 +38,7 @@ func main() {
 	var portForwardRuntimePort uint
 	var adapterCA, adapterCert, adapterKey string
 	var adapterPort uint
-	var gatewayEngineImage, gatewayAgentImage, gatewayOverlayCIDR string
+	var gatewayEngineImage, gatewayAgentImage, gatewayOverlayCIDR, gatewayClusterDNSServiceIP, gatewayClusterDomain string
 	var gatewayVNI, gatewayVXLANPort, gatewayHealthPort uint
 	var gatewayMTU int
 	var leaderElection bool
@@ -64,6 +65,8 @@ func main() {
 	flag.StringVar(&gatewayEngineImage, "gateway-engine-image", "", "exact default gateway engine image by digest")
 	flag.StringVar(&gatewayAgentImage, "gateway-agent-image", "", "exact default gateway agent image by digest")
 	flag.StringVar(&gatewayOverlayCIDR, "gateway-overlay-cidr", "", "reviewed default gateway overlay CIDR")
+	flag.StringVar(&gatewayClusterDNSServiceIP, "gateway-cluster-dns-service-ip", "", "reviewed Kubernetes DNS Service IPv4 address")
+	flag.StringVar(&gatewayClusterDomain, "gateway-cluster-domain", "", "reviewed CoreDNS cluster domain")
 	flag.UintVar(&gatewayVNI, "gateway-vni", 7999, "reviewed default gateway VNI")
 	flag.IntVar(&gatewayMTU, "gateway-mtu", 1320, "reviewed default gateway overlay MTU")
 	flag.UintVar(&gatewayVXLANPort, "gateway-vxlan-port", 4789, "default gateway VXLAN port")
@@ -126,13 +129,14 @@ func main() {
 		os.Exit(1)
 	}
 	var gatewayRuntime waycontroller.GatewayRuntimeProvisioner
-	if gatewayEngineImage != "" || gatewayAgentImage != "" || gatewayOverlayCIDR != "" {
+	if gatewayEngineImage != "" || gatewayAgentImage != "" || gatewayOverlayCIDR != "" || gatewayClusterDNSServiceIP != "" || gatewayClusterDomain != "" {
 		overlay, overlayErr := netip.ParsePrefix(gatewayOverlayCIDR)
-		if overlayErr != nil || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 {
+		clusterDNS, clusterDNSErr := netip.ParseAddr(gatewayClusterDNSServiceIP)
+		if overlayErr != nil || clusterDNSErr != nil || !clusterDNS.Is4() || clusterDNS.IsUnspecified() || clusterDNS.IsLoopback() || len(utilvalidation.IsDNS1123Subdomain(gatewayClusterDomain)) != 0 || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 {
 			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
 			os.Exit(1)
 		}
-		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, OverlayCIDR: overlay.Masked(), VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+		gatewayRuntime = &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
 	}
 	classController := &waycontroller.VPNGatewayClassReconciler{
 		Client: manager.GetClient(), ControllerName: wayv1.ControllerName(gatewayControllerName),
