@@ -5,12 +5,50 @@ package gatewaydataplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"testing"
 
 	"github.com/Amoenus/waycloak/internal/provider"
 )
+
+func TestHealthHandlerSeparatesReadinessAndStatus(t *testing.T) {
+	service := &Service{}
+
+	readiness := httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(readiness, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if readiness.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unhealthy readiness status = %d", readiness.Code)
+	}
+
+	service.healthy.Store(true)
+	service.tunnelReady.Store(true)
+	service.dnsReady.Store(false)
+	readiness = httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(readiness, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if readiness.Code != http.StatusOK {
+		t.Fatalf("healthy readiness status = %d", readiness.Code)
+	}
+
+	status := httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/v1/status", nil))
+	var observed HealthStatus
+	if err := json.Unmarshal(status.Body.Bytes(), &observed); err != nil {
+		t.Fatal(err)
+	}
+	if status.Code != http.StatusOK || !observed.Ready || !observed.TunnelReady || observed.DNSReady {
+		t.Fatalf("status response = %d %#v", status.Code, observed)
+	}
+
+	missing := httptest.NewRecorder()
+	service.healthHandler().ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unrecognized health path status = %d", missing.Code)
+	}
+}
 
 func TestReconcileDoesNotWithdrawHealthyRulesBetweenObservations(t *testing.T) {
 	backend := &recordingBackend{}

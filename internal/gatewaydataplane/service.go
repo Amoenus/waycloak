@@ -102,22 +102,7 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("listen gateway health endpoint: %w", err)
 	}
-	healthServer := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/status" {
-			writer.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(writer).Encode(service.HealthStatus())
-			return
-		}
-		if request.URL.Path != "/" {
-			http.NotFound(writer, request)
-			return
-		}
-		if !service.healthy.Load() {
-			http.Error(writer, "not ready", http.StatusServiceUnavailable)
-			return
-		}
-		writer.WriteHeader(http.StatusOK)
-	}), ReadHeaderTimeout: time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second, IdleTimeout: 10 * time.Second}
+	healthServer := &http.Server{Handler: service.healthHandler(), ReadHeaderTimeout: time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second, IdleTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -149,6 +134,25 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (service *Service) healthHandler() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/status" {
+			writer.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(writer).Encode(service.HealthStatus())
+			return
+		}
+		if request.URL.Path != "/readyz" {
+			http.NotFound(writer, request)
+			return
+		}
+		if !service.healthy.Load() {
+			http.Error(writer, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+	})
 }
 
 func (service *Service) HealthStatus() HealthStatus {
