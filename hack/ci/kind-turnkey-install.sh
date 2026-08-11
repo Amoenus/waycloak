@@ -824,7 +824,7 @@ apply_exact_transition() {
   local source_secret_path staged_revision repair_plan_path repair_plan_id repair_marker
   local direct_values_path direct_log target_chart
   local before_controller_image before_cni_image before_agent_image
-  local before_gateway_pod_uid before_gateway_pod_images
+  local before_gateway_pod_uid before_gateway_pod_images before_gateway_pod_revision
   local before_gateway_release_version before_gateway_release_digest gateway_stage_ready
   local expected_gateway_engine_image expected_gateway_agent_image
 
@@ -843,6 +843,9 @@ apply_exact_transition() {
     --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')"
   before_gateway_pod_images="$(kubectl get pod waycloak-gateway-disposable-0 \
     --namespace "$smoke_namespace" -o jsonpath='{range .spec.containers[*]}{.name}={.image}{"\\n"}{end}')"
+  before_gateway_pod_revision="$(kubectl get pod waycloak-gateway-disposable-0 \
+    --namespace "$smoke_namespace" -o jsonpath='{.metadata.labels.controller-revision-hash}')"
+  test -n "$before_gateway_pod_revision"
   before_gateway_release_version="$(kubectl get pod waycloak-gateway-disposable-0 \
     --namespace "$smoke_namespace" -o jsonpath='{.metadata.annotations.runtime\.networking\.waycloak\.io/release-version}')"
   before_gateway_release_digest="$(kubectl get pod waycloak-gateway-disposable-0 \
@@ -1196,14 +1199,14 @@ EOF
   for _ in $(seq 1 60); do
     if kubectl get statefulset waycloak-gateway-disposable --namespace "$smoke_namespace" -o json | \
       jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" \
-        --arg version "$expected_version" --arg digest "$expected_digest" '
+        --arg version "$expected_version" --arg digest "$expected_digest" \
+        --arg liveRevision "$before_gateway_pod_revision" '
         .spec.updateStrategy.type == "OnDelete" and
         (.spec.template.spec.containers[] | select(.name == "vpn-engine") | .image) == $engine and
         (.spec.template.spec.containers[] | select(.name == "gateway-agent") | .image) == $agent and
         .spec.template.metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
         .spec.template.metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
-        .status.currentRevision != "" and .status.updateRevision != "" and
-        .status.currentRevision != .status.updateRevision
+        .status.updateRevision != "" and .status.updateRevision != $liveRevision
       ' >/dev/null; then
       gateway_stage_ready=true
       break
