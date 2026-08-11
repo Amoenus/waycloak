@@ -127,7 +127,11 @@ func TestGatewayEnsureOverlayIsOwnedAndIdempotent(t *testing.T) {
 		if err = netlink.LinkSetUp(link); err != nil {
 			return err
 		}
-		if err = netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: net.ParseIP("192.0.2.254")}); err != nil {
+		if err = netlink.RouteAdd(&netlink.Route{
+			LinkIndex: link.Attrs().Index,
+			Dst:       netipPrefix(netip.IPv4Unspecified(), 0),
+			Gw:        net.ParseIP("192.0.2.254"),
+		}); err != nil {
 			return err
 		}
 		if err = os.WriteFile(ipv4ForwardingPath, []byte("1\n"), 0o644); err != nil {

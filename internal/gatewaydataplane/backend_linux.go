@@ -153,7 +153,7 @@ func ensureClusterDNSRoute(config Config, underlay netlink.Link) error {
 	}
 	gateways := map[string]net.IP{}
 	for _, route := range mainRoutes {
-		if route.Dst == nil && route.Gw != nil && route.Gw.To4() != nil {
+		if isIPv4DefaultRoute(route) && route.Gw != nil && route.Gw.To4() != nil {
 			gateways[route.Gw.String()] = route.Gw
 		}
 	}
@@ -186,6 +186,14 @@ func ensureClusterDNSRoute(config Config, underlay netlink.Link) error {
 		return nil
 	}
 	return netlink.RouteReplace(&netlink.Route{LinkIndex: underlay.Attrs().Index, Dst: destination, Gw: gateway, Table: gatewayClusterDNSTable, Protocol: gatewayRouteProtocol})
+}
+
+func isIPv4DefaultRoute(route netlink.Route) bool {
+	if route.Dst == nil {
+		return true
+	}
+	ones, bits := route.Dst.Mask.Size()
+	return bits == 32 && ones == 0 && route.Dst.IP.To4() != nil
 }
 
 func ensureOverlayReturnRule(overlay netip.Prefix) error {
