@@ -1598,7 +1598,7 @@ apply_extended_candidate() {
     .extended.secretUID == $uid and
     .extended.adapterEnabled == true and
     .metadata.featureProfile == "networking.waycloak.io/ExtendedCandidate-v1" and
-    (.target.profiles | index("networking.waycloak.io/ExtendedCandidate-v1")) != null and
+    (.targetRelease.profiles | index("networking.waycloak.io/ExtendedCandidate-v1")) != null and
     (.valuesYAML | contains("conformanceProfile: \"networking.waycloak.io/ExtendedCandidate-v1\"")) and
     (.valuesYAML | contains("extended:\n  enabled: true"))
   ' "$plan_path" >/dev/null
