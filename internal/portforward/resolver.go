@@ -1,7 +1,7 @@
 // Copyright 2026 The Waycloak Authors.
 // SPDX-License-Identifier: MIT
 
-// Package portforward resolves the Extended SingleActive Service backend to
+// Package portforward resolves the optional SingleActive Service backend to
 // an exact, currently bound Pod UID. Services and EndpointSlices provide
 // identity only; packet programming always uses the controller-owned overlay
 // allocation from VPNWorkloadBinding.

@@ -28,7 +28,7 @@ the consuming tenant.
 
 Core has no other cross-namespace reference. Gateway native configuration and
 credential refs are local, class refs are cluster scoped, binding identities are
-controller resolved, and Extended Service/adapter refs are local. Core therefore
+controller resolved, and optional Service/adapter refs are local. The baseline therefore
 does not install or watch upstream `ReferenceGrant` and defines no temporary
 Waycloak grant kind. A future feature that needs another cross-namespace
 reference must adopt upstream `ReferenceGrant` as an explicit optional or Core

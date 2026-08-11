@@ -16,7 +16,7 @@ readonly pause_ref="registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a
 readonly curl_ref="docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b"
 readonly release_version="v0.0.0-turnkey-ci"
 readonly baseline_release_version="v0.0.0-turnkey-ci-baseline"
-readonly extended_release_version="v0.0.0-turnkey-ci-extended-candidate"
+readonly port_forward_release_version="v0.0.0-turnkey-ci-port-forward"
 readonly system_namespace="waycloak-system"
 readonly release_name="waycloak"
 readonly smoke_namespace="waycloak-smoke"
@@ -266,10 +266,9 @@ go run ./hack/corerelease \
   >"$work_dir/baseline-release-manifest.json"
 
 go run ./hack/corerelease \
-  --version "$extended_release_version" \
+  --version "$port_forward_release_version" \
   --chart "$chart_ref" \
   --profile networking.waycloak.io/Core-v1 \
-  --profile networking.waycloak.io/ExtendedCandidate-v1 \
   --image "replacement-controller=$controller_ref" \
   --image "waycloak-cni=$cni_ref" \
   --image "waycloak-node-agent=$node_agent_ref" \
@@ -278,7 +277,7 @@ go run ./hack/corerelease \
   --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
   --image "gluetun=$gluetun_ref" \
   --image "pause=$pause_ref" \
-  >"$work_dir/extended-release-manifest.json"
+  >"$work_dir/port-forward-release-manifest.json"
 
 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X main.version=${release_version}" \
@@ -1530,14 +1529,14 @@ apply_certificate_rotation() {
   ' "$carry_plan" >/dev/null
 }
 
-create_extended_controller_secret() {
+create_port_forward_controller_secret() {
   local generation="$1"
-  local identity_dir="$work_dir/extended-controller-${generation}"
+  local identity_dir="$work_dir/port-forward-controller-${generation}"
   mkdir -p "$identity_dir"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
     -keyout "$identity_dir/ca.key" \
     -out "$identity_dir/ca.crt" \
-    -subj "/CN=Waycloak Extended candidate ${generation} CA" \
+    -subj "/CN=Waycloak port-forward ${generation} CA" \
     -addext "basicConstraints=critical,CA:TRUE" \
     -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null
   cat >"$identity_dir/client.conf" <<EOF
@@ -1567,7 +1566,7 @@ EOF
     -extensions extensions >/dev/null
   openssl verify -purpose sslclient -CAfile "$identity_dir/ca.crt" \
     "$identity_dir/tls.crt" >/dev/null
-  kubectl create secret generic waycloak-extended-controller-tls \
+  kubectl create secret generic waycloak-port-forward-controller-tls \
     --namespace "$system_namespace" \
     --type kubernetes.io/tls \
     --from-file=ca.crt="$identity_dir/ca.crt" \
@@ -1576,58 +1575,58 @@ EOF
     --dry-run=client -o json | jq '.immutable = true' | kubectl create -f - >/dev/null
 }
 
-apply_extended_candidate() {
-  local plan_path="$work_dir/extended-install-plan.json"
-  local rebound_plan_path="$work_dir/extended-install-plan-rebound.json"
+apply_port_forward_capability() {
+  local plan_path="$work_dir/port-forward-install-plan.json"
+  local rebound_plan_path="$work_dir/port-forward-install-plan-rebound.json"
   local class_uid secret_uid plan_id rebound_plan_id
 
-  create_extended_controller_secret first
+  create_port_forward_controller_secret first
   class_uid="$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')"
   "$work_dir/waycloakctl" install plan \
-    --release-manifest "$work_dir/extended-release-manifest.json" \
+    --release-manifest "$work_dir/port-forward-release-manifest.json" \
     --namespace "$system_namespace" \
     --release "$release_name" \
-    --enable-extended \
-    --extended-controller-tls-secret waycloak-extended-controller-tls \
-    --enable-workload-adapter \
+    --enable-port-forwarding \
+    --port-forward-controller-tls-secret waycloak-port-forward-controller-tls \
+    --enable-qbittorrent-adapter \
     --output json >"$plan_path"
   plan_id="$(jq -r '.planID' "$plan_path")"
-  secret_uid="$(kubectl get secret waycloak-extended-controller-tls --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
+  secret_uid="$(kubectl get secret waycloak-port-forward-controller-tls --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
   jq -e --arg uid "$secret_uid" '
     .operation == "ExactReleaseTransition" and
-    .extended.secretUID == $uid and
-    .extended.adapterEnabled == true and
-    .metadata.featureProfile == "networking.waycloak.io/ExtendedCandidate-v1" and
-    (.targetRelease.profiles | index("networking.waycloak.io/ExtendedCandidate-v1")) != null and
-    (.valuesYAML | contains("conformanceProfile: \"networking.waycloak.io/ExtendedCandidate-v1\"")) and
-    (.valuesYAML | contains("extended:\n  enabled: true"))
+    .portForwarding.secretUID == $uid and
+    .portForwarding.qBittorrentAdapterEnabled == true and
+    .metadata.optionalCapability == "networking.waycloak.io/PortForwardServiceSingleActive" and
+    .targetRelease.profiles == ["networking.waycloak.io/Core-v1"] and
+    (.valuesYAML | contains("conformanceProfile: \"networking.waycloak.io/Core-v1\"")) and
+    (.valuesYAML | contains("portForwarding:\n  enabled: true"))
   ' "$plan_path" >/dev/null
   if grep -Eq 'PRIVATE KEY|tls\.key' "$plan_path"; then
-    printf 'Extended install plan exposed private key material\n' >&2
+    printf 'Port-forward install plan exposed private key material\n' >&2
     return 1
   fi
   if "$work_dir/waycloakctl" install apply --plan "$plan_path" \
     --confirm sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; then
-    printf 'Extended install accepted the wrong confirmation\n' >&2
+    printf 'Port-forward install accepted the wrong confirmation\n' >&2
     return 1
   fi
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')" = "$class_uid"
 
-  kubectl delete secret waycloak-extended-controller-tls --namespace "$system_namespace" --wait=true
-  create_extended_controller_secret second
+  kubectl delete secret waycloak-port-forward-controller-tls --namespace "$system_namespace" --wait=true
+  create_port_forward_controller_secret second
   if "$work_dir/waycloakctl" install apply --plan "$plan_path" --confirm "$plan_id"; then
-    printf 'Extended install accepted a replaced TLS Secret identity\n' >&2
+    printf 'Port-forward install accepted a replaced TLS Secret identity\n' >&2
     return 1
   fi
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.metadata.uid}')" = "$class_uid"
 
   "$work_dir/waycloakctl" install plan \
-    --release-manifest "$work_dir/extended-release-manifest.json" \
+    --release-manifest "$work_dir/port-forward-release-manifest.json" \
     --namespace "$system_namespace" \
     --release "$release_name" \
-    --enable-extended \
-    --extended-controller-tls-secret waycloak-extended-controller-tls \
-    --enable-workload-adapter \
+    --enable-port-forwarding \
+    --port-forward-controller-tls-secret waycloak-port-forward-controller-tls \
+    --enable-qbittorrent-adapter \
     --output json >"$rebound_plan_path"
   rebound_plan_id="$(jq -r '.planID' "$rebound_plan_path")"
   test "$rebound_plan_id" != "$plan_id"
@@ -1637,15 +1636,15 @@ apply_extended_candidate() {
   kubectl rollout status daemonset/waycloak-cni-installer --namespace "$system_namespace" --timeout=2m
   kubectl rollout status daemonset/waycloak-node-agent --namespace "$system_namespace" --timeout=2m
   test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.conformanceProfile}')" = \
-    networking.waycloak.io/ExtendedCandidate-v1
+    networking.waycloak.io/Core-v1
   kubectl get vpngatewayclass gluetun.waycloak.io -o json | jq -e '
     (.spec.supportedFeatures | index("networking.waycloak.io/PortForwardServiceSingleActive")) != null and
     (.spec.supportedFeatures | index("networking.waycloak.io/WorkloadAdapter")) != null
   ' >/dev/null
   kubectl get deployment/waycloak-controller --namespace "$system_namespace" -o json | jq -e --arg runtime "$gateway_runtime_ref" '
     any(.spec.template.spec.containers[] | select(.name == "controller") | .args[]; . == "--gateway-port-forward-runtime-image=" + $runtime) and
-    any(.spec.template.spec.containers[] | select(.name == "controller") | .args[]; . == "--conformance-profile=networking.waycloak.io/ExtendedCandidate-v1") and
-    any(.spec.template.spec.volumes[]; .name == "extended-tls" and .secret.secretName == "waycloak-extended-controller-tls")
+    any(.spec.template.spec.containers[] | select(.name == "controller") | .args[]; . == "--conformance-profile=networking.waycloak.io/Core-v1") and
+    any(.spec.template.spec.volumes[]; .name == "port-forward-tls" and .secret.secretName == "waycloak-port-forward-controller-tls")
   ' >/dev/null
   test "$(kubectl get statefulset --namespace "$smoke_namespace" -l app.kubernetes.io/component=gateway -o json | jq '[.items[].spec.template.spec.containers[]] | length')" = 2
 }
@@ -1826,6 +1825,6 @@ fi
 kubectl delete pod/recovery-probe vpnegressroute/recovery --namespace "$smoke_namespace" \
   --wait=true --timeout=2m
 
-apply_extended_candidate
+apply_port_forward_capability
 
 printf 'exact-artifact Kind install apply completed in %ss\n' "$apply_elapsed"

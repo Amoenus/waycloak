@@ -21,7 +21,7 @@ during endpoint replacement, process restart, provider expiry, or restore.
 
 ## Decision
 
-`PortForwardLease` is an Extended, namespaced workload-owner API. Its
+`PortForwardLease` is an optional, namespaced workload-owner API. Its
 `backendRef` is exactly one same-namespace core `Service` plus one named or
 numeric Service port. `endpointPolicy` is initially and exclusively
 `SingleActive`. The Service supplies identity and port intent only: its
@@ -88,16 +88,19 @@ credential, and is the sole owner of provider mapping and gateway nftables
 state. The controller is the sole Kubernetes status writer.
 
 The distribution chart keeps this runtime boundary disabled by default. Before
-provider-backed acceptance, an Extended test installation uses the explicit
-`networking.waycloak.io/ExtendedCandidate-v1` conformance identity. Its signed
-release manifest contains the complete Core and Extended artifact inventory,
-and its confirmation-gated install plan binds the exact runtime image plus a
+provider-backed acceptance, a test installation explicitly enables the
+`networking.waycloak.io/PortForwardServiceSingleActive` capability on the same
+Waycloak release and default class; its baseline conformance identity remains
+`networking.waycloak.io/Core-v1`. Its signed release manifest contains the
+complete required and optional port-forward artifact inventory, and its
+confirmation-gated install plan binds the exact runtime image plus a
 named, immutable controller mTLS Secret UID and public CA/certificate digests.
 The client certificate must chain to that CA, permit client authentication, and
 contain only the exact `spiffe://waycloak.io/replacement-controller` URI. Apply
-re-observes this identity before any mutation. `ExtendedCandidate-v1` is a test
-channel, not an `Extended-v1` conformance claim; graduation requires a new exact
-release identity after all acceptance evidence below passes. A `VPNGateway`
+re-observes this identity before any mutation. Port forwarding is an optional
+capability, not a second product, release channel, or data plane. Public support
+requires a new exact release identity after all acceptance evidence below
+passes. A `VPNGateway`
 must independently request `PortForwardServiceSingleActive` and reference exactly one
 `GatewayRuntimeTLS` Secret before its Pod receives the runtime container and
 deterministic runtime Service. The container mounts only that TLS Secret, has
@@ -109,7 +112,7 @@ exact gateway UID is never adopted or deleted.
 The chart does not deploy an application adapter. It can configure controller
 trust for the signed reference adapter, but the network operator must deploy
 the immutable-digest adapter out of process and author its `WorkloadAdapter`
-trust record. Public Extended advertisement remains gated on the packet,
+trust record. Public port-forward capability advertisement remains gated on the packet,
 handoff, and real-provider evidence below; temporary test enablement is not a
 conformance claim.
 
@@ -152,7 +155,7 @@ The feature remains unadvertised unless privileged TCP/UDP packet tests,
 Kind/k3d handoff tests, and the declared real-provider qBitTorrent rolling
 replacement test prove no wrong-Pod delivery and no direct-egress fallback for
 each support-matrix row. Failure of Service/EndpointSlice identity or direct
-return-path proof keeps the Extended capability unavailable; it never selects
+return-path proof keeps the port-forward capability unavailable; it never selects
 another data-plane backend or ordinary egress.
 
 ## Consequences
@@ -168,7 +171,7 @@ another data-plane backend or ordinary egress.
   mappings are known expired.
 - Application-specific behavior stays outside the controller and privileged
   gateway process.
-- Extended availability is deliberately narrower than Core and cannot weaken
+- Port-forward availability is deliberately narrower than baseline egress and cannot weaken
   the enrolled workload's fail-closed egress invariant.
 
 ## Alternatives rejected

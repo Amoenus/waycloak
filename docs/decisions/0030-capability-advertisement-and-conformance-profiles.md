@@ -20,24 +20,26 @@ that contract.
 Waycloak publishes versioned conformance profiles and feature identifiers.
 
 The first frozen identifiers are
-`networking.waycloak.io/CoreFailClosedEgress`,
+`networking.waycloak.io/FailClosedEgress`,
 `networking.waycloak.io/TCP`, `networking.waycloak.io/UDP`,
 `networking.waycloak.io/DNSContainment`,
 `networking.waycloak.io/GatewayReplacementRecovery`, and
-`networking.waycloak.io/NodeRestartRecovery`. Extended uses
+`networking.waycloak.io/NodeRestartRecovery`. Optional capabilities use
 `networking.waycloak.io/PortForwardServiceSingleActive` and
 `networking.waycloak.io/WorkloadAdapter`.
 
-The Core profile includes explicit workload opt-in, TCP/UDP VPN egress,
+The internal `Core-v1` profile names the baseline certification suite; it is not
+a product edition or release channel. It includes explicit workload opt-in, TCP/UDP VPN egress,
 fail-closed startup and runtime loss, contained UDP/TCP DNS, stable allocation,
 gateway replacement recovery, conditions/events, credential isolation, and
 safe removal of protection.
 
-Extended profiles cover independently testable features such as provider port
-forwarding, application-adapter delivery, additional engines/providers, and
-Service targets. Experimental profiles cover backend technology or features
-that have not yet passed the Core lifecycle contract. CNI creation-time
-enforcement is Core; eBPF may be one implementation and is not a workload API.
+Optional features such as provider port forwarding, application-adapter
+delivery, additional engines/providers, and Service targets are advertised and
+tested independently on the same release and class. They do not create another
+profile or data plane. Experimental features have not yet passed the baseline
+lifecycle contract. CNI creation-time enforcement is baseline; eBPF may be one
+implementation and is not a workload API.
 
 `VPNGatewayClass.status.supportedFeatures` reports what its controller and
 release can implement. `VPNGateway.status.supportedFeatures` and conditions
@@ -47,7 +49,7 @@ with `Accepted=False`; it is never accepted with degraded or fallback behavior.
 
 Every release publishes reproducible conformance reports keyed by release
 digest, Kubernetes version, CNI/runtime, architecture, engine/provider mode,
-and feature profile. Fake-provider results and credentialed real-provider
+and advertised feature set. Fake-provider results and credentialed real-provider
 evidence are distinguished. Claims in documentation and release metadata must
 be derivable from those reports.
 
@@ -56,10 +58,10 @@ be derivable from those reports.
 - Installers can select safe defaults before creating protected workloads.
 - Multiple implementations can share a public API without pretending to have
   identical capabilities.
-- The test matrix and release artifacts grow with each supported profile.
+- The test matrix and release artifacts grow with each supported capability.
 - Runtime capability loss can be represented separately from unsupported
   desired intent.
-- Experimental success cannot be advertised as Core conformance.
+- Experimental success cannot be advertised as baseline conformance.
 
 ## Alternatives rejected
 
@@ -70,7 +72,7 @@ be derivable from those reports.
 - Accept unsupported configuration and ignore fields: makes protection
   behavior ambiguous.
 - Require every implementation to support every feature: prevents portable
-  Core behavior and honest optional extensions.
+  baseline behavior and honest optional capabilities.
 
 ## Related decisions
 

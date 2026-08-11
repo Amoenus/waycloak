@@ -271,50 +271,44 @@ jobs:
           test "$(grep -c -- '/var/lib/cni/waycloak/install-receipt.json' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^      hostNetwork: true$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c '^      dnsPolicy: ClusterFirstWithHostNet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
-          if grep -Eq 'waycloak-extended|gateway-port-forward-runtime-image|ghcr.io/amoenus/waycloak-gateway-runtime@sha256:' "$RUNNER_TEMP/enabled-1.yaml"; then
-            echo "Core chart rendering contains an Extended runtime surface" >&2
+          if grep -Eq 'waycloak-port-forward|gateway-port-forward-runtime-image|ghcr.io/amoenus/waycloak-gateway-runtime@sha256:' "$RUNNER_TEMP/enabled-1.yaml"; then
+            echo "baseline chart rendering contains a port-forward runtime surface" >&2
             exit 1
           fi
           core_port_forward_features="$(grep -c 'networking.waycloak.io/PortForwardServiceSingleActive' "$RUNNER_TEMP/enabled-1.yaml" || true)"
           core_adapter_features="$(grep -c 'networking.waycloak.io/WorkloadAdapter' "$RUNNER_TEMP/enabled-1.yaml" || true)"
-          extended_args=("${enabled_args[@]}"
-            --set extended.enabled=true
-            --set-string extended.controllerTLSSecret=waycloak-extended-controller-tls
-            --set-string extended.gatewayRuntime.image.digest="$digest"
-            --set-string controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1
-            --set extended.adapter.enabled=true)
-          helm template "${extended_args[@]}" >"$RUNNER_TEMP/extended-1.yaml"
-          helm template "${extended_args[@]}" >"$RUNNER_TEMP/extended-2.yaml"
-          cmp "$RUNNER_TEMP/extended-1.yaml" "$RUNNER_TEMP/extended-2.yaml"
-          grep -q -- '--gateway-port-forward-runtime-image=ghcr.io/amoenus/waycloak-gateway-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RUNNER_TEMP/extended-1.yaml"
-          grep -q -- '--port-forward-runtime-ca=/var/run/secrets/waycloak-extended/ca.crt' "$RUNNER_TEMP/extended-1.yaml"
-          grep -q -- '--adapter-ca=/var/run/secrets/waycloak-extended/ca.crt' "$RUNNER_TEMP/extended-1.yaml"
-          grep -q 'secretName: waycloak-extended-controller-tls' "$RUNNER_TEMP/extended-1.yaml"
-          test "$(grep -c 'networking.waycloak.io/PortForwardServiceSingleActive' "$RUNNER_TEMP/extended-1.yaml")" -eq "$((core_port_forward_features + 1))"
-          test "$(grep -c 'networking.waycloak.io/WorkloadAdapter' "$RUNNER_TEMP/extended-1.yaml")" -eq "$((core_adapter_features + 1))"
-          grep -q 'conformanceProfile: networking.waycloak.io/ExtendedCandidate-v1' "$RUNNER_TEMP/extended-1.yaml"
+          port_forward_args=("${enabled_args[@]}"
+            --set portForwarding.enabled=true
+            --set-string portForwarding.controllerTLSSecret=waycloak-port-forward-controller-tls
+            --set-string portForwarding.gatewayRuntime.image.digest="$digest"
+            --set portForwarding.adapter.enabled=true)
+          helm template "${port_forward_args[@]}" >"$RUNNER_TEMP/port-forward-1.yaml"
+          helm template "${port_forward_args[@]}" >"$RUNNER_TEMP/port-forward-2.yaml"
+          cmp "$RUNNER_TEMP/port-forward-1.yaml" "$RUNNER_TEMP/port-forward-2.yaml"
+          grep -q -- '--gateway-port-forward-runtime-image=ghcr.io/amoenus/waycloak-gateway-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RUNNER_TEMP/port-forward-1.yaml"
+          grep -q -- '--port-forward-runtime-ca=/var/run/secrets/waycloak-port-forward/ca.crt' "$RUNNER_TEMP/port-forward-1.yaml"
+          grep -q -- '--adapter-ca=/var/run/secrets/waycloak-port-forward/ca.crt' "$RUNNER_TEMP/port-forward-1.yaml"
+          grep -q 'secretName: waycloak-port-forward-controller-tls' "$RUNNER_TEMP/port-forward-1.yaml"
+          test "$(grep -c 'networking.waycloak.io/PortForwardServiceSingleActive' "$RUNNER_TEMP/port-forward-1.yaml")" -eq "$((core_port_forward_features + 1))"
+          test "$(grep -c 'networking.waycloak.io/WorkloadAdapter' "$RUNNER_TEMP/port-forward-1.yaml")" -eq "$((core_adapter_features + 1))"
+          grep -q 'conformanceProfile: networking.waycloak.io/Core-v1' "$RUNNER_TEMP/port-forward-1.yaml"
           if helm template "${enabled_args[@]}" \
-            --set extended.enabled=true \
-            --set-string extended.controllerTLSSecret=waycloak-extended-controller-tls \
-            --set-string extended.gatewayRuntime.image.digest="$digest" \
-            >"$RUNNER_TEMP/extended-core-profile.yaml" 2>"$RUNNER_TEMP/extended-core-profile.err"; then
-            echo "Extended rendered with the Core conformance identity" >&2
+            --set portForwarding.enabled=true \
+            >"$RUNNER_TEMP/port-forward-partial.yaml" 2>"$RUNNER_TEMP/port-forward-partial.err"; then
+            echo "partial port-forward configuration rendered successfully" >&2
             exit 1
           fi
-          grep -q 'requires controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1' "$RUNNER_TEMP/extended-core-profile.err"
-          if helm template "${enabled_args[@]}" \
-            --set extended.enabled=true \
-            --set-string controller.conformanceProfile=networking.waycloak.io/ExtendedCandidate-v1 \
-            >"$RUNNER_TEMP/extended-partial.yaml" 2>"$RUNNER_TEMP/extended-partial.err"; then
-            echo "partial Extended configuration rendered successfully" >&2
+          grep -q 'portForwarding.gatewayRuntime.image.digest is required' "$RUNNER_TEMP/port-forward-partial.err"
+          if helm template "${enabled_args[@]}" --set portForwarding.adapter.enabled=true >"$RUNNER_TEMP/adapter-without-runtime.yaml" 2>"$RUNNER_TEMP/adapter-without-runtime.err"; then
+            echo "adapter-only port-forward configuration rendered successfully" >&2
             exit 1
           fi
-          grep -q 'extended.gatewayRuntime.image.digest is required' "$RUNNER_TEMP/extended-partial.err"
-          if helm template "${enabled_args[@]}" --set extended.adapter.enabled=true >"$RUNNER_TEMP/adapter-without-runtime.yaml" 2>"$RUNNER_TEMP/adapter-without-runtime.err"; then
-            echo "adapter-only Extended configuration rendered successfully" >&2
+          grep -q 'portForwarding.adapter.enabled requires portForwarding.enabled=true' "$RUNNER_TEMP/adapter-without-runtime.err"
+          if helm template "${enabled_args[@]}" --set extended.enabled=true >"$RUNNER_TEMP/removed-tier.yaml" 2>"$RUNNER_TEMP/removed-tier.err"; then
+            echo "removed tier configuration rendered successfully" >&2
             exit 1
           fi
-          grep -q 'extended.adapter.enabled requires extended.enabled=true' "$RUNNER_TEMP/adapter-without-runtime.err"
+          grep -q "additional properties 'extended' not allowed" "$RUNNER_TEMP/removed-tier.err"
           mkdir -p "$RUNNER_TEMP/chart-1" "$RUNNER_TEMP/chart-2"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-1"
           helm package charts/waycloak --destination "$RUNNER_TEMP/chart-2"

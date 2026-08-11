@@ -40,11 +40,11 @@ controller:
     vxlanPort: 4789
     healthPort: 18080
 
-# Extended remains disabled until #137 real-provider SingleActive acceptance.
-# Enabling it requires an exact gateway-runtime image and a pre-created
+# Provider port forwarding remains disabled until #137 real-provider
+# SingleActive acceptance. Enabling it requires an exact gateway-runtime image and a pre-created
 # controller mTLS Secret with ca.crt, tls.crt, tls.key. The out-of-process
 # adapter image is declared exactly by its operator-authored WorkloadAdapter.
-extended:
+portForwarding:
   enabled: false
   controllerTLSSecret: ""
   gatewayRuntime:

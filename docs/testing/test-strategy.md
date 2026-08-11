@@ -123,8 +123,8 @@ Mandatory scenarios:
 - exact TLS 1.3 controller-to-gateway runtime identity, strict versioned
   messages, exact gateway UID, oversized/unknown input rejection, and no
   Kubernetes credential in the runtime;
-- deterministic Helm rendering proves Core contains no Extended container,
-  mount, flag, Service, or feature advertisement; complete Extended input
+- deterministic Helm rendering proves the baseline contains no port-forward container,
+  mount, flag, Service, or feature advertisement; complete port-forward input
   renders exact digest and named mTLS identity, while partial or adapter-only
   input fails before installation;
 - gateway provisioning creates the tokenless runtime and deterministic Service
@@ -145,7 +145,7 @@ Mandatory scenarios:
   withdrawal;
 - Kind/k3d rollout tests and real-provider qBittorrent tests prove no wrong-Pod
   delivery, stale advertisement, or direct-egress fallback. Failure keeps this
-  Extended capability unavailable.
+  optional capability unavailable.
 
 ### Adapter conformance
 

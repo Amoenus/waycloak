@@ -810,7 +810,7 @@ func TestReplacementAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("Extended gateway requires explicit SingleActive intent and runtime TLS identity", func(t *testing.T) {
+	t.Run("port-forward gateway requires explicit SingleActive intent and runtime TLS identity", func(t *testing.T) {
 		features := append(wayv1.CoreFeatures(), wayv1.FeaturePortForwardSingleActive, wayv1.FeatureWorkloadAdapter)
 		class := validClass("extended-runtime-contract")
 		class.Spec.ControllerName = waycontroller.DefaultGatewayControllerName
@@ -859,7 +859,7 @@ func TestReplacementAPI(t *testing.T) {
 		resolved := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionResolvedRefs)
 		programmed := apiMeta.FindStatusCondition(gateway.Status.Conditions, wayv1.ConditionProgrammed)
 		if resolved == nil || resolved.Status != metav1.ConditionTrue || programmed == nil || programmed.Status != metav1.ConditionFalse || programmed.Reason != wayv1.ReasonPending {
-			t.Fatalf("resolved Extended gateway status = %#v", gateway.Status)
+			t.Fatalf("resolved port-forward gateway status = %#v", gateway.Status)
 		}
 
 		gateway.Spec.RequestedFeatures = nil

@@ -150,7 +150,7 @@ func TestProvisionerCorrectsRollingUpdateWithoutReplacingGatewayPod(t *testing.T
 	}
 }
 
-func TestProvisionerAddsOnlyExplicitTokenlessExtendedRuntime(t *testing.T) {
+func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	must(t, appsv1.AddToScheme(scheme))
@@ -176,7 +176,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessExtendedRuntime(t *testing.T) {
 	statefulSet := &appsv1.StatefulSet{}
 	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
 	if len(statefulSet.Spec.Template.Spec.Containers) != 3 || len(statefulSet.Spec.Template.Spec.Volumes) != 3 {
-		t.Fatalf("Extended gateway Pod shape = %d containers, %d volumes", len(statefulSet.Spec.Template.Spec.Containers), len(statefulSet.Spec.Template.Spec.Volumes))
+		t.Fatalf("port-forward gateway Pod shape = %d containers, %d volumes", len(statefulSet.Spec.Template.Spec.Containers), len(statefulSet.Spec.Template.Spec.Volumes))
 	}
 	runtimeContainer := statefulSet.Spec.Template.Spec.Containers[2]
 	if runtimeContainer.Name != "port-forward-runtime" || runtimeContainer.Image != provisioner.PortForwardRuntimeImage || len(runtimeContainer.Env) != 0 || len(runtimeContainer.EnvFrom) != 0 || len(runtimeContainer.VolumeMounts) != 1 || runtimeContainer.VolumeMounts[0].Name != "port-forward-runtime-tls" {
@@ -207,7 +207,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessExtendedRuntime(t *testing.T) {
 	}
 	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(statefulSet), statefulSet))
 	if len(statefulSet.Spec.Template.Spec.Containers) != 2 || len(statefulSet.Spec.Template.Spec.Volumes) != 2 {
-		t.Fatalf("Core gateway retained Extended runtime: %#v", statefulSet.Spec.Template.Spec)
+		t.Fatalf("baseline gateway retained port-forward runtime: %#v", statefulSet.Spec.Template.Spec)
 	}
 }
 
@@ -237,14 +237,14 @@ func TestProvisionerDoesNotDeleteForeignRuntimeService(t *testing.T) {
 	}
 }
 
-func TestProvisionerRejectsPartialExtendedConfiguration(t *testing.T) {
+func TestProvisionerRejectsPartialPortForwardConfiguration(t *testing.T) {
 	scheme := runtime.NewScheme()
 	must(t, corev1.AddToScheme(scheme))
 	provisioner := fixture(fake.NewClientBuilder().WithScheme(scheme).Build())
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
 	provisioner.PortForwardRuntimeImage = "ghcr.io/amoenus/waycloak-gateway-runtime@sha256:" + strings.Repeat("d", 64)
-	if err := provisioner.validate(gateway); err == nil || !strings.Contains(err.Error(), "complete exact Extended") {
-		t.Fatalf("partial Extended configuration error = %v", err)
+	if err := provisioner.validate(gateway); err == nil || !strings.Contains(err.Error(), "complete exact port-forward") {
+		t.Fatalf("partial port-forward configuration error = %v", err)
 	}
 }
 

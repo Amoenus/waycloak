@@ -3,7 +3,7 @@
 import v1beta1 as networking
 
 _core_features = [
-    "networking.waycloak.io/CoreFailClosedEgress"
+    "networking.waycloak.io/FailClosedEgress"
     "networking.waycloak.io/TCP"
     "networking.waycloak.io/UDP"
     "networking.waycloak.io/DNSContainment"

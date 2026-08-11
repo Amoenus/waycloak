@@ -105,7 +105,7 @@ identify tunnel, DNS, membership, node, lease and application failures.
 ### ST-FR-6: Capabilities and conformance
 
 Class, gateway, node and release advertise stable feature identifiers. Required
-unsupported behavior is rejected before programming. Core, Extended and
+unsupported behavior is rejected before programming. Baseline, optional and
 Experimental conformance reports are tied to immutable release digests and an
 exact Kubernetes/CNI/runtime/kernel/architecture/provider matrix.
 

@@ -53,7 +53,7 @@ const (
 	ReasonAcknowledged           = "Acknowledged"
 	ReasonAcknowledgementPending = "AcknowledgementPending"
 
-	FeatureCoreFailClosedEgress       FeatureName = "networking.waycloak.io/CoreFailClosedEgress"
+	FeatureFailClosedEgress           FeatureName = "networking.waycloak.io/FailClosedEgress"
 	FeatureTCP                        FeatureName = "networking.waycloak.io/TCP"
 	FeatureUDP                        FeatureName = "networking.waycloak.io/UDP"
 	FeatureDNSContainment             FeatureName = "networking.waycloak.io/DNSContainment"
@@ -78,7 +78,7 @@ const (
 
 func CoreFeatures() []FeatureName {
 	return []FeatureName{
-		FeatureCoreFailClosedEgress,
+		FeatureFailClosedEgress,
 		FeatureTCP,
 		FeatureUDP,
 		FeatureDNSContainment,
@@ -174,7 +174,7 @@ type GatewayConditions []metav1.Condition
 type BindingConditions []metav1.Condition
 
 // LeaseConditions adds the gateway-rule, delivery, and application
-// acknowledgement observations required for Extended lease readiness.
+// acknowledgement observations required for port-forward lease readiness.
 // +listType=map
 // +listMapKey=type
 // +kubebuilder:validation:MaxItems=32

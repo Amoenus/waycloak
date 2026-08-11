@@ -14,7 +14,7 @@ The Core security boundary is a mandatory chained CNI plugin backed by a privile
 
 ## Current state
 
-The replacement API, route and enrollment controllers, UID-bound workload bindings, chained CNI, privileged node agent, and gateway class/capability contract are implemented. The alpha runtime has been removed from the replacement source and release surfaces. Turnkey installation, the redesigned gateway runtime, Extended features, lifecycle certification, and stable release evidence remain incomplete; there is not yet a supported stable install.
+The replacement API, route and enrollment controllers, UID-bound workload bindings, chained CNI, privileged node agent, and gateway class/capability contract are implemented. The alpha runtime has been removed from the replacement source and release surfaces. Turnkey installation, optional port-forward capabilities, lifecycle certification, and stable release evidence remain incomplete; there is not yet a supported stable install.
 
 Start with the [stable product requirements](docs/product/stable-turnkey-product.md), [target architecture](docs/architecture/kubernetes-api-maturity.md), [replacement API](docs/api/replacement-api-proposal.md), and [project status](PROJECT_STATUS.md).
 

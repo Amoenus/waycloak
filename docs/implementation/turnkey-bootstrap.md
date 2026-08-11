@@ -317,10 +317,10 @@ privileged network-namespace test proves the gateway deny-first path, healthy
 TCP/UDP forwarding, and tunnel-loss denial. The mandatory chained-CNI installer
 is built twice as a Linux amd64/arm64 OCI layout and compared byte-for-byte in
 CI. A release-wide composite OCI build target combines the four Core runtime
-images with the two known optional Extended images, and deterministic manifest
-assembly is exercised as a command-line boundary in CI. A complete Extended
+images with the two known optional port-forward images, and deterministic manifest
+assembly is exercised as a command-line boundary in CI. A complete optional
 artifact pair may be carried by the exact release inventory without advertising
-Extended conformance; partial or unknown image inventories are rejected. Prior
+port-forward capability claim; partial or unknown image inventories are rejected. Prior
 six-image Core manifests remain valid inputs for exact rollback.
 
 The `v0.0.0-turnkey.1` prerelease executed the signed CLI workflow from exact
@@ -345,8 +345,8 @@ separate hosted runner redownloads the release and
 verifies the exact workflow identity, issuer, source tag/commit, platform
 indexes, chart bytes/CRDs, manifest-to-registry equality, and all signatures and
 attestations. Shipping the gateway runtime and qBittorrent adapter only makes
-their immutable artifacts available for a separately enabled Extended test; it
-does not add the Extended feature to a default class or claim its conformance.
+their immutable artifacts available for explicitly enabled port-forward tests; it
+does not add the optional feature to a default class or claim its conformance.
 The workflow is not evidence until an exact tag run passes.
 
 Issue #138 must remain open until the published Core candidate completes the

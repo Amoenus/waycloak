@@ -38,7 +38,7 @@ func LeaseGatewayIndexValues(object client.Object) []string {
 }
 
 // DependencyMapper provides the coherent dependency fan-out shared by the
-// Core route controller and the Extended lease controller. The latter starts
+// baseline route controller and the optional port-forward lease controller. The latter starts
 // consuming these mappings when its replacement reconciler is implemented.
 type DependencyMapper struct {
 	Client client.Client

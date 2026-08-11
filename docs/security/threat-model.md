@@ -222,7 +222,7 @@ address, backend/public ports and expiry; an immutable declared capability is
 required before the qBittorrent target port may follow the provider port. The
 out-of-process adapter uses application-owned TLS, observes and probes the
 listener, reannounces, persists withdrawal state, and cannot acknowledge a
-different or stale identity. Any missing observation keeps the Extended lease
+different or stale identity. Any missing observation keeps the port-forward lease
 unready without weakening the independent outbound deny path.
 
 ### Host privilege expansion

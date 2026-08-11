@@ -1,6 +1,6 @@
 # Workload adapter protocol v1
 
-Status: Extended, unadvertised pending issue #137 acceptance
+Status: Optional capability, unadvertised pending issue #137 acceptance
 
 The workload-adapter protocol is HTTPS/JSON and is independent of Waycloak Go
 packages. Its schema is

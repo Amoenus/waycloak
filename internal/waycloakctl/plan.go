@@ -20,8 +20,7 @@ import (
 )
 
 const (
-	extendedCandidateConformanceProfile = "networking.waycloak.io/ExtendedCandidate-v1"
-	extendedControllerSPIFFEIdentity    = "spiffe://waycloak.io/replacement-controller"
+	portForwardControllerSPIFFEIdentity = "spiffe://waycloak.io/replacement-controller"
 )
 
 type Artifact struct {
@@ -62,20 +61,20 @@ type InstallPlan struct {
 	Purge            []string                    `json:"purge"`
 	SecretObjects    []string                    `json:"secretObjects"`
 	Metadata         map[string]string           `json:"metadata"`
-	Extended         *ExtendedInstallIdentity    `json:"extended,omitempty"`
+	PortForwarding   *PortForwardInstallIdentity `json:"portForwarding,omitempty"`
 }
 
-type ExtendedInstallIdentity struct {
-	ControllerTLSSecret string `json:"controllerTLSSecret"`
-	SecretUID           string `json:"secretUID"`
-	CADigest            string `json:"caDigest"`
-	CertificateDigest   string `json:"certificateDigest"`
-	AdapterEnabled      bool   `json:"adapterEnabled"`
+type PortForwardInstallIdentity struct {
+	ControllerTLSSecret       string `json:"controllerTLSSecret"`
+	SecretUID                 string `json:"secretUID"`
+	CADigest                  string `json:"caDigest"`
+	CertificateDigest         string `json:"certificateDigest"`
+	QBitTorrentAdapterEnabled bool   `json:"qBittorrentAdapterEnabled"`
 }
 
-func (identity ExtendedInstallIdentity) validate() error {
+func (identity PortForwardInstallIdentity) validate() error {
 	if len(utilvalidation.IsDNS1123Subdomain(identity.ControllerTLSSecret)) != 0 || identity.SecretUID == "" || !validDigest(identity.CADigest) || !validDigest(identity.CertificateDigest) {
-		return errors.New("extended controller TLS identity is incomplete")
+		return errors.New("port-forward controller TLS identity is incomplete")
 	}
 	return nil
 }
@@ -122,13 +121,16 @@ func (manifest ReleaseManifest) Validate() error {
 	if !contains(profiles, "networking.waycloak.io/Core-v1") {
 		return errors.New("release manifest does not attest the Core profile")
 	}
-	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"}
-	optionalExtendedImages := []string{"waycloak-gateway-runtime", "waycloak-qbittorrent-adapter"}
-	if len(manifest.Images) != len(requiredImages) && len(manifest.Images) != len(requiredImages)+len(optionalExtendedImages) {
-		return errors.New("release manifest image inventory must contain the required Core artifacts and either all or none of the known Extended artifacts")
+	if len(profiles) != 1 {
+		return errors.New("release manifest profiles describe baseline conformance only; optional capabilities must not create release profiles")
 	}
-	knownImages := make(map[string]struct{}, len(requiredImages)+len(optionalExtendedImages))
-	for _, name := range append(requiredImages, optionalExtendedImages...) {
+	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "gluetun", "pause"}
+	optionalPortForwardImages := []string{"waycloak-gateway-runtime", "waycloak-qbittorrent-adapter"}
+	if len(manifest.Images) != len(requiredImages) && len(manifest.Images) != len(requiredImages)+len(optionalPortForwardImages) {
+		return errors.New("release manifest image inventory must contain the required artifacts and either all or none of the known port-forward artifacts")
+	}
+	knownImages := make(map[string]struct{}, len(requiredImages)+len(optionalPortForwardImages))
+	for _, name := range append(requiredImages, optionalPortForwardImages...) {
 		knownImages[name] = struct{}{}
 	}
 	for name := range manifest.Images {
@@ -142,22 +144,19 @@ func (manifest ReleaseManifest) Validate() error {
 			return fmt.Errorf("release manifest lacks exact %s image identity", name)
 		}
 	}
-	extendedPresent := 0
-	for _, name := range optionalExtendedImages {
+	portForwardPresent := 0
+	for _, name := range optionalPortForwardImages {
 		artifact, ok := manifest.Images[name]
 		if !ok {
 			continue
 		}
-		extendedPresent++
+		portForwardPresent++
 		if artifact.Repository == "" || !validDigest(artifact.Digest) || strings.Contains(artifact.Repository, "@") {
 			return fmt.Errorf("release manifest lacks exact %s image identity", name)
 		}
 	}
-	if extendedPresent != 0 && extendedPresent != len(optionalExtendedImages) {
-		return errors.New("release manifest Extended artifact inventory must be complete")
-	}
-	if contains(profiles, extendedCandidateConformanceProfile) && extendedPresent != len(optionalExtendedImages) {
-		return errors.New("release manifest extended profile lacks the complete Extended artifact inventory")
+	if portForwardPresent != 0 && portForwardPresent != len(optionalPortForwardImages) {
+		return errors.New("release manifest port-forward artifact inventory must be complete")
 	}
 	if manifest.Chart.Repository == "" || !validDigest(manifest.Chart.Digest) || strings.Contains(manifest.Chart.Repository, "@") {
 		return errors.New("release manifest lacks exact chart identity")
@@ -192,10 +191,10 @@ func (manifest ReleaseManifest) IdentityDigest() (string, error) {
 	return digestBytes(data), nil
 }
 
-func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string, extended *ExtendedInstallIdentity) (InstallPlan, error) {
-	if extended != nil {
-		copy := *extended
-		extended = &copy
+func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string, portForwarding *PortForwardInstallIdentity) (InstallPlan, error) {
+	if portForwarding != nil {
+		copy := *portForwarding
+		portForwarding = &copy
 	}
 	if err := manifest.Validate(); err != nil {
 		return InstallPlan{}, err
@@ -209,15 +208,12 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	if !report.Compatible || !validDigest(report.ObservationDigest) || report.CNI.ConfigPath == "" || namespace == "" || release == "" {
 		return InstallPlan{}, errors.New("a compatible preflight report and explicit namespace/release are required")
 	}
-	if extended != nil {
-		if err := extended.validate(); err != nil {
+	if portForwarding != nil {
+		if err := portForwarding.validate(); err != nil {
 			return InstallPlan{}, err
 		}
-		if !contains(manifest.Profiles, extendedCandidateConformanceProfile) {
-			return InstallPlan{}, errors.New("extended activation requires an exact release manifest attesting the ExtendedCandidate-v1 profile")
-		}
 		if source.State == installStateDeployed && source.ManifestDigest == manifest.ManifestDigest {
-			return InstallPlan{}, errors.New("extended activation requires a changed exact release identity for journal-bound gateway class replacement")
+			return InstallPlan{}, errors.New("port-forward activation requires a changed exact release identity for journal-bound gateway class replacement")
 		}
 	}
 	architecture, err := selectedArchitecture(report.Cluster.Architectures, nodeArchitecture)
@@ -235,9 +231,6 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	controllerConformanceProfile := "networking.waycloak.io/Core-v1"
 	if source.State == installStateDeployed {
 		rotationID = source.ObservationRotationID
-	}
-	if extended != nil {
-		controllerConformanceProfile = extendedCandidateConformanceProfile
 	}
 	values := fmt.Sprintf(`releaseIdentity:
   version: %q
@@ -298,9 +291,9 @@ defaultGatewayClass:
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
-	if extended != nil {
+	if portForwarding != nil {
 		runtime := manifest.Images["waycloak-gateway-runtime"]
-		values += fmt.Sprintf(`extended:
+		values += fmt.Sprintf(`portForwarding:
   enabled: true
   controllerTLSSecret: %q
   gatewayRuntime:
@@ -309,7 +302,7 @@ defaultGatewayClass:
       digest: %q
   adapter:
     enabled: %t
-`, extended.ControllerTLSSecret, runtime.Repository, runtime.Digest, extended.AdapterEnabled)
+`, portForwarding.ControllerTLSSecret, runtime.Repository, runtime.Digest, portForwarding.QBitTorrentAdapterEnabled)
 	}
 	operation := installOperationTransition
 	if source.State == installStateAbsent {
@@ -323,18 +316,18 @@ defaultGatewayClass:
 			"on a changed deployed release: helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --values <node-agent-transition-hold.yaml> --wait",
 			"helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --wait",
 		},
-		Security:      []string{"create a Pod Security privileged namespace for release-owned node components", "install a privileged root node-agent DaemonSet", "mount exact CNI/netns/state host paths", "install cluster-scoped CRDs, admission policies, and least-privilege RBAC"},
-		CNIChanges:    []string{"atomically append waycloak-cni after the primary plugin in " + report.CNI.ConfigPath, "install the exact CNI binary at " + report.CNI.BinaryPath, "preserve the original chain and write a release-bound receipt"},
-		Rollback:      []string{"retain the deny path and stop new workload rollout", "create a new target-bound plan from the separately verified prior exact release manifest", "apply that exact plan and verify CRD, runtime, node receipt, gateway activation, and protected packet denial before resuming rollout"},
-		Purge:         []string{"normal Helm uninstall does not delete CRDs or restore the CNI chain", "destructive CRD purge and CNI restoration are separate confirmation-gated operations"},
-		SecretObjects: []string{release + "-observation-ca", release + "-observation-tls"},
-		Metadata:      map[string]string{"cni": report.CNI.Name, "profile": report.Profile, "nodeArchitecture": architecture},
-		Extended:      extended,
+		Security:       []string{"create a Pod Security privileged namespace for release-owned node components", "install a privileged root node-agent DaemonSet", "mount exact CNI/netns/state host paths", "install cluster-scoped CRDs, admission policies, and least-privilege RBAC"},
+		CNIChanges:     []string{"atomically append waycloak-cni after the primary plugin in " + report.CNI.ConfigPath, "install the exact CNI binary at " + report.CNI.BinaryPath, "preserve the original chain and write a release-bound receipt"},
+		Rollback:       []string{"retain the deny path and stop new workload rollout", "create a new target-bound plan from the separately verified prior exact release manifest", "apply that exact plan and verify CRD, runtime, node receipt, gateway activation, and protected packet denial before resuming rollout"},
+		Purge:          []string{"normal Helm uninstall does not delete CRDs or restore the CNI chain", "destructive CRD purge and CNI restoration are separate confirmation-gated operations"},
+		SecretObjects:  []string{release + "-observation-ca", release + "-observation-tls"},
+		Metadata:       map[string]string{"cni": report.CNI.Name, "profile": report.Profile, "nodeArchitecture": architecture},
+		PortForwarding: portForwarding,
 	}
-	if extended != nil {
-		plan.SecretObjects = append(plan.SecretObjects, extended.ControllerTLSSecret)
+	if portForwarding != nil {
+		plan.SecretObjects = append(plan.SecretObjects, portForwarding.ControllerTLSSecret)
 		plan.Security = append(plan.Security, "mount the reviewed controller mTLS identity and enable the privileged tokenless gateway port-forward runtime only for explicit gateway intent")
-		plan.Metadata["featureProfile"] = extendedCandidateConformanceProfile
+		plan.Metadata["optionalCapability"] = "networking.waycloak.io/PortForwardServiceSingleActive"
 	}
 	plan.PlanID = installPlanIdentity(plan)
 	plan.Commands[0] = "waycloakctl install apply --plan <reviewed-plan.json> --confirm " + plan.PlanID
@@ -354,11 +347,11 @@ func installPlanIdentity(plan InstallPlan) string {
 		Release          string                      `json:"release"`
 		InstallSequence  string                      `json:"installSequence"`
 		Values           string                      `json:"valuesYAML"`
-		Extended         *ExtendedInstallIdentity    `json:"extended,omitempty"`
+		PortForwarding   *PortForwardInstallIdentity `json:"portForwarding,omitempty"`
 	}{
 		Operation: plan.Operation, Source: plan.Source, TargetCRDs: plan.TargetCRDs, Target: plan.Target,
 		PreflightDigest: plan.PreflightDigest, OverlayCIDR: plan.OverlayCIDR, NodeArchitecture: plan.NodeArchitecture,
-		Namespace: plan.Namespace, Release: plan.Release, InstallSequence: plan.InstallSequence, Values: plan.Values, Extended: plan.Extended,
+		Namespace: plan.Namespace, Release: plan.Release, InstallSequence: plan.InstallSequence, Values: plan.Values, PortForwarding: plan.PortForwarding,
 	}
 	data, _ := json.Marshal(payload)
 	return digestBytes(data)

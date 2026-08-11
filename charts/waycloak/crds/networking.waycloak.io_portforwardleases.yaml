@@ -179,7 +179,7 @@ spec:
               conditions:
                 description: |-
                   LeaseConditions adds the gateway-rule, delivery, and application
-                  acknowledgement observations required for Extended lease readiness.
+                  acknowledgement observations required for port-forward lease readiness.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

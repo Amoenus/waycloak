@@ -96,7 +96,7 @@
         }
       }
     },
-    "extended": {
+    "portForwarding": {
       "type": "object",
       "additionalProperties": false,
       "required": ["enabled", "controllerTLSSecret", "gatewayRuntime", "adapter"],
