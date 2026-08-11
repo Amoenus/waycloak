@@ -10,6 +10,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waybinding "github.com/Amoenus/waycloak/internal/binding"
+	wayconditions "github.com/Amoenus/waycloak/internal/conditions"
 	"github.com/Amoenus/waycloak/internal/enrollment"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -125,19 +126,60 @@ func TestPodBindingUpdatesOnlyCredentialFreeNetworkIntent(t *testing.T) {
 	}
 }
 
+func TestGatewayChangesEnqueueAffectedPodsAndBindings(t *testing.T) {
+	scheme := bindingTestScheme(t)
+	now := time.Unix(1500, 0).UTC()
+	pod, route, gateway := eligibleBindingObjects(now, "pod-uid")
+	binding := &wayv1.VPNWorkloadBinding{ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: pod.Namespace}, Spec: wayv1.VPNWorkloadBindingSpec{
+		GatewayRef: wayv1.NamespacedUIDReference{Namespace: wayv1.NamespaceName(gateway.Namespace), Name: wayv1.ObjectName(gateway.Name), UID: wayv1.ObjectUID(gateway.UID)},
+	}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, route, gateway, binding).
+		WithIndex(&corev1.Pod{}, podRouteIndex, func(object client.Object) []string {
+			if value := object.GetLabels()[enrollment.RouteLabel]; value != "" {
+				return []string{value}
+			}
+			return nil
+		}).
+		WithIndex(&wayv1.VPNEgressRoute{}, routeGatewayIndex, func(object client.Object) []string {
+			item := object.(*wayv1.VPNEgressRoute)
+			return []string{gatewayReferenceKey(string(item.Spec.ParentRefs[0].Namespace), string(item.Spec.ParentRefs[0].Name))}
+		}).
+		WithIndex(&wayv1.VPNWorkloadBinding{}, bindingGatewayIndex, func(object client.Object) []string {
+			item := object.(*wayv1.VPNWorkloadBinding)
+			return []string{gatewayReferenceKey(string(item.Spec.GatewayRef.Namespace), string(item.Spec.GatewayRef.Name))}
+		}).Build()
+
+	podRequests := (&PodBindingReconciler{Client: kube}).podsForGateway(context.Background(), gateway)
+	if len(podRequests) != 1 || podRequests[0].NamespacedName != client.ObjectKeyFromObject(pod) {
+		t.Fatalf("gateway Pod requests = %#v", podRequests)
+	}
+	bindingRequests := (&VPNWorkloadBindingReconciler{Client: kube}).bindingsForGateway(context.Background(), gateway)
+	if len(bindingRequests) != 1 || bindingRequests[0].NamespacedName != client.ObjectKeyFromObject(binding) {
+		t.Fatalf("gateway binding requests = %#v", bindingRequests)
+	}
+	unrelated := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: gateway.Namespace}}
+	if got := (&PodBindingReconciler{Client: kube}).podsForGateway(context.Background(), unrelated); len(got) != 0 {
+		t.Fatalf("unrelated gateway Pod requests = %#v", got)
+	}
+	if got := (&VPNWorkloadBindingReconciler{Client: kube}).bindingsForGateway(context.Background(), unrelated); len(got) != 0 {
+		t.Fatalf("unrelated gateway binding requests = %#v", got)
+	}
+}
+
 func TestBindingStatusSeparatesDesiredAppliedAndLive(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	binding := &wayv1.VPNWorkloadBinding{ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "apps", Generation: 7}, Spec: wayv1.VPNWorkloadBindingSpec{
 		PodRef: wayv1.LocalUIDReference{Name: "pod", UID: "pod-uid"}, GatewayRef: wayv1.NamespacedUIDReference{Namespace: "network", Name: "gateway", UID: "gateway-uid"}, NodeName: "node-a",
 	}}
 	reconciler := &VPNWorkloadBindingReconciler{Now: func() time.Time { return now }, ObservationTTL: 30 * time.Second}
-	status, _ := reconciler.desiredStatus(binding)
+	gatewayReady := readyBindingGatewayObservation()
+	status, _ := reconciler.desiredStatus(binding, gatewayReady)
 	if conditionStatus(status.Conditions, wayv1.ConditionProgrammed) != metav1.ConditionFalse || conditionStatus(status.Conditions, wayv1.ConditionReady) != metav1.ConditionUnknown {
 		t.Fatalf("desired-only status = %#v", status.Conditions)
 	}
 
 	binding.Status.AppliedGeneration = 6
-	status, _ = reconciler.desiredStatus(binding)
+	status, _ = reconciler.desiredStatus(binding, gatewayReady)
 	if apiMeta.FindStatusCondition(status.Conditions, wayv1.ConditionProgrammed).Reason != wayv1.ReasonStaleGeneration {
 		t.Fatalf("stale status = %#v", status.Conditions)
 	}
@@ -146,15 +188,54 @@ func TestBindingStatusSeparatesDesiredAppliedAndLive(t *testing.T) {
 	binding.Status.ObservedPodUID = "wrong-pod"
 	binding.Status.ObservedGatewayUID = "gateway-uid"
 	binding.Status.Agent = &wayv1.NodeAgentObservation{NodeName: "node-a", NodeBootID: "boot", InstanceID: "agent", ObservedAt: metav1.NewTime(now)}
-	status, _ = reconciler.desiredStatus(binding)
+	status, _ = reconciler.desiredStatus(binding, gatewayReady)
 	if conditionStatus(status.Conditions, wayv1.ConditionReady) != metav1.ConditionFalse {
 		t.Fatalf("identity mismatch status = %#v", status.Conditions)
 	}
 
 	binding.Status.ObservedPodUID = "pod-uid"
-	status, requeue := reconciler.desiredStatus(binding)
+	status, requeue := reconciler.desiredStatus(binding, gatewayReady)
 	if conditionStatus(status.Conditions, wayv1.ConditionProgrammed) != metav1.ConditionTrue || conditionStatus(status.Conditions, wayv1.ConditionReady) != metav1.ConditionTrue || requeue != 30*time.Second {
 		t.Fatalf("live status = %#v, requeue %s", status.Conditions, requeue)
+	}
+}
+
+func TestBindingStatusRequiresCurrentExactGatewayReadiness(t *testing.T) {
+	now := time.Unix(2500, 0).UTC()
+	binding := &wayv1.VPNWorkloadBinding{ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "apps", Generation: 7}, Spec: wayv1.VPNWorkloadBindingSpec{
+		PodRef: wayv1.LocalUIDReference{Name: "pod", UID: "pod-uid"}, GatewayRef: wayv1.NamespacedUIDReference{Namespace: "network", Name: "gateway", UID: "gateway-uid"}, NodeName: "node-a",
+		Network: wayv1.WorkloadNetworkIntent{GatewayGeneration: 3},
+	}, Status: wayv1.VPNWorkloadBindingStatus{
+		AppliedGeneration: 7, ObservedPodUID: "pod-uid", ObservedGatewayUID: "gateway-uid",
+		Agent: &wayv1.NodeAgentObservation{NodeName: "node-a", NodeBootID: "boot", InstanceID: "agent", ObservedAt: metav1.NewTime(now)},
+	}}
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid", Generation: 3}, Status: wayv1.VPNGatewayStatus{
+		ObservedGeneration: 3, Conditions: wayv1.GatewayConditions{trueCondition(wayv1.ConditionReady, 3, now)},
+	}}
+	kube := fake.NewClientBuilder().WithScheme(bindingTestScheme(t)).WithObjects(gateway).Build()
+	reconciler := &VPNWorkloadBindingReconciler{Client: kube, APIReader: kube, Now: func() time.Time { return now }, ObservationTTL: 30 * time.Second}
+
+	status, _ := reconciler.desiredStatus(binding, reconciler.observeGateway(context.Background(), binding))
+	if conditionStatus(status.Conditions, wayv1.ConditionReady) != metav1.ConditionTrue {
+		t.Fatalf("ready gateway status = %#v", status.Conditions)
+	}
+	gateway.Status.Conditions[0].Status = metav1.ConditionFalse
+	gateway.Status.Conditions[0].Reason = wayv1.ReasonNotReady
+	if err := kube.Update(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = reconciler.desiredStatus(binding, reconciler.observeGateway(context.Background(), binding))
+	if conditionStatus(status.Conditions, wayv1.ConditionReady) != metav1.ConditionFalse || conditionStatus(status.Conditions, wayv1.ConditionNodeReady) != metav1.ConditionTrue {
+		t.Fatalf("gateway-loss status = %#v", status.Conditions)
+	}
+
+	gateway.UID = "replacement-gateway-uid"
+	if err := kube.Update(context.Background(), gateway); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = reconciler.desiredStatus(binding, reconciler.observeGateway(context.Background(), binding))
+	if conditionStatus(status.Conditions, wayv1.ConditionResolvedRefs) != metav1.ConditionFalse || conditionStatus(status.Conditions, wayv1.ConditionReady) != metav1.ConditionFalse {
+		t.Fatalf("replacement gateway status = %#v", status.Conditions)
 	}
 }
 
@@ -215,6 +296,13 @@ func bindingTestScheme(t *testing.T) *runtime.Scheme {
 
 func trueCondition(conditionType string, generation int64, now time.Time) metav1.Condition {
 	return metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: wayv1.ReasonReady, ObservedGeneration: generation, LastTransitionTime: metav1.NewTime(now)}
+}
+
+func readyBindingGatewayObservation() bindingGatewayObservation {
+	return bindingGatewayObservation{
+		resolved: wayconditions.True(wayv1.ReasonResolvedRefs, "UID-bound references are resolved"),
+		ready:    wayconditions.True(wayv1.ReasonReady, "Referenced gateway live data plane is ready"),
+	}
 }
 func conditionStatus(conditions wayv1.BindingConditions, conditionType string) metav1.ConditionStatus {
 	condition := apiMeta.FindStatusCondition(conditions, conditionType)

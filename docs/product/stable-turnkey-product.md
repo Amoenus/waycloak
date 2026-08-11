@@ -1,7 +1,7 @@
 # Stable and turnkey Waycloak product requirements
 
 Status: Requirements accepted; replacement API frozen by issue #127
-Last updated: 2026-07-26
+Last updated: 2026-08-11
 Target: clean-break replacement architecture, then `v1` after beta evidence
 
 ## Product outcome
@@ -101,6 +101,9 @@ User-facing resources use `Accepted`, `ResolvedRefs`, `Programmed`, and `Ready`
 with current `observedGeneration`. `Ready` means live end-to-end data-plane
 health, not object creation or desired-state publication. Component conditions
 identify tunnel, DNS, membership, node, lease and application failures.
+`VPNWorkloadBinding Ready=True` additionally requires both a fresh exact
+node-agent observation and the referenced exact `VPNGateway` generation to be
+currently `Ready`; either observation regressing withdraws binding readiness.
 
 ### ST-FR-6: Capabilities and conformance
 
