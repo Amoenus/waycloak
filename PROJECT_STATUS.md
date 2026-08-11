@@ -20,7 +20,7 @@ and teardown input, not the stable API baseline.
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
-## Core.18 and Core.19 homelab release-transition evidence
+## Core.18 through Core.20 homelab release-transition evidence
 
 The signed `v0.0.0-core.18` CLI executed the supported journal-bound transition
 from exact Core.17 Helm revision 20 to staged and active Core.18 revisions 21
@@ -67,18 +67,44 @@ restart. Two samples observed gateway outage and 71 observed the replacement
 fully Ready. The current-generation class, gateway, route, and UID-bound binding
 then reported Ready; the amd64 host receipt identified the exact Core.19
 release manifest; and Argo CD converged Healthy/Synced while ignoring only
-Helm's two class-ownership annotations. Corrected forward transition and
-explicit real-provider activation evidence are complete; exact rollback and
-the remaining #140/#141 certification rows are not.
+Helm's two class-ownership annotations. At that Core.19 checkpoint, corrected
+forward transition and explicit real-provider activation evidence were
+complete; exact rollback and the remaining #140/#141 rows were not.
 
-The exact-rollback implementation slice now binds each controller-generated
+The exact-rollback implementation slice binds each controller-generated
 gateway Pod template to its signed release version and manifest digest. The
 turnkey lifecycle row deliberately reuses identical gateway engine and agent
 images across two different release manifests, proving `OnDelete` stages a
 distinct target identity while the live singleton retains its source identity
 until explicit activation. These controller-owned runtime annotations are
 rollout evidence only; they are not an alpha bridge or a user configuration API.
-Live Core.19-to-candidate rollback evidence remains pending publication.
+
+Core.20 published that implementation from commit
+`b8d6184be7a7583e48f5f6cc673ad7495044fe82`. Core release run `31476919613`
+and CLI release run `31476919685` independently verified the signed
+multi-platform images, chart, CLI, SBOMs, provenance, checksums, and canonical
+release manifest
+`sha256:3eb8e71ce1563bef8c085bc29cd5ff1c6eda8fc261a9810ccc037905a34e15a3`.
+
+The real-provider homelab then completed an exact
+Core.19-to-Core.20-to-Core.19-to-Core.20 sequence. Each signed release
+transaction retained the source gateway Pod while staging the target
+`OnDelete` revision. Explicit activations created fresh Pods on the reviewed
+target revisions. Across the completed recorded transition and activation
+monitors, qBittorrent kept one Pod UID with zero restarts and no protected
+observation matched ordinary egress. The final Core.20 activation recorded
+75/75 UI successes, 72 protected successes, and three fail-closed denials
+before the exact Core.20 gateway, current-generation conditions, signed doctor
+report, and Argo CD all converged Ready/Healthy/Synced.
+
+The Core.19 rollback activation had a materially slower availability recovery:
+only 25 of 75 protected probes succeeded while 50 remained denied. A later
+ten-sample check succeeded nine times, and the final Core.20 activation
+recovered after only three denials. Node-agent verification timeouts and brief
+gateway engine-health failures were recorded without a direct-egress match.
+Issue #116 therefore remains the sustained real-provider churn investigation;
+this lifecycle evidence does not claim an unexplained-outage-free soak or close
+#140/#141.
 
 ## Clean-break implementation progress
 
@@ -224,18 +250,16 @@ separate immutable-digest WorkloadAdapter path verifies one exact
 credential-free Pod and supports a qBittorrent-specific declared
 provider-assigned application-port capability without changing Service routing
 or adding an application sidecar. Unit, Kubernetes 1.36 envtest, exact mTLS,
-restart, and privileged TCP/UDP namespace handoff tests pass locally. Kind and
-real-provider rolling-replacement evidence are still required before the
-Extended capability can be advertised or #137 can close.
-
-The next #137 publication slice adds the existing gateway-runtime and
-qBittorrent-adapter binaries as one complete, known optional pair in the exact
-release inventory. Both are repeat-built for Linux amd64/arm64 and pass the
-same digest, vulnerability, SPDX, signature, provenance, and independent
-redownload gates as Core images. Prior six-image Core manifests remain valid
-for rollback, while partial or unknown optional inventories are rejected.
-Artifact availability does not enable the chart, change the default class
-feature set, or claim Extended conformance.
+restart, and privileged TCP/UDP namespace handoff tests pass. PR #199 published
+the gateway runtime and qBittorrent adapter as one complete known optional pair
+in the exact release inventory. Both are repeat-built for Linux amd64/arm64 and
+pass the same digest, vulnerability, SPDX, signature, provenance, and
+independent redownload gates as Core images. Prior six-image Core manifests
+remain valid for rollback, while partial or unknown optional inventories are
+rejected. Artifact availability does not enable the chart, change the default
+class feature set, or claim Extended conformance. #137 remains open for
+confirmation-gated deployment and the real-provider SingleActive rolling
+handoff proof with zero wrong-Pod delivery and zero ordinary-egress fallback.
 
 Issue #138 is in progress on the turnkey bootstrap slice. `waycloakctl` now
 implements read-only cluster preflight, exact release-manifest install planning,

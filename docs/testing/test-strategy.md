@@ -202,6 +202,18 @@ The staged template must also carry the exact target release version and
 manifest digest as controller-owned runtime annotations while the live Pod keeps
 its source annotations. This makes forward and rollback identity observable
 even when an unchanged gateway binary is reused by both signed manifests.
+Real-provider certification repeats that full sequence in the forward,
+rollback, and final-forward directions. It samples application availability,
+protected egress, ordinary-egress identity, gateway and workload Pod UIDs,
+container restarts, target revision, and current-generation conditions across
+both the signed transaction and explicit activation. A denied protected probe
+is acceptable only as fail-closed availability loss; a direct-egress match is
+an immediate release failure. Recovery duration and every gateway/node-agent
+health transition remain evidence even when the final state is Ready. Core.20's
+first amd64 K3s/Flannel row passed the no-leak and exact-identity requirements,
+but the slower Core.19 rollback recovery remains open under #116 and cannot be
+discarded merely because the final forward activation recovered quickly.
+
 Before each supported forward and rollback transaction, the suite attempts the
 same changed release through raw Helm. Connected rendering must refuse it with
 the original class UID, deployed Helm revision, controller/CNI/node images, and
