@@ -261,7 +261,7 @@ class feature set, or claim Extended conformance. #137 remains open for
 confirmation-gated deployment and the real-provider SingleActive rolling
 handoff proof with zero wrong-Pod delivery and zero ordinary-egress fallback.
 
-The next focused #137 slice adds that deployment boundary without changing the
+The focused #137 deployment-boundary slice adds it without changing the
 default Core surface. Complete Extended chart configuration requires an exact
 gateway-runtime digest and a named pre-created controller mTLS Secret; partial
 configuration is rejected during rendering. Only a gateway that explicitly
