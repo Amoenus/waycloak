@@ -284,7 +284,7 @@ route = networking.VPNEgressRoute {
 EOF
 retry_bounded_to_file "KCL module consumer render" "$work_dir/kcl-consumer.yaml" \
   kcl run "$kcl_consumer/consumer"
-grep -q '^apiVersion: networking.waycloak.io/v1beta1$' "$work_dir/kcl-consumer.yaml"
+grep -q '^  apiVersion: networking.waycloak.io/v1beta1$' "$work_dir/kcl-consumer.yaml"
 grep -q '^  kind: VPNEgressRoute$' "$work_dir/kcl-consumer.yaml"
 
 while read -r artifact; do
