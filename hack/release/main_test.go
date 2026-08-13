@@ -37,7 +37,7 @@ func TestRunProducesDeterministicLoadableManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 8 || manifest.ManifestDigest == "" {
+	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 8 || manifest.KCL == nil || manifest.ManifestDigest == "" {
 		t.Fatalf("unexpected generated manifest: %#v", manifest)
 	}
 }
@@ -49,11 +49,13 @@ func TestRunRejectsMissingExtraDuplicateAndMutableIdentities(t *testing.T) {
 		wanted    string
 	}{
 		{name: "missing", arguments: withoutImage(validArguments(), "pause"), wanted: "complete Waycloak artifact set"},
+		{name: "missing KCL", arguments: replaceArgument(validArguments(), "--kcl", ""), wanted: "KCL module identity"},
 		{name: "six image preview", arguments: withoutImage(withoutImage(validArguments(), "waycloak-gateway-runtime"), "waycloak-qbittorrent-adapter"), wanted: "complete Waycloak artifact set"},
 		{name: "partial port forwarding", arguments: withoutImage(validArguments(), "waycloak-qbittorrent-adapter"), wanted: "complete Waycloak artifact set"},
 		{name: "extra", arguments: append(validArguments(), "--image", exactImage("other", "other", "9")), wanted: "complete Waycloak artifact set"},
 		{name: "duplicate", arguments: append(validArguments(), "--image", exactImage("pause", "pause-copy", "9")), wanted: "duplicated"},
 		{name: "tag", arguments: replaceArgument(validArguments(), "--chart", "oci://registry.invalid/charts/waycloak:v1"), wanted: "repository@sha256"},
+		{name: "KCL tag", arguments: replaceArgument(validArguments(), "--kcl", "oci://registry.invalid/waycloak-kcl:v1"), wanted: "repository@sha256"},
 		{name: "uppercase", arguments: replaceArgument(validArguments(), "--chart", "oci://registry.invalid/charts/waycloak@sha256:"+strings.Repeat("A", 64)), wanted: "lowercase"},
 	}
 	for _, test := range tests {
@@ -69,6 +71,7 @@ func validArguments() []string {
 	return []string{
 		"--version", "v1.0.0-beta.1",
 		"--chart", exactArtifact("oci://registry.invalid/charts/waycloak", "a"),
+		"--kcl", exactArtifact("oci://registry.invalid/waycloak-kcl", "9"),
 		"--image", exactImage("replacement-controller", "replacement-controller", "b"),
 		"--image", exactImage("waycloak-cni", "waycloak-cni", "c"),
 		"--image", exactImage("waycloak-node-agent", "waycloak-node-agent", "d"),

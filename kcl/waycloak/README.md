@@ -9,9 +9,18 @@ The package contains schemas for `VPNGatewayClass`, `VPNGateway`,
 `WorkloadAdapter`. `VPNWorkloadBinding` is controller-authored and is included
 for validation and tooling, not as a user manifest surface.
 
-Use the examples as API-only authoring references. This #128 intermediate does
-not install a controller or data plane and must not be used to start enrolled
-workloads. Pod enrollment is exactly one same-namespace route label:
+The release publishes this package both as a downloadable archive and as the
+signed OCI module `oci://ghcr.io/amoenus/waycloak-kcl`. Select the same immutable
+version as the Waycloak release and verify its digest through
+`release-manifest.json` or `waycloak-kcl.ref`:
+
+```sh
+kcl run oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.1 -S items
+```
+
+Use the examples as authoring references after the complete Helm/CLI
+installation is healthy. This package does not install a controller or data
+plane. Pod enrollment is exactly one same-namespace route label:
 
 ```yaml
 networking.waycloak.io/egress-route: private

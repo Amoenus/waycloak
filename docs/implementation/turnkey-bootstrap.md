@@ -11,7 +11,8 @@ outputs use `cli.waycloak.io/v1`.
 ## Artifact verification
 
 Download one immutable `waycloakctl-<os>-<arch>` binary together with
-`SHA256SUMS`, `SHA256SUMS.sigstore.json`, and `waycloakctl.spdx.json` from the
+`waycloakctl-SHA256SUMS`, `waycloakctl-SHA256SUMS.sigstore.json`, and
+`waycloakctl.spdx.json` from the
 same release. Verify the checksum and keyless Sigstore bundle before running
 the binary. The release workflow builds each supported binary twice, compares
 the outputs, publishes an SPDX SBOM, and records GitHub build provenance.
@@ -25,10 +26,10 @@ An operator can independently repeat the important checks after downloading
 one release into an empty directory:
 
 ```text
-sha256sum --check SHA256SUMS
-cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+sha256sum --check waycloakctl-SHA256SUMS
+cosign verify-blob --bundle waycloakctl-SHA256SUMS.sigstore.json \
   --certificate-identity https://github.com/Amoenus/waycloak/.github/workflows/waycloakctl-release.yaml@refs/tags/<tag> \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com waycloakctl-SHA256SUMS
 cosign verify-blob --bundle waycloakctl.spdx.sigstore.json \
   --certificate-identity https://github.com/Amoenus/waycloak/.github/workflows/waycloakctl-release.yaml@refs/tags/<tag> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com waycloakctl.spdx.json

@@ -30,6 +30,8 @@ jobs:
       gateway_runtime_repository: ${{ steps.publish-images.outputs.gateway_runtime_repository }}
       gluetun_digest: ${{ steps.publish-gluetun.outputs.digest }}
       gluetun_repository: ${{ steps.publish-gluetun.outputs.repository }}
+      kcl_digest: ${{ steps.publish-kcl.outputs.digest }}
+      kcl_repository: ${{ steps.publish-kcl.outputs.repository }}
       node_agent_digest: ${{ steps.publish-images.outputs.node_agent_digest }}
       node_agent_repository: ${{ steps.publish-images.outputs.node_agent_repository }}
       replacement_controller_digest: ${{ steps.publish-images.outputs.replacement_controller_digest }}
@@ -61,6 +63,8 @@ jobs:
           version: v4.2.1
       - name: Install checksummed security tools
         run: bash hack/install-security-tools.sh
+      - name: Install checksummed KCL CLI
+        run: bash hack/install-kcl.sh
       - name: Install upstream privileged test dependencies
         run: |
           sudo apt-get update
@@ -233,6 +237,46 @@ jobs:
             printf 'digest=%s\n' "$digest"
             printf 'package=%s\n' "dist/release/waycloak-$release_version.tgz"
           } >>"$GITHUB_OUTPUT"
+      - name: Reproducibly package and publish the KCL OCI module
+        id: publish-kcl
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          release_version="${RELEASE_TAG#v}"
+          repository="ghcr.io/amoenus/waycloak-kcl"
+          for build in first second; do
+            cp -R kcl/waycloak "$RUNNER_TEMP/kcl-$build"
+            sed -i -E 's/^version = "[^"]+"$/version = "'"$release_version"'"/' \
+              "$RUNNER_TEMP/kcl-$build/kcl.mod"
+            find "$RUNNER_TEMP/kcl-$build" -type f \
+              -exec touch --date='2000-01-01T00:00:00Z' {} +
+            mkdir -p "$RUNNER_TEMP/kcl-package-$build"
+            (cd "$RUNNER_TEMP/kcl-$build" && \
+              kcl mod pkg --target "$RUNNER_TEMP/kcl-package-$build")
+          done
+          first_package="$RUNNER_TEMP/kcl-package-first/waycloak_${release_version}.tar"
+          second_package="$RUNNER_TEMP/kcl-package-second/waycloak_${release_version}.tar"
+          cmp "$first_package" "$second_package"
+          kcl run "$RUNNER_TEMP/kcl-first/examples/private-egress.k" -S items \
+            >"$RUNNER_TEMP/kcl-example.yaml"
+          test "$(grep -c '^kind: VPNEgressRoute$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
+          test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
+          trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            "$RUNNER_TEMP/kcl-first"
+          (cd "$RUNNER_TEMP/kcl-first" && kcl mod push "oci://$repository")
+          digest="$(go run github.com/google/go-containerregistry/cmd/crane@v0.20.6 \
+            digest "$repository:$release_version")"
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "KCL did not return an exact module digest" >&2
+            exit 1
+          fi
+          printf 'oci://%s@%s\n' "$repository" "$digest" >dist/release/waycloak-kcl.ref
+          cp "$first_package" "dist/release/waycloak-kcl-${RELEASE_TAG}.tar"
+          {
+            printf 'repository=%s\n' "$repository"
+            printf 'digest=%s\n' "$digest"
+          } >>"$GITHUB_OUTPUT"
       - name: Generate replacement-controller SPDX SBOM
         uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
         with:
@@ -297,6 +341,14 @@ jobs:
           output-file: dist/release/waycloak-chart.spdx.json
           upload-artifact: false
           upload-release-assets: false
+      - name: Generate KCL module SPDX SBOM
+        uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
+        with:
+          file: dist/release/waycloak-kcl-${{ github.ref_name }}.tar
+          format: spdx-json
+          output-file: dist/release/waycloak-kcl.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - name: Enforce the release vulnerability policy
         run: |
           while read -r reference; do
@@ -312,6 +364,7 @@ jobs:
           go run ./hack/release \
             --version "$RELEASE_TAG" \
             --chart "$(cat dist/release/waycloak-chart.ref)" \
+            --kcl "$(cat dist/release/waycloak-kcl.ref)" \
             --image "replacement-controller=$(cat dist/release/replacement-controller.ref)" \
             --image "waycloak-cni=$(cat dist/release/waycloak-cni.ref)" \
             --image "waycloak-node-agent=$(cat dist/release/waycloak-node-agent.ref)" \
@@ -338,6 +391,8 @@ jobs:
 
           chart_reference="$(sed 's|^oci://||' dist/release/waycloak-chart.ref)"
           sign_image "$chart_reference" dist/release/waycloak-chart.spdx.json
+          kcl_reference="$(sed 's|^oci://||' dist/release/waycloak-kcl.ref)"
+          sign_image "$kcl_reference" dist/release/waycloak-kcl.spdx.json
           bash hack/cosign-retry.sh sign-blob --yes \
             --bundle dist/release/release-manifest.sigstore.json \
             dist/release/release-manifest.json
@@ -395,6 +450,12 @@ jobs:
           subject-name: ${{ steps.publish-chart.outputs.repository }}
           subject-digest: ${{ steps.publish-chart.outputs.digest }}
           push-to-registry: true
+      - name: Attest KCL module provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: ${{ steps.publish-kcl.outputs.repository }}
+          subject-digest: ${{ steps.publish-kcl.outputs.digest }}
+          push-to-registry: true
       - name: Attest downloadable Waycloak artifacts
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
@@ -427,6 +488,8 @@ jobs:
           cache: true
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Install checksummed KCL CLI
+        run: bash hack/install-kcl.sh
       - name: Install pinned registry verifier
         env:
           GOBIN: ${{ runner.temp }}/bin

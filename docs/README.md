@@ -1,14 +1,24 @@
 # Waycloak documentation
 
-## Replacement authority
+## Product documentation
 
-1. [Stable and turnkey product requirements](product/stable-turnkey-product.md)
-2. [Kubernetes API maturity and target architecture](architecture/kubernetes-api-maturity.md)
-3. [Replacement API proposal](api/replacement-api-proposal.md)
-4. [Dependency-ordered stable product plan](implementation/stable-product-plan.md)
-5. [Threat model](security/threat-model.md)
-6. [Test strategy](testing/test-strategy.md)
-7. [Replacement ADRs](decisions/README.md)
+1. [Getting started](getting-started.md)
+2. [Use cases](use-cases.md)
+3. [Configuration requirements](configuration.md)
+4. [Deployable resources and ownership](deployable-resources.md)
+5. [Generated v1beta1 API reference](api/v1beta1.md)
+6. [Architecture and ownership](concepts/architecture-and-ownership.md)
+7. [Threat model](security/threat-model.md)
+8. [Release-candidate notes](releases/v0.1.0-rc.1.md)
+
+## Design and implementation authority
+
+- [Stable and turnkey product requirements](product/stable-turnkey-product.md)
+- [Kubernetes API maturity and target architecture](architecture/kubernetes-api-maturity.md)
+- [Replacement API proposal](api/replacement-api-proposal.md)
+- [Dependency-ordered stable product plan](implementation/stable-product-plan.md)
+- [Test strategy](testing/test-strategy.md)
+- [Replacement ADRs](decisions/README.md)
 
 The implementation is a destructive clean break. There is no conversion, translation, imported runtime state, dual serving, deprecated alias, annotation bridge, or sidecar fallback.
 
@@ -27,4 +37,6 @@ The implementation is a destructive clean break. There is no conversion, transla
 
 The [alpha PRD](product/PRD.md), [alpha API contract](api/api-contract.md), older ADRs, research, provenance, and release-scope records describe the removed implementation or its teardown inputs. They are retained for evidence and are not product guidance.
 
-Install, upgrade, rollback, restore, destructive purge, and support-bundle instructions will be published by issues #138–#140 only after their executable workflows pass. Until then there is no supported turnkey install or destructive migration procedure.
+The signed RC has executable install, upgrade, rollback, repair, restore,
+destructive purge, doctor, verification, and support-bundle workflows. Stable
+graduation evidence remains separate from RC availability.
