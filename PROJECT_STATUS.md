@@ -49,6 +49,29 @@ Consumer-side verification repeated every OCI signature, attestation,
 provenance and platform check from downloaded release assets. This remains beta
 evidence, not stable graduation.
 
+The focused DNS-readiness correction is published as signed
+`v0.1.0-beta.3` from exact commit
+`7f1c39b75311b387ba667fb31e1f1e0ea14f7e4a`. Main CI run `31676446779`
+passed every substantive row. Runtime/chart run `31677523892` and CLI run
+`31677523895` each passed publication plus independent public-redownload
+verification for canonical manifest
+`sha256:3ba8b228175da8ca39d6eedf8dd61b5fde3465027c69d3fb4523bd854a82bff4`.
+Homelab GitOps PR `Amoenus/homelab#1578` and exact installer plan
+`sha256:b7499bed0c4199a89061a1f1c1045bb5064c0557cfd4f653ba426858e7f4a1cd`
+advanced beta.2 to beta.3 in 42.8 seconds. Argo CD is Healthy/Synced, the
+qBittorrent Pod retained its UID and zero restarts, and the replacement gateway
+runs the exact beta.3 engine and agent digests with both containers Ready and
+zero restarts. The transition-only diagnostics separated one 1.044-second
+Gluetun HTTP 500 recovery from DNS readiness. A later soak interval correctly
+withdrew fail-closed readiness after the cluster-name TCP and UDP probes each
+exhausted three one-second attempts. Kubernetes simultaneously marked the
+`raspberrypi` agent `NodeNotReady` for about 14 seconds and restarted its
+CoreDNS replica after slow local health checks and a liveness failure. This is
+genuine cluster-DNS/node loss, not the original ambiguous external-UDP
+observation and not a reason to weaken Waycloak readiness. Homelab issue #1580
+tracks the infrastructure blocker. The sustained DNS soak remains open and
+this is not stable graduation.
+
 ## First clean-break beta homelab canary
 
 The authorized homelab drill stopped the sole active protected workload,
