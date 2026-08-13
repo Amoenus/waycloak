@@ -22,6 +22,8 @@ const (
 	maximumDNSMessage            = 65535
 	maximumConcurrentDNSRequests = 128
 	dnsExchangeTimeout           = 3 * time.Second
+	dnsProbeAttemptTimeout       = time.Second
+	dnsProbeMaximumAttempts      = 3
 )
 
 type DNSProber interface {
@@ -129,7 +131,7 @@ func (proxy *DNSProxy) exchangeUDP(ctx context.Context, request []byte) ([]byte,
 		return nil, err
 	}
 	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(dnsExchangeTimeout))
+	setDNSDeadline(connection, ctx, dnsExchangeTimeout)
 	if _, err := connection.Write(request); err != nil {
 		return nil, err
 	}
@@ -161,7 +163,7 @@ func (proxy *DNSProxy) serveTCP(ctx context.Context) {
 		go func() {
 			defer func() { <-semaphore }()
 			defer client.Close()
-			_ = client.SetDeadline(time.Now().Add(dnsExchangeTimeout))
+			setDNSDeadline(client, ctx, dnsExchangeTimeout)
 			for {
 				request, err := readDNSFrame(client)
 				if err != nil {
@@ -186,7 +188,7 @@ func (proxy *DNSProxy) exchangeTCP(ctx context.Context, request []byte) ([]byte,
 		return nil, err
 	}
 	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(dnsExchangeTimeout))
+	setDNSDeadline(connection, ctx, dnsExchangeTimeout)
 	if err := writeDNSFrame(connection, request); err != nil {
 		return nil, err
 	}
@@ -254,34 +256,105 @@ func (proxy *DNSProxy) Probe(ctx context.Context) error {
 }
 
 func (proxy *DNSProxy) probe(ctx context.Context, network, name string, typeCode dnsmessage.Type) error {
+	started := time.Now()
 	request, identity, err := proxy.probeRequest(name, typeCode)
 	if err != nil {
-		return err
+		return dnsProbeFailure(network, name, typeCode, "request_build", started, "", err)
 	}
 	var response []byte
-	if network == "udp4" {
-		response, err = exchangeDNSUDP(ctx, dnsListenAddress(proxy.config), request)
-	} else {
-		response, err = exchangeDNSTCP(ctx, dnsListenAddress(proxy.config), request)
-	}
+	var attempts int
+	response, attempts, err = exchangeDNSProbe(ctx, network, dnsListenAddress(proxy.config), request)
 	if err != nil {
-		return fmt.Errorf("%s DNS probe %s: %w", network, name, err)
+		return dnsProbeFailure(network, name, typeCode, "exchange", started, "", fmt.Errorf("attempts=%d: %w", attempts, err))
 	}
 	header, err := validateDNSResponse(response, identity)
-	if err != nil || header.RCode != dnsmessage.RCodeSuccess {
-		return fmt.Errorf("%s DNS probe %s returned no compatible success", network, name)
+	if err != nil {
+		return dnsProbeFailure(network, name, typeCode, "response_validation", started, "", err)
+	}
+	if header.RCode != dnsmessage.RCodeSuccess {
+		return dnsProbeFailure(network, name, typeCode, "rcode", started, dnsRCodeName(header.RCode), nil)
 	}
 	if network == "udp4" && header.Truncated {
-		response, err = exchangeDNSTCP(ctx, dnsListenAddress(proxy.config), request)
+		response, attempts, err = exchangeDNSProbe(ctx, "tcp4", dnsListenAddress(proxy.config), request)
 		if err != nil {
-			return fmt.Errorf("TCP retry for truncated DNS probe %s: %w", name, err)
+			return dnsProbeFailure("tcp4", name, typeCode, "truncated_retry_exchange", started, "", fmt.Errorf("attempts=%d: %w", attempts, err))
 		}
 		header, err = validateDNSResponse(response, identity)
-		if err != nil || header.Truncated || header.RCode != dnsmessage.RCodeSuccess {
-			return fmt.Errorf("TCP retry for truncated DNS probe %s was incompatible", name)
+		if err != nil {
+			return dnsProbeFailure("tcp4", name, typeCode, "truncated_retry_validation", started, "", err)
+		}
+		if header.Truncated {
+			return dnsProbeFailure("tcp4", name, typeCode, "truncated_retry_validation", started, "", errors.New("response remained truncated"))
+		}
+		if header.RCode != dnsmessage.RCodeSuccess {
+			return dnsProbeFailure("tcp4", name, typeCode, "truncated_retry_rcode", started, dnsRCodeName(header.RCode), nil)
 		}
 	}
 	return nil
+}
+
+func exchangeDNSProbe(ctx context.Context, network, address string, request []byte) ([]byte, int, error) {
+	probeCtx, cancelProbe := context.WithTimeout(ctx, dnsExchangeTimeout)
+	defer cancelProbe()
+	var lastErr error
+	for attempt := 1; attempt <= dnsProbeMaximumAttempts; attempt++ {
+		attemptCtx, cancelAttempt := context.WithTimeout(probeCtx, dnsProbeAttemptTimeout)
+		var response []byte
+		if network == "udp4" {
+			response, lastErr = exchangeDNSUDP(attemptCtx, address, request)
+		} else {
+			response, lastErr = exchangeDNSTCP(attemptCtx, address, request)
+		}
+		cancelAttempt()
+		if lastErr == nil {
+			return response, attempt, nil
+		}
+		if probeCtx.Err() != nil {
+			return nil, attempt, lastErr
+		}
+	}
+	return nil, dnsProbeMaximumAttempts, lastErr
+}
+
+func dnsProbeFailure(network, name string, typeCode dnsmessage.Type, phase string, started time.Time, rcode string, err error) error {
+	message := fmt.Sprintf("dns_probe network=%s qname=%q qtype=%s phase=%s latency=%s", network, name, dnsTypeName(typeCode), phase, time.Since(started).Round(time.Microsecond))
+	if rcode != "" {
+		message += " rcode=" + rcode
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", message, err)
+	}
+	return errors.New(message)
+}
+
+func dnsTypeName(typeCode dnsmessage.Type) string {
+	switch typeCode {
+	case dnsmessage.TypeA:
+		return "A"
+	case dnsmessage.TypeAAAA:
+		return "AAAA"
+	default:
+		return fmt.Sprintf("TYPE%d", typeCode)
+	}
+}
+
+func dnsRCodeName(rcode dnsmessage.RCode) string {
+	switch rcode {
+	case dnsmessage.RCodeSuccess:
+		return "NoError"
+	case dnsmessage.RCodeFormatError:
+		return "FormErr"
+	case dnsmessage.RCodeServerFailure:
+		return "ServFail"
+	case dnsmessage.RCodeNameError:
+		return "NXDomain"
+	case dnsmessage.RCodeNotImplemented:
+		return "NotImp"
+	case dnsmessage.RCodeRefused:
+		return "Refused"
+	default:
+		return fmt.Sprintf("RCODE%d", rcode)
+	}
 }
 
 func (proxy *DNSProxy) probeRequest(name string, typeCode dnsmessage.Type) ([]byte, dnsIdentity, error) {
@@ -316,7 +389,7 @@ func exchangeDNSUDP(ctx context.Context, address string, request []byte) ([]byte
 		return nil, err
 	}
 	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(dnsExchangeTimeout))
+	setDNSDeadline(connection, ctx, dnsExchangeTimeout)
 	if _, err := connection.Write(request); err != nil {
 		return nil, err
 	}
@@ -331,9 +404,17 @@ func exchangeDNSTCP(ctx context.Context, address string, request []byte) ([]byte
 		return nil, err
 	}
 	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(dnsExchangeTimeout))
+	setDNSDeadline(connection, ctx, dnsExchangeTimeout)
 	if err := writeDNSFrame(connection, request); err != nil {
 		return nil, err
 	}
 	return readDNSFrame(connection)
+}
+
+func setDNSDeadline(connection net.Conn, ctx context.Context, maximum time.Duration) {
+	deadline := time.Now().Add(maximum)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	_ = connection.SetDeadline(deadline)
 }

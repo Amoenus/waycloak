@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/Amoenus/waycloak/internal/provider"
 )
@@ -114,6 +115,19 @@ func TestReconcileErrorReportingOnlyReportsTransitions(t *testing.T) {
 	_ = service.reportReconcileError(errors.New("tunnel down"), previous)
 	if len(reported) != 2 || reported[0] != "tunnel down" || reported[1] != "tunnel down" {
 		t.Fatalf("reported transitions = %#v", reported)
+	}
+}
+
+func TestReconcileRecoveryReportsPreviousFailureAndDuration(t *testing.T) {
+	var previous string
+	var unavailableFor time.Duration
+	service := &Service{ReconcileRecoveryHook: func(value string, duration time.Duration) {
+		previous = value
+		unavailableFor = duration
+	}}
+	service.reportReconcileRecovery("dns unavailable", time.Now().Add(-20*time.Millisecond))
+	if previous != "dns unavailable" || unavailableFor < 20*time.Millisecond {
+		t.Fatalf("recovery transition = %q after %s", previous, unavailableFor)
 	}
 }
 
