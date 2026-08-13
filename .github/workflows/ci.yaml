@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GOTOOLCHAIN: go1.26.6+auto
+
 jobs:
   classify:
     runs-on: ubuntu-24.04

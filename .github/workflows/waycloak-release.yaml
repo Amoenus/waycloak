@@ -11,6 +11,9 @@ concurrency:
   group: waycloak-release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  GOTOOLCHAIN: go1.26.6+auto
+
 jobs:
   publish:
     if: github.repository == 'Amoenus/waycloak'
