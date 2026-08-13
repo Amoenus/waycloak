@@ -12,8 +12,9 @@ receipt. RC.3 treats that state as recoverable only when the existing regular
 backup is byte-for-byte identical to the active unchained config. Any mismatch
 still fails before mutation. The frozen `v1beta1` API and RC.2 plugin contracts
 are unchanged. RC.3 runtime publication was blocked before signing by four new
-Go standard-library advisories affecting Go 1.26.5. RC.4 raises the build
-toolchain floor to fixed Go 1.26.6; no vulnerability exception was added.
+Go standard-library advisories affecting Go 1.26.5. RC.4 pins builds to fixed
+Go 1.26.6 through the toolchain directive while retaining a setup-compatible
+1.26.5 language floor; no vulnerability exception was added.
 
 ## Replacement architecture decision set
 
