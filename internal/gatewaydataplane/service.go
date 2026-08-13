@@ -26,14 +26,15 @@ type Engine interface {
 }
 
 type Service struct {
-	Config             Config
-	Backend            Backend
-	Engine             Engine
-	DNSProber          DNSProber
-	ReconcileErrorHook func(error)
-	healthy            atomic.Bool
-	tunnelReady        atomic.Bool
-	dnsReady           atomic.Bool
+	Config                Config
+	Backend               Backend
+	Engine                Engine
+	DNSProber             DNSProber
+	ReconcileErrorHook    func(error)
+	ReconcileRecoveryHook func(previousError string, unavailableFor time.Duration)
+	healthy               atomic.Bool
+	tunnelReady           atomic.Bool
+	dnsReady              atomic.Bool
 }
 
 type HealthStatus struct {
@@ -119,6 +120,7 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	lastReconcileError := ""
+	var unavailableSince time.Time
 	for {
 		reconcileCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := service.Reconcile(reconcileCtx)
@@ -126,7 +128,15 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		if err != nil && ctx.Err() == nil {
 			service.healthy.Store(false)
 		}
+		previousReconcileError := lastReconcileError
+		if err != nil && unavailableSince.IsZero() {
+			unavailableSince = time.Now()
+		}
 		lastReconcileError = service.reportReconcileError(err, lastReconcileError)
+		if err == nil && previousReconcileError != "" {
+			service.reportReconcileRecovery(previousReconcileError, unavailableSince)
+			unavailableSince = time.Time{}
+		}
 		select {
 		case <-ctx.Done():
 			_ = service.Backend.ReplaceRules(context.Background(), service.Config, false)
@@ -168,6 +178,12 @@ func (service *Service) reportReconcileError(err error, previous string) string 
 		service.ReconcileErrorHook(err)
 	}
 	return current
+}
+
+func (service *Service) reportReconcileRecovery(previous string, unavailableSince time.Time) {
+	if previous != "" && !unavailableSince.IsZero() && service.ReconcileRecoveryHook != nil {
+		service.ReconcileRecoveryHook(previous, time.Since(unavailableSince))
+	}
 }
 
 func dnsListenAddress(config Config) string {

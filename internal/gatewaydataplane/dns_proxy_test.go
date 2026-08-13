@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -102,6 +103,77 @@ func TestSplitDNSProxyPreservesProtocolAndContainsSearchQueries(t *testing.T) {
 	if !external.saw("udp4", "truncated.example.") || !external.saw("tcp4", "truncated.example.") {
 		t.Fatal("truncation did not produce one external TCP retry")
 	}
+
+	err = proxy.probe(ctx, "udp4", "servfail.example.", dnsmessage.TypeAAAA)
+	if err == nil {
+		t.Fatal("ServFail response was accepted")
+	}
+	for _, field := range []string{"network=udp4", "qtype=AAAA", "phase=rcode", "rcode=ServFail", "latency="} {
+		if !strings.Contains(err.Error(), field) {
+			t.Fatalf("RCode diagnostic %q does not contain %q", err, field)
+		}
+	}
+}
+
+func TestDNSProbeDiagnosticsDistinguishQueryTypeValidationRCodeAndLatency(t *testing.T) {
+	started := time.Now().Add(-25 * time.Millisecond)
+	validation := dnsProbeFailure("udp4", "example.com.", dnsmessage.TypeAAAA, "response_validation", started, "", errors.New("mismatched response"))
+	for _, field := range []string{"network=udp4", `qname="example.com."`, "qtype=AAAA", "phase=response_validation", "latency=", "mismatched response"} {
+		if !strings.Contains(validation.Error(), field) {
+			t.Fatalf("validation diagnostic %q does not contain %q", validation, field)
+		}
+	}
+	rcode := dnsProbeFailure("tcp4", "example.com.", dnsmessage.TypeA, "rcode", started, dnsRCodeName(dnsmessage.RCodeServerFailure), nil)
+	for _, field := range []string{"network=tcp4", "qtype=A", "phase=rcode", "rcode=ServFail", "latency="} {
+		if !strings.Contains(rcode.Error(), field) {
+			t.Fatalf("RCode diagnostic %q does not contain %q", rcode, field)
+		}
+	}
+}
+
+func TestDNSProbeRetriesTransientLossWithinOriginalDeadline(t *testing.T) {
+	upstream := startDNSFixture(t, false)
+	upstream.setDropUDP(1)
+	proxy := &DNSProxy{}
+	request, identity, err := proxy.probeRequest("example.com.", dnsmessage.TypeAAAA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	response, attempts, err := exchangeDNSProbe(context.Background(), "udp4", upstream.address.String(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if elapsed := time.Since(started); elapsed < dnsProbeAttemptTimeout || elapsed >= dnsExchangeTimeout {
+		t.Fatalf("transient-loss recovery took %s", elapsed)
+	}
+	if _, err := validateDNSResponse(response, identity); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDNSProbeFailsAfterBoundedAttempts(t *testing.T) {
+	upstream := startDNSFixture(t, false)
+	upstream.setDropUDP(dnsProbeMaximumAttempts)
+	proxy := &DNSProxy{}
+	request, _, err := proxy.probeRequest("example.com.", dnsmessage.TypeA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, attempts, err := exchangeDNSProbe(context.Background(), "udp4", upstream.address.String(), request)
+	if err == nil {
+		t.Fatal("sustained DNS loss was hidden")
+	}
+	if attempts != dnsProbeMaximumAttempts {
+		t.Fatalf("attempts = %d, want %d", attempts, dnsProbeMaximumAttempts)
+	}
+	if elapsed := time.Since(started); elapsed < dnsExchangeTimeout-100*time.Millisecond || elapsed > dnsExchangeTimeout+500*time.Millisecond {
+		t.Fatalf("sustained-loss deadline = %s", elapsed)
+	}
 }
 
 type dnsFixture struct {
@@ -110,6 +182,7 @@ type dnsFixture struct {
 	mu       sync.Mutex
 	queries  map[string]int
 	sawEDNS0 bool
+	dropUDP  int
 }
 
 func startDNSFixture(t *testing.T, large bool) *dnsFixture {
@@ -139,6 +212,15 @@ func (fixture *dnsFixture) serveUDP(listener net.PacketConn) {
 			return
 		}
 		request := append([]byte(nil), buffer[:count]...)
+		fixture.mu.Lock()
+		drop := fixture.dropUDP > 0
+		if drop {
+			fixture.dropUDP--
+		}
+		fixture.mu.Unlock()
+		if drop {
+			continue
+		}
 		response, err := fixture.response("udp4", request)
 		if err == nil {
 			_, _ = listener.WriteTo(response, peer)
@@ -181,6 +263,10 @@ func (fixture *dnsFixture) response(network string, request []byte) ([]byte, err
 	}
 	fixture.mu.Unlock()
 	response := dnsmessage.Message{Header: dnsmessage.Header{ID: query.ID, Response: true, RecursionDesired: query.RecursionDesired, RecursionAvailable: true}, Questions: query.Questions}
+	if name == "servfail.example." {
+		response.RCode = dnsmessage.RCodeServerFailure
+		return response.Pack()
+	}
 	if network == "udp4" && name == "truncated.example." {
 		response.Truncated = true
 		return response.Pack()
@@ -218,4 +304,10 @@ func (fixture *dnsFixture) edns() bool {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	return fixture.sawEDNS0
+}
+
+func (fixture *dnsFixture) setDropUDP(count int) {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.dropUDP = count
 }

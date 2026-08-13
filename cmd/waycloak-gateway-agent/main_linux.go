@@ -55,7 +55,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	service := &gatewaydataplane.Service{Config: gatewaydataplane.Config{GatewayUID: uid, OverlayCIDR: pool.Masked(), GatewayAddress: address, OverlayInterface: overlayInterface, UnderlayInterface: underlayInterface, TunnelInterface: tunnelInterface, DNSUpstream: upstream, ClusterDNSUpstream: clusterUpstream, ClusterDomain: clusterDomain, VXLANPort: uint16(vxlanPort), HealthPort: uint16(healthPort), VNI: uint32(vni), MTU: mtu}, Backend: gatewaydataplane.LinuxBackend{}, Engine: gluetun.New(), ReconcileErrorHook: func(err error) { log.Printf("gateway reconciliation remains fail closed: %v", err) }}
+	service := &gatewaydataplane.Service{Config: gatewaydataplane.Config{GatewayUID: uid, OverlayCIDR: pool.Masked(), GatewayAddress: address, OverlayInterface: overlayInterface, UnderlayInterface: underlayInterface, TunnelInterface: tunnelInterface, DNSUpstream: upstream, ClusterDNSUpstream: clusterUpstream, ClusterDomain: clusterDomain, VXLANPort: uint16(vxlanPort), HealthPort: uint16(healthPort), VNI: uint32(vni), MTU: mtu}, Backend: gatewaydataplane.LinuxBackend{}, Engine: gluetun.New(), ReconcileErrorHook: func(err error) {
+		log.Printf("gateway_reconcile_transition state=not_ready fail_closed=true error=%q", err)
+	}, ReconcileRecoveryHook: func(previousError string, unavailableFor time.Duration) {
+		log.Printf("gateway_reconcile_transition state=ready recovered=true unavailable_for=%s previous_error=%q", unavailableFor.Round(time.Millisecond), previousError)
+	}}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	if err := service.Run(ctx, interval); err != nil {
