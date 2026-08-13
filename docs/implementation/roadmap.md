@@ -9,7 +9,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-14):** `v0.1.0-rc.3` preserves the
+**Release-candidate checkpoint (2026-08-14):** `v0.1.0-rc.4` preserves the
 existing `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. It is a release
 candidate, not closure of #123, #138, #140, or #141 and not stable graduation.

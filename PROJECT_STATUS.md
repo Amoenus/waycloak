@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-13
 
-## v0.1.0-rc.3 CNI reinstall hotfix
+## v0.1.0-rc.4 CNI reinstall and toolchain hotfix
 
 The first homelab RC.2 transition remained fail closed because its active
 primary CNI conflist had already been restored while the valid preserved
@@ -11,7 +11,9 @@ recovery file before reinstalling the exact chained config, binary, and signed
 receipt. RC.3 treats that state as recoverable only when the existing regular
 backup is byte-for-byte identical to the active unchained config. Any mismatch
 still fails before mutation. The frozen `v1beta1` API and RC.2 plugin contracts
-are unchanged.
+are unchanged. RC.3 runtime publication was blocked before signing by four new
+Go standard-library advisories affecting Go 1.26.5. RC.4 raises the build
+toolchain floor to fixed Go 1.26.6; no vulnerability exception was added.
 
 ## Replacement architecture decision set
 
