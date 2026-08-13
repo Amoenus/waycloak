@@ -21,7 +21,7 @@ func TestGatewayRuntimeRequiresDrainBeforeSuccessorAndPreservesProviderIdentity(
 	driver := &managerDriver{now: now}
 	rules := &managerRules{}
 	delivery := &managerDelivery{}
-	manager := &GatewayRuntimeManager{Driver: driver, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid"}}
 	first := managerIntent("pod-a", 1)
 
@@ -54,7 +54,7 @@ func TestGatewayRuntimeRequiresDrainBeforeSuccessorAndPreservesProviderIdentity(
 func TestGatewayRuntimeCanReleaseAfterRestartFromDurableWithdrawalIdentity(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	driver := &managerDriver{now: now}
-	manager := &GatewayRuntimeManager{Driver: driver, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid"}}
 	intent := managerIntent("pod-a", 7)
 	withdrawal := WithdrawalIntent{APIVersion: RuntimeAPIVersion, LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID, GatewayUID: intent.GatewayUID, HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID,
@@ -69,7 +69,7 @@ func TestGatewayRuntimeDropsRulesWhenProviderObservationExpires(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	driver := &managerDriver{now: now}
 	rules := &managerRules{}
-	manager := &GatewayRuntimeManager{Driver: driver, Rules: rules, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid"}}
 	intent := managerIntent("pod-a", 1)
 	if _, err := manager.Reconcile(context.Background(), gateway, intent); err != nil {
@@ -89,7 +89,7 @@ func TestGatewayRuntimeDoesNotAuthorizeSuccessorUntilRulesAndDeliveryAreWithdraw
 	now := time.Unix(2000, 0).UTC()
 	rules := &managerRules{}
 	delivery := &managerDelivery{}
-	manager := &GatewayRuntimeManager{Driver: &managerDriver{now: now}, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: &managerDriver{now: now}, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
 	first := managerIntent("pod-a", 1)
 	if _, err := manager.Reconcile(context.Background(), gateway, first); err != nil {
@@ -120,7 +120,7 @@ func TestGatewayRuntimeDoesNotAuthorizeSuccessorUntilRulesAndDeliveryAreWithdraw
 
 func TestGatewayRuntimeTreatsProtocolOrderAsSetAndRejectsDuplicates(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
-	manager := &GatewayRuntimeManager{Driver: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
 	intent := managerIntent("pod-a", 1)
 	if _, err := manager.Reconcile(context.Background(), gateway, intent); err != nil {
@@ -140,7 +140,7 @@ func TestGatewayRuntimeEnforcesObservedProviderCapacityAndWithdrawsOnRegression(
 	now := time.Unix(2000, 0).UTC()
 	driver := &managerDriver{now: now}
 	rules := &managerRules{}
-	manager := &GatewayRuntimeManager{Driver: driver, Rules: rules, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
 	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
 	first := managerIntent("pod-a", 1)
 	if _, err := manager.Reconcile(context.Background(), gateway, first); err != nil {
@@ -172,7 +172,7 @@ func TestGatewayRuntimeUsesProviderPortForExplicitAdapterCapability(t *testing.T
 	driver := &managerDriver{now: now}
 	rules := &managerRules{}
 	delivery := &managerDelivery{}
-	manager := &GatewayRuntimeManager{Driver: driver, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
 	intent := managerIntent("pod-a", 1)
 	intent.AdapterName = "qbittorrent"
 	intent.ApplicationPortMode = ApplicationPortProviderAssigned

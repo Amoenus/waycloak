@@ -84,7 +84,7 @@ func (plan InstallPlan) validate() error {
 			return errors.New("install plan port-forward identity is inconsistent")
 		}
 		runtime, ok := plan.Target.Images["waycloak-gateway-runtime"]
-		expected := fmt.Sprintf("portForwarding:\n  enabled: true\n  controllerTLSSecret: %q\n  gatewayRuntime:\n    image:\n      repository: %q\n      digest: %q\n  adapter:\n    enabled: %t\n", plan.PortForwarding.ControllerTLSSecret, runtime.Repository, runtime.Digest, plan.PortForwarding.QBitTorrentAdapterEnabled)
+		expected := fmt.Sprintf("portForwarding:\n  enabled: true\n  controllerTLSSecret: %q\n  gatewayRuntime:\n    image:\n      repository: %q\n      digest: %q\n  adapter:\n    enabled: %t\n", plan.PortForwarding.ControllerTLSSecret, runtime.Repository, runtime.Digest, plan.PortForwarding.AdapterProtocolEnabled)
 		if !ok || !strings.Contains(plan.Values, expected) || plan.Source.State == installStateDeployed && plan.Source.ManifestDigest == plan.Target.ManifestDigest {
 			return errors.New("install plan port-forward configuration is not bound to a changed exact release")
 		}
@@ -241,7 +241,7 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		return fmt.Errorf("refusing mutation: --confirm must exactly equal %s", plan.PlanID)
 	}
 	if plan.PortForwarding != nil {
-		current, err := observePortForwardInstallIdentity(ctx, clients, plan.Namespace, plan.PortForwarding.ControllerTLSSecret, plan.PortForwarding.QBitTorrentAdapterEnabled)
+		current, err := observePortForwardInstallIdentity(ctx, clients, plan.Namespace, plan.PortForwarding.ControllerTLSSecret, plan.PortForwarding.AdapterProtocolEnabled)
 		if err != nil {
 			return fmt.Errorf("refusing mutation: re-observe port-forward controller TLS identity: %w", err)
 		}
@@ -291,8 +291,8 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	return applyInstallPlanAtCheckpoint(ctx, clients, runner, plan, targetCRDs, checkpoint)
 }
 
-func observePortForwardInstallIdentity(ctx context.Context, clients *Clients, namespace, name string, adapterEnabled bool) (PortForwardInstallIdentity, error) {
-	identity := PortForwardInstallIdentity{ControllerTLSSecret: name, QBitTorrentAdapterEnabled: adapterEnabled}
+func observePortForwardInstallIdentity(ctx context.Context, clients *Clients, namespace, name string, adapterProtocolEnabled bool) (PortForwardInstallIdentity, error) {
+	identity := PortForwardInstallIdentity{ControllerTLSSecret: name, AdapterProtocolEnabled: adapterProtocolEnabled}
 	secret, err := clients.Kubernetes.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return PortForwardInstallIdentity{}, err

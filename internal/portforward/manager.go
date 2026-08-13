@@ -40,10 +40,10 @@ type DeliveryBackend interface {
 // complete atomic gateway rule/delivery set, while the Kubernetes controller
 // remains the sole status writer.
 type GatewayRuntimeManager struct {
-	Driver   provider.PortForwardDriver
-	Rules    RuleBackend
-	Delivery DeliveryBackend
-	Now      func() time.Time
+	PortForward provider.PortForwardCapability
+	Rules       RuleBackend
+	Delivery    DeliveryBackend
+	Now         func() time.Time
 
 	mu     sync.Mutex
 	states map[wayv1.ObjectUID]runtimeState
@@ -63,8 +63,8 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 	if err := validateRuntimeIntent(gateway, intent); err != nil {
 		return Observation{}, err
 	}
-	if m.Driver == nil || m.Rules == nil || m.Delivery == nil {
-		return Observation{}, errors.New("provider, atomic rules, and delivery backends are required")
+	if m.PortForward == nil || m.Rules == nil || m.Delivery == nil {
+		return Observation{}, errors.New("engine port-forward capability, atomic rules, and delivery backends are required")
 	}
 	if m.states == nil {
 		m.states = map[wayv1.ObjectUID]runtimeState{}
@@ -81,7 +81,7 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 			return Observation{}, errors.New("successor target arrived before old rules were withdrawn")
 		}
 	}
-	capabilities, capabilityErr := m.Driver.ObserveCapabilities(ctx)
+	capabilities, capabilityErr := m.PortForward.ObserveCapabilities(ctx)
 	if capabilityErr != nil {
 		if !exists || previous.blocked || !previous.mapping.ExpiresAt.After(m.now()) {
 			return Observation{}, fmt.Errorf("observe provider capabilities: %w", capabilityErr)
@@ -100,7 +100,7 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 	if err != nil {
 		return Observation{}, err
 	}
-	providerLease, providerErr := m.Driver.EnsureLease(ctx, request)
+	providerLease, providerErr := m.PortForward.EnsureLease(ctx, request)
 	var mapping ProviderObservation
 	if providerErr == nil {
 		mapping = ProviderObservation{PublicAddress: providerLease.PublicAddress, PublicPort: providerLease.PublicPort, ExpiresAt: providerLease.ExpiresAt.UTC()}
@@ -218,10 +218,10 @@ func (m *GatewayRuntimeManager) Withdraw(ctx context.Context, gateway *wayv1.VPN
 		if requestErr != nil {
 			return m.withdrawalObservation(intent, false), requestErr
 		}
-		if m.Driver == nil {
-			return m.withdrawalObservation(intent, false), errors.New("provider driver is unavailable")
+		if m.PortForward == nil {
+			return m.withdrawalObservation(intent, false), errors.New("engine port-forward capability is unavailable")
 		}
-		if err := m.Driver.ReleaseLease(ctx, request); err != nil {
+		if err := m.PortForward.ReleaseLease(ctx, request); err != nil {
 			return m.withdrawalObservation(intent, false), err
 		}
 		delete(m.states, intent.LeaseUID)

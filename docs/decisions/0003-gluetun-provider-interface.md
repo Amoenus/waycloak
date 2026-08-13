@@ -3,6 +3,10 @@
 Status: Accepted
 Date: 2026-07-13
 
+Amended by [ADR 0043](0043-engine-capabilities-and-application-adapters.md),
+which fixes Gluetun as the VPN-provider boundary and treats direct
+provider-specific code only as a narrow engine-selected capability driver.
+
 ## Context
 
 Gluetun already implements many VPN-provider and protocol combinations and is proven in the originating deployment. Port-forward behavior, however, differs by provider and protocol, and a product API must not equate “VPN” with Proton/OpenVPN forever.

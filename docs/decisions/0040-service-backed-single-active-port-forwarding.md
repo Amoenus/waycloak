@@ -4,6 +4,10 @@ Status: Accepted by issue #137
 
 Date: 2026-07-28
 
+Amended by [ADR 0043](0043-engine-capabilities-and-application-adapters.md):
+the generic runtime consumes an engine-selected port-forward capability and
+does not select or import a VPN provider implementation directly.
+
 ## Context
 
 The replacement API needs a stable workload-owner surface for provider-assigned

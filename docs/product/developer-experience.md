@@ -11,3 +11,17 @@ supported release-candidate path documented in
 [Getting started](../getting-started.md). Stable graduation remains owned by
 issue #138 and requires its outstanding real-provider timing and certification
 evidence.
+
+Port forwarding is application-neutral by default: an owner selects a stable
+Service/backend port and Waycloak translates the changing public mapping at the
+gateway. Gluetun remains responsible for VPN-provider support; Waycloak selects
+a narrow engine capability only when the configured Gluetun provider and tunnel
+mode require an external mapping protocol. Most workloads therefore need no
+plugin or sidecar.
+
+If an application cannot consume the stable port through a standard protocol or
+neutral lease record, an integrator may supply an immutable, explicitly trusted
+`WorkloadAdapter`. The adapter owns only application configuration and
+generation acknowledgement. qBittorrent is the reference exception because it
+must update and reannounce its public listener when the provider-assigned port
+changes; it is not part of the generic install contract.

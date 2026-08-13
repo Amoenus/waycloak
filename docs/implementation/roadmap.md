@@ -16,6 +16,13 @@ candidate, not closure of #123, #138, #140, or #141 and not stable graduation.
 Outstanding soak, lifecycle, disaster-recovery, and real-provider evidence
 remains tracked below.
 
+**Extension-contract stabilization (2026-08-13):** ADR 0043 makes Gluetun the
+VPN-engine integration boundary, contains Proton NAT-PMP behind a
+Gluetun-selected port-forward capability, and makes application adapters an
+explicit last resort. The frozen `v1beta1` resources do not change. The generic
+runtime and installer no longer expose Proton- or qBittorrent-shaped activation
+flags; unsupported capability/configuration pairs fail before gateway mutation.
+
 - [x] #124 chained-CNI creation-time feasibility: merged in PR #143 with exact
   Kind, k3d and authorized homelab evidence.
 - [x] #125 node-agent threat model and authenticated local protocol: merged in

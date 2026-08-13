@@ -66,11 +66,11 @@ type InstallPlan struct {
 }
 
 type PortForwardInstallIdentity struct {
-	ControllerTLSSecret       string `json:"controllerTLSSecret"`
-	SecretUID                 string `json:"secretUID"`
-	CADigest                  string `json:"caDigest"`
-	CertificateDigest         string `json:"certificateDigest"`
-	QBitTorrentAdapterEnabled bool   `json:"qBittorrentAdapterEnabled"`
+	ControllerTLSSecret    string `json:"controllerTLSSecret"`
+	SecretUID              string `json:"secretUID"`
+	CADigest               string `json:"caDigest"`
+	CertificateDigest      string `json:"certificateDigest"`
+	AdapterProtocolEnabled bool   `json:"adapterProtocolEnabled"`
 }
 
 func (identity PortForwardInstallIdentity) validate() error {
@@ -292,7 +292,7 @@ defaultGatewayClass:
       digest: %q
   adapter:
     enabled: %t
-`, portForwarding.ControllerTLSSecret, runtime.Repository, runtime.Digest, portForwarding.QBitTorrentAdapterEnabled)
+`, portForwarding.ControllerTLSSecret, runtime.Repository, runtime.Digest, portForwarding.AdapterProtocolEnabled)
 	}
 	operation := installOperationTransition
 	if source.State == installStateAbsent {

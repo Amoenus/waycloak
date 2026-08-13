@@ -1,7 +1,7 @@
 # Stable and turnkey Waycloak product requirements
 
 Status: Requirements accepted; replacement API frozen by issue #127
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 Target: clean-break replacement architecture, then `v1` after beta evidence
 
 ## Product outcome
@@ -116,9 +116,13 @@ exact Kubernetes/CNI/runtime/kernel/architecture/provider matrix.
 
 ### ST-FR-7: Gateway and provider abstraction
 
-Provider-native configuration stays behind a gateway adapter boundary. The
-default class pins tested release-owned images. Credentials are referenced by
-the gateway and mounted only into its engine. Unsupported providers or features
+Provider-native configuration and ordinary provider support stay behind the
+Gluetun engine-adapter boundary. Waycloak does not reimplement Gluetun's VPN
+provider catalogue. Optional provider mechanisms are narrow engine capability
+drivers selected from observed compatible Gluetun configuration; they cannot
+own application delivery or the generic lease/data-plane lifecycle. The default
+class pins tested release-owned images. Credentials are referenced by the
+gateway and mounted only into its engine. Unsupported providers or features
 never fall back to a generic unverified path.
 
 ### ST-FR-8: Safe inbound forwarding
@@ -127,7 +131,11 @@ Port-forward provider mapping, gateway rules, backend identity, renewable
 delivery and application acknowledgement remain separate observed states. The
 stable target model should prefer a typed Kubernetes `Service` backend with an
 explicit single-active endpoint/handoff contract; no selector may choose a Pod
-nondeterministically.
+nondeterministically. A fixed application port with Waycloak-owned translation
+is the default and requires no application adapter. A `WorkloadAdapter` is an
+explicit last-resort compatibility mechanism only when an application must
+change or advertise a provider-assigned port through an application-specific
+API. Installing its artifact never activates it.
 
 ### ST-FR-9: Turnkey lifecycle
 

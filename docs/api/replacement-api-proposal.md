@@ -435,9 +435,13 @@ spec:
     port: web
   endpointPolicy: SingleActive
   protocols: [TCP, UDP]
-  applicationAdapterRef:
-    name: qbittorrent
 ```
+
+This default form keeps the application on one stable Service port. Waycloak
+owns provider-port translation, exact backend selection, gateway rules, return
+path, and withdrawal, so no application adapter is involved. An optional
+`applicationAdapterRef` is added only when application compatibility evidence
+shows that the application must change or advertise the provider-assigned port.
 
 `SingleActive` needs explicit readiness, deterministic endpoint choice, drain,
 handoff, UID identity and return-path proof. Until those semantics pass E2E
@@ -460,6 +464,13 @@ optional feature can be advertised.
 digest, supported application protocol/capability, and least-privilege delivery
 contract. The adapter receives lease data through a narrow renewable protocol,
 not Kubernetes or VPN credentials.
+
+It is a last-resort application compatibility contract, not the provider or VPN
+extension point. Ordinary VPN-provider support belongs to Gluetun. A narrow
+provider mapping implementation is selected behind the Gluetun engine adapter
+and owns acquisition, renewal, observation, and release only. The generic
+Waycloak runtime owns the rest of the lease and packet lifecycle. See
+[ADR 0043](../decisions/0043-engine-capabilities-and-application-adapters.md).
 
 The resource is namespaced so a namespace operator can authorize only local
 leases. `spec.image` is a full immutable OCI digest reference;

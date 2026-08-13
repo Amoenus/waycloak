@@ -162,6 +162,13 @@ kubectl --context "$KUBE_CONTEXT" -n media wait \
   --for=condition=Ready vpngateway/private --timeout=5m
 ```
 
+Gluetun owns VPN-provider support in this path; Waycloak does not require a
+provider plugin or application plugin for ordinary protected TCP, UDP, or DNS.
+Optional inbound port forwarding also uses a stable Service port without an
+application adapter by default. Select a `WorkloadAdapter` only when documented
+application behavior requires changing or advertising the provider-assigned
+port; qBittorrent is the reference exception.
+
 ## 4. Create a route and enroll a workload
 
 Create a same-namespace route:

@@ -1605,14 +1605,14 @@ apply_port_forward_capability() {
     --release "$release_name" \
     --enable-port-forwarding \
     --port-forward-controller-tls-secret waycloak-port-forward-controller-tls \
-    --enable-qbittorrent-adapter \
+    --enable-adapter-protocol \
     --output json >"$plan_path"
   plan_id="$(jq -r '.planID' "$plan_path")"
   secret_uid="$(kubectl get secret waycloak-port-forward-controller-tls --namespace "$system_namespace" -o jsonpath='{.metadata.uid}')"
   jq -e --arg uid "$secret_uid" '
     .operation == "ExactReleaseTransition" and
     .portForwarding.secretUID == $uid and
-    .portForwarding.qBittorrentAdapterEnabled == true and
+    .portForwarding.adapterProtocolEnabled == true and
     .metadata.optionalCapability == "networking.waycloak.io/PortForwardServiceSingleActive" and
     .targetRelease.profiles == ["networking.waycloak.io/Core-v1"] and
     (.valuesYAML | contains("conformanceProfile: \"networking.waycloak.io/Core-v1\"")) and
@@ -1643,7 +1643,7 @@ apply_port_forward_capability() {
     --release "$release_name" \
     --enable-port-forwarding \
     --port-forward-controller-tls-secret waycloak-port-forward-controller-tls \
-    --enable-qbittorrent-adapter \
+    --enable-adapter-protocol \
     --output json >"$rebound_plan_path"
   rebound_plan_id="$(jq -r '.planID' "$rebound_plan_path")"
   test "$rebound_plan_id" != "$plan_id"

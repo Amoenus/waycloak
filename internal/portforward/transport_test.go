@@ -32,7 +32,7 @@ import (
 func TestRuntimeHandlerUsesExactVersionedLeaseIdentity(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	handler := RuntimeHandler{GatewayUID: "gateway-uid", Manager: &GatewayRuntimeManager{
-		Driver: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now },
+		PortForward: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now },
 	}}
 	intent := managerIntent("pod-a", 1)
 	body, err := json.Marshal(intent)
@@ -144,7 +144,7 @@ func TestGatewayRuntimeMutualTLSAuthorizesOnlyExactControllerIdentity(t *testing
 	serverTLS.Certificates = []tls.Certificate{certificate}
 	now := time.Unix(2000, 0).UTC()
 	server := httptest.NewUnstartedServer(RuntimeHandler{GatewayUID: "gateway-uid", Manager: &GatewayRuntimeManager{
-		Driver: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now },
+		PortForward: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: &managerDelivery{}, Now: func() time.Time { return now },
 	}})
 	server.TLS = serverTLS
 	server.StartTLS()
