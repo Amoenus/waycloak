@@ -261,8 +261,31 @@ jq -e --arg version "${release_tag#v}" '
   .annotations["org.kcllang.package.version"] == $version
 ' "$work_dir/kcl.manifest.json" >/dev/null
 test "$(crane digest "${kcl_reference%@sha256:*}:${release_tag#v}")" = "${kcl_reference##*@}"
-retry_bounded_quiet "KCL module consumer render" kcl run \
-  "oci://${kcl_reference%@sha256:*}" --tag "${release_tag#v}"
+kcl_consumer="$work_dir/kcl-consumer"
+mkdir -p "$kcl_consumer"
+(cd "$kcl_consumer" && kcl mod init consumer >/dev/null)
+(cd "$kcl_consumer/consumer" && kcl mod add \
+  "oci://${kcl_reference%@sha256:*}" --tag "${release_tag#v}" >/dev/null)
+cat >"$kcl_consumer/consumer/main.k" <<'EOF'
+import waycloak.v1beta1 as networking
+
+route = networking.VPNEgressRoute {
+    metadata = {
+        name = "private"
+        namespace = "media"
+    }
+    spec.parentRefs = [{
+        group = "networking.waycloak.io"
+        kind = "VPNGateway"
+        name = "private"
+        namespace = "media"
+    }]
+}
+EOF
+retry_bounded_to_file "KCL module consumer render" "$work_dir/kcl-consumer.yaml" \
+  kcl run "$kcl_consumer/consumer"
+grep -q '^apiVersion: networking.waycloak.io/v1beta1$' "$work_dir/kcl-consumer.yaml"
+grep -q '^  kind: VPNEgressRoute$' "$work_dir/kcl-consumer.yaml"
 
 while read -r artifact; do
   retry_bounded_quiet "${artifact} GitHub provenance" gh attestation verify "$asset_dir/$artifact" \

@@ -234,15 +234,29 @@ All runtime images are multi-platform OCI indexes. Consume their immutable
 
 ## KCL consumption
 
-KCL is optional and has no runtime role. The RC publishes the generated module
-as signed OCI artifact `oci://ghcr.io/amoenus/waycloak-kcl:0.1.0-rc.1` and as
-the downloadable `waycloak-kcl-v0.1.0-rc.1.tar`. Verify its exact digest in
-`waycloak-kcl.ref`, then render an included example:
+KCL is optional and has no runtime role. The RC publishes the generated schema
+module as signed OCI artifact
+`oci://ghcr.io/amoenus/waycloak-kcl:0.1.0-rc.1` and as the downloadable
+`waycloak-kcl-v0.1.0-rc.1.tar`. Verify its exact digest in `waycloak-kcl.ref`.
+Add the OCI module to an existing KCL package, then import its schemas:
 
 ```sh
-kcl run oci://ghcr.io/amoenus/waycloak-kcl \
-  --tag 0.1.0-rc.1 \
-  -S items
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.1
+```
+
+```python
+import waycloak.v1beta1 as networking
+
+route = networking.VPNEgressRoute {
+    metadata = {name = "private", namespace = "media"}
+    spec.parentRefs = [{name = "private", namespace = "media"}]
+}
+```
+
+For a ready-to-render example, extract the downloadable module archive and run:
+
+```sh
+kcl run examples/private-egress.k -S items
 ```
 
 The module supplies schemas and authoring examples only. Install Waycloak with
