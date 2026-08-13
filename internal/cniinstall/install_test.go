@@ -66,6 +66,46 @@ func TestInstallRefusesAdoptionWithoutOriginalBackup(t *testing.T) {
 	}
 }
 
+func TestInstallReinstallsWhenPreservedOriginalMatchesActiveUnchainedConfig(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	config := filepath.Join(directory, "10-primary.conflist")
+	write(t, source, "binary-v1", 0o755)
+	original := "{\"cniVersion\":\"1.1.0\",\"name\":\"primary\",\"plugins\":[{\"type\":\"bridge\"}]}\n"
+	write(t, config, original, 0o644)
+	options := fixture(directory, source, config)
+	write(t, options.BackupPath, original, 0o600)
+	if err := Install(options); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := os.ReadFile(config)
+	if err != nil || strings.Count(string(installed), `"type": "waycloak-cni"`) != 1 {
+		t.Fatalf("Waycloak chain was not reinstalled exactly once: %v %s", err, installed)
+	}
+	backup, err := os.ReadFile(options.BackupPath)
+	if err != nil || string(backup) != original {
+		t.Fatalf("matching preserved original changed: %v %s", err, backup)
+	}
+}
+
+func TestInstallRefusesMismatchedPreservedOriginalForUnchainedConfig(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	config := filepath.Join(directory, "10-primary.conflist")
+	write(t, source, "binary-v1", 0o755)
+	original := "{\"cniVersion\":\"1.1.0\",\"name\":\"primary\",\"plugins\":[{\"type\":\"bridge\"}]}\n"
+	write(t, config, original, 0o644)
+	options := fixture(directory, source, config)
+	write(t, options.BackupPath, strings.Replace(original, "bridge", "flannel", 1), 0o600)
+	if err := Install(options); err == nil || !strings.Contains(err.Error(), "differs") {
+		t.Fatalf("mismatched preserved original was accepted: %v", err)
+	}
+	current, _ := os.ReadFile(config)
+	if string(current) != original {
+		t.Fatal("rejected reinstall modified the active config")
+	}
+}
+
 func TestInstallRefusesReceiptInAttachmentStateDirectory(t *testing.T) {
 	directory := t.TempDir()
 	source := filepath.Join(directory, "source")

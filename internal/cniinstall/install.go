@@ -54,8 +54,8 @@ func Install(options Options) error {
 		return err
 	}
 	if !alreadyInstalled {
-		if err := createExclusive(options.BackupPath, original, 0o600); err != nil {
-			return fmt.Errorf("preserve primary CNI conflist: %w", err)
+		if err := preserveOriginal(options.BackupPath, original); err != nil {
+			return err
 		}
 	} else {
 		backup, backupErr := readRegular(options.BackupPath, 1<<20)
@@ -93,6 +93,24 @@ func Install(options Options) error {
 		return fmt.Errorf("write CNI installation receipt: %w", err)
 	}
 	return nodeagent.ValidateCNIInstallation(options.ReceiptPath, options.BinaryPath, options.ConfigPath, options.ReleaseIdentity)
+}
+
+func preserveOriginal(backupPath string, original []byte) error {
+	err := createExclusive(backupPath, original, 0o600)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("preserve primary CNI conflist: %w", err)
+	}
+	backup, readErr := readRegular(backupPath, 1<<20)
+	if readErr != nil {
+		return fmt.Errorf("verify preserved primary CNI conflist: %w", readErr)
+	}
+	if !bytes.Equal(backup, original) {
+		return errors.New("preserved primary CNI conflist differs from the active unchained config")
+	}
+	return nil
 }
 
 func (options Options) validate() error {

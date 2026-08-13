@@ -2,6 +2,17 @@
 
 Last updated: 2026-08-13
 
+## v0.1.0-rc.3 CNI reinstall hotfix
+
+The first homelab RC.2 transition remained fail closed because its active
+primary CNI conflist had already been restored while the valid preserved
+`.waycloak-original` file remained. The installer rejected the existing
+recovery file before reinstalling the exact chained config, binary, and signed
+receipt. RC.3 treats that state as recoverable only when the existing regular
+backup is byte-for-byte identical to the active unchained config. Any mismatch
+still fails before mutation. The frozen `v1beta1` API and RC.2 plugin contracts
+are unchanged.
+
 ## Replacement architecture decision set
 
 The project now has a proposed clean-break stable/turnkey architecture in
