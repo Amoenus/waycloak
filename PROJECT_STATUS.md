@@ -20,17 +20,27 @@ and teardown input, not the stable API baseline.
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
-## v0.1.0-rc.1 preparation
+## v0.1.0-rc.1 publication
 
-`v0.1.0-rc.1` is the next publication target. It freezes the existing
+`v0.1.0-rc.1` is published as a signed prerelease from exact commit
+`aee6fbe315ba05f259d1575097d01aab58127ac1`. It freezes the existing
 `networking.waycloak.io/v1beta1` contract without changing the API version and
 documents one product, its supported use cases, configuration requirements,
-deployable resources, and fail-closed operating boundaries. The release
-publisher is being extended to ship a reproducible KCL OCI module alongside
-the signed, digest-pinned image inventory, Helm OCI chart, release manifest,
-CLI binaries, SBOMs, signatures, and provenance. Runtime and CLI checksum
-inventories use distinct asset names so both remain independently verifiable
-in the shared GitHub release.
+deployable resources, and fail-closed operating boundaries. Canonical manifest
+`sha256:eb7124723185a5cb3b035f499e01b982cb72ab2bb1009221921bcafb9f190bcb`
+binds the complete signed image inventory, Helm OCI chart, and KCL OCI schema
+module. The release also carries CLI binaries, downloadable chart and KCL
+archives, distinct runtime/CLI checksum inventories, SPDX SBOMs, signatures,
+and provenance.
+
+Exact-main CI run `31702064253` and CLI publication/redownload run
+`31703359738` passed. Runtime publication completed in run `31703359740`; its
+consumer job exposed only an incorrect assumption that the schema-only KCL
+module was a root executable. PRs #214 and #215 corrected dependency-based
+consumption. Read-only independent run `31706349134` then verified every
+published checksum, signature, SBOM attestation, provenance statement,
+platform index, Helm/KCL identity and tag digest, plus a real external KCL
+dependency render, without republishing or moving the tag.
 
 This RC designation does not waive stable-graduation gates. Multi-day soak,
 remaining real-provider and lifecycle evidence, dependency #32, and the final
