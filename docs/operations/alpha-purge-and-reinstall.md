@@ -1,7 +1,7 @@
 # Destructive alpha purge and clean replacement reinstall
 
-Status: executable planning/purge slice implemented; destructive drill pending
-Last updated: 2026-07-28
+Status: executable procedure and first real-cluster drill complete; repeatability evidence pending
+Last updated: 2026-08-13
 
 This is a one-way maintenance procedure, not migration. Do not translate,
 export/import, dual-serve, or reuse alpha allocations, leases, endpoints, or
@@ -104,3 +104,24 @@ remain quiesced. After purge, the preferred recovery is an exact supported
 replacement reinstall. Emergency alpha reinstallation uses only independently
 backed-up exact artifacts and source manifests, keeps protected workloads
 stopped, and never imports allocations or leases.
+
+## Recorded real-cluster drill
+
+The first authorized homelab execution completed on 2026-08-11. It stopped the
+sole protected qBittorrent workload while the old deny path remained, verified
+that no enrolled application Pod or process remained, enumerated the exact
+alpha runtime and API targets, uninstalled the runtime, and separately purged
+the CR instances, CRDs, and observation Secrets. The signed beta preflight and
+confirmation-bound clean install then completed in 20.3 seconds. GitOps
+re-authored the class, gateway, route, and workload from source intent; the new
+workload received fresh Pod and binding identities without importing an alpha
+allocation, lease, provider mapping, or runtime observation.
+
+Gateway-loss checks after reinstall recorded ten denied protected probes and
+zero ordinary-egress matches before recovery through replacement VPN egress.
+The disposable Kind purge-to-fresh-install drill remains the independent
+repeatability row. The homelab runtime uninstall took 301 seconds, so issue
+[#139](https://github.com/Amoenus/waycloak/issues/139) remains open until that
+bounded delay is explained and the evidence is accepted as a repeatable
+exact-artifact certification record; do not generalize one destructive success
+into a routine migration.
