@@ -150,10 +150,10 @@ jobs:
           done
       - name: Verify deterministic Waycloak release-manifest assembly
         run: |
-          for release_tag in v0.1.0-beta.1 v1.0.0; do
+          for release_tag in v0.1.0-beta.1 v0.1.0-rc.1 v1.0.0; do
             bash hack/validate-release-tag.sh "$release_tag"
           done
-          for release_tag in v0.0.0-core.20 v1.0.0-rc.1 v01.0.0 v1.0.0-beta.01 latest; do
+          for release_tag in v0.0.0-core.20 v01.0.0 v1.0.0-beta.01 v1.0.0-rc.01 latest; do
             if bash hack/validate-release-tag.sh "$release_tag"; then
               echo "invalid release tag was accepted: $release_tag" >&2
               exit 1
@@ -168,6 +168,7 @@ jobs:
           manifest_args=(
             --version v0.0.0-ci
             --chart "oci://registry.invalid/charts/waycloak@$digest_a"
+            --kcl "oci://registry.invalid/waycloak-kcl@$digest_f"
             --image "replacement-controller=registry.invalid/replacement-controller@$digest_b"
             --image "waycloak-cni=registry.invalid/waycloak-cni@$digest_c"
             --image "waycloak-node-agent=registry.invalid/waycloak-node-agent@$digest_d"
@@ -180,10 +181,11 @@ jobs:
           go run ./hack/release "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-1.json"
           go run ./hack/release "${manifest_args[@]}" >"$RUNNER_TEMP/release-manifest-2.json"
           cmp "$RUNNER_TEMP/release-manifest-1.json" "$RUNNER_TEMP/release-manifest-2.json"
-          jq -e '
+          jq -e --arg digest_f "$digest_f" '
             .apiVersion == "release.waycloak.io/v1" and
             .version == "v0.0.0-ci" and
             (.manifestDigest | test("^sha256:[a-f0-9]{64}$")) and
+            .kcl == {"repository":"oci://registry.invalid/waycloak-kcl","digest":$digest_f} and
             (.images | keys | sort == ["gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-node-agent", "waycloak-qbittorrent-adapter"])
           ' "$RUNNER_TEMP/release-manifest-1.json"
           bash hack/validate-release-inventory.sh "$RUNNER_TEMP/release-manifest-1.json"

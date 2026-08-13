@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 1 ]] || [[ ! "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]; then
-  echo "release tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-beta.NUMBER" >&2
+if [[ "$#" -ne 1 ]] || [[ ! "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+  echo "release tag must be vMAJOR.MINOR.PATCH, vMAJOR.MINOR.PATCH-beta.NUMBER, or vMAJOR.MINOR.PATCH-rc.NUMBER" >&2
   exit 1
 fi

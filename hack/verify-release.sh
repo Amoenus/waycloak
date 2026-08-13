@@ -17,6 +17,7 @@ readonly issuer="https://token.actions.githubusercontent.com"
 readonly identity="https://github.com/${repository}/.github/workflows/waycloak-release.yaml@refs/tags/${release_tag}"
 readonly signer_workflow="${repository}/.github/workflows/waycloak-release.yaml"
 readonly chart_archive="waycloak-${release_tag#v}.tgz"
+readonly kcl_archive="waycloak-kcl-${release_tag}.tar"
 readonly gluetun_upstream_commit="7eed6eaf160440724a93ca66f66055068cebe4ac"
 readonly gluetun_upstream_image="docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461"
 
@@ -107,7 +108,10 @@ expected_assets=(
   waycloak-qbittorrent-adapter.spdx.json
   waycloak-chart.ref
   waycloak-chart.spdx.json
+  waycloak-kcl.ref
+  waycloak-kcl.spdx.json
   "$chart_archive"
+  "$kcl_archive"
 )
 for artifact in "${expected_assets[@]}"; do
   test -f "$asset_dir/$artifact"
@@ -135,6 +139,8 @@ bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-inventory.sh" \
   "$asset_dir/release-manifest.json"
 test "$(jq -r '.chart.repository + "@" + .chart.digest' "$asset_dir/release-manifest.json")" = \
   "$(cat "$asset_dir/waycloak-chart.ref")"
+test "$(jq -r '.kcl.repository + "@" + .kcl.digest' "$asset_dir/release-manifest.json")" = \
+  "$(cat "$asset_dir/waycloak-kcl.ref")"
 
 image_ref_files=(
   gluetun.ref
@@ -228,6 +234,35 @@ retry_bounded_to_file "exact chart layer" "$work_dir/$chart_archive" \
 cmp "$asset_dir/$chart_archive" "$work_dir/$chart_archive"
 test "$(tar -tzf "$asset_dir/$chart_archive" | grep -Ec \
   '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpnegressroutes|vpngatewayclasses|vpngateways|vpnworkloadbindings|workloadadapters)\.yaml$')" -eq 6
+
+kcl_reference="$(sed 's|^oci://||' "$asset_dir/waycloak-kcl.ref")"
+retry_bounded_quiet "KCL module signature" cosign verify \
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  "$kcl_reference"
+retry_bounded_quiet "KCL module SPDX attestation" cosign verify-attestation \
+  --type spdxjson \
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  "$kcl_reference"
+retry_bounded_quiet "KCL module GitHub provenance" gh attestation verify "oci://$kcl_reference" \
+  --repo "$repository" \
+  --signer-workflow "$signer_workflow" \
+  --source-ref "refs/tags/${release_tag}" \
+  --source-digest "$source_sha" \
+  --deny-self-hosted-runners
+retry_bounded_to_file "KCL module manifest" "$work_dir/kcl.manifest.json" \
+  crane manifest "$kcl_reference"
+jq -e --arg version "${release_tag#v}" '
+  .schemaVersion == 2 and
+  .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+  .artifactType == "application/vnd.oci.image.layer.v1.tar" and
+  .annotations["org.kcllang.package.name"] == "waycloak" and
+  .annotations["org.kcllang.package.version"] == $version
+' "$work_dir/kcl.manifest.json" >/dev/null
+test "$(crane digest "${kcl_reference%@sha256:*}:${release_tag#v}")" = "${kcl_reference##*@}"
+retry_bounded_quiet "KCL module consumer render" kcl run \
+  "oci://${kcl_reference%@sha256:*}" --tag "${release_tag#v}"
 
 while read -r artifact; do
   retry_bounded_quiet "${artifact} GitHub provenance" gh attestation verify "$asset_dir/$artifact" \

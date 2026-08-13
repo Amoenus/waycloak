@@ -33,6 +33,7 @@ type ReleaseManifest struct {
 	Version        string              `json:"version"`
 	ManifestDigest string              `json:"manifestDigest"`
 	Chart          Artifact            `json:"chart"`
+	KCL            *Artifact           `json:"kcl,omitempty"`
 	Images         map[string]Artifact `json:"images"`
 	Profiles       []string            `json:"profiles"`
 }
@@ -146,6 +147,9 @@ func (manifest ReleaseManifest) Validate() error {
 	if manifest.Chart.Repository == "" || !validDigest(manifest.Chart.Digest) || strings.Contains(manifest.Chart.Repository, "@") {
 		return errors.New("release manifest lacks exact chart identity")
 	}
+	if manifest.KCL != nil && (manifest.KCL.Repository == "" || !validDigest(manifest.KCL.Digest) || strings.Contains(manifest.KCL.Repository, "@")) {
+		return errors.New("release manifest has invalid KCL module identity")
+	}
 	digest, err := manifest.IdentityDigest()
 	if err != nil {
 		return fmt.Errorf("compute release manifest identity: %w", err)
@@ -166,9 +170,10 @@ func (manifest ReleaseManifest) IdentityDigest() (string, error) {
 		APIVersion string              `json:"apiVersion"`
 		Version    string              `json:"version"`
 		Chart      Artifact            `json:"chart"`
+		KCL        *Artifact           `json:"kcl,omitempty"`
 		Images     map[string]Artifact `json:"images"`
 		Profiles   []string            `json:"profiles"`
-	}{APIVersion: manifest.APIVersion, Version: manifest.Version, Chart: manifest.Chart, Images: manifest.Images, Profiles: profiles}
+	}{APIVersion: manifest.APIVersion, Version: manifest.Version, Chart: manifest.Chart, KCL: manifest.KCL, Images: manifest.Images, Profiles: profiles}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

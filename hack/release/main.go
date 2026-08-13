@@ -37,10 +37,11 @@ func main() {
 func run(arguments []string, output io.Writer) error {
 	flags := flag.NewFlagSet("release", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var version, chartValue string
+	var version, chartValue, kclValue string
 	var imageValues, profiles repeatedFlag
 	flags.StringVar(&version, "version", "", "immutable release version")
 	flags.StringVar(&chartValue, "chart", "", "exact chart repository@sha256:digest")
+	flags.StringVar(&kclValue, "kcl", "", "exact KCL module repository@sha256:digest")
 	flags.Var(&imageValues, "image", "required name=repository@sha256:digest; repeat once per release image")
 	flags.Var(&profiles, "profile", "conformance profile; defaults to Core-v1")
 	if err := flags.Parse(arguments); err != nil {
@@ -52,6 +53,10 @@ func run(arguments []string, output io.Writer) error {
 	chart, err := parseArtifact(chartValue)
 	if err != nil {
 		return fmt.Errorf("chart identity: %w", err)
+	}
+	kcl, err := parseArtifact(kclValue)
+	if err != nil {
+		return fmt.Errorf("KCL module identity: %w", err)
 	}
 	images := make(map[string]waycloakctl.Artifact, len(imageValues))
 	for _, value := range imageValues {
@@ -74,7 +79,7 @@ func run(arguments []string, output io.Writer) error {
 	sort.Strings(profiles)
 	manifest := waycloakctl.ReleaseManifest{
 		APIVersion: "release.waycloak.io/v1", Version: version,
-		Chart: chart, Images: images, Profiles: profiles,
+		Chart: chart, KCL: &kcl, Images: images, Profiles: profiles,
 	}
 	manifest.ManifestDigest, err = manifest.IdentityDigest()
 	if err != nil {

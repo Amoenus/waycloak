@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 
 ## Replacement architecture decision set
 
@@ -19,6 +19,23 @@ and teardown input, not the stable API baseline.
 
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
+
+## v0.1.0-rc.1 preparation
+
+`v0.1.0-rc.1` is the next publication target. It freezes the existing
+`networking.waycloak.io/v1beta1` contract without changing the API version and
+documents one product, its supported use cases, configuration requirements,
+deployable resources, and fail-closed operating boundaries. The release
+publisher is being extended to ship a reproducible KCL OCI module alongside
+the signed, digest-pinned image inventory, Helm OCI chart, release manifest,
+CLI binaries, SBOMs, signatures, and provenance. Runtime and CLI checksum
+inventories use distinct asset names so both remain independently verifiable
+in the shared GitHub release.
+
+This RC designation does not waive stable-graduation gates. Multi-day soak,
+remaining real-provider and lifecycle evidence, dependency #32, and the final
+v1 review remain open. No additional cluster nodes or other homelab
+rearchitecture are part of the RC scope.
 
 ## One-product release publication correction
 
@@ -216,7 +233,7 @@ recovered after only three denials. Node-agent verification timeouts and brief
 gateway engine-health failures were recorded without a direct-egress match.
 Issue #116 therefore remains the sustained real-provider churn investigation;
 this lifecycle evidence does not claim an unexplained-outage-free soak or close
-#140/#141.
+issues #140 and #141.
 
 ## Clean-break implementation progress
 

@@ -26,6 +26,13 @@ Install through a signed `waycloakctl` exact-artifact plan: development values
 do not invent image digests, release identity, observation trust, or root-owned
 host paths. The runtime agent never writes the host CNI directories.
 
+For `v0.1.0-rc.1`, pull the chart with `helm pull
+oci://ghcr.io/amoenus/charts/waycloak --version 0.1.0-rc.1`. Use the exact
+digest recorded in `release-manifest.json` for GitOps and inspection. Initial
+installation and changed-release activation still require the reviewed
+`waycloakctl` transaction; raw Helm consumption does not establish those safety
+preconditions.
+
 Provider port forwarding is disabled by default. Candidate testing must use a
 reviewed `waycloakctl install plan --enable-port-forwarding` transaction, a new
 exact Waycloak release manifest with the complete eight-image inventory, and a

@@ -14,9 +14,17 @@ The baseline security boundary is a mandatory chained CNI plugin backed by a pri
 
 ## Current state
 
-The replacement API, route and enrollment controllers, UID-bound workload bindings, chained CNI, privileged node agent, and gateway class/capability contract are implemented. The alpha runtime has been removed from the replacement source and release surfaces. Turnkey installation, optional port-forward capabilities, lifecycle certification, and stable release evidence remain incomplete; there is not yet a supported stable install.
+`v0.1.0-rc.1` is the feature-complete release candidate. The public
+`networking.waycloak.io/v1beta1` schemas and behavioral contracts are frozen;
+the alpha runtime is absent. The release provides signed CLI binaries,
+multi-platform OCI images, a Helm OCI chart, an optional KCL OCI module, SBOMs,
+provenance, and an exact signed release manifest. It is a prerelease and does
+not claim final stable graduation.
 
-Start with the [stable product requirements](docs/product/stable-turnkey-product.md), [target architecture](docs/architecture/kubernetes-api-maturity.md), [replacement API](docs/api/replacement-api-proposal.md), and [project status](PROJECT_STATUS.md).
+Start with [Getting started](docs/getting-started.md), then read the [use
+cases](docs/use-cases.md), [configuration requirements](docs/configuration.md),
+[deployable resources](docs/deployable-resources.md), and [API
+reference](docs/api/v1beta1.md).
 
 The old [PRD](docs/product/PRD.md) and [alpha API contract](docs/api/api-contract.md) are as-built evidence only. They are not compatibility inputs.
 

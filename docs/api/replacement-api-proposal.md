@@ -1,7 +1,7 @@
 # Replacement API proposal
 
-Status: accepted implementation contract for issue #127; schemas are not yet generated
-Last updated: 2026-07-26
+Status: frozen `networking.waycloak.io/v1beta1` release-candidate contract
+Last updated: 2026-08-13
 
 ## Goals
 
@@ -19,8 +19,10 @@ placement metadata without carrying a mutating webhook into the baseline. Kubern
 support row.
 
 The machine-readable review boundary is
-[replacement-api-freeze.json](replacement-api-freeze.json). Issue #128 consumes
-that boundary to generate Go types and CRDs; this review does not generate them.
+[replacement-api-freeze.json](replacement-api-freeze.json). Generated Go types,
+CRDs, RBAC, and the [API reference](v1beta1.md) are audited
+against that boundary in CI. Release-candidate changes must remain compatible
+with this contract; a group/version bump is neither required nor intended.
 
 ## Frozen API rules
 

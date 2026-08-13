@@ -10,9 +10,13 @@
     "version": { "type": "string", "minLength": 1 },
     "manifestDigest": {
       "allOf": [{ "$ref": "#/$defs/digest" }],
-      "description": "SHA-256 of the canonical JSON identity containing apiVersion, version, chart, images, and lexically sorted profiles; the manifestDigest field itself is excluded."
+      "description": "SHA-256 of the canonical JSON identity containing apiVersion, version, chart, optional KCL module, images, and lexically sorted profiles; the manifestDigest field itself is excluded."
     },
     "chart": { "$ref": "#/$defs/artifact" },
+    "kcl": {
+      "allOf": [{ "$ref": "#/$defs/artifact" }],
+      "description": "Exact optional KCL OCI module. Omitted only by release manifests published before RC packaging added the module."
+    },
     "images": {
       "type": "object",
       "additionalProperties": false,

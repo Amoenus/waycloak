@@ -9,6 +9,13 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
+**Release-candidate checkpoint (2026-08-13):** `v0.1.0-rc.1` freezes the
+existing `networking.waycloak.io/v1beta1` contract and packages the complete
+product for signed direct consumption, Helm OCI, and KCL OCI. It is a release
+candidate, not closure of #123, #138, #140, or #141 and not stable graduation.
+Outstanding soak, lifecycle, disaster-recovery, and real-provider evidence
+remains tracked below.
+
 - [x] #124 chained-CNI creation-time feasibility: merged in PR #143 with exact
   Kind, k3d and authorized homelab evidence.
 - [x] #125 node-agent threat model and authenticated local protocol: merged in

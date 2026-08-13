@@ -6,4 +6,8 @@ Operators create a `VPNGateway` referencing an immutable `VPNGatewayClass` claim
 
 A failed CNI `ADD` prevents the sandbox from becoming runnable. Users diagnose the route, binding, gateway, and node-agent conditions; they never repair an enrolled workload by removing denial or selecting ordinary egress.
 
-The signed preflight/install/doctor workflow and complete examples remain owned by #138 and are not yet published as stable product guidance.
+The signed preflight/install/doctor workflow and complete examples are the
+supported release-candidate path documented in
+[Getting started](../getting-started.md). Stable graduation remains owned by
+issue #138 and requires its outstanding real-provider timing and certification
+evidence.
