@@ -1,6 +1,6 @@
 # Configuration requirements
 
-This page defines the operator inputs for `v0.1.0-rc.1`. Exact defaults and
+This page defines the operator inputs for `v0.1.0-rc.2`. Exact defaults and
 schema constraints remain authoritative in the Helm values schema and CRDs.
 
 ## Cluster inputs
