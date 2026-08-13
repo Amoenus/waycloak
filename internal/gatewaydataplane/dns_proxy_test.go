@@ -103,6 +103,16 @@ func TestSplitDNSProxyPreservesProtocolAndContainsSearchQueries(t *testing.T) {
 	if !external.saw("udp4", "truncated.example.") || !external.saw("tcp4", "truncated.example.") {
 		t.Fatal("truncation did not produce one external TCP retry")
 	}
+
+	err = proxy.probe(ctx, "udp4", "servfail.example.", dnsmessage.TypeAAAA)
+	if err == nil {
+		t.Fatal("ServFail response was accepted")
+	}
+	for _, field := range []string{"network=udp4", "qtype=AAAA", "phase=rcode", "rcode=ServFail", "latency="} {
+		if !strings.Contains(err.Error(), field) {
+			t.Fatalf("RCode diagnostic %q does not contain %q", err, field)
+		}
+	}
 }
 
 func TestDNSProbeDiagnosticsDistinguishQueryTypeValidationRCodeAndLatency(t *testing.T) {
@@ -117,30 +127,6 @@ func TestDNSProbeDiagnosticsDistinguishQueryTypeValidationRCodeAndLatency(t *tes
 	for _, field := range []string{"network=tcp4", "qtype=A", "phase=rcode", "rcode=ServFail", "latency="} {
 		if !strings.Contains(rcode.Error(), field) {
 			t.Fatalf("RCode diagnostic %q does not contain %q", rcode, field)
-		}
-	}
-}
-
-func TestDNSProbeReportsRCodeWithoutConflatingValidation(t *testing.T) {
-	cluster := startDNSFixture(t, false)
-	external := startDNSFixture(t, false)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	config := testConfig()
-	config.GatewayAddress = netip.MustParseAddr("127.0.0.1")
-	config.ClusterDNSUpstream = cluster.address
-	config.DNSUpstream = external.address
-	proxy, err := startDNSProxy(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = proxy.probe(ctx, "udp4", "servfail.example.", dnsmessage.TypeAAAA)
-	if err == nil {
-		t.Fatal("ServFail response was accepted")
-	}
-	for _, field := range []string{"network=udp4", "qtype=AAAA", "phase=rcode", "rcode=ServFail", "latency="} {
-		if !strings.Contains(err.Error(), field) {
-			t.Fatalf("RCode diagnostic %q does not contain %q", err, field)
 		}
 	}
 }
