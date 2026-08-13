@@ -165,15 +165,15 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		nodeArchitecture := flags.String("node-architecture", "", "reviewed amd64 or arm64 support row; required on mixed-architecture clusters")
 		enablePortForwarding := flags.Bool("enable-port-forwarding", false, "explicitly enable the release-attested port-forward runtime")
 		portForwardTLSSecret := flags.String("port-forward-controller-tls-secret", "", "pre-created immutable controller mTLS Secret for port forwarding")
-		enableQBitTorrentAdapter := flags.Bool("enable-qbittorrent-adapter", false, "enable controller trust for the out-of-process qBittorrent WorkloadAdapter")
+		enableAdapterProtocol := flags.Bool("enable-adapter-protocol", false, "enable controller trust for explicitly selected out-of-process WorkloadAdapters")
 		if err := flags.Parse(arguments[1:]); err != nil {
 			return err
 		}
 		if *manifestPath == "" {
 			return errors.New("--release-manifest is required")
 		}
-		if *enableQBitTorrentAdapter && !*enablePortForwarding {
-			return errors.New("--enable-qbittorrent-adapter requires --enable-port-forwarding")
+		if *enableAdapterProtocol && !*enablePortForwarding {
+			return errors.New("--enable-adapter-protocol requires --enable-port-forwarding")
 		}
 		if *enablePortForwarding != (*portForwardTLSSecret != "") {
 			return errors.New("--enable-port-forwarding and --port-forward-controller-tls-secret must be supplied together")
@@ -211,7 +211,7 @@ func runInstall(ctx context.Context, arguments []string, dependencies Dependenci
 		}
 		var portForwarding *PortForwardInstallIdentity
 		if *enablePortForwarding {
-			identity, identityErr := observePortForwardInstallIdentity(ctx, clients, *namespace, *portForwardTLSSecret, *enableQBitTorrentAdapter)
+			identity, identityErr := observePortForwardInstallIdentity(ctx, clients, *namespace, *portForwardTLSSecret, *enableAdapterProtocol)
 			if identityErr != nil {
 				return fmt.Errorf("observe port-forward controller TLS identity: %w", identityErr)
 			}

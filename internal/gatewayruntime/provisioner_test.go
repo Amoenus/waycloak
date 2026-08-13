@@ -183,7 +183,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
 	}
 	joinedArgs := strings.Join(runtimeContainer.Args, " ")
-	for _, required := range []string{"--gateway-uid=gateway-uid", "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt"} {
+	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/proton-natpmp", "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt"} {
 		if !strings.Contains(joinedArgs, required) {
 			t.Fatalf("runtime args %q lack %q", joinedArgs, required)
 		}
@@ -234,6 +234,34 @@ func TestProvisionerDoesNotDeleteForeignRuntimeService(t *testing.T) {
 	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(foreign), current))
 	if current.UID != foreign.UID {
 		t.Fatalf("foreign runtime Service was replaced: %#v", current)
+	}
+}
+
+func TestProvisionerRejectsUnsupportedEnginePortForwardCapability(t *testing.T) {
+	scheme := runtime.NewScheme()
+	must(t, corev1.AddToScheme(scheme))
+	must(t, appsv1.AddToScheme(scheme))
+	must(t, wayv1.AddToScheme(scheme))
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "media", UID: "gateway-uid", Generation: 1}, Spec: wayv1.VPNGatewaySpec{
+		GatewayClassName: "gluetun.waycloak.io", RequestedFeatures: []wayv1.FeatureName{wayv1.FeaturePortForwardSingleActive},
+		NativeConfigRefs: []wayv1.RoleObjectReference{{Role: waycontroller.GluetunEnvironmentRole, Name: "engine"}},
+		CredentialRefs:   []wayv1.RoleObjectReference{{Role: waycontroller.OpenVPNCredentialsRole, Name: "credentials"}, {Role: waycontroller.GatewayRuntimeTLSRole, Name: "runtime-tls"}},
+		ClusterTraffic:   wayv1.ClusterTraffic{Mode: wayv1.ClusterTrafficTunnelAll},
+	}}
+	config := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "engine", Namespace: "media", ResourceVersion: "1"}, Data: map[string]string{"VPN_SERVICE_PROVIDER": "mullvad", "VPN_TYPE": "wireguard"}}
+	credentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "media", ResourceVersion: "1"}}
+	runtimeTLS := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "runtime-tls", Namespace: "media", ResourceVersion: "2"}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway, config, credentials, runtimeTLS).Build()
+	provisioner := fixture(kube)
+	provisioner.PortForwardRuntimeImage = "ghcr.io/amoenus/waycloak-gateway-runtime@sha256:" + strings.Repeat("d", 64)
+	provisioner.PortForwardRuntimePort = 9443
+	provisioner.AdapterPort = 9444
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err == nil || !strings.Contains(err.Error(), "supported port-forward capability") {
+		t.Fatalf("unsupported Gluetun port-forward configuration error = %v", err)
+	}
+	statefulSet := &appsv1.StatefulSet{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet); !apierrors.IsNotFound(err) {
+		t.Fatalf("unsupported capability rendered gateway state: %v", err)
 	}
 }
 

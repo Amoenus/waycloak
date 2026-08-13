@@ -9,12 +9,19 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-13):** `v0.1.0-rc.1` freezes the
+**Release-candidate checkpoint (2026-08-13):** `v0.1.0-rc.2` preserves the
 existing `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. It is a release
 candidate, not closure of #123, #138, #140, or #141 and not stable graduation.
 Outstanding soak, lifecycle, disaster-recovery, and real-provider evidence
 remains tracked below.
+
+**Extension-contract stabilization (2026-08-13):** ADR 0043 makes Gluetun the
+VPN-engine integration boundary, contains Proton NAT-PMP behind a
+Gluetun-selected port-forward capability, and makes application adapters an
+explicit last resort. The frozen `v1beta1` resources do not change. The generic
+runtime and installer no longer expose Proton- or qBittorrent-shaped activation
+flags; unsupported capability/configuration pairs fail before gateway mutation.
 
 - [x] #124 chained-CNI creation-time feasibility: merged in PR #143 with exact
   Kind, k3d and authorized homelab evidence.

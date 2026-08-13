@@ -133,6 +133,10 @@ Mandatory scenarios:
 - protocol-faithful provider acquisition, paired TCP/UDP capability checks,
   rotation, renewal, expiration, release, timeout, capacity regression, and
   provider-result failures;
+- Gluetun-native configuration selects an explicitly supported engine
+  capability before a port-forward runtime is rendered; incompatible provider
+  or tunnel-mode combinations fail before mutation, and the generic runtime has
+  no provider-specific command-line contract;
 - durable collision-free provider internal-port allocation, restart/restore
   recovery, deletion quarantine, and no reuse while an old mapping can live;
 - exact TLS 1.3 controller-to-gateway runtime identity, strict versioned
@@ -151,6 +155,9 @@ Mandatory scenarios:
 - separate provider, gateway-rule, delivery, and adapter-acknowledgement
   observations with current generations, stale-observation rejection, and
   no-op status stability;
+- stable Service/backend ports work without a `WorkloadAdapter`; artifact
+  presence or generic protocol enablement cannot select an application
+  integration;
 - cross-namespace gateway consent and indistinguishable missing/unauthorized
   references; backend Services remain same-namespace;
 - qBittorrent compatibility requires an immutable
@@ -170,6 +177,9 @@ generations. The suite verifies exact acknowledgement, bounded retry,
 least-privilege execution, and readiness regression without direct-egress
 fallback. The qBitTorrent adapter is the reference implementation, not a
 special baseline code path.
+Before adding an application adapter, compatibility evidence must also prove
+that fixed-port translation, a standard application protocol, and the neutral
+lease record cannot satisfy the application contract.
 
 ### Data-plane backend conformance
 

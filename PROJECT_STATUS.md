@@ -20,6 +20,23 @@ and teardown input, not the stable API baseline.
 Implementation is tracked by [#123](https://github.com/Amoenus/waycloak/issues/123)
 and its dependency graph [#124–#141](https://github.com/Amoenus/waycloak/issues/124).
 
+## Plugin contract stabilization
+
+ADR 0043 now fixes the extension responsibilities without changing the frozen
+`networking.waycloak.io/v1beta1` API. Gluetun remains Waycloak's VPN engine and
+owns ordinary provider support. The first optional provider mechanism is a
+narrow Proton NAT-PMP port-forward capability selected by the Gluetun adapter
+only for compatible native configuration; it is not a Proton VPN adapter. The
+generic runtime owns lease identity, backend selection, stable-port
+translation, rules, handoff, observation, and fail-closed withdrawal.
+
+`WorkloadAdapter` remains an immutable, explicitly selected, out-of-process
+last resort for application behavior that cannot consume fixed-port
+translation, a standard protocol, or the neutral lease record. The installer
+enables only the generic adapter protocol and no longer names qBittorrent in its
+activation flag. qBittorrent remains the evidence-backed reference exception,
+not a baseline requirement or a provider-extension boundary.
+
 ## v0.1.0-rc.1 publication
 
 `v0.1.0-rc.1` is published as a signed prerelease from exact commit

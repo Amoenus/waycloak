@@ -1,6 +1,6 @@
 # Configuration requirements
 
-This page defines the operator inputs for `v0.1.0-rc.1`. Exact defaults and
+This page defines the operator inputs for `v0.1.0-rc.2`. Exact defaults and
 schema constraints remain authoritative in the Helm values schema and CRDs.
 
 ## Cluster inputs
@@ -71,9 +71,20 @@ the authenticated selected-node restriction.
 Enable port forwarding only with `waycloakctl install plan
 --enable-port-forwarding`. The plan requires a pre-created immutable controller
 mTLS Secret and binds the gateway runtime identity. Add
-`--enable-qbittorrent-adapter` only when the qBittorrent adapter is intended.
+`--enable-adapter-protocol` only when at least one explicitly selected,
+operator-trusted `WorkloadAdapter` is intended. This enables the generic
+adapter protocol; it does not install or select qBittorrent or any other
+application integration.
 See the `PortForwardLease` and `WorkloadAdapter` API reference before authoring
 those resources.
+
+Provider selection remains Gluetun-native. For the RC recipe, the Gluetun
+adapter recognizes `VPN_SERVICE_PROVIDER=protonvpn` with `VPN_TYPE=openvpn` and
+selects the narrow `gluetun.waycloak.io/proton-natpmp` port-forward capability.
+That capability manages only the provider mapping. It does not replace Gluetun,
+configure qBittorrent, select a backend, or own gateway packet rules. Other
+Gluetun configurations requesting port forwarding are rejected until their
+capability has an explicit implementation and conformance evidence.
 
 ## Configuration invariants
 

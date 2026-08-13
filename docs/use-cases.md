@@ -33,10 +33,14 @@ or DNS path is not observed healthy.
 
 ### Deliver a provider-assigned port
 
-The optional single-active port-forward capability can bind a provider lease to
-one typed Service backend and deliver it through an out-of-process application
-adapter. The qBittorrent adapter is included in the release. This capability is
-enabled explicitly in the install plan and is not a separate product.
+The optional single-active port-forward capability binds a provider mapping to
+one exact Service endpoint. By default the application keeps one stable local
+port while Waycloak translates the changing provider port at the gateway; no
+application adapter is needed. A separately selected adapter is used only when
+the application itself must change or advertise the provider-assigned port.
+The qBittorrent adapter is included as that reference exception. This
+capability is enabled explicitly in the install plan and is not a separate
+product.
 
 ### GitOps-managed clusters
 

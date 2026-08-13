@@ -22,6 +22,7 @@ import (
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
 	"github.com/Amoenus/waycloak/internal/gatewaydataplane"
 	"github.com/Amoenus/waycloak/internal/portforward"
+	"github.com/Amoenus/waycloak/internal/provider/gluetun"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -75,6 +76,13 @@ func (provisioner *Provisioner) Reconcile(ctx context.Context, gateway *wayv1.VP
 	if err := validateEngineConfig(configMap.Data); err != nil {
 		return waycontroller.GatewayRuntimeObservation{}, err
 	}
+	portForwardCapability := ""
+	if requestsFeature(gateway, wayv1.FeaturePortForwardSingleActive) {
+		portForwardCapability, err = gluetun.PortForwardCapabilityForConfig(configMap.Data)
+		if err != nil {
+			return waycontroller.GatewayRuntimeObservation{}, err
+		}
+	}
 	secret := &metav1.PartialObjectMetadata{}
 	secret.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Secret"})
 	if err := provisioner.reader().Get(ctx, client.ObjectKey{Namespace: gateway.Namespace, Name: secretName}, secret); err != nil {
@@ -98,7 +106,7 @@ func (provisioner *Provisioner) Reconcile(ctx context.Context, gateway *wayv1.VP
 	if err := provisioner.reconcilePortForwardService(ctx, gateway, labels, extended); err != nil {
 		return waycontroller.GatewayRuntimeObservation{}, err
 	}
-	statefulSet := provisioner.desiredStatefulSet(gateway, name, labels, configName, secretName, runtimeTLSSecretName, configMap, secret, runtimeTLSSecret)
+	statefulSet := provisioner.desiredStatefulSet(gateway, name, labels, configName, secretName, runtimeTLSSecretName, portForwardCapability, configMap, secret, runtimeTLSSecret)
 	if err := provisioner.reconcileObject(ctx, statefulSet); err != nil {
 		return waycontroller.GatewayRuntimeObservation{}, err
 	}
@@ -231,7 +239,7 @@ func (provisioner *Provisioner) reconcilePortForwardService(ctx context.Context,
 	return provisioner.reconcileObject(ctx, service)
 }
 
-func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, name string, labels map[string]string, configName, secretName, runtimeTLSSecretName string, configMap *corev1.ConfigMap, secret, runtimeTLSSecret *metav1.PartialObjectMetadata) *appsv1.StatefulSet {
+func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, name string, labels map[string]string, configName, secretName, runtimeTLSSecretName, portForwardCapability string, configMap *corev1.ConfigMap, secret, runtimeTLSSecret *metav1.PartialObjectMetadata) *appsv1.StatefulSet {
 	replicas := int32(1)
 	no := false
 	yes := true
@@ -247,7 +255,7 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 	}
 	volumes := []corev1.Volume{{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: pointer(corev1.HostPathCharDev)}}}, {Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 	if runtimeTLSSecretName != "" {
-		args := []string{"--gateway-uid=" + string(gateway.UID), "--listen-address=:" + strconv.Itoa(int(provisioner.PortForwardRuntimePort)), "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--tls-key=" + portForwardTLSMountPath + "/tls.key", "--client-ca=" + portForwardTLSMountPath + "/ca.crt"}
+		args := []string{"--gateway-uid=" + string(gateway.UID), "--listen-address=:" + strconv.Itoa(int(provisioner.PortForwardRuntimePort)), "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--tls-key=" + portForwardTLSMountPath + "/tls.key", "--client-ca=" + portForwardTLSMountPath + "/ca.crt", "--engine-port-forward-capability=" + portForwardCapability}
 		if requestsFeature(gateway, wayv1.FeatureWorkloadAdapter) {
 			args = append(args, "--adapter-ca="+portForwardTLSMountPath+"/adapter-ca.crt", "--adapter-client-cert="+portForwardTLSMountPath+"/adapter-client.crt", "--adapter-client-key="+portForwardTLSMountPath+"/adapter-client.key", "--adapter-port="+strconv.Itoa(int(provisioner.AdapterPort)))
 		}

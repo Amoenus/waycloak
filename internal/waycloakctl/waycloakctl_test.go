@@ -252,7 +252,7 @@ func TestPortForwardInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	source, crds := absentInstallInputs(t)
-	identity := &PortForwardInstallIdentity{ControllerTLSSecret: "waycloak-port-forward-controller-tls", SecretUID: "tls-uid", CADigest: "sha256:" + strings.Repeat("7", 64), CertificateDigest: "sha256:" + strings.Repeat("8", 64), QBitTorrentAdapterEnabled: true}
+	identity := &PortForwardInstallIdentity{ControllerTLSSecret: "waycloak-port-forward-controller-tls", SecretUID: "tls-uid", CADigest: "sha256:" + strings.Repeat("7", 64), CertificateDigest: "sha256:" + strings.Repeat("8", 64), AdapterProtocolEnabled: true}
 	plan, err := BuildInstallPlan(manifest, "waycloak-system", "waycloak", "", report, source, crds, identity)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +291,7 @@ func TestPortForwardInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
 
 func TestPortForwardInstallPlanFlagsRequireCompleteExplicitActivation(t *testing.T) {
 	for name, arguments := range map[string][]string{
-		"adapter without runtime": {"plan", "--release-manifest", "unused", "--enable-qbittorrent-adapter"},
+		"adapter without runtime": {"plan", "--release-manifest", "unused", "--enable-adapter-protocol"},
 		"runtime without secret":  {"plan", "--release-manifest", "unused", "--enable-port-forwarding"},
 		"secret without runtime":  {"plan", "--release-manifest", "unused", "--port-forward-controller-tls-secret", "identity"},
 	} {
@@ -304,7 +304,7 @@ func TestPortForwardInstallPlanFlagsRequireCompleteExplicitActivation(t *testing
 }
 
 func TestInstallPlanRejectsRemovedTierFlags(t *testing.T) {
-	for _, removed := range []string{"--enable-extended", "--extended-controller-tls-secret", "--enable-workload-adapter"} {
+	for _, removed := range []string{"--enable-extended", "--extended-controller-tls-secret", "--enable-workload-adapter", "--enable-qbittorrent-adapter"} {
 		err := runInstall(context.Background(), []string{"plan", "--release-manifest", "unused", removed}, Dependencies{Stderr: io.Discard})
 		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("removed flag %s was not rejected: %v", removed, err)

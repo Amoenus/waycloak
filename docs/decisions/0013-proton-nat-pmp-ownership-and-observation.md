@@ -3,6 +3,11 @@
 Status: Accepted
 Date: 2026-07-13
 
+Amended by [ADR 0043](0043-engine-capabilities-and-application-adapters.md):
+the tokenless gateway runtime retains NAT-PMP ownership, but the Proton client
+is selected behind the Gluetun engine's port-forward capability boundary rather
+than imported by the generic runtime.
+
 ## Context
 
 Proton's manual OpenVPN port-forwarding contract uses NAT-PMP at

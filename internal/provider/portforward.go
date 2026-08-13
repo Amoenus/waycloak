@@ -43,9 +43,11 @@ type PortForwardLeaseObservation struct {
 	ExpiresAt     time.Time
 }
 
-// PortForwardDriver owns provider-specific acquisition and renewal only.
-// Gateway DNAT and application delivery remain separate observed components.
-type PortForwardDriver interface {
+// PortForwardCapability owns engine-local acquisition, renewal, observation,
+// and release of a provider mapping. The VPN engine adapter selects the
+// implementation appropriate for its observed native configuration. Generic
+// gateway DNAT and application delivery remain separate components.
+type PortForwardCapability interface {
 	ObserveCapabilities(context.Context) (PortForwardCapabilities, error)
 	EnsureLease(context.Context, PortForwardLeaseRequest) (PortForwardLeaseObservation, error)
 	ReleaseLease(context.Context, PortForwardLeaseRequest) error

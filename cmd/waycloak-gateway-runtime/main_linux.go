@@ -18,11 +18,11 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	"github.com/Amoenus/waycloak/internal/portforward"
-	"github.com/Amoenus/waycloak/internal/provider/proton"
+	"github.com/Amoenus/waycloak/internal/provider/gluetun"
 )
 
 func main() {
-	var listenAddress, serverCert, serverKey, clientCA, controllerIdentity, gatewayUID, tunnelInterface, overlayInterface, natPMPGateway string
+	var listenAddress, serverCert, serverKey, clientCA, controllerIdentity, gatewayUID, tunnelInterface, overlayInterface, portForwardCapability string
 	var adapterCA, adapterCert, adapterKey string
 	var adapterPort uint
 	flag.StringVar(&listenAddress, "listen-address", ":9443", "mTLS gateway-runtime listener")
@@ -33,14 +33,14 @@ func main() {
 	flag.StringVar(&gatewayUID, "gateway-uid", "", "exact VPNGateway UID served by this runtime")
 	flag.StringVar(&tunnelInterface, "tunnel-interface", "tun0", "exact VPN tunnel interface")
 	flag.StringVar(&overlayInterface, "overlay-interface", "waycloak0", "exact protected overlay interface")
-	flag.StringVar(&natPMPGateway, "proton-natpmp-gateway", "", "optional exact Proton NAT-PMP gateway address")
+	flag.StringVar(&portForwardCapability, "engine-port-forward-capability", "", "exact port-forward capability selected by the VPN engine adapter")
 	flag.StringVar(&adapterCA, "adapter-ca", "", "CA bundle for out-of-process adapter services")
 	flag.StringVar(&adapterCert, "adapter-client-cert", "", "adapter-protocol client certificate")
 	flag.StringVar(&adapterKey, "adapter-client-key", "", "adapter-protocol client private key")
 	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic adapter Service HTTPS port")
 	flag.Parse()
 
-	if listenAddress == "" || serverCert == "" || serverKey == "" || clientCA == "" || controllerIdentity == "" || gatewayUID == "" || tunnelInterface == "" || overlayInterface == "" {
+	if listenAddress == "" || serverCert == "" || serverKey == "" || clientCA == "" || controllerIdentity == "" || gatewayUID == "" || tunnelInterface == "" || overlayInterface == "" || portForwardCapability == "" {
 		slog.Error("exact gateway identity, interfaces, listener, and mTLS files are required")
 		os.Exit(1)
 	}
@@ -61,12 +61,15 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	driver := proton.New(tunnelInterface)
-	driver.GatewayAddress = natPMPGateway
+	capability, err := gluetun.NewPortForwardCapability(gluetun.PortForwardOptions{CapabilityName: portForwardCapability, TunnelInterface: tunnelInterface})
+	if err != nil {
+		slog.Error("configure engine port-forward capability", "error", err)
+		os.Exit(1)
+	}
 	manager := &portforward.GatewayRuntimeManager{
-		Driver:   driver,
-		Rules:    portforward.LinuxRuleBackend{TunnelInterface: tunnelInterface, OverlayInterface: overlayInterface},
-		Delivery: portforward.DeliveryManager{Adapter: adapter},
+		PortForward: capability,
+		Rules:       portforward.LinuxRuleBackend{TunnelInterface: tunnelInterface, OverlayInterface: overlayInterface},
+		Delivery:    portforward.DeliveryManager{Adapter: adapter},
 	}
 	server := &http.Server{
 		Addr: listenAddress, Handler: portforward.RuntimeHandler{Manager: manager, GatewayUID: wayv1.ObjectUID(gatewayUID)}, TLSConfig: serverTLS,

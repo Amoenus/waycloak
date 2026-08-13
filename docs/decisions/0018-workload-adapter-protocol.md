@@ -3,6 +3,10 @@
 Status: Accepted
 Date: 2026-07-15
 
+Amended by [ADR 0043](0043-engine-capabilities-and-application-adapters.md),
+which makes the generic-mechanism preference order and last-resort adapter rule
+normative.
+
 ## Context
 
 ADRs 0015 and 0016 keep fixed-port translation generic and allow a narrow

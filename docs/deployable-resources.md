@@ -29,8 +29,8 @@ Kubernetes. Secret values are not represented in Helm values.
 | ConfigMap | Namespace | Gateway operator | Non-secret native engine inputs |
 | RoleBinding | Namespace | Cluster/gateway operator | Least-privilege persona and credential-reader grants |
 | `VPNEgressRoute` | Namespace | Workload owner | Selects an allowed gateway and required features |
-| `PortForwardLease` | Namespace | Workload owner/operator | Optional typed Service-backed single-active provider port |
-| `WorkloadAdapter` | Namespace | Adapter operator | Optional application handoff implementation |
+| `PortForwardLease` | Namespace | Workload owner/operator | Optional typed Service-backed single-active provider mapping; fixed backend ports need no adapter |
+| `WorkloadAdapter` | Namespace | Adapter operator | Last-resort application-specific handoff trust record; never a VPN/provider plugin |
 | Workload Pod template | Namespace | Workload owner | Explicit route enrollment label |
 
 ## Controller-authored resources
