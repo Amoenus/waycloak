@@ -228,6 +228,10 @@ if [[ ! "$chart_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   exit 1
 fi
 chart_ref="oci://${registry_host}:${registry_port}/charts/waycloak@${chart_digest}"
+# The install transaction treats the authoring-only KCL identity as opaque.
+# Reuse a resolvable exact fixture artifact here; the release workflow separately
+# proves KCL packaging, OCI media, signature, SBOM, provenance, and rendering.
+kcl_ref="$chart_ref"
 
 readonly baseline_chart_version="0.0.0-lifecycle-baseline"
 helm package charts/waycloak \
@@ -242,10 +246,12 @@ if [[ ! "$baseline_chart_digest" =~ ^sha256:[a-f0-9]{64}$ || "$baseline_chart_di
   exit 1
 fi
 baseline_chart_ref="oci://${registry_host}:${registry_port}/charts/waycloak@${baseline_chart_digest}"
+baseline_kcl_ref="$baseline_chart_ref"
 
 go run ./hack/release \
   --version "$release_version" \
   --chart "$chart_ref" \
+  --kcl "$kcl_ref" \
   --image "replacement-controller=$controller_ref" \
   --image "waycloak-cni=$cni_ref" \
   --image "waycloak-node-agent=$node_agent_ref" \
@@ -259,6 +265,7 @@ go run ./hack/release \
 go run ./hack/release \
   --version "$baseline_release_version" \
   --chart "$baseline_chart_ref" \
+  --kcl "$baseline_kcl_ref" \
   --image "replacement-controller=$baseline_controller_ref" \
   --image "waycloak-cni=$baseline_cni_ref" \
   --image "waycloak-node-agent=$baseline_node_agent_ref" \
@@ -272,6 +279,7 @@ go run ./hack/release \
 go run ./hack/release \
   --version "$port_forward_release_version" \
   --chart "$chart_ref" \
+  --kcl "$kcl_ref" \
   --profile networking.waycloak.io/Core-v1 \
   --image "replacement-controller=$controller_ref" \
   --image "waycloak-cni=$cni_ref" \

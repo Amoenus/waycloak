@@ -190,10 +190,10 @@ server's default audience; the audience-bound observation token is isolated and
 cannot be used as a portable Kubernetes API credential.
 
 Release automation, never the cluster operator, assembles this input with the
-publisher-only `go run ./hack/release` command. The command requires an
-exact OCI chart identity and exactly the replacement controller, CNI, node
-agent, gateway agent, gateway runtime, qBittorrent adapter, Gluetun, and pause
-image identities. It performs no tag
+publisher-only `go run ./hack/release` command. The command requires exact OCI
+chart and KCL module identities and exactly the replacement controller, CNI,
+node agent, gateway agent, gateway runtime, qBittorrent adapter, Gluetun, and
+pause image identities. It performs no tag
 resolution or registry discovery and rejects missing, extra, duplicate, or
 mutable inputs before emitting deterministic JSON. The resulting manifest is
 then signed and published by the release lifecycle; installation consumes that
