@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
@@ -96,47 +97,24 @@ func TestEnsureTargetGatewayPodsDoesNotReplaceCurrentPod(t *testing.T) {
 	if _, err := clients.Kubernetes.CoreV1().Pods("media").Create(context.Background(), current, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureTargetGatewayPods(context.Background(), clients, target); err != nil {
+	binding := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "networking.waycloak.io/v1beta1", "kind": "VPNWorkloadBinding",
+		"metadata": map[string]any{"name": "application-storage-unavailable", "namespace": "media", "generation": int64(1)},
+		"status": map[string]any{"conditions": []any{map[string]any{
+			"type": "Ready", "status": "Unknown", "reason": "PodNotReady", "observedGeneration": int64(1),
+		}}},
+	}}
+	bindingGVR := schema.GroupVersionResource{Group: "networking.waycloak.io", Version: "v1beta1", Resource: "vpnworkloadbindings"}
+	if _, err := clients.Dynamic.Resource(bindingGVR).Namespace("media").Create(context.Background(), binding, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
+	}
+	if err := ensureTargetGatewayPods(context.Background(), clients, target); err != nil {
+		t.Fatalf("application-local binding health blocked exact gateway release completion: %v", err)
 	}
 	for _, action := range clients.Kubernetes.(*kubernetesfake.Clientset).Actions() {
 		if action.GetVerb() == "delete" && action.GetResource().Resource == "pods" {
 			t.Fatal("current exact gateway Pod was deleted")
 		}
-	}
-}
-
-func TestGatewayBindingsMustRecoverBeforeReleaseCompletion(t *testing.T) {
-	clients := supportedClients(t)
-	gateway := rolloutGateway("gateway-uid")
-	binding := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "networking.waycloak.io/v1beta1",
-		"kind":       "VPNWorkloadBinding",
-		"metadata":   map[string]any{"name": "pod-binding", "namespace": "media", "generation": int64(2)},
-		"spec": map[string]any{"gatewayRef": map[string]any{
-			"name": gateway.GetName(), "namespace": gateway.GetNamespace(), "uid": string(gateway.GetUID()),
-		}},
-		"status": map[string]any{"conditions": []any{map[string]any{
-			"type": "Ready", "status": "False", "reason": "NotReady", "observedGeneration": int64(2),
-		}}},
-	}}
-	created, err := clients.Dynamic.Resource(vpnWorkloadBindingGVR).Namespace("media").Create(context.Background(), binding, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ready, err := gatewayBindingsCurrentReady(context.Background(), clients, gateway)
-	if err != nil || ready {
-		t.Fatalf("unready exact gateway binding passed release completion: ready=%t err=%v", ready, err)
-	}
-	conditions, _, _ := unstructured.NestedSlice(created.Object, "status", "conditions")
-	conditions[0].(map[string]any)["status"] = "True"
-	created.Object["status"].(map[string]any)["conditions"] = conditions
-	if _, err = clients.Dynamic.Resource(vpnWorkloadBindingGVR).Namespace("media").Update(context.Background(), created, metav1.UpdateOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	ready, err = gatewayBindingsCurrentReady(context.Background(), clients, gateway)
-	if err != nil || !ready {
-		t.Fatalf("current Ready exact gateway binding blocked release completion: ready=%t err=%v", ready, err)
 	}
 }
 

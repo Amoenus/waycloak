@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-13
 
-## v0.1.0-rc.5 lifecycle repair recovery
+## v0.1.0-rc.6 lifecycle and application-health separation
 
 The first homelab RC.2 transition remained fail closed because its active
 primary CNI conflist had already been restored while the valid preserved
@@ -19,6 +19,12 @@ interrupted Helm repair idempotent when Helm reuses the deleted failed
 revision number for the successfully deployed target. Resume still requires
 the immutable repair journal and verifies the complete exact target before
 removing either lifecycle journal.
+
+RC.6 also limits release completion to release-owned gateway evidence. An
+exact target gateway Pod and a current `VPNGateway Ready=True` observation
+remain mandatory, but an application-local binding that was already unready
+because its Pod or storage is unavailable no longer blocks a product upgrade.
+Bindings remain fail closed and continue to report their own readiness.
 
 ## Replacement architecture decision set
 
