@@ -314,7 +314,11 @@ func observeInstallRepairLiveState(ctx context.Context, clients *Clients, plan I
 			source = record
 		}
 		if record.Name == plan.StuckRevision.Name {
-			candidate = record
+			if reflect.DeepEqual(*record, plan.StuckRevision) {
+				candidate = record
+			} else if record.Status != "deployed" {
+				return installRepairLiveState{}, errors.New("journal-bound Helm revisions changed before repair")
+			}
 		}
 		if record.Version > plan.SourceRevision.Version {
 			newer = append(newer, *record)

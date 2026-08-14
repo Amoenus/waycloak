@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-13
 
-## v0.1.0-rc.4 CNI reinstall and toolchain hotfix
+## v0.1.0-rc.5 lifecycle repair recovery
 
 The first homelab RC.2 transition remained fail closed because its active
 primary CNI conflist had already been restored while the valid preserved
@@ -14,7 +14,11 @@ still fails before mutation. The frozen `v1beta1` API and RC.2 plugin contracts
 are unchanged. RC.3 runtime publication was blocked before signing by four new
 Go standard-library advisories affecting Go 1.26.5. RC.4 pins builds to fixed
 Go 1.26.6 through the toolchain directive while retaining a setup-compatible
-1.26.5 language floor; no vulnerability exception was added.
+1.26.5 language floor; no vulnerability exception was added. RC.5 makes an
+interrupted Helm repair idempotent when Helm reuses the deleted failed
+revision number for the successfully deployed target. Resume still requires
+the immutable repair journal and verifies the complete exact target before
+removing either lifecycle journal.
 
 ## Replacement architecture decision set
 

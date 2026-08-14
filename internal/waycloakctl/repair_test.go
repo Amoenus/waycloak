@@ -139,6 +139,27 @@ func TestInstallRepairRecognizesHelmSuccessBeforeJournalCleanup(t *testing.T) {
 	}
 }
 
+func TestInstallRepairRecognizesHelmSuccessReusingDeletedRevisionNumber(t *testing.T) {
+	ctx := context.Background()
+	clients, plan, target, crds, bundle := installRepairFixture(t, installCheckpointStaged)
+	if _, err := ensureInstallRepairJournal(ctx, clients, plan); err != nil {
+		t.Fatal(err)
+	}
+	uid := k8stypes.UID(plan.StuckRevision.UID)
+	if err := clients.Kubernetes.CoreV1().Secrets(plan.Namespace).Delete(ctx, plan.StuckRevision.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
+		t.Fatal(err)
+	}
+	seedInstalledRelease(t, clients, target, plan.Namespace, plan.Release, plan.StuckRevision.Version, crds)
+	calls := 0
+	runner := repairRunner(t, clients, plan, target, crds, bundle, &calls, errors.New("Helm must not be repeated"))
+	if err := ApplyInstallRepairPlan(ctx, clients, runner, plan, plan.PlanID); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("already successful same-number Helm activation was repeated %d times", calls)
+	}
+}
+
 func TestInstallRepairRejectsRevisionDriftAndExcludesOtherMutations(t *testing.T) {
 	ctx := context.Background()
 	clients, plan, _, _, bundle := installRepairFixture(t, installCheckpointStaged)

@@ -9,7 +9,7 @@
 5. [Generated v1beta1 API reference](api/v1beta1.md)
 6. [Architecture and ownership](concepts/architecture-and-ownership.md)
 7. [Threat model](security/threat-model.md)
-8. [Release-candidate notes](releases/v0.1.0-rc.4.md)
+8. [Release-candidate notes](releases/v0.1.0-rc.5.md)
 
 ## Design and implementation authority
 
