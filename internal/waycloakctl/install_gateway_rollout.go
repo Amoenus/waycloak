@@ -21,7 +21,6 @@ import (
 )
 
 var vpnGatewayGVR = schema.GroupVersionResource{Group: "networking.waycloak.io", Version: "v1beta1", Resource: "vpngateways"}
-var vpnWorkloadBindingGVR = schema.GroupVersionResource{Group: "networking.waycloak.io", Version: "v1beta1", Resource: "vpnworkloadbindings"}
 
 const gatewayRolloutTimeout = 5 * time.Minute
 
@@ -106,7 +105,10 @@ func ensureTargetGatewayPod(ctx context.Context, clients *Clients, gateway *unst
 		if !gatewayCurrentReady(current) {
 			return false, nil
 		}
-		return gatewayBindingsCurrentReady(ctx, clients, current)
+		// Release completion proves the release-owned gateway data plane. A
+		// workload binding can remain unready for application-local reasons
+		// such as an unavailable volume and must not block a product upgrade.
+		return true, nil
 	})
 	if err != nil {
 		return fmt.Errorf("wait for exact target gateway Pod and current Ready observation: %w", err)
@@ -201,23 +203,6 @@ func gatewayContainersMatch(containers []corev1.Container, engine, agent string)
 
 func gatewayCurrentReady(gateway *unstructured.Unstructured) bool {
 	return resourceCurrentReady(gateway)
-}
-
-func gatewayBindingsCurrentReady(ctx context.Context, clients *Clients, gateway *unstructured.Unstructured) (bool, error) {
-	bindings, err := clients.Dynamic.Resource(vpnWorkloadBindingGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return false, fmt.Errorf("observe gateway workload bindings: %w", err)
-	}
-	for index := range bindings.Items {
-		binding := &bindings.Items[index]
-		name, _, _ := unstructured.NestedString(binding.Object, "spec", "gatewayRef", "name")
-		namespace, _, _ := unstructured.NestedString(binding.Object, "spec", "gatewayRef", "namespace")
-		uid, _, _ := unstructured.NestedString(binding.Object, "spec", "gatewayRef", "uid")
-		if name == gateway.GetName() && namespace == gateway.GetNamespace() && uid == string(gateway.GetUID()) && !resourceCurrentReady(binding) {
-			return false, nil
-		}
-	}
-	return true, nil
 }
 
 func resourceCurrentReady(resource *unstructured.Unstructured) bool {
