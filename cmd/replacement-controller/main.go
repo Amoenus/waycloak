@@ -106,7 +106,7 @@ func main() {
 			ctrl.Log.Error(nil, "complete adapter mTLS identity and valid port are required")
 			os.Exit(1)
 		}
-		adapterClient, adapterErr := portforward.NewHTTPAdapterClient(adapterCA, adapterCert, adapterKey, uint16(adapterPort))
+		adapterClient, adapterErr := portforward.NewHTTPAdapterClient(adapterCA, adapterCert, adapterKey, uint16(adapterPort), gatewayClusterDomain)
 		if adapterErr != nil {
 			ctrl.Log.Error(adapterErr, "configure WorkloadAdapter health client")
 			os.Exit(1)

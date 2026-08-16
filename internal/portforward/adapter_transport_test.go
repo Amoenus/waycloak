@@ -22,9 +22,9 @@ func TestHTTPAdapterClientUsesDeterministicCredentialFreeExactEndpoint(t *testin
 	record := AdapterLeaseRecord{APIVersion: AdapterAPIVersion, LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID,
 		HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID, ExpiresAt: now.Add(time.Minute)}
 	requests := 0
-	client := &HTTPAdapterClient{Port: 9443, Now: func() time.Time { return time.Now().UTC() }, Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	client := &HTTPAdapterClient{Port: 9443, ClusterDomain: "cluster.local", Now: func() time.Time { return time.Now().UTC() }, Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		requests++
-		if request.URL.Scheme != "https" || request.URL.Host != AdapterServiceName(intent.LeaseNamespace, intent.AdapterName)+".apps.svc:9443" ||
+		if request.URL.Scheme != "https" || request.URL.Host != AdapterServiceName(intent.LeaseNamespace, intent.AdapterName)+".apps.svc.cluster.local:9443" ||
 			request.URL.Path != adapterPath(intent.LeaseUID, "") || request.Header.Get("Authorization") != "" {
 			t.Fatalf("adapter request = %s headers=%v", request.URL, request.Header)
 		}
@@ -44,7 +44,7 @@ func TestHTTPAdapterClientUsesDeterministicCredentialFreeExactEndpoint(t *testin
 
 func TestHTTPAdapterClientRejectsMismatchedWithdrawalAcknowledgement(t *testing.T) {
 	intent := WithdrawalIntent{APIVersion: RuntimeAPIVersion, LeaseNamespace: "apps", LeaseUID: "lease-uid", GatewayUID: "gateway-uid", HandoffGeneration: 2, PodUID: "pod-a", AdapterName: "qbittorrent"}
-	client := &HTTPAdapterClient{Port: 9443, Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	client := &HTTPAdapterClient{Port: 9443, ClusterDomain: "cluster.local", Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != adapterPath(intent.LeaseUID, "withdraw") {
 			t.Fatalf("withdrawal path = %s", request.URL.Path)
 		}
@@ -61,9 +61,9 @@ func TestHTTPAdapterClientObservesExactHealthyAdapterIdentity(t *testing.T) {
 	namespace := wayv1.NamespaceName("apps")
 	name := wayv1.ObjectName("qbittorrent")
 	image := "registry.invalid/adapter@sha256:" + strings.Repeat("a", 64)
-	client := &HTTPAdapterClient{Port: DefaultAdapterPort, Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	client := &HTTPAdapterClient{Port: DefaultAdapterPort, ClusterDomain: "cluster.local", Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodGet || request.URL.Path != "/networking.waycloak.io/adapter/v1/healthz" ||
-			request.URL.Host != AdapterServiceName(namespace, name)+".apps.svc:9444" || request.Header.Get("Authorization") != "" {
+			request.URL.Host != AdapterServiceName(namespace, name)+".apps.svc.cluster.local:9444" || request.Header.Get("Authorization") != "" {
 			t.Fatalf("adapter health request = %s %s headers=%v", request.Method, request.URL, request.Header)
 		}
 		return adapterJSONResponse(t, AdapterHealthObservation{APIVersion: AdapterAPIVersion, Namespace: namespace, Name: name,

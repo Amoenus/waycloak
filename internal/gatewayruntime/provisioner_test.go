@@ -183,7 +183,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
 	}
 	joinedArgs := strings.Join(runtimeContainer.Args, " ")
-	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/proton-natpmp", "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt"} {
+	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/proton-natpmp", "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local"} {
 		if !strings.Contains(joinedArgs, required) {
 			t.Fatalf("runtime args %q lack %q", joinedArgs, required)
 		}

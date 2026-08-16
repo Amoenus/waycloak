@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -50,20 +52,22 @@ type AdapterHealthChecker interface {
 // HTTPAdapterClient uses only mTLS and the bounded adapter protocol. It does
 // not load a service-account token and never follows environment proxies.
 type HTTPAdapterClient struct {
-	Client *http.Client
-	Port   uint16
-	Now    func() time.Time
+	Client        *http.Client
+	Port          uint16
+	ClusterDomain string
+	Now           func() time.Time
 }
 
-func NewHTTPAdapterClient(caFile, certFile, keyFile string, port uint16) (*HTTPAdapterClient, error) {
-	if port == 0 {
-		return nil, errors.New("adapter HTTPS port is required")
+func NewHTTPAdapterClient(caFile, certFile, keyFile string, port uint16, clusterDomain string) (*HTTPAdapterClient, error) {
+	clusterDomain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(clusterDomain)), ".")
+	if port == 0 || len(utilvalidation.IsDNS1123Subdomain(clusterDomain)) != 0 {
+		return nil, errors.New("adapter HTTPS port and cluster domain are required")
 	}
 	tlsConfig, err := clientTLSConfig(caFile, certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
-	return &HTTPAdapterClient{Port: port, Client: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+	return &HTTPAdapterClient{Port: port, ClusterDomain: clusterDomain, Client: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
 		Proxy: nil, TLSClientConfig: tlsConfig, DisableCompression: true, MaxIdleConns: 8, MaxIdleConnsPerHost: 2, IdleConnTimeout: 30 * time.Second,
 	}}}, nil
 }
@@ -92,10 +96,10 @@ func (c *HTTPAdapterClient) Withdraw(ctx context.Context, name wayv1.ObjectName,
 }
 
 func (c *HTTPAdapterClient) Observe(ctx context.Context, namespace wayv1.NamespaceName, name wayv1.ObjectName, image string) (AdapterHealthObservation, error) {
-	if c == nil || c.Client == nil || c.Port == 0 || namespace == "" || name == "" || image == "" {
+	if c == nil || c.Client == nil || c.Port == 0 || c.ClusterDomain == "" || namespace == "" || name == "" || image == "" {
 		return AdapterHealthObservation{}, errors.New("exact adapter health identity is required")
 	}
-	endpoint := adapterEndpoint(namespace, name, c.Port)
+	endpoint := adapterEndpoint(namespace, name, c.Port, c.ClusterDomain)
 	endpoint.Path = "/networking.waycloak.io/adapter/v1/healthz"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
@@ -125,14 +129,14 @@ func (c *HTTPAdapterClient) Observe(ctx context.Context, namespace wayv1.Namespa
 }
 
 func (c *HTTPAdapterClient) call(ctx context.Context, namespace wayv1.NamespaceName, name wayv1.ObjectName, method, path string, input, output any) error {
-	if c == nil || c.Client == nil || c.Port == 0 || namespace == "" || name == "" {
+	if c == nil || c.Client == nil || c.Port == 0 || c.ClusterDomain == "" || namespace == "" || name == "" {
 		return errors.New("exact adapter endpoint identity is required")
 	}
 	body, err := json.Marshal(input)
 	if err != nil || int64(len(body)) > runtimeBodyLimit {
 		return errors.New("adapter request is invalid")
 	}
-	endpoint := adapterEndpoint(namespace, name, c.Port)
+	endpoint := adapterEndpoint(namespace, name, c.Port, c.ClusterDomain)
 	endpoint.Path = path
 	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
@@ -163,8 +167,8 @@ func AdapterServiceName(namespace wayv1.NamespaceName, name wayv1.ObjectName) st
 	return fmt.Sprintf("waycloak-adapter-%x", digest[:8])
 }
 
-func adapterEndpoint(namespace wayv1.NamespaceName, name wayv1.ObjectName, port uint16) *url.URL {
-	return &url.URL{Scheme: "https", Host: AdapterServiceName(namespace, name) + "." + string(namespace) + ".svc:" + strconv.Itoa(int(port))}
+func adapterEndpoint(namespace wayv1.NamespaceName, name wayv1.ObjectName, port uint16, clusterDomain string) *url.URL {
+	return &url.URL{Scheme: "https", Host: AdapterServiceName(namespace, name) + "." + string(namespace) + ".svc." + clusterDomain + ":" + strconv.Itoa(int(port))}
 }
 
 func adapterPath(uid wayv1.ObjectUID, operation string) string {

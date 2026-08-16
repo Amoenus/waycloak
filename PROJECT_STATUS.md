@@ -2,6 +2,22 @@
 
 Last updated: 2026-08-17
 
+## v0.1.0-rc.9 gateway adapter DNS candidate
+
+RC.8 recovered the original absent-state withdrawal conflict, then its live
+deployment exposed a separate Kubernetes DNS boundary. Gateway Pods use the
+Waycloak split-DNS proxy and intentionally do not depend on a Pod resolver
+search list. The gateway runtime nevertheless addressed adapter Services as
+`<service>.<namespace>.svc`; that short service name timed out from the gateway
+while the fully qualified name resolved through the cluster-DNS path.
+
+RC.9 passes the installer-observed cluster domain into the tokenless gateway
+runtime and addresses adapters as
+`<service>.<namespace>.svc.<cluster-domain>`. The endpoint remains deterministic
+and mTLS-authenticated, and the certificate must cover that exact name. This is
+a generic WorkloadAdapter transport correction; it does not add application-
+or provider-specific behavior.
+
 ## v0.1.0-rc.8 adapter handoff recovery candidate
 
 The first RC.7 homelab port-forward activation correctly failed closed but

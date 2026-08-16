@@ -257,7 +257,7 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 	if runtimeTLSSecretName != "" {
 		args := []string{"--gateway-uid=" + string(gateway.UID), "--listen-address=:" + strconv.Itoa(int(provisioner.PortForwardRuntimePort)), "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--tls-key=" + portForwardTLSMountPath + "/tls.key", "--client-ca=" + portForwardTLSMountPath + "/ca.crt", "--engine-port-forward-capability=" + portForwardCapability}
 		if requestsFeature(gateway, wayv1.FeatureWorkloadAdapter) {
-			args = append(args, "--adapter-ca="+portForwardTLSMountPath+"/adapter-ca.crt", "--adapter-client-cert="+portForwardTLSMountPath+"/adapter-client.crt", "--adapter-client-key="+portForwardTLSMountPath+"/adapter-client.key", "--adapter-port="+strconv.Itoa(int(provisioner.AdapterPort)))
+			args = append(args, "--adapter-ca="+portForwardTLSMountPath+"/adapter-ca.crt", "--adapter-client-cert="+portForwardTLSMountPath+"/adapter-client.crt", "--adapter-client-key="+portForwardTLSMountPath+"/adapter-client.key", "--adapter-port="+strconv.Itoa(int(provisioner.AdapterPort)), "--cluster-domain="+provisioner.ClusterDomain)
 		}
 		containers = append(containers, corev1.Container{Name: "port-forward-runtime", Image: provisioner.PortForwardRuntimeImage, ImagePullPolicy: corev1.PullIfNotPresent, Args: args,
 			Ports:           []corev1.ContainerPort{{Name: "runtime", ContainerPort: int32(provisioner.PortForwardRuntimePort), Protocol: corev1.ProtocolTCP}},

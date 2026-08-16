@@ -23,7 +23,7 @@ import (
 
 func main() {
 	var listenAddress, serverCert, serverKey, clientCA, controllerIdentity, gatewayUID, tunnelInterface, overlayInterface, portForwardCapability string
-	var adapterCA, adapterCert, adapterKey string
+	var adapterCA, adapterCert, adapterKey, clusterDomain string
 	var adapterPort uint
 	flag.StringVar(&listenAddress, "listen-address", ":9443", "mTLS gateway-runtime listener")
 	flag.StringVar(&serverCert, "tls-cert", "", "gateway-runtime serving certificate")
@@ -38,14 +38,15 @@ func main() {
 	flag.StringVar(&adapterCert, "adapter-client-cert", "", "adapter-protocol client certificate")
 	flag.StringVar(&adapterKey, "adapter-client-key", "", "adapter-protocol client private key")
 	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic adapter Service HTTPS port")
+	flag.StringVar(&clusterDomain, "cluster-domain", "", "reviewed Kubernetes cluster DNS suffix")
 	flag.Parse()
 
 	if listenAddress == "" || serverCert == "" || serverKey == "" || clientCA == "" || controllerIdentity == "" || gatewayUID == "" || tunnelInterface == "" || overlayInterface == "" || portForwardCapability == "" {
 		slog.Error("exact gateway identity, interfaces, listener, and mTLS files are required")
 		os.Exit(1)
 	}
-	if (adapterCA == "") != (adapterCert == "") || (adapterCA == "") != (adapterKey == "") || adapterPort == 0 || adapterPort > 65535 {
-		slog.Error("adapter mTLS identity must be complete and its port valid")
+	if (adapterCA == "") != (adapterCert == "") || (adapterCA == "") != (adapterKey == "") || adapterPort == 0 || adapterPort > 65535 || adapterCA != "" && clusterDomain == "" {
+		slog.Error("adapter mTLS identity, cluster domain, and port must be complete")
 		os.Exit(1)
 	}
 	serverTLS, err := portforward.ServerTLSConfig(clientCA, controllerIdentity)
@@ -55,7 +56,7 @@ func main() {
 	}
 	var adapter portforward.AdapterProtocol
 	if adapterCA != "" {
-		adapter, err = portforward.NewHTTPAdapterClient(adapterCA, adapterCert, adapterKey, uint16(adapterPort))
+		adapter, err = portforward.NewHTTPAdapterClient(adapterCA, adapterCert, adapterKey, uint16(adapterPort), clusterDomain)
 		if err != nil {
 			slog.Error("configure adapter protocol", "error", err)
 			os.Exit(1)
