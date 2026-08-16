@@ -1,6 +1,17 @@
 # Project status
 
-Last updated: 2026-08-13
+Last updated: 2026-08-16
+
+## v0.1.0-rc.7 optional-capability activation candidate
+
+RC.7 preserves the frozen `networking.waycloak.io/v1beta1` API and extension
+contracts. Its distinct exact release identity permits a journal-bound gateway
+class replacement that activates the already implemented generic
+port-forwarding runtime and qBittorrent reference adapter in the homelab
+canary. Publication and deployment are not acceptance evidence by themselves:
+the provider mapping, TCP and UDP packet rules, lease delivery, adapter
+acknowledgement, application listener, renewal, fail-closed behavior, and
+recovery still require live proof before they count toward graduation.
 
 ## v0.1.0-rc.6 lifecycle and application-health separation
 
