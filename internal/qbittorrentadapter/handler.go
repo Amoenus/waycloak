@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -140,18 +141,22 @@ func (h *Handler) deliver(response http.ResponseWriter, request *http.Request, l
 		h.writeAcknowledgement(response, record, previous.AppliedAt)
 		return
 	}
+	h.states[leaseUID] = adapterState{Record: record}
+	if err := h.persist(); err != nil {
+		h.restoreState(leaseUID, previous, exists)
+		slog.Error("qBittorrent adapter could not persist delivery intent", "lease_uid", leaseUID, "error", err)
+		writeError(response, http.StatusServiceUnavailable)
+		return
+	}
 	if err := h.Application.Configure(request.Context(), record.ApplicationAddress, record.TargetPort, reannounce); err != nil {
+		slog.Warn("qBittorrent adapter could not apply delivery", "lease_uid", leaseUID, "error", err)
 		writeError(response, http.StatusConflict)
 		return
 	}
 	now := h.now()
 	h.states[leaseUID] = adapterState{Record: record, AppliedAt: now, verified: true}
 	if err := h.persist(); err != nil {
-		if exists {
-			h.states[leaseUID] = previous
-		} else {
-			delete(h.states, leaseUID)
-		}
+		slog.Error("qBittorrent adapter could not persist applied delivery", "lease_uid", leaseUID, "error", err)
 		writeError(response, http.StatusServiceUnavailable)
 		return
 	}
@@ -166,23 +171,41 @@ func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, 
 		return
 	}
 	state, exists := h.states[leaseUID]
-	if !exists || state.Record.HandoffGeneration != intent.HandoffGeneration || state.Record.PodUID != intent.PodUID {
+	if !exists {
+		h.writeWithdrawalAcknowledgement(response, intent)
+		return
+	}
+	if state.Record.HandoffGeneration != intent.HandoffGeneration || state.Record.PodUID != intent.PodUID {
 		writeError(response, http.StatusConflict)
 		return
 	}
 	if err := h.Application.Configure(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort, true); err != nil {
+		slog.Warn("qBittorrent adapter could not restore backend port", "lease_uid", leaseUID, "error", err)
 		writeError(response, http.StatusConflict)
 		return
 	}
 	delete(h.states, leaseUID)
 	if err := h.persist(); err != nil {
 		h.states[leaseUID] = state
+		slog.Error("qBittorrent adapter could not persist withdrawal", "lease_uid", leaseUID, "error", err)
 		writeError(response, http.StatusServiceUnavailable)
 		return
 	}
+	h.writeWithdrawalAcknowledgement(response, intent)
+}
+
+func (h *Handler) writeWithdrawalAcknowledgement(response http.ResponseWriter, intent wayportforward.WithdrawalIntent) {
 	_ = json.NewEncoder(response).Encode(wayportforward.AdapterWithdrawalAcknowledgement{APIVersion: wayportforward.AdapterAPIVersion,
 		LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID, HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID,
 		ObservedAt: h.now(), Withdrawn: true})
+}
+
+func (h *Handler) restoreState(leaseUID wayv1.ObjectUID, previous adapterState, existed bool) {
+	if existed {
+		h.states[leaseUID] = previous
+		return
+	}
+	delete(h.states, leaseUID)
 }
 
 func (h *Handler) validRecord(record wayportforward.AdapterLeaseRecord, leaseUID wayv1.ObjectUID) bool {

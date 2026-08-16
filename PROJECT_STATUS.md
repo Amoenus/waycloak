@@ -1,6 +1,24 @@
 # Project status
 
-Last updated: 2026-08-16
+Last updated: 2026-08-17
+
+## v0.1.0-rc.8 adapter handoff recovery candidate
+
+The first RC.7 homelab port-forward activation correctly failed closed but
+exposed a recovery defect. An intermediate qBittorrent Pod disappeared after
+the gateway runtime had recorded its handoff and before the adapter had
+recorded a successful application mutation. The replacement controller then
+requested withdrawal of that exact generation, while the adapter treated its
+absent state as a conflict. The lease remained indefinitely in `Draining`.
+
+RC.8 makes an absent adapter mutation an idempotent withdrawal success and
+durably records delivery intent before calling the application. Exact
+generation and Pod-identity mismatches remain conflicts. Runtime and adapter
+logs now identify the failed operation and lease without changing the API.
+Publication, deployment, and Pod readiness remain insufficient: the RC.8
+homelab canary must still prove a provider mapping, TCP and UDP packet rules,
+lease delivery and acknowledgement, matching qBittorrent listener, renewal,
+fail-closed withdrawal, and recovery.
 
 ## v0.1.0-rc.7 optional-capability activation candidate
 

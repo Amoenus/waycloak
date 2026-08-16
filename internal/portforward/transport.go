@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -201,6 +202,7 @@ func (h RuntimeHandler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		return
 	}
 	if err != nil {
+		slog.Warn("gateway port-forward runtime request failed", "operation", operation, "lease_uid", leaseUID, "error", err)
 		writeRuntimeError(response, http.StatusConflict)
 		return
 	}

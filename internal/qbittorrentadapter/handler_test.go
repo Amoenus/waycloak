@@ -9,10 +9,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -117,6 +119,60 @@ func TestHandlerDurablyRecoversAndRevalidatesBeforeAcknowledging(t *testing.T) {
 	}
 }
 
+func TestHandlerPersistsIntentBeforeMutationAndWithdrawsFailedDelivery(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	stateFile := filepath.Join(t.TempDir(), "adapter-state.json")
+	record := validRecord(now)
+	handler := &Handler{Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod",
+		StateFile: stateFile, Now: func() time.Time { return now }}
+	application := &fakeConfigurer{err: errors.New("application unavailable")}
+	application.before = func() {
+		contents, err := os.ReadFile(stateFile)
+		if err != nil {
+			t.Fatalf("delivery intent was not durable before mutation: %v", err)
+		}
+		states := map[wayv1.ObjectUID]adapterState{}
+		if err := json.Unmarshal(contents, &states); err != nil || states[record.LeaseUID].Record.PodUID != record.PodUID {
+			t.Fatalf("durable delivery intent = %#v, %v", states, err)
+		}
+	}
+	handler.Application = application
+	if response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusConflict {
+		t.Fatalf("failed application mutation = %d: %s", response.Code, response.Body.String())
+	}
+	if state, exists := handler.states[record.LeaseUID]; !exists || state.verified {
+		t.Fatalf("failed delivery state = %#v, exists=%t", state, exists)
+	}
+
+	application.err = nil
+	application.before = nil
+	withdrawal := wayportforward.WithdrawalIntent{APIVersion: wayportforward.RuntimeAPIVersion, LeaseNamespace: record.LeaseNamespace,
+		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
+	if response := serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal); response.Code != http.StatusOK {
+		t.Fatalf("failed delivery withdrawal = %d: %s", response.Code, response.Body.String())
+	}
+	if got := application.calls[len(application.calls)-1]; got.port != record.BackendPort {
+		t.Fatalf("withdrawal configured port %d, want %d", got.port, record.BackendPort)
+	}
+}
+
+func TestHandlerAcknowledgesWithdrawalWithoutTrackedMutation(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	application := &fakeConfigurer{}
+	handler := &Handler{Application: application, Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod", Now: func() time.Time { return now }}
+	record := validRecord(now)
+	withdrawal := wayportforward.WithdrawalIntent{APIVersion: wayportforward.RuntimeAPIVersion, LeaseNamespace: record.LeaseNamespace,
+		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
+	response := serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal)
+	var acknowledgement wayportforward.AdapterWithdrawalAcknowledgement
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &acknowledgement) != nil || !acknowledgement.Withdrawn {
+		t.Fatalf("absent-state withdrawal = %d %#v: %s", response.Code, acknowledgement, response.Body.String())
+	}
+	if len(application.calls) != 0 {
+		t.Fatalf("absent-state withdrawal mutated application: %#v", application.calls)
+	}
+}
+
 func TestHandlerSeparatesControllerHealthFromGatewayRuntimeAuthority(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	controllerIdentity := "spiffe://waycloak.io/replacement-controller"
@@ -157,11 +213,18 @@ type configureCall struct {
 	reannounce bool
 }
 
-type fakeConfigurer struct{ calls []configureCall }
+type fakeConfigurer struct {
+	calls  []configureCall
+	before func()
+	err    error
+}
 
 func (f *fakeConfigurer) Configure(_ context.Context, address netip.Addr, port uint16, reannounce bool) error {
+	if f.before != nil {
+		f.before()
+	}
 	f.calls = append(f.calls, configureCall{address, port, reannounce})
-	return nil
+	return f.err
 }
 
 func validRecord(now time.Time) wayportforward.AdapterLeaseRecord {
