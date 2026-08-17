@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -51,7 +52,9 @@ type PortForwardLeaseReconciler struct {
 
 func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	lease := &wayv1.PortForwardLease{}
-	if err := r.Get(ctx, request.NamespacedName, lease); err != nil {
+	// Status uses optimistic concurrency, so begin from an authoritative API
+	// read instead of a potentially lagging informer-cache resourceVersion.
+	if err := r.reader().Get(ctx, request.NamespacedName, lease); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !lease.DeletionTimestamp.IsZero() {
@@ -182,7 +185,20 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 		status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
 		return status, r.observationFreshness()
 	}
-	if current != nil && (!evaluation.gatewayReady || current.Phase == wayv1.EndpointPhaseDraining || !evaluation.hasSelected || current.ServiceUID != evaluation.selected.ServiceUID || current.PodUID != evaluation.selected.PodUID) {
+	drainReason := handoffDrainReason(current, evaluation)
+	if current != nil && drainReason != "" {
+		if current.Phase != wayv1.EndpointPhaseDraining {
+			resolved := evaluation.states[wayv1.ConditionResolvedRefs]
+			ctrllog.FromContext(ctx).Info("port_forward_handoff_transition",
+				"lease_namespace", lease.Namespace,
+				"lease_name", lease.Name,
+				"lease_uid", lease.UID,
+				"handoff_generation", status.HandoffGeneration,
+				"reason", drainReason,
+				"resolved_refs_status", resolved.Status,
+				"resolved_refs_reason", resolved.Reason,
+			)
+		}
 		return r.drainStatus(ctx, lease, evaluation)
 	}
 	if current == nil {
@@ -223,6 +239,26 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 	applyObservation(lease, &status, states, observation, r.now())
 	status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
 	return status, r.observationFreshness() / 2
+}
+
+func handoffDrainReason(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEvaluation) string {
+	if current == nil {
+		return ""
+	}
+	switch {
+	case !evaluation.gatewayReady:
+		return "gateway_not_ready"
+	case current.Phase == wayv1.EndpointPhaseDraining:
+		return "already_draining"
+	case !evaluation.hasSelected:
+		return "backend_not_selected"
+	case current.ServiceUID != evaluation.selected.ServiceUID:
+		return "service_uid_changed"
+	case current.PodUID != evaluation.selected.PodUID:
+		return "pod_uid_changed"
+	default:
+		return ""
+	}
 }
 
 func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *wayv1.PortForwardLease, evaluation leaseEvaluation) (wayv1.PortForwardLeaseStatus, time.Duration) {
