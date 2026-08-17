@@ -237,7 +237,10 @@ or sensitive endpoint disclosure.
     using qBittorrent as the sole application canary, has no leak, identity
     collision, stale readiness, unbounded write loop or unexplained recurring
     outage. It requires no additional cluster node; Bitmagnet remains scaled to
-    zero and outside the gate.
+    zero and outside the gate. Earlier beta and release-candidate windows remain
+    valid lifecycle, fail-closed and recovery evidence, including windows that
+    expose a defect, but their durations are not combined with or substituted
+    for the clean unchanged-artifact graduation epoch.
 
 ## Non-goals
 
