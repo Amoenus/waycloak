@@ -17,6 +17,7 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	"github.com/Amoenus/waycloak/internal/httpserverlog"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/provider/gluetun"
 )
@@ -74,7 +75,8 @@ func main() {
 	}
 	server := &http.Server{
 		Addr: listenAddress, Handler: portforward.RuntimeHandler{Manager: manager, GatewayUID: wayv1.ObjectUID(gatewayUID)}, TLSConfig: serverTLS,
-		ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10,
+		ErrorLog: httpserverlog.NewTLSProbeErrorLogger(os.Stderr), ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second,
+		WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

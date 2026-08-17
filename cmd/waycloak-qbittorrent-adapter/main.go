@@ -15,6 +15,7 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	"github.com/Amoenus/waycloak/internal/httpserverlog"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/qbittorrentadapter"
 )
@@ -62,7 +63,7 @@ func main() {
 		slog.Error("load adapter client trust", "error", err)
 		os.Exit(1)
 	}
-	server := &http.Server{Addr: listenAddress, Handler: handler, TLSConfig: serverTLS, ReadHeaderTimeout: 2 * time.Second,
+	server := &http.Server{Addr: listenAddress, Handler: handler, TLSConfig: serverTLS, ErrorLog: httpserverlog.NewTLSProbeErrorLogger(os.Stderr), ReadHeaderTimeout: 2 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

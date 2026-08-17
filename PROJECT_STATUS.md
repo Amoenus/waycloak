@@ -2,6 +2,38 @@
 
 Last updated: 2026-08-17
 
+## RC.20 exact soak start and readiness-probe log correction
+
+Signed `v0.1.0-rc.20` was published from exact main commit `1484cd66` after
+main CI run `32055359060`, CLI release run `32056793766`, and runtime release
+run `32056793600` passed. Its canonical manifest identity is
+`sha256:afb425271f16f35bf749211e55989008624235181fd90ae6f197a03e91bbe11f`.
+Homelab `master` commit `447e9895` deployed the exact release through GitOps.
+Root, Waycloak, and qBittorrent converged Synced and Healthy; qBittorrent kept
+its Pod UID with zero restarts, Bitmagnet remained at zero, and no node was
+added.
+
+The clean local-cluster epoch began at `2026-08-17T19:47:01Z`. Its initial
+samples retained exact release and GitOps identities, all gateway, DNS, lease,
+binding, adapter, and listener conditions, handoff generation 207, and zero
+restart or UID changes. An external diagnostic captured inbound UDP on the VPN
+tunnel, forwarding to the exact qBittorrent overlay endpoint, and qBittorrent
+UDP egress through the tunnel; only redacted flow predicates and pcap digests
+are retained publicly. A continuous condition watch additionally distinguishes
+provider-expiry renewal writes from node-agent observation heartbeats.
+
+A whole-container log audit then found that the qBittorrent adapter and gateway
+port-forward runtime each logged every two-second Kubernetes TCP readiness
+connection as `http: TLS handshake error ...: EOF`. The probes, application
+traffic, conditions, and restart counts remained healthy, and Kubernetes
+recorded no related Warning event. The message is nevertheless misleading and
+would create unbounded-looking operational noise during the graduation window.
+The focused correction filters only that exact benign TCP-probe EOF at the two
+mTLS HTTP servers; certificate failures, unrelated EOFs, and all other HTTP
+server errors remain visible under unit tests. RC.20 observations remain
+lifecycle evidence, but the successor release must begin a new unchanged-
+artifact 72-hour epoch after exact GitOps deployment.
+
 ## RC.19 local stabilization finding and node-observation correction
 
 Signed `v0.1.0-rc.19` was published from exact main commit `9bd0c861` after
