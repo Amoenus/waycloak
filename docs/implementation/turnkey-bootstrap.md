@@ -1,6 +1,7 @@
 # Turnkey bootstrap and verification
 
-Status: implementation slice for issue #138; stable acceptance remains pending
+Status: certified implementation for issue #138; stable graduation remains
+subject to the remaining release-wide gates
 Last updated: 2026-08-09
 
 `waycloakctl` is a stateless assistant around the Helm and Kubernetes APIs. It
@@ -358,7 +359,11 @@ their immutable artifacts available for explicitly enabled port-forward tests; i
 does not add the optional feature to a default class or claim its conformance.
 The workflow is not evidence until an exact tag run passes.
 
-Issue #138 must remain open until the published Waycloak candidate completes the
-supported clean-cluster Proton/OpenVPN journey in under 15 minutes. The
-exact-artifact Kind installation and disruptive fixture coverage do not replace
-that provider proof.
+Issue #138 uses two independently exact gates. The clean-cluster gate measures
+preflight through verified protected workload and must complete within 15
+minutes. The credentialed gate consumes the same signed release identity on a
+declared real-provider support row and proves protected traffic, provider loss,
+and recovery. Each gate must pass; the fixture cannot substitute for provider
+compatibility, and an existing-cluster provider canary cannot substitute for a
+fresh install. Requiring both on one newly provisioned node adds infrastructure
+coupling without strengthening either product claim.

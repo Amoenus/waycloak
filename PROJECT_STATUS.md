@@ -18,6 +18,23 @@ Additional K3s topologies, distributions, external datastores, and operator
 environments require their own future support rows and do not inherit this
 evidence.
 
+## Turnkey installation certification
+
+Issue #138 is complete through two independently exact gates rather than an
+artificial requirement for another cluster node. RC.11 main CI run
+`31996762388` completed the full clean-cluster exact-artifact turnkey job in
+14m46s, including preflight, confirmation-bound install, chained-CNI receipt,
+live capability, doctor, disruptive gateway loss, rollback/recovery, and
+owned-fixture cleanup. The same signed manifest and runtime identities were
+then consumed through homelab GitOps and the exact installer plan, where the
+Proton/OpenVPN qBittorrent canary proved protected egress, fail-closed gateway
+replacement, and live inbound TCP/UDP forwarding.
+
+Keeping clean-cluster mechanics and credentialed provider compatibility as
+separate gates preserves both claims without making a new infrastructure node
+a product dependency. Neither gate may substitute a fixture for the behavior
+it owns.
+
 ## v0.1.0-rc.11 exact inbound forwarding candidate
 
 RC.10 made the qBittorrent listener and DHT path operational, then an
@@ -605,8 +622,10 @@ WireGuard tunnel and HTTPS egress observer, proves wrong-confirmation
 non-mutation, distinct ordinary/protected source identity, exact-UID gateway
 replacement, protected application startup denial during loss, recovery, and
 owned-object cleanup. The fixture uses runtime-generated keys and certificates
-and is not a supported provider. Issue #138 remains open for the under-15-minute
-supported real-provider journey.
+and is not a supported provider. The separate credentialed Proton/OpenVPN gate
+now runs against the same exact published identity on the declared homelab
+support row; together with the 14m46s clean-cluster RC.11 job, this completes
+issue #138 without provisioning another cluster node.
 
 Issues #188 and #189 are complete after the live Core.13 qBittorrent canary proved a
 gateway-engine coexistence defect. Chained CNI correctly kept the sandbox

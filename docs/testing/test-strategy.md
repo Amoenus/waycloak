@@ -413,11 +413,14 @@ Gateway replacement must advance binding intent while an older exact node
 observation is queued: the relay ignores that old generation without mutating
 status, the agent completes its handshake, and drift reconciliation adopts the
 current generation without an authorization loop.
-The credentialed gate then measures the clean Proton/OpenVPN path from preflight
-to verified protected curl, requires completion within 15 minutes, deletes the
-exact gateway Pod, and proves ordinary egress continues while newly enrolled
-application containers cannot start until the protected path recovers. Alpha
-presence is a preflight refusal, never an automatic migration.
+The clean-cluster exact-artifact gate measures preflight through a verified
+protected workload and requires completion within 15 minutes. A separate
+credentialed gate consumes the same signed release identity on a declared
+Proton/OpenVPN support row, deletes the exact gateway Pod, and proves ordinary
+egress continues while newly enrolled application containers cannot start
+until the protected path recovers. Both gates are mandatory; combining them on
+one newly provisioned node is not. Alpha presence is a preflight refusal, never
+an automatic migration.
 
 ## Credentialed tests
 

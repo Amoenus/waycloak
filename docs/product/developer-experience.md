@@ -8,9 +8,9 @@ A failed CNI `ADD` prevents the sandbox from becoming runnable. Users diagnose t
 
 The signed preflight/install/doctor workflow and complete examples are the
 supported release-candidate path documented in
-[Getting started](../getting-started.md). Stable graduation remains owned by
-issue #138 and requires its outstanding real-provider timing and certification
-evidence.
+[Getting started](../getting-started.md). The clean-cluster timing and separate
+credentialed real-provider gates are certified under issue #138; stable
+graduation remains subject to the broader lifecycle and soak evidence.
 
 Port forwarding is application-neutral by default: an owner selects a stable
 Service/backend port and Waycloak translates the changing public mapping at the

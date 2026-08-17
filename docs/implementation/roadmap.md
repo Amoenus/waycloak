@@ -84,16 +84,18 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   Keep the capability unadvertised until the real-provider
   rolling-replacement test proves drain, successor handoff, return-path
   symmetry, zero wrong-Pod delivery, and zero ordinary-egress fallback.
-- [ ] #138: turnkey CLI and runtime installation are in progress independently
-  of the still-unadvertised port-forward #137 capability. Do not close until signed
-  exact-artifact, clean-install, and under-15-minute provider evidence pass. A
+- [x] #138: turnkey CLI and runtime installation are certified independently
+  from the optional port-forward capability. Signed exact-artifact clean-install
+  and credentialed provider evidence pass as two exact gates. The
   disposable Kind/local-OCI gate now exercises preflight,
   plan, refusal without exact confirmation, full apply, CNI receipt/chain,
   authenticated node capability, release identity, doctor, and a
   confirmation-gated disruptive smoke run through a kernel WireGuard fixture.
   The smoke run proves same-observer distinct source identity, gateway-loss
   startup denial, recovery, and owned-object cleanup without treating the
-  fixture as a supported provider. Release
+  fixture as a supported provider. RC.11's clean-cluster job completed in
+  14m46s, and the same signed release identity passed the separate live
+  Proton/OpenVPN qBittorrent GitOps canary. Release
   manifests are bound to a recomputed canonical
   version/chart/image/profile identity and reject hidden extra artifacts. The
   mandatory CNI installer image now has a repeat-built multi-platform OCI gate,
