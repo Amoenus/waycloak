@@ -302,6 +302,23 @@ records the evidence-backed developer-preview direction.
 
 ## Success measures
 
+### Stable local-cluster soak gate
+
+The multi-day graduation soak runs on the operator's existing local cluster
+with qBittorrent as the sole application canary. It does not require another
+node, a disposable infrastructure environment, or a second application.
+Bitmagnet remains scaled to zero and outside this gate.
+
+One exact release manifest, GitOps revision, chart and image inventory must
+remain unchanged for at least 72 hours. The evidence records gateway/tunnel/DNS
+conditions, lease renewal and acknowledgement, qBittorrent TCP/UDP listeners,
+DHT health, external TCP reachability, sampled external UDP delivery, Pod
+identity/restarts, fail-closed replacement behavior, and bounded resource write
+rates. A release change starts a new soak epoch. Earlier beta/RC observations
+across multiple exact releases remain lifecycle evidence but do not replace the
+unchanged-artifact epoch. See
+[local-cluster real-provider soak](../testing/real-provider-port-forward.md).
+
 - One-line opt-in is sufficient for application teams.
 - Zero observed direct-egress packets from protected Pods during forced failure tests.
 - No VPN credential material exists in application Pods.

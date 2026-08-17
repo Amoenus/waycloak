@@ -112,15 +112,18 @@ fail closed. The dependency-aware readiness correction passes unit, race,
 static, envtest, and full Linux tests, but a successor beta containing that
 correction still requires exact-artifact publication, homelab deployment, and
 repetition on the canary. This does not complete #141: the
-remaining #137–#140 work, open #32 lifecycle evidence, multi-day support-row
-soak, arm64 conformance, one beta cycle, and the v1 graduation review remain
-release gates. #33 is complete.
+remaining #140 work, the unchanged-artifact local qBittorrent soak, the declared
+support-row audit, and the v1 graduation review remain release gates. #32,
+#33, and #137–#139 are complete.
 
 1. Publish signed standalone/chart CRD bundles and one support-matrix manifest.
 2. Test every supported beta upgrade/rollback, stored-version migration,
    backup/restore, interrupted operation and safe uninstall/purge.
 3. Complete disaster recovery (#32) and metrics/alerts (#33).
-4. Run exact-artifact multi-day real-provider soak on every support-matrix row.
+4. Run a minimum 72-hour exact-artifact real-provider soak on the existing
+   local cluster with qBittorrent as the sole application canary. Do not add a
+   cluster node or activate Bitmagnet for this gate. A changed artifact starts
+   a new epoch.
 5. Publish SBOM, provenance, signatures, vulnerability results and conformance
    evidence.
 6. Hold one release cycle without a breaking beta semantic change, then review

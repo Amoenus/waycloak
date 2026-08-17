@@ -442,7 +442,11 @@ must record zero direct TCP, UDP, DNS UDP/TCP, and fragmented UDP before, during
 and after purge. A failed drill keeps protected workloads stopped and cannot be
 waived into an ordinary-egress fallback.
 
-The sustained Proton/qBitTorrent procedure is defined in
+The stable soak is a minimum 72-hour unchanged-artifact observation on the
+operator's existing local cluster. qBittorrent is the sole application canary;
+Bitmagnet remains scaled to zero, and no additional node is provisioned. Prior
+cross-release canary history counts toward beta/lifecycle evidence but cannot
+replace this exact-artifact epoch. The sustained Proton/qBitTorrent procedure is defined in
 [real-provider port-forward acceptance](real-provider-port-forward.md). It is
 an explicit, gated operator-cluster suite and is not replaced by the
 protocol-faithful local fixture.

@@ -233,8 +233,11 @@ or sensitive endpoint disclosure.
 8. Docs, schemas, Helm, examples, release metadata and runtime report one
    coherent API and feature set.
 9. SBOM, signature, provenance, reproducibility and vulnerability gates pass.
-10. A multi-day soak has no leak, identity collision, stale readiness,
-    unbounded write loop or unexplained recurring outage.
+10. A minimum 72-hour unchanged-artifact soak on the operator's local cluster,
+    using qBittorrent as the sole application canary, has no leak, identity
+    collision, stale readiness, unbounded write loop or unexplained recurring
+    outage. It requires no additional cluster node; Bitmagnet remains scaled to
+    zero and outside the gate.
 
 ## Non-goals
 

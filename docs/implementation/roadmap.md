@@ -391,8 +391,12 @@ real-deployment-proven narrow integration. Loadstone remains future work.
   gateway status patches.
 - [x] Cover sustained intermittent engine failures and concurrent controller
   updates in automated tests.
-- [ ] Complete the digest-pinned multi-hour homelab soak for #116 and record
-  outage counts, durations, lease withdrawal/recovery, and fail-closed proof.
+- [ ] Complete the minimum 72-hour unchanged-artifact local-cluster soak for
+  #116/#141 with qBittorrent as the sole application canary. Record outage
+  counts and durations, DNS state, lease renewal/withdrawal/recovery, listener
+  and DHT state, packet evidence, restarts, identity changes, and bounded
+  resource writes. Do not add nodes or activate Bitmagnet. The Aug 11–17
+  cross-release history is lifecycle evidence but does not replace this epoch.
 
 ### v0.3.3 controller correctness patch
 
