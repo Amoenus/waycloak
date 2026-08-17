@@ -167,6 +167,7 @@ $summary = [ordered]@{
     restartIncreases = 0
     unexpectedUIDChanges = 0
     providerMappingChanges = 0
+    handoffGenerationChanges = 0
     listenerTCPFailures = 0
     listenerUDPFailures = 0
     externalDNSFailures = 0
@@ -230,14 +231,25 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         $mappingChanged = $mappingIdentity -ne $baseline.mapping
         if ($mappingChanged -and $mappingIdentity -ne $previous.mapping) { $summary.providerMappingChanges++ }
 
+        $handoffGeneration = [int64]$leaseResource.status.handoffGeneration
+        if (-not $baseline.ContainsKey("handoffGeneration")) { $baseline.handoffGeneration = $handoffGeneration }
+        $handoffGenerationChanged = $handoffGeneration -ne $baseline.handoffGeneration
+        if ($handoffGenerationChanged -and $handoffGeneration -ne $previous.handoffGeneration) {
+            $summary.handoffGenerationChanges++
+        }
+
         foreach ($entry in @(
+            @{ key = "gatewayResourceUID"; value = [string]$gatewayResource.metadata.uid },
+            @{ key = "leaseResourceUID"; value = [string]$leaseResource.metadata.uid },
             @{ key = "gatewayPodUID"; value = [string]$gatewayPod.metadata.uid },
             @{ key = "workloadPodUID"; value = [string]$workloadPod.metadata.uid },
             @{ key = "adapterPodUID"; value = [string]$adapterPod.metadata.uid }
         )) {
             if (-not $baseline.ContainsKey($entry.key)) { $baseline[$entry.key] = $entry.value }
         }
-        $uidChanged = $baseline.gatewayPodUID -ne [string]$gatewayPod.metadata.uid -or
+        $uidChanged = $baseline.gatewayResourceUID -ne [string]$gatewayResource.metadata.uid -or
+            $baseline.leaseResourceUID -ne [string]$leaseResource.metadata.uid -or
+            $baseline.gatewayPodUID -ne [string]$gatewayPod.metadata.uid -or
             $baseline.workloadPodUID -ne [string]$workloadPod.metadata.uid -or
             $baseline.adapterPodUID -ne [string]$adapterPod.metadata.uid
         if ($uidChanged -and -not $previous.uidChanged) { $summary.unexpectedUIDChanges++ }
@@ -301,12 +313,13 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
             clusterDNS = $clusterDNS
             externalTCP = $externalTCP
             mappingChangedFromStart = $mappingChanged
+            handoffGenerationChangedFromStart = $handoffGenerationChanged
             uidChangedFromStart = $uidChanged
             restartIncrease = $restartIncrease
             gatewayResourceVersionChanged = [bool]$gatewayRVChanged
             leaseResourceVersionChanged = [bool]$leaseRVChanged
             providerExpiry = ([DateTimeOffset]$leaseResource.status.provider.expiresAt).ToString("O")
-            handoffGeneration = [int64]$leaseResource.status.handoffGeneration
+            handoffGeneration = $handoffGeneration
             gatewayConditions = $gatewayConditions
             leaseConditions = $leaseConditions
             restarts = $restarts
@@ -314,6 +327,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         })
 
         $previous.mapping = $mappingIdentity
+        $previous.handoffGeneration = $handoffGeneration
         $previous.uidChanged = $uidChanged
         $previous.restarts = $restarts
         $previous.gatewayRV = [string]$gatewayResource.metadata.resourceVersion
