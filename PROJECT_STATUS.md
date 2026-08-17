@@ -40,9 +40,13 @@ captured several fail-closed lease/listener windows, including an approximately
 seven-minute pending interval, four collection failures, and the planned
 release transition, so it is not clean graduation-soak evidence. A fresh
 minimum 72-hour unchanged-artifact RC.13 epoch started on the existing local
-cluster at `2026-08-17T08:54:23Z`, with qBittorrent as the sole application
-canary and a nominal completion no earlier than `2026-08-20T08:54:23Z`.
-Bitmagnet remains at zero replicas and no node was added. The collector requires
+cluster at `2026-08-17T08:59:18Z`, after the new node/binding observations had
+fully converged, with qBittorrent as the sole application canary and a nominal
+completion no earlier than `2026-08-20T08:59:18Z`. An earlier four-minute
+RC.13 collector was discarded from the graduation clock because binding
+readiness completed its release transition and safely advanced the handoff
+from generation 32 to 33 during that interval. Bitmagnet remains at zero
+replicas and no node was added. The collector requires
 the expected version and manifest digest explicitly and has no stale candidate
 default.
 

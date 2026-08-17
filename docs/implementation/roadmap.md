@@ -210,9 +210,9 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   GitOps replacement retained the qBittorrent Pod and lease identities while a
   watch observed the durable `Selecting` generation before automatic
   activation. The fresh local-cluster epoch started at
-  `2026-08-17T08:54:23Z`; complete its minimum 72 unchanged-artifact hours
-  before v1 graduation. ARM and other platforms are future rows, not hidden
-  blockers.
+  `2026-08-17T08:59:18Z`, after binding readiness fully converged; complete its
+  minimum 72 unchanged-artifact hours before v1 graduation. ARM and other
+  platforms are future rows, not hidden blockers.
 
 ## Phase 0 — repository and design baseline
 
