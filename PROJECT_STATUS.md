@@ -35,6 +35,16 @@ transaction still immediately locks down, and genuinely stale observations
 still withdraw readiness. A new exact RC and stable-generation window are
 required before the minimum 72-hour local qBittorrent epoch can start.
 
+Main CI for that correction rebuilt the exact patched Gluetun source and passed
+all Waycloak-owned source, race, packet, DNS, CNI, recovery, and turnkey jobs.
+Its Gluetun upstream suite alone failed twice because `Test_leakCheck` called an
+uncontrolled third-party service that changed the JSON type of its `ip` field.
+The deterministic dependency gate now excludes only that exact live-service
+test while retaining package compilation, every other upstream test, duplicate
+reproducible builds, vulnerability/image scans, Waycloak's privileged DNS-leak
+and packet suites, and credentialed local-cluster proof. This is test ownership
+correction, not a reduced DNS or fail-closed claim.
+
 ## RC.18 publication finding and RC.19 resilient uploader
 
 RC.18 exact main CI and CLI publication passed, including the CLI

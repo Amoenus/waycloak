@@ -34,6 +34,15 @@ results so conditional execution cannot weaken branch protection. Unknown
 diff bases and workflow-classification changes fail safe to the full pipeline.
 Implementation is tracked by issue #64.
 
+Mandatory dependency qualification must not depend on an uncontrolled live
+third-party API whose response schema or availability is outside the released
+contract. Such upstream network tests are excluded by exact test identity while
+the package still compiles and every deterministic upstream test runs. Waycloak
+retains responsibility for the displaced claim through protocol-faithful local
+fixtures, privileged packet and DNS-leak suites, and the gated real-provider
+local-cluster acceptance. A skipped external-service test never waives those
+product-owned checks.
+
 ### Controller integration tests
 
 Use envtest for:
