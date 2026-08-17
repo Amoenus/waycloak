@@ -206,9 +206,13 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   lifecycle, destructive reinstall, DR, and beta evidence are recorded. RC.13
   makes that deliberately narrow row machine-readable in the signed manifest.
   RC.13 also stages each handoff generation before external effects after the
-  RC.12 live upgrade exposed an ahead-of-status adapter generation. Complete
-  its minimum 72-hour unchanged-artifact local qBittorrent soak before
-  v1 graduation. ARM and other platforms are future rows, not hidden blockers.
+  RC.12 live upgrade exposed an ahead-of-status adapter generation. Its live
+  GitOps replacement retained the qBittorrent Pod and lease identities while a
+  watch observed the durable `Selecting` generation before automatic
+  activation. The fresh local-cluster epoch started at
+  `2026-08-17T08:54:23Z`; complete its minimum 72 unchanged-artifact hours
+  before v1 graduation. ARM and other platforms are future rows, not hidden
+  blockers.
 
 ## Phase 0 — repository and design baseline
 

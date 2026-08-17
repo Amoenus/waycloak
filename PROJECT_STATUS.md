@@ -12,10 +12,39 @@ therefore retry only the same durable generation; it cannot leave the runtime
 or adapter ahead of lease status. Strict stale-generation rejection remains
 unchanged.
 
-The local soak collector now requires the expected release version and manifest
-digest explicitly instead of carrying a stale candidate default. RC.13 must be
-published, independently verified, deployed by exact GitOps identity, and
-start a new 72-hour qBittorrent epoch; RC.12 remains lifecycle evidence only.
+Signed tag `v0.1.0-rc.13` points to commit `e875f4d`. Main CI run
+`32008451040`, runtime release run `32009694599`, and CLI release run
+`32009694506` passed all substantive and independent published-artifact checks.
+The canonical manifest identity is
+`sha256:64b1ef7a9914ff1a929aa87c4bf5ae331f25018792ccabc56d976c5965b55c8f`.
+Homelab `master` commit `26d901b2` deployed it through exact install plan
+`sha256:c76dd82c69c5c4eee8dbe209cf930ede346ea5ba9973dcd7beba261532b87de0`;
+Helm revision 27 and the root, Waycloak, and qBittorrent Argo applications are
+Synced and Healthy.
+
+The live immutable WorkloadAdapter replacement retained qBittorrent Pod UID
+`fb9ef3d5-70b0-4038-b422-3810e03a55ef` and PortForwardLease UID
+`60938839-4c23-47e2-84d5-e0656664a1f8`. The lease watch observed generation
+31 with no active endpoint, a durably persisted generation 32 in `Selecting`,
+and then generation 32 `Active` with every lease condition true. Neither the
+lease nor workload was deleted, and no cleanup quarantine was required. The
+immediate exact-release smoke passed gateway and DNS readiness, both listener
+protocols, external and cluster DNS, and independent external TCP with zero
+restarts. A 30-second qBittorrent sample recorded 68 inbound and 284 outbound
+UDP datagrams with zero `NoPorts` and `InErrors`; DHT is enabled and UPnP is
+disabled.
+
+The stopped RC.12 collector contributed 78 lifecycle samples over about 78
+minutes with zero restart increases and no public endpoint recorded. It also
+captured several fail-closed lease/listener windows, including an approximately
+seven-minute pending interval, four collection failures, and the planned
+release transition, so it is not clean graduation-soak evidence. A fresh
+minimum 72-hour unchanged-artifact RC.13 epoch started on the existing local
+cluster at `2026-08-17T08:54:23Z`, with qBittorrent as the sole application
+canary and a nominal completion no earlier than `2026-08-20T08:54:23Z`.
+Bitmagnet remains at zero replicas and no node was added. The collector requires
+the expected version and manifest digest explicitly and has no stale candidate
+default.
 
 ## v0.1.0-rc.12 support-matrix candidate
 
