@@ -179,6 +179,7 @@ func recoverInstalledState(ctx context.Context, service *nodeagent.Service, rece
 func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, cniReceiptFile, cniBinaryFile, cniConfigFile string, releaseIdentity wayv1.ReleaseIdentity, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	publication := &publicationTransitions{}
 	for {
 		installationErr := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity)
 		if installationErr != nil {
@@ -187,7 +188,7 @@ func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nod
 				log.Printf("invalid-CNI lockdown incomplete: %v", lockdownErr)
 			}
 		}
-		if publishObservation(ctx, service, reporter) && installationErr == nil {
+		if publishObservation(ctx, service, reporter, publication) && installationErr == nil {
 			reconcileErr := service.ReconcileAll(ctx)
 			service.SetBackendHealthy(reconcileErr == nil)
 			if reconcileErr != nil && ctx.Err() == nil {
@@ -196,7 +197,7 @@ func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nod
 			// Publish the post-reconciliation state immediately. A recovering
 			// node remains unadvertised until both the relay handshake and the
 			// retained attachment verification succeed.
-			publishObservation(ctx, service, reporter)
+			publishObservation(ctx, service, reporter, publication)
 		}
 		select {
 		case <-ctx.Done():
@@ -206,20 +207,51 @@ func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nod
 	}
 }
 
-func publishObservation(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter) bool {
-	reportCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+type publicationTransitions struct {
+	consecutiveFailures int
+	failedAt            time.Time
+}
+
+func (p *publicationTransitions) failed(now time.Time) int {
+	if p.consecutiveFailures == 0 {
+		p.failedAt = now
+	}
+	p.consecutiveFailures++
+	return p.consecutiveFailures
+}
+
+func (p *publicationTransitions) recovered(now time.Time) (int, time.Duration) {
+	failures := p.consecutiveFailures
+	if failures == 0 {
+		return 0, 0
+	}
+	duration := now.Sub(p.failedAt)
+	p.consecutiveFailures = 0
+	p.failedAt = time.Time{}
+	return failures, duration
+}
+
+func publishObservation(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, publication *publicationTransitions) bool {
+	reportCtx, cancel := context.WithTimeout(ctx, nodeagent.ObservationPublicationTimeout)
 	err := reporter.Report(reportCtx, service.Report())
 	cancel()
 	if err == nil {
 		service.SetRelayHealthy(true)
+		if failures, duration := publication.recovered(time.Now()); failures > 0 {
+			log.Printf("node observation publication recovered: consecutive_failures=%d recovery_duration=%s", failures, duration.Round(time.Millisecond))
+		}
 		return true
+	}
+	failureCount := 0
+	if ctx.Err() == nil {
+		failureCount = publication.failed(time.Now())
 	}
 	service.SetRelayHealthy(false)
 	if lockdownErr := service.LockdownAll(ctx); lockdownErr != nil && ctx.Err() == nil {
 		log.Printf("controller-loss lockdown incomplete: %v", lockdownErr)
 	}
 	if ctx.Err() == nil {
-		log.Printf("node observation publication unavailable: %v", err)
+		log.Printf("node observation publication unavailable: consecutive_failures=%d %v", failureCount, err)
 	}
 	return false
 }

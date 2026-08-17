@@ -2,6 +2,39 @@
 
 Last updated: 2026-08-17
 
+## RC.19 local stabilization finding and node-observation correction
+
+Signed `v0.1.0-rc.19` was published from exact main commit `9bd0c861` after
+main CI run `32044822884`, CLI release run `32046793216`, and runtime release
+run `32046793236` passed, including independent public-artifact verification.
+Its canonical manifest identity is
+`sha256:9ec04739734e9ba1d0f09ae15f490facbd98b2439c2957d312a9f7b606ef19d4`.
+Homelab `master` commit `a434793f` deployed that release through exact install
+plan `sha256:6843d3621c8f7184547dbf01649aa992192bb4c58328f912f6aea922fa36c9a8`.
+Root, Waycloak, and qBittorrent converged Synced and Healthy; qBittorrent kept
+its Pod and lease UIDs with zero restarts, Bitmagnet remained at zero, and no
+node was added.
+
+The first local-cluster stabilization capture recorded 40/40 healthy
+qBittorrent samples, zero gateway/DNS/lease/workload/adapter/listener failures,
+zero collection, release-identity, restart, or UID failures, and 10/10
+independent external TCP successes. The redacted record contains no public
+endpoint. It is lifecycle evidence rather than graduation-soak credit because
+the stable lease advanced from handoff generation 134 through 140.
+
+The withdrawals align with authenticated node-observation POSTs exceeding the
+agent's five-second deadline. Each timeout locks down the exact workload;
+binding NodeReady then becomes non-current and the lease correctly drains with
+`backend_not_selected`. EndpointSlice, Pod identity, Gateway Ready/DNSReady,
+listeners, and sampled traffic remained healthy outside those bounded
+withdrawals. The focused successor transaction overlaps independent node and
+binding status writes, uses a nine-second single-attempt deadline inside the
+server and observation-freshness budgets, and emits sanitized transport phase,
+operation latency, failure-count, and recovery-duration diagnostics. A failed
+transaction still immediately locks down, and genuinely stale observations
+still withdraw readiness. A new exact RC and stable-generation window are
+required before the minimum 72-hour local qBittorrent epoch can start.
+
 ## RC.18 publication finding and RC.19 resilient uploader
 
 RC.18 exact main CI and CLI publication passed, including the CLI

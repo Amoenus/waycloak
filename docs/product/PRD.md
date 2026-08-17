@@ -322,6 +322,10 @@ rates. A release change starts a new soak epoch. Earlier beta/RC observations
 across multiple exact releases remain lifecycle evidence but do not replace the
 unchanged-artifact epoch. See
 [local-cluster real-provider soak](../testing/real-provider-port-forward.md).
+Likewise, a pre-soak window whose functional samples remain green but whose
+stable lease advances its handoff generation is retained as fail-closed
+lifecycle evidence and explicitly does not start or contribute time to the
+graduation epoch.
 
 - One-line opt-in is sufficient for application teams.
 - Zero observed direct-egress packets from protected Pods during forced failure tests.

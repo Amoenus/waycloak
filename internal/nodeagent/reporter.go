@@ -13,10 +13,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+const ObservationPublicationTimeout = 9 * time.Second
 
 type Reporter struct {
 	URL       string
@@ -50,14 +54,33 @@ func (r Reporter) Report(ctx context.Context, report Report) error {
 			return err
 		}
 	}
+	started := time.Now()
+	var phase atomic.Value
+	phase.Store("connect")
+	trace := &httptrace.ClientTrace{
+		DNSStart:          func(httptrace.DNSStartInfo) { phase.Store("dns_lookup") },
+		ConnectStart:      func(_, _ string) { phase.Store("connect") },
+		TLSHandshakeStart: func() { phase.Store("tls_handshake") },
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err != nil {
+				phase.Store("request_write")
+				return
+			}
+			phase.Store("response_headers")
+		},
+		GotFirstResponseByte: func() {
+			phase.Store("response_body")
+		},
+	}
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("publish node observation: %w", err)
+		return fmt.Errorf("publish node observation phase=%s elapsed=%s: %w", phase.Load(), time.Since(started).Round(time.Millisecond), err)
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("observation relay returned HTTP %d", response.StatusCode)
+		return fmt.Errorf("observation relay returned HTTP %d phase=response_status elapsed=%s", response.StatusCode, time.Since(started).Round(time.Millisecond))
 	}
 	return nil
 }
@@ -74,5 +97,5 @@ func (r Reporter) client() (*http.Client, error) {
 	if !roots.AppendCertsFromPEM(ca) {
 		return nil, errors.New("observation relay CA contains no certificate")
 	}
-	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots}, DisableKeepAlives: true}}, nil
+	return &http.Client{Timeout: ObservationPublicationTimeout, Transport: &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots}, DisableKeepAlives: true}}, nil
 }
