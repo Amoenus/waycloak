@@ -1,6 +1,62 @@
 # Project status
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
+
+## RC.21 exact local-cluster graduation epoch
+
+Signed `v0.1.0-rc.21` was published from exact main commit `49fa709b` after
+pull-request CI run `32066750279`, main CI run `32068220487`, runtime release
+run `32069610654`, CLI release run `32069610644`, and independent published-
+artifact verification run `32071070346` passed. Its canonical manifest identity
+is `sha256:8e175c3b5c642a92c3f67312d26ea7a9a62178c9e1c76f9949bb45dbd0aceb81`.
+The release contains the focused readiness-probe log correction from PR #231;
+real-socket mTLS acceptance tests retain genuine certificate diagnostics while
+dropping only a bare TCP readiness connection's benign EOF.
+
+Homelab `master` commit `4b7cde03` declared the exact chart, manifest, runtime
+images, and qBittorrent adapter image. Confirmation-bound install plan
+`sha256:a26e2e40ab46ea9dcbea4a6a936cbdb500760a4b44444c57658ef6aa764dd5b5`
+performed the release transition. Root, Waycloak, and qBittorrent converged
+Synced and Healthy. The immutable WorkloadAdapter was replaced from committed
+Git and became Ready at the RC.21 digest; the qBittorrent Pod retained UID
+`fb9ef3d5-70b0-4038-b422-3810e03a55ef` with both containers Ready and zero
+restarts. The replacement gateway has three Ready containers and zero restarts.
+Bitmagnet remains at zero and no node was added.
+
+Before starting the clock, all gateway, DNS, lease, binding, and adapter
+conditions were True. The lease selected the exact unchanged qBittorrent Pod,
+covered TCP and UDP, and was delivered and acknowledged. qBittorrent reported
+connected with DHT, PeX, and local peer discovery enabled, a positive DHT-node
+count, UPnP and random-port selection disabled, and matching TCP/UDP listeners.
+External TCP, external DNS, and cluster DNS succeeded. An endpoint-redacted
+three-interface packet capture proved external UDP ingress on the VPN tunnel,
+forwarding on the Waycloak overlay to the exact qBittorrent endpoint, and
+qBittorrent UDP egress through the VPN tunnel. The private pcap SHA-256 digests
+are `fdb0a62972f7fc4a50d1efb70d80e69738bf5e956bb42ed8520d09ce921e9881`,
+`842bff6cdde1bd722ba39312d1f3844d57fde776e6a5c511e0628a972890f6a9`, and
+`cdc03306bc3d0ab11f79543659554bd1f4e89375b81887a2e4caddaba6279910`.
+The short-lived diagnostic Pod ran only on the existing qBittorrent node and
+was deleted immediately. Post-start adapter and gateway-runtime logs contain
+zero readiness-probe EOFs, warnings, or errors.
+
+The minimum 72-hour unchanged-artifact local-cluster epoch began at
+`2026-08-17T22:05:35.6026078Z` and ends no earlier than
+`2026-08-20T22:05:35.6026078Z`. A one-minute functional collector plus
+continuous lease, binding-transition, and node-observation heartbeat watches
+are running locally. The opening samples retain exact release/GitOps identity,
+all readiness states, matching listeners, connected DHT, external TCP and DNS,
+unchanged UIDs, and zero restart increases. End-of-epoch packet evidence and a
+complete evidence audit are still mandatory; this start does not graduate the
+release.
+
+RC.20 contributed useful lifecycle evidence before it was superseded: 125
+functional samples over 2.102 hours all passed, including 13 external TCP
+checks, while the continuous binding stream captured two real fail-closed node-
+observation transitions. They recovered in 101.3 ms and 86.8 ms respectively,
+with `Programmed=False/Pending` and `Ready`/`NodeReady` Unknown under
+`ObservationUnavailable`; the minute sampler did not hide or redefine them.
+The lease stream recorded no non-True condition. These observations must inform
+the RC.21 audit but do not contribute time to its unchanged-artifact epoch.
 
 ## RC.20 exact soak start and readiness-probe log correction
 
