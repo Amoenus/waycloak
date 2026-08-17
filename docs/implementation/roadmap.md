@@ -202,10 +202,11 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   Grafana dashboard passed all eight jobs in exact-head run `31366217996`.
   Turnkey Kind proved live gateway/tunnel/DNS and missing-route protection state,
   application non-start, and privacy-canary absence from the installed scrape.
-- [ ] #141: one live amd64 K3s/Flannel real-provider forward/rollback/forward
-  row is recorded for Core.20. Proceed with live ARM, remaining protocol and
-  failure rows, destructive reinstall, DR, multi-day exact-artifact soak, beta
-  stability, and v1 graduation after their declared dependencies are complete.
+- [ ] #141: the live `amd64` K3s/Flannel Proton/OpenVPN row, exact-artifact
+  lifecycle, destructive reinstall, DR, and beta evidence are recorded. RC.12
+  makes that deliberately narrow row machine-readable in the signed manifest.
+  Complete its minimum 72-hour unchanged-artifact local qBittorrent soak before
+  v1 graduation. ARM and other platforms are future rows, not hidden blockers.
 
 ## Phase 0 — repository and design baseline
 

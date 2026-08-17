@@ -80,6 +80,7 @@ func run(arguments []string, output io.Writer) error {
 	manifest := waycloakctl.ReleaseManifest{
 		APIVersion: "release.waycloak.io/v1", Version: version,
 		Chart: chart, KCL: &kcl, Images: images, Profiles: profiles,
+		SupportMatrix: waycloakctl.CertifiedSupportMatrix(),
 	}
 	manifest.ManifestDigest, err = manifest.IdentityDigest()
 	if err != nil {

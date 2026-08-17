@@ -1,4 +1,4 @@
-# Getting started with Waycloak v0.1.0-rc.11
+# Getting started with Waycloak v0.1.0-rc.12
 
 Waycloak routes explicitly enrolled Kubernetes Pods through a shared
 Proton/OpenVPN gateway and fails closed when that protected path is not ready.
@@ -14,13 +14,24 @@ identity, image digests, observation trust, and safe activation sequence.
 
 ## Supported quick path
 
-The RC quick path requires:
+RC.12 carries one certified operator support row:
 
-- Kubernetes 1.36 or newer with stable validating and mutating admission policy
+| Kubernetes | Distribution/CNI | Runtime | Kernel | Architecture | VPN engine/configuration |
+| --- | --- | --- | --- | --- | --- |
+| `v1.36.1+k3s1` | K3s with Flannel | `containerd://2.2.3-k3s1` | Linux 5.10 or newer | `amd64` | Gluetun with Proton/OpenVPN |
+
+That row covers protected TCP and UDP egress, contained DNS, single-active
+provider port forwarding, and the optional workload-adapter handoff. The exact
+machine-readable claim is in `release-manifest.json`. Kind, k3d, `arm64`, and
+the multi-platform image indexes provide development, CI, or artifact-availability
+evidence; they are not additional certified operator rows in this RC.
+
+The certified quick path requires:
+
+- Kubernetes `v1.36.1+k3s1` with stable validating and mutating admission policy
   APIs and the NodeRestriction admission plugin;
-- Linux nodes using kernel 5.10 or newer and `amd64` or `arm64`;
-- containerd with Kind kindnet, conventional Flannel, or K3s Flannel in one of
-  the layouts recognized by `waycloakctl preflight`;
+- Linux `amd64` nodes using kernel 5.10 or newer;
+- K3s Flannel with `containerd://2.2.3-k3s1`;
 - CoreDNS with one observable Service address and cluster domain;
 - an unused private IPv4 overlay CIDR between `/16` and `/29` that does not
   overlap Pod, Service, node, LAN, or VPN networks;
@@ -37,7 +48,7 @@ Set the RC tag and download the complete release. Choose the CLI binary for your
 operating system and architecture.
 
 ```sh
-export WAYCLOAK_TAG=v0.1.0-rc.11
+export WAYCLOAK_TAG=v0.1.0-rc.12
 gh release download "$WAYCLOAK_TAG" \
   --repo Amoenus/waycloak \
   --dir "waycloak-${WAYCLOAK_TAG}"
@@ -93,8 +104,10 @@ waycloakctl preflight \
 ```
 
 Do not continue unless `Compatible: true`. On a mixed-architecture cluster,
-explicitly add `--node-architecture amd64` or `arm64` to the next command. That
-choice limits both privileged DaemonSets to the reviewed nodes.
+explicitly add `--node-architecture amd64` to the next command. That choice
+limits both privileged DaemonSets to the certified nodes. A successful
+preflight on another compatible layout is useful evaluation evidence but does
+not expand the release's certified support matrix.
 
 ```sh
 waycloakctl install plan \
@@ -222,13 +235,13 @@ kubectl --context "$KUBE_CONTEXT" -n media get \
 ## Helm and OCI consumption
 
 The chart is available both as the release asset
-`waycloak-0.1.0-rc.11.tgz` and as
-`oci://ghcr.io/amoenus/charts/waycloak:0.1.0-rc.11`. Its exact digest is in
+`waycloak-0.1.0-rc.12.tgz` and as
+`oci://ghcr.io/amoenus/charts/waycloak:0.1.0-rc.12`. Its exact digest is in
 `waycloak-chart.ref` and `release-manifest.json`:
 
 ```sh
 helm pull oci://ghcr.io/amoenus/charts/waycloak \
-  --version 0.1.0-rc.11
+  --version 0.1.0-rc.12
 ```
 
 Use Helm directly for inspection, rendering, and GitOps consumption after a
@@ -243,12 +256,12 @@ All runtime images are multi-platform OCI indexes. Consume their immutable
 
 KCL is optional and has no runtime role. The RC publishes the generated schema
 module as signed OCI artifact
-`oci://ghcr.io/amoenus/waycloak-kcl:0.1.0-rc.11` and as the downloadable
-`waycloak-kcl-v0.1.0-rc.11.tar`. Verify its exact digest in `waycloak-kcl.ref`.
+`oci://ghcr.io/amoenus/waycloak-kcl:0.1.0-rc.12` and as the downloadable
+`waycloak-kcl-v0.1.0-rc.12.tar`. Verify its exact digest in `waycloak-kcl.ref`.
 Add the OCI module to an existing KCL package, then import its schemas:
 
 ```sh
-kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.11
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.12
 ```
 
 ```python
@@ -277,7 +290,7 @@ the signed Helm/CLI transaction before applying KCL-rendered resources.
 - [Generated API reference](api/v1beta1.md)
 - [Upgrade, rollback, and repair](implementation/turnkey-bootstrap.md)
 - [Backup and restore](operations/backup-restore-and-disaster-recovery.md)
-- [Release-candidate scope and limitations](releases/v0.1.0-rc.11.md)
+- [Release-candidate scope and limitations](releases/v0.1.0-rc.12.md)
 
 Waycloak provides selected, fail-closed VPN egress within its documented threat
 model. It does not claim anonymity. Normal Helm uninstall does not delete CRDs

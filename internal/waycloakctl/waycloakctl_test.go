@@ -245,6 +245,50 @@ func TestReleaseManifestIdentityRejectsTamperingAndExtraArtifacts(t *testing.T) 
 	}
 }
 
+func TestReleaseManifestSupportMatrixValidationAndCanonicalIdentity(t *testing.T) {
+	manifest := releaseManifest()
+	original := manifest.ManifestDigest
+	row := &manifest.SupportMatrix.Rows[0]
+	row.Features[0], row.Features[1] = row.Features[1], row.Features[0]
+	row.EvidenceSuites[0], row.EvidenceSuites[1] = row.EvidenceSuites[1], row.EvidenceSuites[0]
+	digest, err := manifest.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != original {
+		t.Fatalf("support set order changed canonical identity: got %s, want %s", digest, original)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*ReleaseManifest)
+		want   string
+	}{
+		{"empty", func(candidate *ReleaseManifest) { candidate.SupportMatrix.Rows = nil }, "at least one row"},
+		{"duplicate-row", func(candidate *ReleaseManifest) {
+			candidate.SupportMatrix.Rows = append(candidate.SupportMatrix.Rows, candidate.SupportMatrix.Rows[0])
+		}, "duplicated"},
+		{"incomplete-row", func(candidate *ReleaseManifest) { candidate.SupportMatrix.Rows[0].Runtime = "" }, "incomplete"},
+		{"empty-features", func(candidate *ReleaseManifest) { candidate.SupportMatrix.Rows[0].Features = nil }, "features must not be empty"},
+		{"duplicate-evidence", func(candidate *ReleaseManifest) {
+			candidate.SupportMatrix.Rows[0].EvidenceSuites = []string{"same", "same"}
+		}, "evidence suites must be unique"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := releaseManifest()
+			test.mutate(&candidate)
+			candidate.ManifestDigest, err = candidate.IdentityDigest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := candidate.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid support matrix accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestPortForwardInstallPlanBindsExactRuntimeAndTLSIdentity(t *testing.T) {
 	manifest := portForwardReleaseManifest()
 	report, err := Preflight(context.Background(), supportedClients(t), "100.96.0.0/16")
@@ -1156,7 +1200,7 @@ func upsertTestDaemonSet(t *testing.T, clients *Clients, daemonSet *appsv1.Daemo
 
 func releaseManifest() ReleaseManifest {
 	digest := func(char string) string { return "sha256:" + strings.Repeat(char, 64) }
-	manifest := ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "waycloak-gateway-runtime": {Repository: "ghcr.io/amoenus/waycloak-gateway-runtime", Digest: digest("7")}, "waycloak-qbittorrent-adapter": {Repository: "ghcr.io/amoenus/waycloak-qbittorrent-adapter", Digest: digest("8")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}}
+	manifest := ReleaseManifest{APIVersion: "release.waycloak.io/v1", Version: "v1.0.0-beta.1", Chart: Artifact{Repository: "oci://ghcr.io/amoenus/charts/waycloak", Digest: digest("b")}, Images: map[string]Artifact{"replacement-controller": {Repository: "ghcr.io/amoenus/waycloak-replacement-controller", Digest: digest("c")}, "waycloak-cni": {Repository: "ghcr.io/amoenus/waycloak-cni", Digest: digest("d")}, "waycloak-node-agent": {Repository: "ghcr.io/amoenus/waycloak-node-agent", Digest: digest("e")}, "waycloak-gateway-agent": {Repository: "ghcr.io/amoenus/waycloak-gateway-agent", Digest: digest("f")}, "waycloak-gateway-runtime": {Repository: "ghcr.io/amoenus/waycloak-gateway-runtime", Digest: digest("7")}, "waycloak-qbittorrent-adapter": {Repository: "ghcr.io/amoenus/waycloak-qbittorrent-adapter", Digest: digest("8")}, "gluetun": {Repository: "docker.io/qmcgaw/gluetun", Digest: digest("1")}, "pause": {Repository: "registry.k8s.io/pause", Digest: digest("2")}}, Profiles: []string{"networking.waycloak.io/Core-v1"}, SupportMatrix: CertifiedSupportMatrix()}
 	manifest.ManifestDigest, _ = manifest.IdentityDigest()
 	return manifest
 }

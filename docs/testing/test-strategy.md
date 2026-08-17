@@ -476,7 +476,12 @@ the scrape is tested only as their bounded operational projection.
 
 ## Release gate
 
-A release cannot rely on manual observation alone. Required suites, artifact verification, supported-platform results, and any accepted failures are attached to the release manifest.
+A release cannot rely on manual observation alone. Current release manifests
+carry a canonical support matrix whose rows bind the exact platform, VPN
+engine/provider configuration, feature identities, and named evidence suites.
+The release inventory gate rejects a missing or altered certified row. Required
+suites, artifact verification, supported-platform results, and any accepted
+failures are attached to that release identity.
 
 Post-publication Waycloak verification runs through
 `hack/verify-release.sh` on a separate runner. It redownloads the exact

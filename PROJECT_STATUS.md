@@ -2,6 +2,24 @@
 
 Last updated: 2026-08-17
 
+## v0.1.0-rc.12 support-matrix candidate
+
+RC.12 makes the certified operator boundary part of the canonical signed
+release identity. Its one row binds K3s `v1.36.1+k3s1`, Flannel, containerd
+`2.2.3-k3s1`, Linux 5.10+, `amd64`, Gluetun with Proton/OpenVPN, the supported
+TCP/UDP/DNS/port-forward/adapter features, and the exact evidence-suite names.
+The release inventory gate rejects a missing or altered row. Kind, k3d,
+`arm64`, and multi-platform image availability remain test or artifact
+evidence and do not silently expand this support claim.
+
+Publishing and deploying RC.12 invalidates RC.11 as the final unchanged-
+artifact soak epoch, although its samples remain lifecycle evidence. After the
+exact signed RC.12 artifacts converge through homelab `master`, a new minimum
+72-hour local-cluster epoch must monitor qBittorrent as the sole application
+canary. Bitmagnet remains at zero desired replicas and no additional cluster
+node is required. Stable graduation remains open until that epoch and its
+final evidence review complete.
+
 ## Declared recovery lifecycle certification
 
 Issue #32's five lifecycle requirements are complete for the published support

@@ -28,14 +28,62 @@ type Artifact struct {
 	Digest     string `json:"digest"`
 }
 
+type ReleaseSupportMatrix struct {
+	Rows []ReleaseSupportRow `json:"rows"`
+}
+
+type ReleaseSupportRow struct {
+	ID                    string   `json:"id"`
+	Kubernetes            string   `json:"kubernetes"`
+	Distribution          string   `json:"distribution"`
+	CNI                   string   `json:"cni"`
+	Runtime               string   `json:"runtime"`
+	Kernel                string   `json:"kernel"`
+	Architecture          string   `json:"architecture"`
+	Engine                string   `json:"engine"`
+	ProviderConfiguration string   `json:"providerConfiguration"`
+	Features              []string `json:"features"`
+	EvidenceSuites        []string `json:"evidenceSuites"`
+}
+
 type ReleaseManifest struct {
-	APIVersion     string              `json:"apiVersion"`
-	Version        string              `json:"version"`
-	ManifestDigest string              `json:"manifestDigest"`
-	Chart          Artifact            `json:"chart"`
-	KCL            *Artifact           `json:"kcl,omitempty"`
-	Images         map[string]Artifact `json:"images"`
-	Profiles       []string            `json:"profiles"`
+	APIVersion     string                `json:"apiVersion"`
+	Version        string                `json:"version"`
+	ManifestDigest string                `json:"manifestDigest"`
+	Chart          Artifact              `json:"chart"`
+	KCL            *Artifact             `json:"kcl,omitempty"`
+	Images         map[string]Artifact   `json:"images"`
+	Profiles       []string              `json:"profiles"`
+	SupportMatrix  *ReleaseSupportMatrix `json:"supportMatrix,omitempty"`
+}
+
+// CertifiedSupportMatrix is the narrow operator support claim carried by new
+// releases. Multi-platform image availability and CI-only distributions do not
+// silently create additional supported rows.
+func CertifiedSupportMatrix() *ReleaseSupportMatrix {
+	return &ReleaseSupportMatrix{Rows: []ReleaseSupportRow{{
+		ID:                    "k3s-v1.36-flannel-containerd-linux-amd64-gluetun-proton-openvpn",
+		Kubernetes:            "v1.36.1+k3s1",
+		Distribution:          "k3s",
+		CNI:                   "flannel",
+		Runtime:               "containerd://2.2.3-k3s1",
+		Kernel:                "linux>=5.10",
+		Architecture:          "amd64",
+		Engine:                "gluetun",
+		ProviderConfiguration: "protonvpn/openvpn",
+		Features: []string{
+			"networking.waycloak.io/DNS",
+			"networking.waycloak.io/PortForwardServiceSingleActive",
+			"networking.waycloak.io/TCP",
+			"networking.waycloak.io/UDP",
+			"networking.waycloak.io/WorkloadAdapter",
+		},
+		EvidenceSuites: []string{
+			"homelab-qbittorrent-proton",
+			"k3s-datastore-recovery",
+			"kind-turnkey-install",
+		},
+	}}}
 }
 
 type InstallPlan struct {
@@ -125,6 +173,11 @@ func (manifest ReleaseManifest) Validate() error {
 	if len(profiles) != 1 {
 		return errors.New("release manifest profiles describe baseline conformance only; optional capabilities must not create release profiles")
 	}
+	if manifest.SupportMatrix != nil {
+		if err := validateSupportMatrix(*manifest.SupportMatrix); err != nil {
+			return err
+		}
+	}
 	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-qbittorrent-adapter", "gluetun", "pause"}
 	if len(manifest.Images) != len(requiredImages) {
 		return errors.New("release manifest image inventory must contain exactly the complete Waycloak artifact set")
@@ -161,24 +214,82 @@ func (manifest ReleaseManifest) Validate() error {
 }
 
 // IdentityDigest returns the deterministic digest of every release identity
-// field except ManifestDigest itself. Profiles are canonicalized as a set and
-// encoding/json deterministically orders the image map keys.
+// field except ManifestDigest itself. Profiles, support rows, support features,
+// and evidence suites are canonicalized as sets; encoding/json deterministically
+// orders the image map keys.
 func (manifest ReleaseManifest) IdentityDigest() (string, error) {
 	profiles := append([]string(nil), manifest.Profiles...)
 	sort.Strings(profiles)
+	supportMatrix := canonicalSupportMatrix(manifest.SupportMatrix)
 	payload := struct {
-		APIVersion string              `json:"apiVersion"`
-		Version    string              `json:"version"`
-		Chart      Artifact            `json:"chart"`
-		KCL        *Artifact           `json:"kcl,omitempty"`
-		Images     map[string]Artifact `json:"images"`
-		Profiles   []string            `json:"profiles"`
-	}{APIVersion: manifest.APIVersion, Version: manifest.Version, Chart: manifest.Chart, KCL: manifest.KCL, Images: manifest.Images, Profiles: profiles}
+		APIVersion    string                `json:"apiVersion"`
+		Version       string                `json:"version"`
+		Chart         Artifact              `json:"chart"`
+		KCL           *Artifact             `json:"kcl,omitempty"`
+		Images        map[string]Artifact   `json:"images"`
+		Profiles      []string              `json:"profiles"`
+		SupportMatrix *ReleaseSupportMatrix `json:"supportMatrix,omitempty"`
+	}{APIVersion: manifest.APIVersion, Version: manifest.Version, Chart: manifest.Chart, KCL: manifest.KCL, Images: manifest.Images, Profiles: profiles, SupportMatrix: supportMatrix}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
 	return digestBytes(data), nil
+}
+
+func validateSupportMatrix(matrix ReleaseSupportMatrix) error {
+	if len(matrix.Rows) == 0 {
+		return errors.New("release support matrix must contain at least one row")
+	}
+	seen := make(map[string]struct{}, len(matrix.Rows))
+	for _, row := range matrix.Rows {
+		if row.ID == "" || row.Kubernetes == "" || row.Distribution == "" || row.CNI == "" || row.Runtime == "" || row.Kernel == "" || row.Architecture == "" || row.Engine == "" || row.ProviderConfiguration == "" {
+			return errors.New("release support matrix row identity is incomplete")
+		}
+		if _, duplicate := seen[row.ID]; duplicate {
+			return fmt.Errorf("release support matrix row %q is duplicated", row.ID)
+		}
+		seen[row.ID] = struct{}{}
+		if err := validateStringSet(row.Features, "features"); err != nil {
+			return fmt.Errorf("release support matrix row %q: %w", row.ID, err)
+		}
+		if err := validateStringSet(row.EvidenceSuites, "evidence suites"); err != nil {
+			return fmt.Errorf("release support matrix row %q: %w", row.ID, err)
+		}
+	}
+	return nil
+}
+
+func validateStringSet(values []string, name string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%s must not be empty", name)
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == "" {
+			return fmt.Errorf("%s must contain non-empty values", name)
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return fmt.Errorf("%s must be unique", name)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func canonicalSupportMatrix(matrix *ReleaseSupportMatrix) *ReleaseSupportMatrix {
+	if matrix == nil {
+		return nil
+	}
+	result := &ReleaseSupportMatrix{Rows: append([]ReleaseSupportRow(nil), matrix.Rows...)}
+	for index := range result.Rows {
+		result.Rows[index].Features = append([]string(nil), result.Rows[index].Features...)
+		result.Rows[index].EvidenceSuites = append([]string(nil), result.Rows[index].EvidenceSuites...)
+		sort.Strings(result.Rows[index].Features)
+		sort.Strings(result.Rows[index].EvidenceSuites)
+	}
+	sort.Slice(result.Rows, func(left, right int) bool { return result.Rows[left].ID < result.Rows[right].ID })
+	return result
 }
 
 func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string, portForwarding *PortForwardInstallIdentity) (InstallPlan, error) {

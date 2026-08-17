@@ -37,8 +37,12 @@ func TestRunProducesDeterministicLoadableManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 8 || manifest.KCL == nil || manifest.ManifestDigest == "" {
+	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 8 || manifest.KCL == nil || manifest.ManifestDigest == "" || manifest.SupportMatrix == nil || len(manifest.SupportMatrix.Rows) != 1 {
 		t.Fatalf("unexpected generated manifest: %#v", manifest)
+	}
+	row := manifest.SupportMatrix.Rows[0]
+	if row.Architecture != "amd64" || row.Distribution != "k3s" || row.CNI != "flannel" || row.ProviderConfiguration != "protonvpn/openvpn" {
+		t.Fatalf("unexpected certified support row: %#v", row)
 	}
 }
 

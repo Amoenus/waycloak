@@ -14,12 +14,15 @@ The baseline security boundary is a mandatory chained CNI plugin backed by a pri
 
 ## Current state
 
-`v0.1.0-rc.11` is the current feature-complete release candidate. The public
+`v0.1.0-rc.12` is the current feature-complete release candidate. The public
 `networking.waycloak.io/v1beta1` schemas and behavioral contracts are frozen;
 the alpha runtime is absent. The release provides signed CLI binaries,
 multi-platform OCI images, a Helm OCI chart, an optional KCL OCI module, SBOMs,
 provenance, and an exact signed release manifest. It is a prerelease and does
-not claim final stable graduation.
+not claim final stable graduation. Its certified operator row is K3s
+`v1.36.1+k3s1`, Flannel, containerd `2.2.3-k3s1`, Linux 5.10+, `amd64`, and
+Gluetun with Proton/OpenVPN; the signed manifest carries the exact feature and
+evidence identities.
 
 Start with [Getting started](docs/getting-started.md), then read the [use
 cases](docs/use-cases.md), [configuration requirements](docs/configuration.md),

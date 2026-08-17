@@ -206,10 +206,14 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 
 ### Compatibility
 
-- Publish an explicit Kubernetes support matrix.
-- Initial target: current Kubernetes minor and the two preceding minors at release time.
-- Support common iptables-nft Linux environments first; document legacy iptables limitations.
-- Test at least Kind and k3s/k3d.
+- Publish an explicit, machine-readable support matrix in every current signed
+  release manifest. A row binds Kubernetes/distribution, CNI, runtime, kernel,
+  architecture, VPN engine/provider configuration, features, and evidence.
+- The first certified row is K3s `v1.36.1+k3s1`, Flannel, containerd
+  `2.2.3-k3s1`, Linux 5.10+, `amd64`, and Gluetun with Proton/OpenVPN.
+- Kind, k3d, multi-platform image construction, and preflight compatibility do
+  not silently create supported operator rows. Each additional row requires
+  its own declared conformance evidence.
 - Keep data-plane behavior behind a conformance-tested backend interface.
   Optional eBPF support must be explicitly selected, preflighted per node, and
   prove the same packet-level fail-closed behavior before it becomes supported.
