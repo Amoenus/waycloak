@@ -25,7 +25,9 @@ sanitized transition diagnostics for phase, class, attempts, latency, and
 recovery duration. Timeouts, cancellation, HTTP status/payload failures, and a
 valid agent response reporting tunnel or DNS loss are not retried. The agent's
 immediate fail-closed behavior is unchanged; this is not permissive DNS
-hysteresis. RC.14 still requires signed publication, exact GitOps deployment,
+hysteresis. The soak collector now records a redacted condition watch in
+addition to periodic functional samples and counts every Ready/DNSReady
+withdrawal. RC.14 still requires signed publication, exact GitOps deployment,
 live validation, and a fresh minimum 72-hour local qBittorrent epoch before it
 can contribute graduation evidence.
 

@@ -83,10 +83,72 @@ function Write-JSONLine {
     [System.IO.File]::AppendAllText($OutputPath, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Start-GatewayTransitionWatch {
+    param([string]$WatchNamespace, [string]$WatchGateway, [string]$WatchPath)
+    return Start-Job -ScriptBlock {
+        param($Namespace, $Gateway, $Path)
+        $encoding = [System.Text.UTF8Encoding]::new($false)
+        & kubectl -n $Namespace get vpngateway $Gateway --watch --output-watch-events -o=json 2>$null | ForEach-Object {
+            try {
+                $event = $_ | ConvertFrom-Json -DateKind String
+                $resource = $event.object
+                $conditions = [ordered]@{}
+                foreach ($condition in @($resource.status.conditions)) {
+                    $conditions[$condition.type] = [ordered]@{
+                        status = [string]$condition.status
+                        reason = [string]$condition.reason
+                        lastTransitionTime = [string]$condition.lastTransitionTime
+                    }
+                }
+                $record = [ordered]@{
+                    kind = "WaycloakGatewayTransition"
+                    apiVersion = "evidence.waycloak.io/v1"
+                    observedAt = Get-Date -AsUTC -Format "O"
+                    eventType = [string]$event.type
+                    gatewayUID = [string]$resource.metadata.uid
+                    resourceVersion = [string]$resource.metadata.resourceVersion
+                    gatewayReadyStatus = [string]$conditions.Ready.status
+                    gatewayDNSReadyStatus = [string]$conditions.DNSReady.status
+                    conditions = $conditions
+                    publicEndpointRecorded = $false
+                }
+                $line = $record | ConvertTo-Json -Depth 12 -Compress
+                [System.IO.File]::AppendAllText($Path, $line + [Environment]::NewLine, $encoding)
+            } catch {
+                $record = [ordered]@{
+                    kind = "WaycloakGatewayTransitionCollectionError"
+                    apiVersion = "evidence.waycloak.io/v1"
+                    observedAt = Get-Date -AsUTC -Format "O"
+                    failureCategory = $_.Exception.GetType().Name
+                    publicEndpointRecorded = $false
+                }
+                $line = $record | ConvertTo-Json -Compress
+                [System.IO.File]::AppendAllText($Path, $line + [Environment]::NewLine, $encoding)
+            }
+        }
+    } -ArgumentList $WatchNamespace, $WatchGateway, $WatchPath
+}
+
 $parent = Split-Path -Parent $OutputPath
 if ($parent) { [System.IO.Directory]::CreateDirectory($parent) | Out-Null }
 if (Test-Path -LiteralPath $OutputPath) {
     throw "output already exists; use a new path so soak epochs cannot be merged"
+}
+$transitionPath = $OutputPath + ".gateway-transitions.tmp"
+if (Test-Path -LiteralPath $transitionPath) {
+    throw "gateway transition evidence already exists; use a new output path"
+}
+$transitionJob = Start-GatewayTransitionWatch -WatchNamespace $Namespace -WatchGateway $Gateway -WatchPath $transitionPath
+$watchReadyDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+while ([DateTimeOffset]::UtcNow -lt $watchReadyDeadline -and
+    (-not (Test-Path -LiteralPath $transitionPath) -or (Get-Item -LiteralPath $transitionPath).Length -eq 0)) {
+    Start-Sleep -Milliseconds 100
+}
+if (-not (Test-Path -LiteralPath $transitionPath) -or (Get-Item -LiteralPath $transitionPath).Length -eq 0) {
+    Stop-Job -Job $transitionJob
+    Receive-Job -Job $transitionJob | Out-Null
+    Remove-Job -Job $transitionJob
+    throw "gateway transition watch did not become ready"
 }
 
 $started = [DateTimeOffset]::UtcNow
@@ -113,6 +175,11 @@ $summary = [ordered]@{
     externalTCPProbeFailures = 0
     gatewayResourceVersionChanges = 0
     leaseResourceVersionChanges = 0
+    gatewayReadyTransitions = 0
+    gatewayReadyWithdrawals = 0
+    gatewayDNSReadyTransitions = 0
+    gatewayDNSReadyWithdrawals = 0
+    gatewayTransitionCollectionFailures = 0
 }
 
 Write-JSONLine ([ordered]@{
@@ -269,6 +336,36 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     if ($remaining -gt 0) {
         Start-Sleep -Seconds ([Math]::Min($IntervalSeconds, [Math]::Ceiling($remaining)))
     }
+}
+
+Stop-Job -Job $transitionJob
+Receive-Job -Job $transitionJob | Out-Null
+Remove-Job -Job $transitionJob
+
+$previousGatewayReadyStatus = $null
+$previousGatewayDNSReadyStatus = $null
+if (Test-Path -LiteralPath $transitionPath) {
+    foreach ($line in Get-Content -LiteralPath $transitionPath) {
+        [System.IO.File]::AppendAllText($OutputPath, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+        $transition = $line | ConvertFrom-Json -DateKind String
+        if ($transition.kind -eq "WaycloakGatewayTransitionCollectionError") {
+            $summary.gatewayTransitionCollectionFailures++
+            continue
+        }
+        $gatewayReadyStatus = [string]$transition.gatewayReadyStatus
+        $gatewayDNSReadyStatus = [string]$transition.gatewayDNSReadyStatus
+        if ($null -ne $previousGatewayReadyStatus -and $gatewayReadyStatus -ne $previousGatewayReadyStatus) {
+            $summary.gatewayReadyTransitions++
+            if ($gatewayReadyStatus -ne "True") { $summary.gatewayReadyWithdrawals++ }
+        }
+        if ($null -ne $previousGatewayDNSReadyStatus -and $gatewayDNSReadyStatus -ne $previousGatewayDNSReadyStatus) {
+            $summary.gatewayDNSReadyTransitions++
+            if ($gatewayDNSReadyStatus -ne "True") { $summary.gatewayDNSReadyWithdrawals++ }
+        }
+        $previousGatewayReadyStatus = $gatewayReadyStatus
+        $previousGatewayDNSReadyStatus = $gatewayDNSReadyStatus
+    }
+    Remove-Item -LiteralPath $transitionPath -Force
 }
 
 Write-JSONLine ([ordered]@{
