@@ -5,7 +5,6 @@ package portforward
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -17,7 +16,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -342,12 +340,13 @@ func (r *PortForwardLeaseReconciler) cleanup(ctx context.Context, lease *wayv1.P
 }
 
 func (r *PortForwardLeaseReconciler) applyStatus(ctx context.Context, lease *wayv1.PortForwardLease, status wayv1.PortForwardLeaseStatus) error {
-	apply := &wayv1.PortForwardLease{TypeMeta: metav1.TypeMeta{APIVersion: wayv1.GroupVersion.String(), Kind: "PortForwardLease"}, ObjectMeta: metav1.ObjectMeta{Name: lease.Name, Namespace: lease.Namespace}, Status: status}
-	data, err := json.Marshal(apply)
-	if err != nil {
-		return err
-	}
-	if err := r.SubResource("status").Patch(ctx, apply, client.RawPatch(types.ApplyPatchType, data), client.FieldOwner(wayv1.FieldManagerLeaseController), client.ForceOwnership); err != nil {
+	updated := lease.DeepCopy()
+	updated.Status = status
+	// Status advances the handoff generation around external side effects. Use
+	// an optimistic-concurrency update so a reconcile that started before a
+	// controller handover cannot overwrite a newer, already-delivered
+	// generation with stale state.
+	if err := r.Status().Update(ctx, updated); err != nil {
 		return fmt.Errorf("apply PortForwardLease status: %w", err)
 	}
 	return nil

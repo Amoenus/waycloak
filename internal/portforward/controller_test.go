@@ -16,6 +16,7 @@ import (
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -117,6 +118,28 @@ func TestControllerHoldsDrainUntilExactWithdrawal(t *testing.T) {
 	}
 	if condition := apiMeta.FindStatusCondition(current.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionUnknown {
 		t.Fatalf("drain readiness = %#v", current.Status.Conditions)
+	}
+}
+
+func TestApplyStatusRejectsStaleHandoffGeneration(t *testing.T) {
+	lease, _, _ := leaseFixture()
+	kube := leaseClient(t, lease)
+	stale := getLease(t, kube, lease)
+	current := getLease(t, kube, lease)
+	current.Status.HandoffGeneration = 48
+	if err := kube.Status().Update(context.Background(), current); err != nil {
+		t.Fatal(err)
+	}
+
+	reconciler := &PortForwardLeaseReconciler{Client: kube}
+	desired := stale.Status
+	desired.HandoffGeneration = 47
+	err := reconciler.applyStatus(context.Background(), stale, desired)
+	if !apierrors.IsConflict(err) {
+		t.Fatalf("stale status update error = %v, want conflict", err)
+	}
+	if got := getLease(t, kube, lease).Status.HandoffGeneration; got != 48 {
+		t.Fatalf("handoff generation regressed to %d", got)
 	}
 }
 
