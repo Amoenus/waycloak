@@ -32,22 +32,29 @@ External TCP, external DNS, and cluster DNS succeeded. An endpoint-redacted
 three-interface packet capture proved external UDP ingress on the VPN tunnel,
 forwarding on the Waycloak overlay to the exact qBittorrent endpoint, and
 qBittorrent UDP egress through the VPN tunnel. The private pcap SHA-256 digests
-are `fdb0a62972f7fc4a50d1efb70d80e69738bf5e956bb42ed8520d09ce921e9881`,
-`842bff6cdde1bd722ba39312d1f3844d57fde776e6a5c511e0628a972890f6a9`, and
-`cdc03306bc3d0ab11f79543659554bd1f4e89375b81887a2e4caddaba6279910`.
+are `58a09084072d5f9f99b270fa87e6d6f8b02647f51fac0367df0101c46af79c57`,
+`61515673ada62fe197156bb8e53b8793651d80df399ecc07f1170682842b3485`, and
+`9a4a30e5292fc9f09d9c48e9bf18bdcd22652d7637bfc521534351aff5d2c1ba`.
 The short-lived diagnostic Pod ran only on the existing qBittorrent node and
 was deleted immediately. Post-start adapter and gateway-runtime logs contain
 zero readiness-probe EOFs, warnings, or errors.
 
-The minimum 72-hour unchanged-artifact local-cluster epoch began at
-`2026-08-17T22:05:35.6026078Z` and ends no earlier than
-`2026-08-20T22:05:35.6026078Z`. A one-minute functional collector plus
-continuous lease, binding-transition, and node-observation heartbeat watches
-are running locally. The opening samples retain exact release/GitOps identity,
-all readiness states, matching listeners, connected DHT, external TCP and DNS,
-unchanged UIDs, and zero restart increases. End-of-epoch packet evidence and a
-complete evidence audit are still mandatory; this start does not graduate the
-release.
+The authoritative minimum 72-hour unchanged-artifact local-cluster epoch began
+at `2026-08-17T22:17:16.1766872Z` and runs through no earlier than
+`2026-08-20T22:19:15.9330502Z`, leaving a two-minute margin beyond the minimum.
+The short earlier RC.21 interval remains pre-soak deployment evidence: the clock
+was deliberately restarted during instrumentation setup rather than claiming a
+partial metrics timeline. A one-minute functional collector, continuous lease
+and binding-transition watches, a continuous node-observation heartbeat watch,
+and a five-minute privacy-checked metrics timeline now share the same deadline.
+The opening metrics sample contains 57 samples across five bounded Waycloak
+families and zero namespace, workload, node, UID, digest, or endpoint canary
+matches. Opening functional samples retain exact release/GitOps identity, all
+readiness states, matching listeners, connected DHT, external TCP and DNS,
+unchanged UIDs, and zero restart increases. The endpoint-redacted UDP packet
+capture above was repeated after this authoritative start. End-of-epoch packet
+evidence and a complete evidence audit are still mandatory; this start does not
+graduate the release.
 
 RC.20 contributed useful lifecycle evidence before it was superseded: 125
 functional samples over 2.102 hours all passed, including 13 external TCP
