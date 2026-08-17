@@ -48,6 +48,16 @@ func TestControllerActivatesAndDrainsBeforeRollingHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	current = getLease(t, kube, lease)
+	if current.Status.ActiveEndpoint == nil || current.Status.ActiveEndpoint.PodUID != "pod-a" || current.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseSelecting || current.Status.HandoffGeneration != 1 {
+		t.Fatalf("persisted initial selection = %#v", current.Status)
+	}
+	if len(runtime.calls) != 0 {
+		t.Fatalf("runtime called before initial selection was durable: %v", runtime.calls)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	current = getLease(t, kube, lease)
 	assertReadyLease(t, current, "pod-a", 1)
 
 	sliceA.Endpoints[0].Conditions.Ready = boolPointer(false)

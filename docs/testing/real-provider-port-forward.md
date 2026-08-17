@@ -25,17 +25,18 @@ releases. It does not substitute for the unchanged-artifact multi-day gate.
 Run from the trusted workstation that owns the homelab kubeconfig:
 
 ```powershell
-$evidence = Join-Path $env:TEMP "waycloak-rc11-qbittorrent-soak.jsonl"
+$evidence = Join-Path $env:TEMP "waycloak-rc13-qbittorrent-soak.jsonl"
 pwsh -File hack/acceptance/real-provider-soak.ps1 `
   -OutputPath $evidence `
-  -ExpectedVersion v0.1.0-rc.11 `
-  -ExpectedManifestDigest sha256:2d3b8cbf732ca7f15953085f2a954dbea9a9e1141d2f88d68f794e4265265c50 `
+  -ExpectedVersion v0.1.0-rc.13 `
+  -ExpectedManifestDigest <exact-signed-release-manifest-digest> `
   -DurationHours 72 `
   -IntervalSeconds 60
 ```
 
 Use a new output path for every epoch. The collector refuses to append to an
-existing file. It records booleans, condition reason codes, transition counts,
+existing file. Both expected release-identity parameters are mandatory; the
+collector has no stale candidate default. It records booleans, condition reason codes, transition counts,
 expiry, handoff generation, and aggregate restart/write observations. It uses
 the provider endpoint only in memory for an external TCP check and never writes
 the public address or port. It reads no Secret and never logs a credential.

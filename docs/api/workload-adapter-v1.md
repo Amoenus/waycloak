@@ -1,6 +1,6 @@
 # Workload adapter protocol v1
 
-Status: Optional capability, unadvertised pending issue #137 acceptance
+Status: Stable optional capability
 
 The workload-adapter protocol is HTTPS/JSON and is independent of Waycloak Go
 packages. Its schema is
@@ -50,6 +50,11 @@ An unchanged current record is idempotent. Expiry-only extension may reobserve
 without application churn. An adapter restart must reload durable non-secret
 lease state and revalidate the application once before acknowledging. Missing
 durable state makes withdrawal unavailable; it must not guess or acknowledge.
+
+The controller persists a new `Selecting` endpoint and handoff generation
+before the gateway runtime may acquire, program, or deliver it. A status-write
+retry therefore reuses the same exact generation; it cannot leave an adapter
+one generation ahead of the durable lease and then issue a stale withdrawal.
 
 ## qBittorrent reference profile
 

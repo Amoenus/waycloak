@@ -8,8 +8,10 @@ param(
     [string]$Namespace = "applications-media",
     [string]$Gateway = "waycloak-proton",
     [string]$Lease = "qbittorrent",
-    [string]$ExpectedVersion = "v0.1.0-rc.11",
-    [string]$ExpectedManifestDigest = "sha256:2d3b8cbf732ca7f15953085f2a954dbea9a9e1141d2f88d68f794e4265265c50",
+    [Parameter(Mandatory = $true)]
+    [string]$ExpectedVersion,
+    [Parameter(Mandatory = $true)]
+    [string]$ExpectedManifestDigest,
     [ValidateRange(1, 720)]
     [int]$DurationHours = 72,
     [ValidateRange(15, 3600)]

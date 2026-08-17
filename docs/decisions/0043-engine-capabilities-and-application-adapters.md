@@ -66,6 +66,12 @@ no Kubernetes token, VPN credential, host access, or networking capability.
 Adapter failure can withdraw lease readiness but cannot weaken fail-closed
 egress.
 
+The controller durably stages each successor handoff generation before any
+runtime or adapter side effect. This two-phase boundary is required because a
+successful external delivery followed by a conflicting Kubernetes status write
+must retry the same generation, never regress behind application state that is
+already applied.
+
 Plugin packaging is independent from runtime responsibility. A release may
 include signed reference implementations, but artifact presence never activates
 a capability. The installer enables only the generic adapter protocol; operator

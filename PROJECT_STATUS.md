@@ -2,6 +2,21 @@
 
 Last updated: 2026-08-17
 
+## v0.1.0-rc.13 staged-generation candidate
+
+RC.13 corrects the handoff ordering defect found during RC.12 GitOps
+activation. A new endpoint and incremented handoff generation are now persisted
+as `Selecting` before the controller invokes any provider, gateway-rule,
+delivery, or workload-adapter effect. A Kubernetes status conflict can
+therefore retry only the same durable generation; it cannot leave the runtime
+or adapter ahead of lease status. Strict stale-generation rejection remains
+unchanged.
+
+The local soak collector now requires the expected release version and manifest
+digest explicitly instead of carrying a stale candidate default. RC.13 must be
+published, independently verified, deployed by exact GitOps identity, and
+start a new 72-hour qBittorrent epoch; RC.12 remains lifecycle evidence only.
+
 ## v0.1.0-rc.12 support-matrix candidate
 
 RC.12 makes the certified operator boundary part of the canonical signed
@@ -19,6 +34,23 @@ exact signed RC.12 artifacts converge through homelab `master`, a new minimum
 canary. Bitmagnet remains at zero desired replicas and no additional cluster
 node is required. Stable graduation remains open until that epoch and its
 final evidence review complete.
+
+The RC.12 GitOps activation exposed a lifecycle defect before that epoch could
+count as final graduation evidence. Immutable WorkloadAdapter replacement
+briefly made the adapter unresolved. The controller attempted to withdraw
+durable lease generation 38, while the adapter had already applied generation
+39; the adapter correctly rejected the stale withdrawal, packet rules remained
+withdrawn, and the lease stayed fail closed. Its declared 10-minute cleanup
+bound quarantined the old identity, after which GitOps recreated a new lease
+that immediately reached all Ready conditions without restarting qBittorrent.
+
+The cause is an external-side-effect ordering gap: initial successor selection
+could be acquired, programmed, and delivered before its incremented generation
+was persisted to Kubernetes status. A conflicting status write could therefore
+leave the runtime and adapter one generation ahead. The correction stages the
+`Selecting` endpoint and generation in status first, then performs runtime
+effects on the next reconcile. RC.12 soak samples remain lifecycle evidence,
+but a successor candidate is required and starts a fresh 72-hour epoch.
 
 ## Declared recovery lifecycle certification
 

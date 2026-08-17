@@ -190,11 +190,16 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 	if current == nil {
 		status.HandoffGeneration++
 		status.ActiveEndpoint = endpointFor(evaluation.selected, wayv1.EndpointPhaseSelecting)
-	} else {
-		status.ActiveEndpoint = endpointFor(evaluation.selected, current.Phase)
-		if status.ActiveEndpoint.Phase != wayv1.EndpointPhaseActive {
-			status.ActiveEndpoint.Phase = wayv1.EndpointPhaseSelecting
-		}
+		// Persist the successor identity before asking the external runtime to
+		// acquire, program, or deliver it. If the later status write conflicts,
+		// the next reconcile therefore retries the same generation instead of
+		// regressing behind an already-applied adapter generation.
+		status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
+		return status, time.Millisecond
+	}
+	status.ActiveEndpoint = endpointFor(evaluation.selected, current.Phase)
+	if status.ActiveEndpoint.Phase != wayv1.EndpointPhaseActive {
+		status.ActiveEndpoint.Phase = wayv1.EndpointPhaseSelecting
 	}
 	intent := IntentFor(lease, evaluation.gateway, evaluation.selected, status.HandoffGeneration)
 	if evaluation.providerAssignedApplicationPort {
