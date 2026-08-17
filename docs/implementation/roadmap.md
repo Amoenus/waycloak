@@ -411,6 +411,9 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Publish only completed gateway DNS observations: retain the last
   successful result while the next probe is in flight, but immediately
   withdraw readiness and reinstall deny rules when that probe actually fails.
+- [x] Start lease reconciliation from an authoritative API-server read and
+  emit endpoint-safe, transition-only diagnostics for every initiated handoff
+  so informer lag and each drain predicate can be distinguished live.
 - [ ] Complete the minimum 72-hour unchanged-artifact local-cluster soak for
   #116/#141 with qBittorrent as the sole application canary. Record outage
   counts and durations, DNS state, lease renewal/withdrawal/recovery, listener

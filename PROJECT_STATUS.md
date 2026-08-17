@@ -2,6 +2,37 @@
 
 Last updated: 2026-08-17
 
+## RC.16 live lease-churn finding and RC.17 reconciliation correction
+
+Signed `v0.1.0-rc.16` was published from exact main commit `730b4967` after
+main CI run `32029515202`, CLI release run `32030850390`, and runtime release
+run `32030850539` passed, including independent public-artifact verification.
+Its canonical manifest identity is
+`sha256:d08ead36d5b81e4712554f7c1a853a015a103bceebf474d5904631eba0667cdc`.
+Homelab `master` commit `5410de7a` deployed the exact release through install
+plan `sha256:c9d2414a9fc3bbaf3a4b4b9b2af38950d80682ee9443e53b8d80b3b4e4f7b782`.
+Root, Waycloak, and qBittorrent became Synced and Healthy; qBittorrent retained
+its Pod and lease UIDs with zero restarts, and Bitmagnet remained at zero.
+
+RC.16 eliminated the false gateway DNS observation: two consecutive ten-minute
+windows recorded zero Gateway Ready or DNSReady transitions, zero DNS/listener
+failures, and 20/20 successful independent external TCP checks. They still did
+not qualify as soak evidence because the stable lease UID advanced from
+handoff generation 75 through 78 while all periodic functional samples stayed
+green. The second window began after rollout settling, so the churn is not an
+immutable-resource replacement artifact. Optimistic status conflicts also
+continued during routine expiry observations; stale writes were rejected and
+never regressed the generation.
+
+The current controller begins reconciliation from the informer-cache lease
+copy and only discovers a stale resourceVersion at the status write boundary.
+RC.17 begins from the authoritative API reader used by the other lease
+dependencies and emits transition-only, endpoint-safe handoff diagnostics for
+gateway readiness, missing selection, and Service/Pod identity changes. The
+diagnostics contain no provider address or public port. This correction must be
+published and deployed exactly, then pass a new stable-generation window
+before the minimum 72-hour local-cluster qBittorrent epoch can start.
+
 ## RC.15 live DNS-readiness finding and RC.16 observation correction
 
 Signed `v0.1.0-rc.15` was published from commit `1eb78eb0` after main CI run

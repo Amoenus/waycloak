@@ -143,6 +143,50 @@ func TestApplyStatusRejectsStaleHandoffGeneration(t *testing.T) {
 	}
 }
 
+func TestReconcileReadsLeaseFromAuthoritativeReader(t *testing.T) {
+	lease, _, _ := leaseFixture()
+	kube := leaseClient(t, lease)
+	reader := &trackingReader{Reader: kube}
+	reconciler := &PortForwardLeaseReconciler{Client: kube, APIReader: reader}
+
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(lease)}); err != nil {
+		t.Fatal(err)
+	}
+	if reader.leaseGets != 1 {
+		t.Fatalf("authoritative PortForwardLease reads = %d, want 1", reader.leaseGets)
+	}
+}
+
+func TestHandoffDrainReasonIdentifiesEachTrigger(t *testing.T) {
+	current := &wayv1.ActiveLeaseEndpoint{ServiceUID: "service-a", PodUID: "pod-a", Phase: wayv1.EndpointPhaseActive}
+	selected := Candidate{ServiceUID: "service-a", PodUID: "pod-a"}
+	if got := handoffDrainReason(nil, leaseEvaluation{}); got != "" {
+		t.Fatalf("nil endpoint drain reason = %q", got)
+	}
+	tests := []struct {
+		name       string
+		evaluation leaseEvaluation
+		phase      wayv1.EndpointHandoffPhase
+		want       string
+	}{
+		{name: "stable", evaluation: leaseEvaluation{gatewayReady: true, hasSelected: true, selected: selected}, phase: wayv1.EndpointPhaseActive},
+		{name: "gateway", evaluation: leaseEvaluation{hasSelected: true, selected: selected}, phase: wayv1.EndpointPhaseActive, want: "gateway_not_ready"},
+		{name: "draining", evaluation: leaseEvaluation{gatewayReady: true, hasSelected: true, selected: selected}, phase: wayv1.EndpointPhaseDraining, want: "already_draining"},
+		{name: "selection", evaluation: leaseEvaluation{gatewayReady: true}, phase: wayv1.EndpointPhaseActive, want: "backend_not_selected"},
+		{name: "service", evaluation: leaseEvaluation{gatewayReady: true, hasSelected: true, selected: Candidate{ServiceUID: "service-b", PodUID: "pod-a"}}, phase: wayv1.EndpointPhaseActive, want: "service_uid_changed"},
+		{name: "pod", evaluation: leaseEvaluation{gatewayReady: true, hasSelected: true, selected: Candidate{ServiceUID: "service-a", PodUID: "pod-b"}}, phase: wayv1.EndpointPhaseActive, want: "pod_uid_changed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value := current.DeepCopy()
+			value.Phase = test.phase
+			if got := handoffDrainReason(value, test.evaluation); got != test.want {
+				t.Fatalf("handoff drain reason = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestControllerDerivesProviderAssignedPortOnlyFromReadyAdapterCapability(t *testing.T) {
 	lease, gateway, service := leaseFixture()
 	gateway.Namespace = lease.Namespace
@@ -247,6 +291,18 @@ func getLease(t *testing.T, kube client.Client, lease *wayv1.PortForwardLease) *
 		t.Fatal(err)
 	}
 	return current
+}
+
+type trackingReader struct {
+	client.Reader
+	leaseGets int
+}
+
+func (reader *trackingReader) Get(ctx context.Context, key client.ObjectKey, object client.Object, options ...client.GetOption) error {
+	if _, ok := object.(*wayv1.PortForwardLease); ok {
+		reader.leaseGets++
+	}
+	return reader.Reader.Get(ctx, key, object, options...)
 }
 
 func assertReadyLease(t *testing.T, lease *wayv1.PortForwardLease, podUID wayv1.ObjectUID, generation int64) {
