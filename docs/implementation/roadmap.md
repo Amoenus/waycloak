@@ -24,6 +24,13 @@ RC.17 is not deployable as a complete runtime release. RC.18 binds both
 publishers to the explicit immutable tag name; it must pass both clean-download
 verifiers before replacing RC.16 in the local-cluster qBittorrent canary.
 
+**RC.19 resilient publication (2026-08-17):** RC.18 passed main CI and its CLI
+publication verifier, and produced every runtime artifact and attestation, but
+GitHub returned HTTP 503 for all final uploader retries. Its immutable KCL
+version prevents an unsafe replay. RC.19 uses an exact-tag, concurrent-creator
+aware, bounded-backoff `gh` transaction for the shared release. Both public
+artifact verifiers remain mandatory before GitOps deployment.
+
 **Extension-contract stabilization (2026-08-13):** ADR 0043 makes Gluetun the
 VPN-engine integration boundary, contains Proton NAT-PMP behind a
 Gluetun-selected port-forward capability, and makes application adapters an

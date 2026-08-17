@@ -2,6 +2,19 @@
 
 Last updated: 2026-08-17
 
+## RC.18 publication finding and RC.19 resilient uploader
+
+RC.18 exact main CI and CLI publication passed, including the CLI
+clean-download verifier. Its runtime workflow completed all artifact,
+vulnerability, SBOM, signing, and attestation gates, then GitHub returned HTTP
+503 for every final release-upload retry. RC.18's immutable KCL version exists,
+so the runtime job cannot be replayed and RC.18 is not deployable.
+
+RC.19 replaces the third-party release uploader with a repository-owned `gh`
+transaction. It addresses the exact tag, tolerates a concurrent creator,
+retries GitHub API failures with bounded backoff, and uploads with explicit
+same-name replacement. OCI immutability remains unchanged.
+
 ## RC.17 publication finding and RC.18 release coordination
 
 Signed `v0.1.0-rc.17` points at exact main commit `1836693e`, whose main CI

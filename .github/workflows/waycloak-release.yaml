@@ -464,13 +464,10 @@ jobs:
         with:
           subject-path: dist/release/*
       - name: Publish immutable Waycloak release assets
-        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
-        with:
-          tag_name: ${{ github.ref_name }}
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: dist/release/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash hack/publish-release-assets.sh "$RELEASE_TAG" dist/release/*
 
   verify-published-release:
     needs: publish
