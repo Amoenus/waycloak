@@ -99,6 +99,15 @@ func verifyPortForwardSingleActiveHandoff(t *testing.T, namespace, serviceAccoun
 	_, err = reconciler.Reconcile(ctx, request)
 	must(t, err)
 	must(t, admin.Get(ctx, request.NamespacedName, lease))
+	if lease.Status.ActiveEndpoint == nil || lease.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pods[0].UID) || lease.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseSelecting || lease.Status.HandoffGeneration != 1 {
+		t.Fatalf("durable initial selection = %#v", lease.Status)
+	}
+	if len(runtimeBackend.calls) != 0 {
+		t.Fatalf("runtime called before initial selection was durable: %v", runtimeBackend.calls)
+	}
+	_, err = reconciler.Reconcile(ctx, request)
+	must(t, err)
+	must(t, admin.Get(ctx, request.NamespacedName, lease))
 	assertE2EActiveLease(t, lease, wayv1.ObjectUID(pods[0].UID), 1)
 
 	must(t, admin.Get(ctx, ctrlclient.ObjectKeyFromObject(endpointSlice), endpointSlice))
