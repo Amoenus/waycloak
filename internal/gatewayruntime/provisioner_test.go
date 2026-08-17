@@ -316,6 +316,101 @@ func TestProvisionerRejectsMutableImageBeforeCreatingObjects(t *testing.T) {
 	}
 }
 
+func TestHealthObservationRetriesTransportFailureButNotObservedUnready(t *testing.T) {
+	calls := 0
+	provisioner := &Provisioner{HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":false,"tunnelReady":true,"dnsReady":false}`)), Header: http.Header{}}, nil
+	})}}
+	health, result, err := provisioner.observeHealth(context.Background(), "http://127.0.0.1/status")
+	if err != nil || calls != 2 || result.attempts != 2 || result.lastFailurePhase != "exchange" || result.lastFailureClass != "unexpected_eof" {
+		t.Fatalf("bounded retry result = health=%#v result=%#v calls=%d err=%v", health, result, calls, err)
+	}
+	if health.Ready || !health.TunnelReady || health.DNSReady {
+		t.Fatalf("observed unhealthy response was altered: %#v", health)
+	}
+
+	calls = 0
+	provisioner.HTTPClient = &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":false,"tunnelReady":true,"dnsReady":false}`)), Header: http.Header{}}, nil
+	})}
+	health, result, err = provisioner.observeHealth(context.Background(), "http://127.0.0.1/status")
+	if err != nil || calls != 1 || result.attempts != 1 || health.Ready || !health.TunnelReady || health.DNSReady {
+		t.Fatalf("observed not-ready response was retried or altered: health=%#v result=%#v calls=%d err=%v", health, result, calls, err)
+	}
+
+	calls = 0
+	provisioner.HTTPClient = &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, context.DeadlineExceeded
+	})}
+	_, result, err = provisioner.observeHealth(context.Background(), "http://127.0.0.1/status")
+	failure, ok := err.(healthObservationError)
+	if !ok || calls != 1 || result.attempts != 1 || failure.phase != "exchange" || failure.class != "timeout" {
+		t.Fatalf("non-retryable timeout = failure=%#v result=%#v calls=%d err=%v", failure, result, calls, err)
+	}
+}
+
+func TestHealthObservationReportsSanitizedFailureAndRecoveryTransitions(t *testing.T) {
+	events := []HealthObservationEvent{}
+	provisioner := &Provisioner{HealthObservationHook: func(event HealthObservationEvent) { events = append(events, event) }}
+	provisioner.HTTPClient = &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		return nil, io.ErrUnexpectedEOF
+	})}
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "private", Namespace: "media", UID: "gateway-uid"}}
+	_, result, err := provisioner.observeHealth(context.Background(), "http://127.0.0.1/status")
+	if err == nil || result.attempts != healthObservationAttempts || strings.Contains(err.Error(), "127.0.0.1") {
+		t.Fatalf("terminal health observation error = %v, result=%#v", err, result)
+	}
+	provisioner.reportHealthObservationFailure(context.Background(), gateway, err)
+	provisioner.reportHealthObservationFailure(context.Background(), gateway, err)
+	if len(events) != 1 || events[0].State != "not_ready" || events[0].Phase != "exchange" || events[0].Class != "unexpected_eof" || events[0].Attempts != healthObservationAttempts {
+		t.Fatalf("failure transitions = %#v", events)
+	}
+
+	provisioner.HTTPClient = &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":true,"tunnelReady":true,"dnsReady":true}`)), Header: http.Header{}}, nil
+	})}
+	health, result, err := provisioner.observeHealth(context.Background(), "http://127.0.0.1/status")
+	if err != nil || !health.Ready {
+		t.Fatalf("recovery observation = %#v, result=%#v, err=%v", health, result, err)
+	}
+	provisioner.reportHealthObservationRecovery(context.Background(), gateway, result)
+	if len(events) != 2 || events[1].State != "ready" || events[1].Phase != "exchange" || events[1].Class != "unexpected_eof" {
+		t.Fatalf("recovery transitions = %#v", events)
+	}
+}
+
+func TestHealthObservationClassifiesStatusAndResponseFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		code  int
+		phase string
+		class string
+	}{
+		{name: "status", code: http.StatusServiceUnavailable, phase: "status", class: "http_503"},
+		{name: "decode", code: http.StatusOK, body: `{`, phase: "response_decode", class: "unexpected_eof"},
+		{name: "trailing", code: http.StatusOK, body: `{"ready":true,"tunnelReady":true,"dnsReady":true}{}`, phase: "response_validation", class: "invalid_response"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provisioner := &Provisioner{HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: test.code, Body: io.NopCloser(strings.NewReader(test.body)), Header: http.Header{}}, nil
+			})}}
+			_, _, err := provisioner.observeHealth(context.Background(), "http://127.0.0.1/status")
+			failure, ok := err.(healthObservationError)
+			if !ok || failure.phase != test.phase || failure.class != test.class || failure.attempts != 1 {
+				t.Fatalf("classified failure = %#v (%v)", failure, err)
+			}
+		})
+	}
+}
+
 func fixture(kube client.Client) *Provisioner {
 	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v0.0.0-core.test", ManifestDigest: "sha256:" + strings.Repeat("c", 64)}, OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":true,"tunnelReady":true,"dnsReady":true}`)), Header: http.Header{}}, nil
