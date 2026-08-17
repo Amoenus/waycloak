@@ -2,6 +2,22 @@
 
 Last updated: 2026-08-17
 
+## RC.17 publication finding and RC.18 release coordination
+
+Signed `v0.1.0-rc.17` points at exact main commit `1836693e`, whose main CI
+run `32036897358` passed. The CLI release and its independent public verifier
+passed in run `32037908797`, while runtime release run `32037908755` completed
+every build, vulnerability, SBOM, signature, and attestation step before its
+release uploader lost a creation race with the CLI publisher. A retry correctly
+refused to overwrite RC.17's already-published immutable KCL version. RC.17 is
+therefore not a complete public runtime release and must not be deployed.
+
+RC.18 makes both publishers identify their shared GitHub release with the
+explicit immutable tag name. This removes the ambiguous `refs/tags/...` lookup
+that caused the race without weakening OCI immutability or reconstructing
+attested assets outside the release workflow. RC.16 remains deployed until the
+complete RC.18 runtime and CLI artifacts independently verify.
+
 ## RC.16 live lease-churn finding and RC.17 reconciliation correction
 
 Signed `v0.1.0-rc.16` was published from exact main commit `730b4967` after

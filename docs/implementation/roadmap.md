@@ -16,6 +16,14 @@ candidate, not closure of #123, #138, #140, or #141 and not stable graduation.
 Outstanding soak, lifecycle, disaster-recovery, and real-provider evidence
 remains tracked below.
 
+**RC.18 publication correction (2026-08-17):** RC.17 passed exact main CI and
+its CLI publication verifier, but its runtime uploader lost a GitHub release
+creation race after all runtime artifacts and attestations had been produced.
+Its replay then correctly refused to overwrite the immutable KCL version.
+RC.17 is not deployable as a complete runtime release. RC.18 binds both
+publishers to the explicit immutable tag name; it must pass both clean-download
+verifiers before replacing RC.16 in the local-cluster qBittorrent canary.
+
 **Extension-contract stabilization (2026-08-13):** ADR 0043 makes Gluetun the
 VPN-engine integration boundary, contains Proton NAT-PMP behind a
 Gluetun-selected port-forward capability, and makes application adapters an
