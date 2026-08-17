@@ -51,10 +51,11 @@ during instrumentation setup rather than claiming a weaker final record.
 
 Supplementary DHT/API samples, continuous lease and binding-transition watches,
 the node-observation heartbeat watch, and the five-minute privacy-checked
-metrics timeline overlap the canonical window and run two minutes beyond its
-deadline. The opening metrics sample contains 57 samples across five bounded
-Waycloak families and zero namespace, workload, node, UID, digest, or endpoint
-canary matches. Opening canonical and supplementary samples retain exact
+metrics timeline overlap the invalidated interval from
+`2026-08-17T22:21:53.7138289Z` through `2026-08-17T22:24:33Z` and continue as
+post-recovery lifecycle evidence. The opening metrics sample contains 57
+samples across five bounded Waycloak families and zero namespace, workload,
+node, UID, digest, or endpoint canary matches. Opening canonical and supplementary samples retain exact
 release/GitOps identity, all readiness states, matching listeners, connected
 DHT, external TCP and DNS, unchanged UIDs, and zero restart increases. The
 endpoint-redacted UDP packet capture above was repeated after this authoritative

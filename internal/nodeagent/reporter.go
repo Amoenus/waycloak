@@ -134,21 +134,14 @@ func resolvingObservationDialContext(lookup observationLookupAttempt, dial obser
 		for {
 			if err := ctx.Err(); err != nil {
 				if lastErr == nil {
-					lastErr = err
+					return nil, fmt.Errorf("resolve observation relay before first attempt: %w", err)
 				}
 				return nil, fmt.Errorf("resolve observation relay after %d attempts: %w", attempts, lastErr)
 			}
 
 			attempts++
 			attemptCtx, cancel := context.WithTimeout(ctx, observationDialAttemptTimeout)
-			trace := httptrace.ContextClientTrace(attemptCtx)
-			if trace != nil && trace.DNSStart != nil {
-				trace.DNSStart(httptrace.DNSStartInfo{Host: host})
-			}
 			addresses, err := lookup(attemptCtx, host)
-			if trace != nil && trace.DNSDone != nil {
-				trace.DNSDone(httptrace.DNSDoneInfo{Addrs: addresses, Err: err})
-			}
 			cancel()
 			if err == nil {
 				if len(addresses) == 0 {

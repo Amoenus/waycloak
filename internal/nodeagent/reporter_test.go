@@ -97,6 +97,60 @@ func TestResolvingObservationDialContextDoesNotRetryPermanentNameError(t *testin
 	}
 }
 
+func TestResolvingObservationDialContextPreservesSingleResolverTrace(t *testing.T) {
+	starts := 0
+	dones := 0
+	dial := resolvingObservationDialContext(func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		trace := httptrace.ContextClientTrace(ctx)
+		trace.DNSStart(httptrace.DNSStartInfo{Host: host})
+		err := &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		trace.DNSDone(httptrace.DNSDoneInfo{Err: err})
+		return nil, err
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run after lookup failure")
+		return nil, nil
+	})
+	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		DNSStart: func(httptrace.DNSStartInfo) { starts++ },
+		DNSDone:  func(httptrace.DNSDoneInfo) { dones++ },
+	})
+	if _, err := dial(ctx, "tcp", "relay.invalid:9443"); err == nil {
+		t.Fatal("want lookup failure")
+	}
+	if starts != 1 || dones != 1 {
+		t.Fatalf("DNS trace starts, dones = %d, %d; want 1, 1", starts, dones)
+	}
+}
+
+func TestResolvingObservationDialContextRejectsEmptyLookup(t *testing.T) {
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, nil
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run without resolved addresses")
+		return nil, nil
+	})
+	if _, err := dial(context.Background(), "tcp", "relay.invalid:9443"); err == nil ||
+		!strings.Contains(err.Error(), "returned no addresses") {
+		t.Fatalf("dial error = %v, want empty-address failure", err)
+	}
+}
+
+func TestResolvingObservationDialContextReportsPreExpiredContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		t.Fatal("lookup must not run with a pre-expired context")
+		return nil, nil
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run with a pre-expired context")
+		return nil, nil
+	})
+	if _, err := dial(ctx, "tcp", "relay.invalid:9443"); !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "before first attempt") {
+		t.Fatalf("dial error = %v, want pre-expired context classification", err)
+	}
+}
+
 func TestResolvingObservationDialContextDoesNotRetryConnectionFailure(t *testing.T) {
 	lookups := 0
 	dials := 0

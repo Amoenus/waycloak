@@ -1,6 +1,8 @@
 # Copyright 2026 The Waycloak Authors.
 # SPDX-License-Identifier: MIT
 
+#Requires -Version 7.5
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
@@ -22,7 +24,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Read-JSONLines {
+function Read-JSONLine {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "evidence file is missing: $Path"
@@ -41,7 +43,7 @@ function Read-JSONLines {
     return $records.ToArray()
 }
 
-function Count-NonTrueConditions {
+function Measure-NonTrueCondition {
     param([object[]]$Records, [string]$Kind)
     $count = 0
     foreach ($record in @($Records | Where-Object { $_.kind -eq $Kind })) {
@@ -84,12 +86,12 @@ function Get-RatePerHour {
 
 $leasePath = Join-Path $ConditionDirectory "portforwardlease.jsonl"
 $bindingPath = Join-Path $ConditionDirectory "vpnworkloadbinding.jsonl"
-$canonical = @(Read-JSONLines $CanonicalPath)
-$dht = @(Read-JSONLines $DHTPath)
-$lease = @(Read-JSONLines $leasePath)
-$binding = @(Read-JSONLines $bindingPath)
-$heartbeat = @(Read-JSONLines $HeartbeatPath)
-$metrics = @(Read-JSONLines $MetricsPath)
+$canonical = @(Read-JSONLine $CanonicalPath)
+$dht = @(Read-JSONLine $DHTPath)
+$lease = @(Read-JSONLine $leasePath)
+$binding = @(Read-JSONLine $bindingPath)
+$heartbeat = @(Read-JSONLine $HeartbeatPath)
+$metrics = @(Read-JSONLine $MetricsPath)
 
 $start = @($canonical | Where-Object { $_.kind -eq "WaycloakLocalSoakStart" })
 $summary = @($canonical | Where-Object { $_.kind -eq "WaycloakLocalSoakSummary" })
@@ -127,7 +129,7 @@ $gatewayTransitions = @($canonical | Where-Object { $_.kind -eq "WaycloakGateway
 $gatewayTransitionErrors = @($canonical | Where-Object { $_.kind -eq "WaycloakGatewayTransitionCollectionError" })
 $transitionTemporaryPath = $CanonicalPath + ".gateway-transitions.tmp"
 if ($summary.Count -eq 0 -and (Test-Path -LiteralPath $transitionTemporaryPath -PathType Leaf)) {
-    $temporaryTransitions = @(Read-JSONLines $transitionTemporaryPath)
+    $temporaryTransitions = @(Read-JSONLine $transitionTemporaryPath)
     $gatewayTransitions = @($temporaryTransitions | Where-Object { $_.kind -eq "WaycloakGatewayTransition" })
     $gatewayTransitionErrors = @($temporaryTransitions | Where-Object {
         $_.kind -eq "WaycloakGatewayTransitionCollectionError"
@@ -167,9 +169,12 @@ $dhtAPIObservations = @($dhtSamples | Where-Object { $_.qBittorrentAPIObserved }
 $leaseParseErrors = @($lease | Where-Object { $_.kind -eq "WaycloakConditionWatchParseError" })
 $bindingParseErrors = @($binding | Where-Object { $_.kind -eq "WaycloakConditionWatchParseError" })
 $heartbeatParseErrors = @($heartbeat | Where-Object { $_.kind -eq "WaycloakBindingHeartbeatParseError" })
-$leaseNonTrue = Count-NonTrueConditions $lease "WaycloakPortForwardLeaseTransition"
-$bindingNonTrue = Count-NonTrueConditions $binding "WaycloakVPNWorkloadBindingTransition"
-$heartbeatNonTrue = Count-NonTrueConditions $heartbeat "WaycloakVPNWorkloadBindingHeartbeat"
+$leaseEvents = @($lease | Where-Object { $_.kind -eq "WaycloakPortForwardLeaseTransition" })
+$bindingEvents = @($binding | Where-Object { $_.kind -eq "WaycloakVPNWorkloadBindingTransition" })
+$heartbeatEvents = @($heartbeat | Where-Object { $_.kind -eq "WaycloakVPNWorkloadBindingHeartbeat" })
+$leaseNonTrue = Measure-NonTrueCondition $leaseEvents "WaycloakPortForwardLeaseTransition"
+$bindingNonTrue = Measure-NonTrueCondition $bindingEvents "WaycloakVPNWorkloadBindingTransition"
+$heartbeatNonTrue = Measure-NonTrueCondition $heartbeatEvents "WaycloakVPNWorkloadBindingHeartbeat"
 
 $metricSamples = @($metrics | Where-Object { $_.kind -eq "WaycloakMetricsTimelineSample" })
 $metricFailures = @($metrics | Where-Object { $_.kind -eq "WaycloakMetricsTimelineFailure" })
@@ -185,7 +190,12 @@ $expectedMetricFamilies = @(
     "waycloak_workload_allocations"
 )
 $metricFamilyDrift = @($metricSamples | Where-Object {
-    Compare-Object $expectedMetricFamilies @($_.metricFamilies) -SyncWindow 0
+    $actualFamilies = @($_.metricFamilies | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($actualFamilies.Count -eq 0) {
+        $true
+    } else {
+        @(Compare-Object ($expectedMetricFamilies | Sort-Object) ($actualFamilies | Sort-Object)).Count -ne 0
+    }
 })
 
 $canonicalStart = [DateTimeOffset]::Parse([string]$start[0].startedAt)
@@ -224,7 +234,12 @@ if ($summary.Count -eq 1) {
         "externalTCPProbeFailures", "gatewayReadyWithdrawals",
         "gatewayDNSReadyWithdrawals", "gatewayTransitionCollectionFailures"
     )) {
-        if ([int64]$summary[0].counters.$name -ne 0) { $summaryFailures++ }
+        $counter = $summary[0].counters.psobject.Properties[$name]
+        if ($null -eq $counter) {
+            $summaryFailures++
+            continue
+        }
+        if ([int64]$counter.Value -ne 0) { $summaryFailures++ }
     }
 }
 
@@ -269,18 +284,18 @@ $report = [ordered]@{
         sha256 = (Get-FileHash -LiteralPath $DHTPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     conditions = [ordered]@{
-        leaseEvents = @($lease | Where-Object { $_.kind -eq "WaycloakPortForwardLeaseTransition" }).Count
+        leaseEvents = $leaseEvents.Count
         leaseNonTrue = $leaseNonTrue
         leaseRange = $leaseRange
-        leaseEventsPerHour = Get-RatePerHour $lease.Count $leaseRange.hours
-        bindingEvents = @($binding | Where-Object { $_.kind -eq "WaycloakVPNWorkloadBindingTransition" }).Count
+        leaseEventsPerHour = Get-RatePerHour $leaseEvents.Count $leaseRange.hours
+        bindingEvents = $bindingEvents.Count
         bindingNonTrue = $bindingNonTrue
         bindingRange = $bindingRange
-        bindingEventsPerHour = Get-RatePerHour $binding.Count $bindingRange.hours
-        heartbeatEvents = @($heartbeat | Where-Object { $_.kind -eq "WaycloakVPNWorkloadBindingHeartbeat" }).Count
+        bindingEventsPerHour = Get-RatePerHour $bindingEvents.Count $bindingRange.hours
+        heartbeatEvents = $heartbeatEvents.Count
         heartbeatNonTrue = $heartbeatNonTrue
         heartbeatRange = $heartbeatRange
-        heartbeatEventsPerHour = Get-RatePerHour $heartbeat.Count $heartbeatRange.hours
+        heartbeatEventsPerHour = Get-RatePerHour $heartbeatEvents.Count $heartbeatRange.hours
         leaseSHA256 = (Get-FileHash -LiteralPath $leasePath -Algorithm SHA256).Hash.ToLowerInvariant()
         bindingSHA256 = (Get-FileHash -LiteralPath $bindingPath -Algorithm SHA256).Hash.ToLowerInvariant()
         heartbeatSHA256 = (Get-FileHash -LiteralPath $HeartbeatPath -Algorithm SHA256).Hash.ToLowerInvariant()
