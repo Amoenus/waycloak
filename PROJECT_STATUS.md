@@ -2,6 +2,24 @@
 
 Last updated: 2026-08-17
 
+## v0.1.0-rc.11 exact inbound forwarding candidate
+
+RC.10 made the qBittorrent listener and DHT path operational, then an
+independent external TCP probe exposed a gateway firewall composition defect.
+Proton delivered TCP and UDP packets to the negotiated internal port on
+`tun0`, and the lease-specific DNAT rules were present, but the separate
+Gluetun and Waycloak baseline forward chains still rejected new inbound
+connections. Their established-return rules were correct for outbound flows
+but insufficient for provider-initiated ingress.
+
+RC.11 marks a packet only after it matches an exact active lease in the
+lease-owned prerouting chain. Both baseline forward chains admit only that
+non-routable packet mark from the tunnel to the owned overlay; unmatched
+tunnel ingress remains denied. A live diagnostic application of this contract
+changed the same independent external TCP probe from closed to open. The
+permanent RC must reproduce that TCP result, observe external UDP delivery,
+and retain withdrawal, recovery, renewal, application-listener, and DHT proof.
+
 ## v0.1.0-rc.10 qBittorrent 5.2 WebAPI candidate
 
 The RC.9 homelab deployment established the complete gateway-to-adapter

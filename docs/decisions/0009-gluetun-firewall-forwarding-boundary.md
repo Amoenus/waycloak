@@ -21,6 +21,16 @@ Gluetun continues to own local `INPUT` and `OUTPUT` policy, VPN-server reachabil
 
 Waycloak owns a separate, deterministically named IPv4 nftables table. Before creating the VXLAN interface, the manager installs or verifies a base `forward` chain with policy `DROP`. It activates forwarding atomically only after both the overlay and the configured VPN interface are up. Active rules permit overlay-source traffic only from the owned VXLAN interface to the VPN interface, permit connection-tracked return traffic, and masquerade the overlay source only on the VPN interface.
 
+Provider-initiated port-forward traffic is a second explicit case. The
+lease-owned prerouting chain assigns a reserved packet mark only after matching
+the exact active provider-internal port and protocol. The baseline Waycloak
+chain and the Gluetun-owned filter chain admit new tunnel-to-overlay traffic
+only when that mark is present. The packet mark is namespace-local metadata,
+is not controllable by a workload or remote peer, and disappears with the
+packet; lease withdrawal removes the only rule that can assign it. This lets
+the independent drop-policy chains compose without permitting unmatched VPN
+ingress.
+
 The controller fixes Gluetun's `VPN_INTERFACE` to `tunwaycloak`, so OpenVPN can infer the TUN device type while satisfying Gluetun's alphanumeric interface-name validation; OpenVPN and WireGuard do not require provider-specific packet-policy names. The manager retains no Kubernetes credentials and uses native nftables/netlink APIs for every dynamic rule and interface operation.
 
 Gluetun's post-rules contain a static UDP 4789 INPUT handoff because its local kill switch otherwise drops VXLAN before the manager-owned interface can receive it. A manager-owned inet input chain runs at an earlier priority, drops that port before desired state is valid, and then admits only the exact observed member underlay IPs before the Gluetun handoff. Membership changes replace this allowlist without restarting the tunnel; all other input remains under Gluetun's policy.

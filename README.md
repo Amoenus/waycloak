@@ -14,7 +14,7 @@ The baseline security boundary is a mandatory chained CNI plugin backed by a pri
 
 ## Current state
 
-`v0.1.0-rc.10` is the current feature-complete release candidate. The public
+`v0.1.0-rc.11` is the current feature-complete release candidate. The public
 `networking.waycloak.io/v1beta1` schemas and behavioral contracts are frozen;
 the alpha runtime is absent. The release provides signed CLI binaries,
 multi-platform OCI images, a Helm OCI chart, an optional KCL OCI module, SBOMs,

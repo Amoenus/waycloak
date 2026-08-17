@@ -15,7 +15,9 @@ import (
 	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	"github.com/Amoenus/waycloak/internal/gatewaycontract"
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"golang.org/x/sys/unix"
 )
@@ -133,6 +135,8 @@ func addGatewayLeaseRules(conn *nftables.Conn, table *nftables.Table, prerouting
 		}
 	}
 	dnat := append(baseMatch(),
+		&expr.Immediate{Register: 1, Data: binaryutil.NativeEndian.PutUint32(gatewaycontract.PortForwardIngressMark)},
+		&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
 		&expr.Immediate{Register: 1, Data: target}, &expr.Immediate{Register: 2, Data: targetPort},
 		&expr.NAT{Type: expr.NATTypeDestNAT, Family: unix.NFPROTO_IPV4, RegAddrMin: 1, RegProtoMin: 2})
 	conn.AddRule(&nftables.Rule{Table: table, Chain: prerouting, UserData: []byte(gatewayMarker(rule, protocol, "dnat")), Exprs: dnat})

@@ -15,7 +15,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Amoenus/waycloak/internal/gatewaycontract"
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -258,6 +260,7 @@ func (LinuxBackend) ReplaceRules(_ context.Context, config Config, healthy bool)
 	postrouting := connection.AddChain(&nftables.Chain{Table: table, Name: "postrouting", Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
 	if healthy {
 		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte("waycloak:overlay-to-tunnel"), Exprs: interfacePair(config.OverlayInterface, config.TunnelInterface, true)})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte("waycloak:tunnel-to-overlay-port-forward"), Exprs: markedPortForward(config.TunnelInterface, config.OverlayInterface)})
 		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte("waycloak:tunnel-to-overlay-established"), Exprs: append(interfacePair(config.TunnelInterface, config.OverlayInterface, false), established()...)})
 		connection.AddRule(&nftables.Rule{Table: table, Chain: postrouting, UserData: []byte("waycloak:overlay-masquerade"), Exprs: []expr.Any{&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceBytes(config.OverlayInterface)}, &expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceBytes(config.TunnelInterface)}, &expr.Masq{}}})
 	}
@@ -316,10 +319,10 @@ func gatewayRulesCurrent(connection *nftables.Conn, config Config, healthy bool)
 	inputMarkers, engineForwardMarkers := []string{}, []string{}
 	outputMarkers := []string{engineRuleMarkerPrefix + "cluster-dns-udp-output", engineRuleMarkerPrefix + "cluster-dns-tcp-output"}
 	if healthy {
-		forwardMarkers = []string{"waycloak:overlay-to-tunnel", "waycloak:tunnel-to-overlay-established"}
+		forwardMarkers = []string{"waycloak:overlay-to-tunnel", "waycloak:tunnel-to-overlay-port-forward", "waycloak:tunnel-to-overlay-established"}
 		postroutingMarkers = []string{"waycloak:overlay-masquerade"}
 		inputMarkers = []string{engineRuleMarkerPrefix + "health-input", engineRuleMarkerPrefix + "dns-udp-input", engineRuleMarkerPrefix + "dns-tcp-input"}
-		engineForwardMarkers = []string{engineRuleMarkerPrefix + "overlay-to-tunnel", engineRuleMarkerPrefix + "tunnel-to-overlay-established"}
+		engineForwardMarkers = []string{engineRuleMarkerPrefix + "overlay-to-tunnel", engineRuleMarkerPrefix + "tunnel-to-overlay-port-forward", engineRuleMarkerPrefix + "tunnel-to-overlay-established"}
 	}
 	for _, check := range []struct {
 		table    *nftables.Table
@@ -433,6 +436,7 @@ func replaceEngineFilterRules(connection *nftables.Conn, config Config, healthy 
 		connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "dns-udp-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_UDP, DNSListenPort)})
 		connection.AddRule(&nftables.Rule{Table: table, Chain: input, UserData: []byte(engineRuleMarkerPrefix + "dns-tcp-input"), Exprs: inputPort(config.OverlayInterface, unix.IPPROTO_TCP, DNSListenPort)})
 		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "overlay-to-tunnel"), Exprs: interfacePair(config.OverlayInterface, config.TunnelInterface, true)})
+		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "tunnel-to-overlay-port-forward"), Exprs: markedPortForward(config.TunnelInterface, config.OverlayInterface)})
 		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte(engineRuleMarkerPrefix + "tunnel-to-overlay-established"), Exprs: append(interfacePair(config.TunnelInterface, config.OverlayInterface, false), established()...)})
 	}
 	return nil
@@ -475,6 +479,15 @@ func interfacePair(input, output string, accept bool) []expr.Any {
 		rules = append(rules, &expr.Verdict{Kind: expr.VerdictAccept})
 	}
 	return rules
+}
+
+func markedPortForward(input, output string) []expr.Any {
+	rules := interfacePair(input, output, false)
+	return append(rules,
+		&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(gatewaycontract.PortForwardIngressMark)},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	)
 }
 func established() []expr.Any {
 	return []expr.Any{&expr.Ct{Register: 1, Key: expr.CtKeySTATE}, &expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: []byte{0x06, 0, 0, 0}, Xor: []byte{0, 0, 0, 0}}, &expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: []byte{0, 0, 0, 0}}, &expr.Verdict{Kind: expr.VerdictAccept}}

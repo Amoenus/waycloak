@@ -19,7 +19,11 @@ import (
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	"github.com/Amoenus/waycloak/internal/gatewaycontract"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
+	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
 	vnetns "github.com/vishvananda/netns"
 )
@@ -46,6 +50,7 @@ func TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal(t *testing.T
 	}); err != nil {
 		t.Fatalf("enable isolated gateway forwarding: %v", err)
 	}
+	installPortForwardBaselineFilters(t, gatewayNS)
 
 	tcpA := listenTCP(t, podANS, "10.42.0.10:6881")
 	defer tcpA.Close()
@@ -78,7 +83,6 @@ func TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal(t *testing.T
 	}); err != nil {
 		t.Fatal(err)
 	}
-
 	assertTCPIdentity(t, vpnNS, "192.0.2.1:50000", "pod-a")
 	assertUDPIdentityAndSource(t, vpnNS, "192.0.2.1:50000", "pod-a")
 
@@ -120,6 +124,38 @@ func TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal(t *testing.T
 	}
 	assertTCPUnavailable(t, vpnNS, "192.0.2.1:50000")
 	assertUDPUnavailable(t, vpnNS, "192.0.2.1:50000")
+}
+
+func installPortForwardBaselineFilters(t *testing.T, networkNS ns.NetNS) {
+	t.Helper()
+	if err := networkNS.Do(func(ns.NetNS) error {
+		connection := &nftables.Conn{}
+		policy := nftables.ChainPolicyDrop
+		for _, tableName := range []string{"filter", "waycloak_gateway_core_fixture"} {
+			table := connection.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: tableName})
+			chain := connection.AddChain(&nftables.Chain{Table: table, Name: "forward", Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
+			connection.AddRule(&nftables.Rule{Table: table, Chain: chain, Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes("way0")},
+				&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes("tun0")},
+				&expr.Verdict{Kind: expr.VerdictAccept},
+			}})
+			connection.AddRule(&nftables.Rule{Table: table, Chain: chain, Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes("tun0")},
+				&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes("way0")},
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(gatewaycontract.PortForwardIngressMark)},
+				&expr.Verdict{Kind: expr.VerdictAccept},
+			}})
+			connection.AddRule(&nftables.Rule{Table: table, Chain: chain, Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes("tun0")},
+				&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes("way0")},
+				&expr.Ct{Register: 1, Key: expr.CtKeySTATE}, &expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: []byte{0x06, 0, 0, 0}, Xor: []byte{0, 0, 0, 0}},
+				&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: []byte{0, 0, 0, 0}}, &expr.Verdict{Kind: expr.VerdictAccept},
+			}})
+		}
+		return connection.Flush()
+	}); err != nil {
+		t.Fatalf("install fail-closed baseline filters: %v", err)
+	}
 }
 
 func configureOverlayBridge(t *testing.T, networkNS ns.NetNS, name, cidr string, peers ...string) {

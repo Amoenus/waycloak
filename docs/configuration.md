@@ -1,6 +1,6 @@
 # Configuration requirements
 
-This page defines the operator inputs for `v0.1.0-rc.10`. Exact defaults and
+This page defines the operator inputs for `v0.1.0-rc.11`. Exact defaults and
 schema constraints remain authoritative in the Helm values schema and CRDs.
 
 ## Cluster inputs
@@ -85,6 +85,14 @@ That capability manages only the provider mapping. It does not replace Gluetun,
 configure qBittorrent, select a backend, or own gateway packet rules. Other
 Gluetun configurations requesting port forwarding are rejected until their
 capability has an explicit implementation and conformance evidence.
+
+Provider-initiated packets cross the shared gateway firewall only after the
+lease-owned prerouting chain matches the exact protocol and provider-internal
+port and assigns Waycloak's reserved packet mark. Both the Gluetun filter
+chain and the baseline gateway chain require that mark for a new
+tunnel-to-overlay flow. The mark is local packet metadata: workloads cannot
+set it, it is not sent over either network, and removing a lease atomically
+removes the rule that can assign it.
 
 ## Configuration invariants
 
