@@ -1062,6 +1062,15 @@ func TestReplacementAPI(t *testing.T) {
 		_, err = reconciler.Reconcile(ctx, request)
 		must(t, err)
 		must(t, admin.Get(ctx, request.NamespacedName, lease))
+		if lease.Status.ActiveEndpoint == nil || lease.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) || lease.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseSelecting || lease.Status.HandoffGeneration != 1 {
+			t.Fatalf("durable initial selection = %#v", lease.Status)
+		}
+		if runtime.reconciles != 0 {
+			t.Fatalf("runtime called before initial selection was durable: %d", runtime.reconciles)
+		}
+		_, err = reconciler.Reconcile(ctx, request)
+		must(t, err)
+		must(t, admin.Get(ctx, request.NamespacedName, lease))
 		if lease.Status.ActiveEndpoint == nil || lease.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) || lease.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseActive {
 			t.Fatalf("active endpoint = %#v", lease.Status.ActiveEndpoint)
 		}
@@ -1179,10 +1188,12 @@ func (h *envtestAdapterHealth) Observe(_ context.Context, namespace wayv1.Namesp
 
 type envtestLeaseRuntime struct {
 	now         time.Time
+	reconciles  int
 	withdrawals int
 }
 
 func (r *envtestLeaseRuntime) Reconcile(_ context.Context, _ *wayv1.VPNGateway, intent wayportforward.Intent) (wayportforward.Observation, error) {
+	r.reconciles++
 	return wayportforward.Observation{APIVersion: wayportforward.RuntimeAPIVersion, LeaseUID: intent.LeaseUID, GatewayUID: intent.GatewayUID,
 		HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID, ObservedAt: r.now,
 		Provider:          &wayportforward.ProviderObservation{PublicAddress: netip.MustParseAddr("8.8.8.8"), PublicPort: 42000, ExpiresAt: r.now.Add(time.Minute)},
