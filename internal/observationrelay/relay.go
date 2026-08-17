@@ -11,11 +11,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	"github.com/Amoenus/waycloak/internal/nodeagent"
-	"github.com/Amoenus/waycloak/internal/scheduling"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,9 +25,14 @@ import (
 const MaxObservations = 256
 const ReportPath = "/node-observations/v1/report"
 const kubernetesAudience = "https://kubernetes.default.svc"
+const maxConcurrentObservationWrites = 8
 
 type TokenReviewer interface {
 	Create(context.Context, *authenticationv1.TokenReview, metav1.CreateOptions) (*authenticationv1.TokenReview, error)
+}
+
+type NodePublisher interface {
+	Apply(context.Context, *corev1.Pod, nodeagent.NodeReport) error
 }
 
 type Relay struct {
@@ -36,8 +41,9 @@ type Relay struct {
 	Writer              client.Client
 	AgentNamespace      string
 	AgentServiceAccount string
-	NodePublisher       *scheduling.Publisher
+	NodePublisher       NodePublisher
 	Now                 func() time.Time
+	OperationHook       func(string, time.Duration, error)
 }
 
 func (r *Relay) Handler() http.Handler {
@@ -54,7 +60,9 @@ func (r *Relay) serve(response http.ResponseWriter, request *http.Request) {
 		http.Error(response, "authentication required", http.StatusUnauthorized)
 		return
 	}
+	started := time.Now()
 	agentPod, err := r.authenticate(request.Context(), token)
+	r.observeOperation("authenticate", time.Since(started), err)
 	if err != nil {
 		http.Error(response, "authentication failed", http.StatusUnauthorized)
 		return
@@ -75,17 +83,75 @@ func (r *Relay) serve(response http.ResponseWriter, request *http.Request) {
 		http.Error(response, "node capability publisher unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := r.NodePublisher.Apply(request.Context(), agentPod, report.Node); err != nil {
-		http.Error(response, "node capability rejected", http.StatusForbidden)
+	started = time.Now()
+	err = r.applyReport(request.Context(), agentPod, report)
+	r.observeOperation("transaction", time.Since(started), err)
+	if err != nil {
+		http.Error(response, "observation transaction rejected", http.StatusForbidden)
 		return
 	}
-	for _, observation := range report.Observations {
-		if err := r.apply(request.Context(), agentPod, observation); err != nil {
-			http.Error(response, "observation rejected", http.StatusForbidden)
-			return
+	response.WriteHeader(http.StatusNoContent)
+}
+
+// applyReport keeps acknowledgement synchronous while allowing the independent
+// node-capability and per-binding writes to share one bounded request budget.
+// Any failed or timed-out write rejects the transaction; the reporting agent
+// then locks down every durable attachment before it can advertise recovery.
+func (r *Relay) applyReport(ctx context.Context, agentPod *corev1.Pod, report nodeagent.Report) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	jobs := make(chan nodeagent.Observation)
+	errs := make(chan error, len(report.Observations)+1)
+	var wait sync.WaitGroup
+	run := func(operation string, apply func() error) {
+		defer wait.Done()
+		started := time.Now()
+		err := apply()
+		r.observeOperation(operation, time.Since(started), err)
+		if err != nil {
+			errs <- err
+			cancel()
 		}
 	}
-	response.WriteHeader(http.StatusNoContent)
+
+	wait.Add(1)
+	go run("node_capability", func() error { return r.NodePublisher.Apply(ctx, agentPod, report.Node) })
+	workers := min(maxConcurrentObservationWrites, len(report.Observations))
+	for range workers {
+		wait.Add(1)
+		go run("binding_status", func() error {
+			for observation := range jobs {
+				if err := r.apply(ctx, agentPod, observation); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+sendObservations:
+	for _, observation := range report.Observations {
+		select {
+		case jobs <- observation:
+		case <-ctx.Done():
+			break sendObservations
+		}
+	}
+	close(jobs)
+	wait.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Relay) observeOperation(operation string, elapsed time.Duration, err error) {
+	if r.OperationHook != nil {
+		r.OperationHook(operation, elapsed, err)
+	}
 }
 
 func (r *Relay) authenticate(ctx context.Context, token string) (*corev1.Pod, error) {

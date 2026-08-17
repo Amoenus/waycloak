@@ -216,6 +216,14 @@ func main() {
 			NodePublisher: &scheduling.Publisher{Client: manager.GetClient(),
 				ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
 				ConformanceProfile: wayv1.QualifiedName(conformanceProfile)},
+			OperationHook: func(operation string, elapsed time.Duration, operationErr error) {
+				logger := ctrl.Log.WithName("node-observation-relay").WithValues("operation", operation, "latency", elapsed.Round(time.Millisecond).String())
+				if operationErr != nil {
+					logger.Error(operationErr, "authenticated node observation operation failed")
+				} else if elapsed >= time.Second {
+					logger.Info("authenticated node observation operation was slow")
+				}
+			},
 		}).Handler()
 		certificate := observationrelay.FileCertificate{CertFile: observationCert, KeyFile: observationKey}
 		server := &http.Server{Addr: observationAddress, Handler: relay, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certificate.GetCertificate}}

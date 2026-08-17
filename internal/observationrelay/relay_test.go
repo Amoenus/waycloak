@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,50 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+type coordinatedPublisher struct {
+	started        chan struct{}
+	bindingStarted chan struct{}
+	once           sync.Once
+}
+
+func (p *coordinatedPublisher) Apply(ctx context.Context, _ *corev1.Pod, _ nodeagent.NodeReport) error {
+	p.once.Do(func() { close(p.started) })
+	select {
+	case <-p.bindingStarted:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type coordinatedClient struct {
+	client.Client
+	publisherStarted chan struct{}
+	bindingStarted   chan struct{}
+	once             sync.Once
+}
+
+func (c *coordinatedClient) Status() client.SubResourceWriter {
+	return coordinatedStatusWriter{SubResourceWriter: c.Client.Status(), publisherStarted: c.publisherStarted, bindingStarted: c.bindingStarted, once: &c.once}
+}
+
+type coordinatedStatusWriter struct {
+	client.SubResourceWriter
+	publisherStarted chan struct{}
+	bindingStarted   chan struct{}
+	once             *sync.Once
+}
+
+func (w coordinatedStatusWriter) Patch(ctx context.Context, object client.Object, patch client.Patch, options ...client.SubResourcePatchOption) error {
+	w.once.Do(func() { close(w.bindingStarted) })
+	select {
+	case <-w.publisherStarted:
+		return w.SubResourceWriter.Patch(ctx, object, patch, options...)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 type fakeReviewer struct {
 	status authenticationv1.TokenReviewStatus
@@ -50,6 +95,25 @@ func TestRelayBindsPodTokenToExactNodeAndBinding(t *testing.T) {
 	}
 	if node.Labels[scheduling.CNIReadyLabel] != "true" {
 		t.Fatalf("authenticated node readiness was not published: %#v", node.Labels)
+	}
+}
+
+func TestRelayAppliesIndependentNodeAndBindingWritesConcurrently(t *testing.T) {
+	relay, kube, observation := fixture(t)
+	publisherStarted := make(chan struct{})
+	bindingStarted := make(chan struct{})
+	relay.NodePublisher = &coordinatedPublisher{started: publisherStarted, bindingStarted: bindingStarted}
+	relay.Writer = &coordinatedClient{Client: kube, publisherStarted: publisherStarted, bindingStarted: bindingStarted}
+
+	completed := make(chan *httptest.ResponseRecorder, 1)
+	go func() { completed <- report(t, relay, observation) }()
+	select {
+	case response := <-completed:
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, body %s", response.Code, response.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("node capability and binding status writes did not overlap")
 	}
 }
 
