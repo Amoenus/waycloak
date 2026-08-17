@@ -408,6 +408,9 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Reject stale PortForwardLease status writes across controller handover so
   an already-applied handoff generation cannot be overwritten by an older
   reconcile.
+- [x] Publish only completed gateway DNS observations: retain the last
+  successful result while the next probe is in flight, but immediately
+  withdraw readiness and reinstall deny rules when that probe actually fails.
 - [ ] Complete the minimum 72-hour unchanged-artifact local-cluster soak for
   #116/#141 with qBittorrent as the sole application canary. Record outage
   counts and durations, DNS state, lease renewal/withdrawal/recovery, listener

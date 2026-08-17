@@ -106,6 +106,33 @@ func TestReconcileWithdrawsRulesWhenSplitDNSProbeFails(t *testing.T) {
 	}
 }
 
+func TestReconcileRetainsLastCompletedDNSObservationWhileProbeIsInFlight(t *testing.T) {
+	backend := &recordingBackend{}
+	engine := &recordingEngine{observation: provider.EngineObservation{TunnelReady: true, DNSReady: true}}
+	service := &Service{Config: testConfig(), Backend: backend, Engine: engine, DNSProber: recordingDNSProber{}}
+	if err := service.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	service.DNSProber = blockingDNSProber{started: started, release: release, err: errors.New("external DNS unavailable")}
+	done := make(chan error, 1)
+	go func() { done <- service.Reconcile(context.Background()) }()
+	<-started
+
+	if status := service.HealthStatus(); !status.Ready || !status.TunnelReady || !status.DNSReady {
+		t.Fatalf("in-flight probe replaced the last completed observation: %#v", status)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("completed DNS failure was hidden")
+	}
+	if status := service.HealthStatus(); status.Ready || !status.TunnelReady || status.DNSReady {
+		t.Fatalf("completed DNS failure did not withdraw readiness: %#v", status)
+	}
+}
+
 func TestReconcileErrorReportingOnlyReportsTransitions(t *testing.T) {
 	var reported []string
 	service := &Service{ReconcileErrorHook: func(err error) { reported = append(reported, err.Error()) }}
@@ -157,6 +184,18 @@ type recordingEngine struct {
 type recordingDNSProber struct{ err error }
 
 func (prober recordingDNSProber) Probe(context.Context) error { return prober.err }
+
+type blockingDNSProber struct {
+	started chan<- struct{}
+	release <-chan struct{}
+	err     error
+}
+
+func (prober blockingDNSProber) Probe(context.Context) error {
+	close(prober.started)
+	<-prober.release
+	return prober.err
+}
 
 func (engine *recordingEngine) Observe(context.Context) (provider.EngineObservation, error) {
 	return engine.observation, engine.err
