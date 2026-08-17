@@ -6,11 +6,13 @@ package nodeagent
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -22,6 +24,146 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 func TestObservationPublicationTimeoutFitsFreshnessAndServerBudgets(t *testing.T) {
 	if ObservationPublicationTimeout <= 5*time.Second || ObservationPublicationTimeout >= 10*time.Second {
 		t.Fatalf("observation publication timeout = %s, want >5s and <10s", ObservationPublicationTimeout)
+	}
+}
+
+func TestResolvingObservationDialContextRecoversBeforePublicationDeadline(t *testing.T) {
+	lookups := 0
+	dials := 0
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		lookups++
+		if lookups < 3 {
+			return nil, context.DeadlineExceeded
+		}
+		return []net.IPAddr{{IP: net.ParseIP("192.0.2.1")}}, nil
+	}, func(_ context.Context, _, address string) (net.Conn, error) {
+		dials++
+		if address != "192.0.2.1:9443" {
+			t.Fatalf("resolved dial address = %q", address)
+		}
+		return client, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), ObservationPublicationTimeout)
+	defer cancel()
+	connection, err := dial(ctx, "tcp", "relay.invalid:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection != client || lookups != 3 || dials != 1 {
+		t.Fatalf("connection, lookups, dials = %v, %d, %d; want one dial after 3 lookups", connection, lookups, dials)
+	}
+}
+
+func TestResolvingObservationDialContextHonorsParentDeadline(t *testing.T) {
+	lookups := 0
+	dial := resolvingObservationDialContext(func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+		lookups++
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run after lookup deadline")
+		return nil, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := dial(ctx, "tcp", "relay.invalid:9443")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("dial error = %v, want deadline exceeded", err)
+	}
+	if lookups != 1 || time.Since(started) > 250*time.Millisecond {
+		t.Fatalf("lookups, elapsed = %d, %s; retry escaped parent deadline", lookups, time.Since(started))
+	}
+}
+
+func TestResolvingObservationDialContextDoesNotRetryPermanentNameError(t *testing.T) {
+	lookups := 0
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		lookups++
+		return nil, &net.DNSError{Err: "no such host", Name: "relay.invalid", IsNotFound: true}
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run after permanent name error")
+		return nil, nil
+	})
+	_, err := dial(context.Background(), "tcp", "relay.invalid:9443")
+	if err == nil || lookups != 1 {
+		t.Fatalf("error, lookups = %v, %d; want one permanent lookup failure", err, lookups)
+	}
+}
+
+func TestResolvingObservationDialContextPreservesSingleResolverTrace(t *testing.T) {
+	starts := 0
+	dones := 0
+	dial := resolvingObservationDialContext(func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		trace := httptrace.ContextClientTrace(ctx)
+		trace.DNSStart(httptrace.DNSStartInfo{Host: host})
+		err := &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		trace.DNSDone(httptrace.DNSDoneInfo{Err: err})
+		return nil, err
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run after lookup failure")
+		return nil, nil
+	})
+	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		DNSStart: func(httptrace.DNSStartInfo) { starts++ },
+		DNSDone:  func(httptrace.DNSDoneInfo) { dones++ },
+	})
+	if _, err := dial(ctx, "tcp", "relay.invalid:9443"); err == nil {
+		t.Fatal("want lookup failure")
+	}
+	if starts != 1 || dones != 1 {
+		t.Fatalf("DNS trace starts, dones = %d, %d; want 1, 1", starts, dones)
+	}
+}
+
+func TestResolvingObservationDialContextRejectsEmptyLookup(t *testing.T) {
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, nil
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run without resolved addresses")
+		return nil, nil
+	})
+	if _, err := dial(context.Background(), "tcp", "relay.invalid:9443"); err == nil ||
+		!strings.Contains(err.Error(), "returned no addresses") {
+		t.Fatalf("dial error = %v, want empty-address failure", err)
+	}
+}
+
+func TestResolvingObservationDialContextReportsPreExpiredContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		t.Fatal("lookup must not run with a pre-expired context")
+		return nil, nil
+	}, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dial must not run with a pre-expired context")
+		return nil, nil
+	})
+	if _, err := dial(ctx, "tcp", "relay.invalid:9443"); !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "before first attempt") {
+		t.Fatalf("dial error = %v, want pre-expired context classification", err)
+	}
+}
+
+func TestResolvingObservationDialContextDoesNotRetryConnectionFailure(t *testing.T) {
+	lookups := 0
+	dials := 0
+	dial := resolvingObservationDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		lookups++
+		return []net.IPAddr{{IP: net.ParseIP("192.0.2.1")}}, nil
+	}, func(context.Context, string, string) (net.Conn, error) {
+		dials++
+		return nil, syscall.ECONNREFUSED
+	})
+	_, err := dial(context.Background(), "tcp", "relay.invalid:9443")
+	if !errors.Is(err, syscall.ECONNREFUSED) || lookups != 1 || dials != 1 {
+		t.Fatalf("error, lookups, dials = %v, %d, %d; connection failure was retried", err, lookups, dials)
 	}
 }
 

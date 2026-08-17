@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-18
 
-## RC.21 exact local-cluster graduation epoch
+## RC.21 canonical soak finding and node-observation correction
 
 Signed `v0.1.0-rc.21` was published from exact main commit `49fa709b` after
 pull-request CI run `32066750279`, main CI run `32068220487`, runtime release
@@ -39,9 +39,9 @@ The short-lived diagnostic Pod ran only on the existing qBittorrent node and
 was deleted immediately. Post-start adapter and gateway-runtime logs contain
 zero readiness-probe EOFs, warnings, or errors.
 
-The authoritative minimum 72-hour unchanged-artifact local-cluster epoch began
-at `2026-08-17T22:21:53.7138289Z` and ends no earlier than
-`2026-08-20T22:21:53.7138289Z`. The authoritative collector is the released
+The attempted 72-hour unchanged-artifact local-cluster epoch began at
+`2026-08-17T22:21:53.7138289Z` but was invalidated at
+`2026-08-17T22:24:33Z`. The authoritative collector is the released
 `hack/acceptance/real-provider-soak.ps1`, verified byte-identical between RC.21
 and current main. It samples the functional path every minute, probes external
 TCP every ten samples, continuously watches VPNGateway and DNS transitions, and
@@ -51,15 +51,38 @@ during instrumentation setup rather than claiming a weaker final record.
 
 Supplementary DHT/API samples, continuous lease and binding-transition watches,
 the node-observation heartbeat watch, and the five-minute privacy-checked
-metrics timeline overlap the canonical window and run two minutes beyond its
-deadline. The opening metrics sample contains 57 samples across five bounded
-Waycloak families and zero namespace, workload, node, UID, digest, or endpoint
-canary matches. Opening canonical and supplementary samples retain exact
+metrics timeline overlap the invalidated interval from
+`2026-08-17T22:21:53.7138289Z` through `2026-08-17T22:24:33Z` and continue as
+post-recovery lifecycle evidence. The opening metrics sample contains 57
+samples across five bounded Waycloak families and zero namespace, workload,
+node, UID, digest, or endpoint canary matches. Opening canonical and supplementary samples retain exact
 release/GitOps identity, all readiness states, matching listeners, connected
 DHT, external TCP and DNS, unchanged UIDs, and zero restart increases. The
 endpoint-redacted UDP packet capture above was repeated after this authoritative
-start. End-of-epoch packet evidence and a complete evidence audit are still
-mandatory; this start does not graduate the release.
+start.
+
+Continuous evidence then caught a node-agent observation POST spending its
+entire nine-second transaction budget in DNS lookup for the controller Service.
+The same agent and node boot identity recovered 1.059 seconds later. Binding
+conditions became `Programmed=False/Pending` and `Ready`/`NodeReady` Unknown
+under `ObservationUnavailable`, then recovered in approximately 97 ms after the
+first non-True API event. The lease correctly drained for approximately 1.63
+seconds and advanced handoff generation 210 to 211. The qBittorrent adapter
+rejected the first replacement delivery when its listener was unavailable, and
+one subsequent API sample reported not connected before recovery with DHT
+active, the same Pod UID, and zero restarts. Gateway `Ready`, `TunnelReady`, and
+`DNSReady` did not transition. This is fail-closed lifecycle evidence, not a
+clean graduation interval, and #116 is reopened.
+
+The focused correction retries only transient DNS resolution in one-second
+attempts inside the unchanged nine-second publication context. Permanent name
+errors and TCP connection failures still return immediately. It never replays a
+POST that reached request writing and does not add readiness hysteresis, extend
+observation freshness, or delay the existing lockdown deadline. A deterministic
+evidence auditor now rejects non-True continuous
+conditions, handoff or identity changes, listener/DHT failures, privacy drift,
+and incomplete duration. A successor signed release, exact GitOps transition,
+and fresh canonical 72-hour epoch are mandatory before graduation.
 
 RC.20 contributed useful lifecycle evidence before it was superseded: 125
 functional samples over 2.102 hours all passed, including 13 external TCP

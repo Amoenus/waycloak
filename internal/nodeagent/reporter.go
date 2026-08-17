@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"os"
@@ -20,7 +21,11 @@ import (
 	"time"
 )
 
-const ObservationPublicationTimeout = 9 * time.Second
+const (
+	ObservationPublicationTimeout = 9 * time.Second
+	observationDialAttemptTimeout = time.Second
+	observationDialRetryDelay     = 100 * time.Millisecond
+)
 
 type Reporter struct {
 	URL       string
@@ -97,5 +102,87 @@ func (r Reporter) client() (*http.Client, error) {
 	if !roots.AppendCertsFromPEM(ca) {
 		return nil, errors.New("observation relay CA contains no certificate")
 	}
-	return &http.Client{Timeout: ObservationPublicationTimeout, Transport: &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots}, DisableKeepAlives: true}}, nil
+	dialer := &net.Dialer{}
+	return &http.Client{Timeout: ObservationPublicationTimeout, Transport: &http.Transport{
+		Proxy:             nil,
+		DialContext:       resolvingObservationDialContext(net.DefaultResolver.LookupIPAddr, dialer.DialContext),
+		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots},
+		DisableKeepAlives: true,
+	}}, nil
+}
+
+type observationDialAttempt func(context.Context, string, string) (net.Conn, error)
+type observationLookupAttempt func(context.Context, string) ([]net.IPAddr, error)
+
+// resolvingObservationDialContext retries only transient DNS resolution. A
+// permanent name error or TCP connection failure returns immediately, and a
+// POST that reached request writing is never replayed. Every lookup remains
+// bounded by the existing publication context, so genuine DNS loss withdraws
+// node authority at the same fail-closed deadline.
+func resolvingObservationDialContext(lookup observationLookupAttempt, dial observationDialAttempt) observationDialAttempt {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("parse observation relay address: %w", err)
+		}
+		if net.ParseIP(host) != nil {
+			return dial(ctx, network, address)
+		}
+
+		attempts := 0
+		var lastErr error
+		for {
+			if err := ctx.Err(); err != nil {
+				if lastErr == nil {
+					return nil, fmt.Errorf("resolve observation relay before first attempt: %w", err)
+				}
+				return nil, fmt.Errorf("resolve observation relay after %d attempts: %w", attempts, lastErr)
+			}
+
+			attempts++
+			attemptCtx, cancel := context.WithTimeout(ctx, observationDialAttemptTimeout)
+			addresses, err := lookup(attemptCtx, host)
+			cancel()
+			if err == nil {
+				if len(addresses) == 0 {
+					return nil, errors.New("observation relay DNS lookup returned no addresses")
+				}
+				var dialErr error
+				for _, resolved := range addresses {
+					connection, currentErr := dial(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
+					if currentErr == nil {
+						return connection, nil
+					}
+					dialErr = currentErr
+					if ctx.Err() != nil {
+						break
+					}
+				}
+				return nil, fmt.Errorf("connect observation relay after DNS resolution: %w", dialErr)
+			}
+			lastErr = err
+			if !retryableObservationLookupError(ctx, err) {
+				return nil, fmt.Errorf("resolve observation relay after %d attempts: %w", attempts, err)
+			}
+
+			timer := time.NewTimer(observationDialRetryDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, fmt.Errorf("resolve observation relay after %d attempts: %w", attempts, lastErr)
+			case <-timer.C:
+			}
+		}
+	}
+}
+
+func retryableObservationLookupError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && (dnsErr.IsTimeout || dnsErr.IsTemporary)
 }
