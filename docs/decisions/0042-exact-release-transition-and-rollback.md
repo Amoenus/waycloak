@@ -205,8 +205,9 @@ install/certificate operation is refused while the installed deny path remains.
 - Exact class-withdrawn and post-staging CLI interruptions are resumable without
   repeating completed mutations. One journal-bound pending/corrupt Helm
   revision has a separate confirmation-bound repair transaction.
-- Observation certificate rotation is explicit and restart-safe; distribution
-  datastore snapshots remain an additional issue #32 certification row.
+- Observation certificate rotation is explicit and restart-safe. The declared
+  single-server K3s datastore-snapshot row completes issue #32; additional
+  distributions or datastore topologies are separate support expansion.
 
 ## Alternatives rejected
 

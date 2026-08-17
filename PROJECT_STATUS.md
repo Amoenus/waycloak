@@ -2,6 +2,22 @@
 
 Last updated: 2026-08-17
 
+## Declared recovery lifecycle certification
+
+Issue #32's five lifecycle requirements are complete for the published support
+boundary. Portable create-only backup/restore, exact forward and rollback
+transactions, interrupted-transition recovery, observation-trust rotation,
+bounded corrupt-Helm repair, and the cold single-server K3s embedded-etcd row
+all run in the exact release gates. RC.11 CI run `31996762388` repeated the
+hosted K3s recovery row alongside the release lifecycle and packet suites.
+
+The supported datastore row remains deliberately limited to the documented
+K3s topology. Repeating a destructive datastore restore against the homelab or
+adding an otherwise unnecessary cluster node is not a Waycloak product gate.
+Additional K3s topologies, distributions, external datastores, and operator
+environments require their own future support rows and do not inherit this
+evidence.
+
 ## v0.1.0-rc.11 exact inbound forwarding candidate
 
 RC.10 made the qBittorrent listener and DHT path operational, then an
@@ -818,9 +834,10 @@ recovery, fresh sandbox identity, stale `Ready`/`NodeReady` withdrawal, durable
 host deny state, restarted node authority, unchanged TCP/UDP/DNS/fragment
 counters, no application startup after failed `ADD`, idempotent cleanup, and a
 second primary-CNI positive control. This evidence does not generalize to
-SQLite, external/multi-server datastores, S3, or another distribution. #32
-remains open until the authorized homelab exact-artifact snapshot drill passes
-after cutover.
+SQLite, external/multi-server datastores, S3, or another distribution. Those
+are explicit future support expansions; they do not require a destructive
+restore of the homelab or an additional cluster node to certify the declared
+single-server K3s row.
 
 Issue #33 implementation and acceptance are complete on PR #180's exact commit
 `9f586011a037a361a9b26ae6445696f7d7f81523`. The replacement controller has a

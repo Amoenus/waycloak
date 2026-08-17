@@ -1,8 +1,8 @@
 # Backup, restore, and disaster recovery
 
-Status: portable exact-release recovery and the hosted K3s embedded-etcd row
-are implemented; the authorized exact-artifact homelab drill remains open in
-issue #32
+Status: certified for portable exact-release recovery and the declared hosted
+K3s single-server embedded-etcd row. Other datastore topologies require their
+own support rows.
 
 Waycloak never relaxes fail-closed egress to accelerate recovery. Keep enrolled
 workloads stopped until newly restored intent has acquired new runtime identity
@@ -31,6 +31,14 @@ The first distribution-native row is deliberately narrow:
 This row does not cover SQLite, an external datastore, multiple servers, S3
 snapshot transport, or a different Kubernetes distribution. Those are separate
 support rows and must not inherit this evidence.
+
+Certification does not require repeating a destructive datastore restore on a
+healthy application cluster or provisioning a second cluster node. The hosted
+row exercises the exact distribution binary, CNI/runtime boundary, coherent
+Kubernetes identities, cold restore procedure, and packet assertions. An
+operator may run the same procedure on a disposable target for environment
+qualification, but that is deployment-specific evidence rather than a hidden
+Waycloak release prerequisite.
 
 Use the distribution-native `k3s etcd-snapshot save` command. Retain the
 snapshot and server token in a root-only encrypted backup boundary. A K3s
