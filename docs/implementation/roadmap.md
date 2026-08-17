@@ -131,9 +131,12 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   derives the expected capability set from those two live selectors, requires
   them to agree, reports other architecture rows as `NotSelected`, and still
   fails for any selected node without a current authenticated capability.
-- [ ] #139: exact read-only inventory and confirmation-gated CR/CRD purge are
-  implemented; keep open until repeated real-alpha and clean-reinstall drills
-  capture zero direct packets and fresh state reacquisition.
+- [x] #139: exact read-only inventory and confirmation-gated CR/CRD purge pass
+  the repeated disposable Kind purge-to-fresh-install sequence. The authorized
+  homelab alpha drill independently proved runtime quiescence, separate
+  uninstall/purge, clean signed replacement, zero fallback, and fresh state
+  reacquisition. Its 301-second uninstall is a documented bounded maintenance
+  limitation, not a reason to repeat destructive production work.
 - [ ] #140: `v0.0.0-core.7` passed exact publication and independent hosted
   verification; Core.8 through Core.10 also passed their exact publication and
   registry-native verification gates. The live clean-break amd64 row reached

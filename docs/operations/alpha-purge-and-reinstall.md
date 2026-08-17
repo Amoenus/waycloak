@@ -1,6 +1,7 @@
 # Destructive alpha purge and clean replacement reinstall
 
-Status: executable procedure and first real-cluster drill complete; repeatability evidence pending
+Status: certified by the repeated disposable-cluster sequence and one
+authorized real-cluster clean-break drill
 Last updated: 2026-08-13
 
 This is a one-way maintenance procedure, not migration. Do not translate,
@@ -119,9 +120,11 @@ allocation, lease, provider mapping, or runtime observation.
 
 Gateway-loss checks after reinstall recorded ten denied protected probes and
 zero ordinary-egress matches before recovery through replacement VPN egress.
-The disposable Kind purge-to-fresh-install drill remains the independent
-repeatability row. The homelab runtime uninstall took 301 seconds, so issue
-[#139](https://github.com/Amoenus/waycloak/issues/139) remains open until that
-bounded delay is explained and the evidence is accepted as a repeatable
-exact-artifact certification record; do not generalize one destructive success
-into a routine migration.
+The disposable Kind purge-to-fresh-install sequence is the independent
+repeatability row and runs whenever the full CI path is selected. The homelab
+runtime uninstall took 301 seconds. Treat that as a bounded maintenance-window
+limitation: keep protected workloads quiesced and do not proceed to purge until
+normal uninstall is observed complete. It did not combine uninstall with purge,
+leave an application process, import alpha state, or permit ordinary fallback.
+The result is not generalized into a routine migration; this remains a
+deliberate clean break.

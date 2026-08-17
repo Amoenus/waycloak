@@ -35,6 +35,23 @@ separate gates preserves both claims without making a new infrastructure node
 a product dependency. Neither gate may substitute a fixture for the behavior
 it owns.
 
+## Clean-break purge certification
+
+Issue #139 is complete. The disposable Kind drill repeatedly exercises exact
+metadata-only inventory, refusal on live Pods/finalizers/target drift,
+UID-preconditioned partial deletion, idempotent completion, disappearance of
+alpha discovery, and fresh replacement installation before the privileged
+no-direct-packet suites run on that same purged cluster. The authorized
+homelab drill independently stopped the only protected workload and its
+runtime process, uninstalled alpha, separately purged its CRs and CRDs, and
+re-authored the signed replacement from GitOps with fresh Pod, binding,
+allocation, gateway, and provider state.
+
+The observed 301-second normal alpha uninstall is retained as a known bounded
+maintenance-window limitation. It did not leave a protected process, import
+state, combine uninstall with destructive purge, or permit ordinary fallback,
+and therefore does not justify another destructive production drill.
+
 ## v0.1.0-rc.11 exact inbound forwarding candidate
 
 RC.10 made the qBittorrent listener and DHT path operational, then an
@@ -262,8 +279,9 @@ signed beta from a confirmation-bound clean-install plan. The install apply
 completed in 20.3 seconds, then GitOps re-authored the new class, gateway,
 route, and workload from scratch. No alpha object, allocation, lease, runtime
 state, annotation, or compatibility path was imported. Normal uninstall took
-301 seconds and remains lifecycle evidence to investigate; destructive purge
-was still a separate, explicitly enumerated operation.
+301 seconds; that bounded maintenance-window limitation is retained in the
+runbook, while destructive purge remains a separate, explicitly enumerated
+operation.
 
 qBittorrent is the sole active workload canary. Its replacement Pod has one
 application container, no Waycloak init or sidecar, no added capability, no
@@ -993,7 +1011,7 @@ The direct reader uses a separately projected Kubernetes API token with the API
 server's default audience; the audience-bound observation token remains isolated
 and cannot be substituted for Kubernetes API access.
 
-Issue #139 implementation is in progress. The teardown assistant now creates a
+Issue #139 implementation is complete. The teardown assistant creates a
 strictly metadata-only alpha inventory with hashed API-server, trust-root, and
 cluster-UID identity, canonical target digests, protected built-in workload
 owners, and exact Pod UIDs. Destructive apply requires the exact plan ID plus
@@ -1002,9 +1020,10 @@ target identity, refuses additions/UID reuse/protected Pods/finalizers, and uses
 UID-preconditioned CR-before-CRD deletion with idempotent partial retry. The
 homelab read-only plan observed four alpha CRDs, seven CRs, 27 protected owners,
 and four protected Pods without exposing names, object contents, credentials,
-or endpoints. No homelab mutation occurred. #139 remains open until real-alpha
-quiescence/purge and clean replacement reinstall drills capture zero direct
-packets and fresh allocation/provider state.
+or endpoints. The later authorized homelab drill completed real-alpha
+quiescence, separate uninstall/purge, clean replacement reinstall, zero-fallback
+checks, and fresh allocation/provider state; the disposable Kind sequence keeps
+the destructive behavior repeatable without another production purge.
 
 ## Alpha as-built history
 
