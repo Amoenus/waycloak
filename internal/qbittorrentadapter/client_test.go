@@ -66,6 +66,69 @@ func TestClientAppliesObservesProbesAndReannouncesExactPod(t *testing.T) {
 	}
 }
 
+func TestClientAcceptsNoContentOnlyAfterProtectedAuthenticationProof(t *testing.T) {
+	listenPort := uint16(6881)
+	preferenceReads := 0
+	mutations := 0
+	client := &Client{Port: 8443, ServerName: "qbittorrent.apps.test", Username: "user", Password: "password",
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			switch request.URL.Path {
+			case "/api/v2/auth/login":
+				return statusResponse(http.StatusNoContent, "", "SID_8443=session"), nil
+			case "/api/v2/app/preferences":
+				preferenceReads++
+				if !strings.Contains(request.Header.Get("Cookie"), "SID_8443=session") {
+					return statusResponse(http.StatusUnauthorized, "", ""), nil
+				}
+				return jsonResponse(map[string]any{"listen_port": listenPort, "random_port": false, "upnp": false}), nil
+			case "/api/v2/app/setPreferences":
+				mutations++
+				var preferences struct {
+					ListenPort uint16 `json:"listen_port"`
+				}
+				if err := json.Unmarshal([]byte(parseForm(t, request).Get("json")), &preferences); err != nil {
+					t.Fatal(err)
+				}
+				listenPort = preferences.ListenPort
+				return statusResponse(http.StatusNoContent, "", ""), nil
+			default:
+				t.Fatalf("unexpected qBittorrent request %s", request.URL.Path)
+				return nil, nil
+			}
+		}), Probe: func(context.Context, netip.AddrPort) error { return nil }}
+
+	if err := client.Configure(context.Background(), netip.MustParseAddr("10.42.0.10"), 42000, false); err != nil {
+		t.Fatal(err)
+	}
+	if preferenceReads != 2 || mutations != 1 || listenPort != 42000 {
+		t.Fatalf("qBittorrent reads=%d mutations=%d port=%d", preferenceReads, mutations, listenPort)
+	}
+}
+
+func TestClientDoesNotMutateWhenNoContentLoginIsNotAuthorized(t *testing.T) {
+	mutations := 0
+	client := &Client{Port: 8443, ServerName: "qbittorrent.apps.test", Username: "user", Password: "password",
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			switch request.URL.Path {
+			case "/api/v2/auth/login":
+				return statusResponse(http.StatusNoContent, "", ""), nil
+			case "/api/v2/app/preferences":
+				return statusResponse(http.StatusUnauthorized, "", ""), nil
+			case "/api/v2/app/setPreferences":
+				mutations++
+				return statusResponse(http.StatusNoContent, "", ""), nil
+			default:
+				t.Fatalf("unexpected qBittorrent request %s", request.URL.Path)
+				return nil, nil
+			}
+		})}
+
+	err := client.Configure(context.Background(), netip.MustParseAddr("10.42.0.10"), 42000, false)
+	if err == nil || !strings.Contains(err.Error(), "verify qBittorrent authentication") || mutations != 0 {
+		t.Fatalf("Configure() error=%v mutations=%d", err, mutations)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
@@ -84,11 +147,15 @@ func parseForm(t *testing.T, request *http.Request) url.Values {
 }
 
 func textResponse(body, cookie string) *http.Response {
+	return statusResponse(http.StatusOK, body, cookie)
+}
+
+func statusResponse(status int, body, cookie string) *http.Response {
 	header := http.Header{"Content-Type": []string{"text/plain"}, "Content-Length": []string{strconv.Itoa(len(body))}}
 	if cookie != "" {
 		header.Set("Set-Cookie", cookie+"; Path=/; HttpOnly")
 	}
-	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(body))}
+	return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}
 }
 
 func jsonResponse(value any) *http.Response {

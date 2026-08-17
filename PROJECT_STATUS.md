@@ -2,6 +2,23 @@
 
 Last updated: 2026-08-17
 
+## v0.1.0-rc.10 qBittorrent 5.2 WebAPI candidate
+
+The RC.9 homelab deployment established the complete gateway-to-adapter
+network path, including fully qualified Service DNS, cluster-CIDR bypass, and
+mTLS. It then exposed an application-contract incompatibility: qBittorrent
+5.2 returns HTTP 204 for successful WebAPI operations with no response body,
+while the reference adapter accepted only the older HTTP 200 response shape.
+
+RC.10 accepts the documented no-content response for login and mutation
+operations, but does not treat that status as authorization. Before changing
+the listener it must successfully read the protected preferences endpoint;
+after mutation it still requires exact preference observation and a live TCP
+listener probe before acknowledging the lease. The live canary must now prove
+the provider mapping, TCP and UDP gateway rules, lease acknowledgement,
+matching qBittorrent listener, renewal, DHT/peer operation, fail-closed
+withdrawal, and recovery.
+
 ## v0.1.0-rc.9 gateway adapter DNS candidate
 
 RC.8 recovered the original absent-state withdrawal conflict, then its live

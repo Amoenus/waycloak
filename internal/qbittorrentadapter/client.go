@@ -68,8 +68,14 @@ func (c *Client) Configure(ctx context.Context, address netip.Addr, port uint16,
 	}
 	httpClient := &http.Client{Transport: c.Transport, Jar: jar, Timeout: 10 * time.Second}
 	origin := &url.URL{Scheme: "https", Host: net.JoinHostPort(address.String(), strconv.Itoa(int(c.Port)))}
-	if err := c.postForm(ctx, httpClient, origin, "/api/v2/auth/login", url.Values{"username": {c.Username}, "password": {c.Password}}, "Ok."); err != nil {
+	if err := c.authenticate(ctx, httpClient, origin); err != nil {
 		return fmt.Errorf("authenticate qBittorrent: %w", err)
+	}
+	// A successful login response is not sufficient proof of authorization:
+	// qBittorrent 5.2 may return 204 for a response without content. Require a
+	// protected read before changing any application state.
+	if _, err := c.preferences(ctx, httpClient, origin); err != nil {
+		return fmt.Errorf("verify qBittorrent authentication: %w", err)
 	}
 	preferences := map[string]any{"listen_port": port, "random_port": false, "upnp": false}
 	preferenceJSON, err := json.Marshal(preferences)
@@ -97,6 +103,40 @@ func (c *Client) Configure(ctx context.Context, address netip.Addr, port uint16,
 		if err := c.postForm(ctx, httpClient, origin, "/api/v2/torrents/reannounce", url.Values{"hashes": {"all"}}, ""); err != nil {
 			return fmt.Errorf("reannounce qBittorrent torrents: %w", err)
 		}
+	}
+	return nil
+}
+
+func (c *Client) authenticate(ctx context.Context, httpClient *http.Client, origin *url.URL) error {
+	requestURL := *origin
+	requestURL.Path = "/api/v2/auth/login"
+	values := url.Values{"username": {c.Username}, "password": {c.Password}}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), strings.NewReader(values.Encode()))
+	if err != nil {
+		return err
+	}
+	request.Host = c.ServerName
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	body, err := boundedBody(response.Body)
+	if err != nil {
+		return err
+	}
+	switch response.StatusCode {
+	case http.StatusOK:
+		if strings.TrimSpace(string(body)) != "Ok." {
+			return errors.New("qBittorrent login response is invalid")
+		}
+	case http.StatusNoContent:
+		if len(body) != 0 {
+			return errors.New("qBittorrent no-content login response is invalid")
+		}
+	default:
+		return fmt.Errorf("qBittorrent login returned status %d", response.StatusCode)
 	}
 	return nil
 }
@@ -153,8 +193,14 @@ func (c *Client) postForm(ctx context.Context, httpClient *http.Client, origin *
 	if err != nil {
 		return err
 	}
-	if response.StatusCode != http.StatusOK || wantBody != "" && strings.TrimSpace(string(body)) != wantBody {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("qBittorrent request returned status %d", response.StatusCode)
+	}
+	if response.StatusCode == http.StatusNoContent && len(body) != 0 {
+		return errors.New("qBittorrent no-content response is invalid")
+	}
+	if wantBody != "" && strings.TrimSpace(string(body)) != wantBody {
+		return errors.New("qBittorrent response body is invalid")
 	}
 	return nil
 }
