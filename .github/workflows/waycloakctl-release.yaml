@@ -65,19 +65,17 @@ jobs:
             dist/waycloakctl/waycloakctl-SHA256SUMS
             dist/waycloakctl/waycloakctl.spdx.json
       - name: Publish immutable release assets
-        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
-        with:
-          tag_name: ${{ github.ref_name }}
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: |
-            dist/waycloakctl/waycloakctl-darwin-*
-            dist/waycloakctl/waycloakctl-linux-*
-            dist/waycloakctl/waycloakctl-windows-*
-            dist/waycloakctl/waycloakctl-SHA256SUMS
-            dist/waycloakctl/waycloakctl-SHA256SUMS.sigstore.json
-            dist/waycloakctl/waycloakctl.spdx.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          bash hack/publish-release-assets.sh "$RELEASE_TAG" \
+            dist/waycloakctl/waycloakctl-darwin-* \
+            dist/waycloakctl/waycloakctl-linux-* \
+            dist/waycloakctl/waycloakctl-windows-* \
+            dist/waycloakctl/waycloakctl-SHA256SUMS \
+            dist/waycloakctl/waycloakctl-SHA256SUMS.sigstore.json \
+            dist/waycloakctl/waycloakctl.spdx.json \
             dist/waycloakctl/waycloakctl.spdx.sigstore.json
 
   verify-published-assets:
