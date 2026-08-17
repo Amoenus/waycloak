@@ -55,9 +55,9 @@ func (service *Service) Reconcile(ctx context.Context) error {
 	}
 	observation, err := service.Engine.Observe(ctx)
 	service.tunnelReady.Store(err == nil && observation.TunnelReady)
-	service.dnsReady.Store(false)
 	if err != nil || !observation.TunnelReady || !observation.DNSReady {
 		service.healthy.Store(false)
+		service.dnsReady.Store(false)
 		rulesErr := service.Backend.ReplaceRules(ctx, service.Config, false)
 		if err == nil {
 			err = errors.New("gateway engine tunnel or DNS is not ready")
@@ -74,6 +74,7 @@ func (service *Service) Reconcile(ctx context.Context) error {
 	}
 	if err := service.DNSProber.Probe(ctx); err != nil {
 		service.healthy.Store(false)
+		service.dnsReady.Store(false)
 		rulesErr := service.Backend.ReplaceRules(ctx, service.Config, false)
 		return errors.Join(fmt.Errorf("gateway split-DNS observation failed: %w", err), rulesErr)
 	}

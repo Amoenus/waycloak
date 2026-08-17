@@ -2,6 +2,38 @@
 
 Last updated: 2026-08-17
 
+## RC.15 live DNS-readiness finding and RC.16 observation correction
+
+Signed `v0.1.0-rc.15` was published from commit `1eb78eb0` after main CI run
+`32023194452`, CLI release run `32024532561`, and runtime release run
+`32024532669` passed. Its canonical manifest identity is
+`sha256:f5e85c0afb96d264983c481cf7cc08abf93a217162411c83bb1597ee38244da1`.
+Homelab `master` commit `f7c03d2d` deployed the exact release through install
+plan `sha256:455b3562ccc8a14f81aacadaa703e44f2ed49d0b5b0d06f5e91f68b8b13a5361`.
+The root, Waycloak, and qBittorrent applications became Synced and Healthy,
+qBittorrent retained its Pod and lease identities with zero restarts, and
+Bitmagnet remained at zero.
+
+A ten-minute pre-soak stabilization window then caught one VPNGateway
+Ready/DNSReady withdrawal and recovery even though the gateway agent emitted
+no completed DNS-probe failure. The lease advanced from handoff generation 56
+to 57 and then 59 as the fail-closed controller reacted. All ten independent
+external TCP checks succeeded, qBittorrent's TCP and UDP listeners were present
+in every healthy sample, and its Pod identity and restart count stayed fixed,
+but the window is lifecycle evidence only and the 72-hour clock did not start.
+
+The cause is an observation race in the gateway agent: every one-second
+reconcile published `DNSReady=false` before its five end-to-end probes
+completed. A concurrent controller health read could observe that in-flight
+value even when the probe set ultimately succeeded. RC.16 retains the last
+completed successful DNS observation while a successor probe is in flight and
+still publishes false, installs deny rules, and returns an error immediately
+when a completed engine or split-DNS observation fails. This is completed-
+observation semantics, not permissive hysteresis. The exact RC.15 stabilization
+record remains useful evidence of fail-closed withdrawal, fixed application
+identity, live TCP reachability, and the defect's recovery, but cannot count as
+graduation soak credit.
+
 ## RC.14 live upgrade finding and RC.15 lease-status correction
 
 Signed `v0.1.0-rc.14` was published from commit `d9a802d3` after main CI run
