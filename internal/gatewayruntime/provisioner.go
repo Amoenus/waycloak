@@ -9,13 +9,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
@@ -31,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -39,7 +43,49 @@ const (
 	releaseManifestDigestAnnotation = "runtime.networking.waycloak.io/release-manifest-digest"
 	controlAuthConfigPath           = "/etc/waycloak/gluetun-control-auth.toml"
 	portForwardTLSMountPath         = "/var/run/secrets/waycloak-port-forward-runtime"
+	healthObservationAttempts       = 2
+	healthObservationAttemptTimeout = 2 * time.Second
+	healthObservationRetryDelay     = 25 * time.Millisecond
 )
+
+var defaultHealthHTTPClient = func() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &http.Client{Timeout: healthObservationAttemptTimeout, Transport: transport}
+}()
+
+type HealthObservationEvent struct {
+	State          string
+	Phase          string
+	Class          string
+	Attempts       int
+	Latency        time.Duration
+	UnavailableFor time.Duration
+}
+
+type healthObservationFailure struct {
+	phase   string
+	class   string
+	started time.Time
+}
+
+type healthObservationResult struct {
+	attempts         int
+	latency          time.Duration
+	lastFailurePhase string
+	lastFailureClass string
+}
+
+type healthObservationError struct {
+	phase    string
+	class    string
+	attempts int
+	latency  time.Duration
+}
+
+func (failure healthObservationError) Error() string {
+	return fmt.Sprintf("gateway health observation failed phase=%s class=%s attempts=%d latency=%s", failure.phase, failure.class, failure.attempts, failure.latency.Round(time.Millisecond))
+}
 
 type Provisioner struct {
 	Client                  client.Client
@@ -59,6 +105,9 @@ type Provisioner struct {
 	ClusterDNSUpstream      netip.AddrPort
 	ClusterDomain           string
 	HTTPClient              *http.Client
+	HealthObservationHook   func(HealthObservationEvent)
+	healthObservationMu     sync.Mutex
+	healthFailures          map[string]healthObservationFailure
 }
 
 func (provisioner *Provisioner) Reconcile(ctx context.Context, gateway *wayv1.VPNGateway) (waycontroller.GatewayRuntimeObservation, error) {
@@ -124,28 +173,12 @@ func (provisioner *Provisioner) Reconcile(ctx context.Context, gateway *wayv1.VP
 		return observation, nil
 	}
 	observation.Addresses = provisioner.addresses(netip.AddrPortFrom(endpoint, provisioner.VXLANPort).String())
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+netip.AddrPortFrom(endpoint, provisioner.HealthPort).String()+"/v1/status", nil)
-	if err != nil {
-		return observation, err
-	}
-	response, err := provisioner.httpClient().Do(request)
-	if err != nil {
+	health, healthResult, healthErr := provisioner.observeHealth(ctx, "http://"+netip.AddrPortFrom(endpoint, provisioner.HealthPort).String()+"/v1/status")
+	if healthErr != nil {
+		provisioner.reportHealthObservationFailure(ctx, gateway, healthErr)
 		return observation, nil
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return observation, nil
-	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 1025))
-	decoder.DisallowUnknownFields()
-	var health gatewaydataplane.HealthStatus
-	if err := decoder.Decode(&health); err != nil {
-		return observation, nil
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return observation, nil
-	}
+	provisioner.reportHealthObservationRecovery(ctx, gateway, healthResult)
 	observation.Ready = health.Ready
 	observation.TunnelReady = health.TunnelReady
 	observation.DNSReady = health.DNSReady
@@ -380,8 +413,163 @@ func (provisioner *Provisioner) httpClient() *http.Client {
 	if provisioner.HTTPClient != nil {
 		return provisioner.HTTPClient
 	}
-	return &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	return defaultHealthHTTPClient
 }
+
+func (provisioner *Provisioner) observeHealth(ctx context.Context, address string) (gatewaydataplane.HealthStatus, healthObservationResult, error) {
+	started := time.Now()
+	result := healthObservationResult{}
+	for attempt := 1; attempt <= healthObservationAttempts; attempt++ {
+		result.attempts = attempt
+		attemptCtx, cancel := context.WithTimeout(ctx, healthObservationAttemptTimeout)
+		request, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, address, nil)
+		if err != nil {
+			cancel()
+			result.lastFailurePhase, result.lastFailureClass = "request_build", healthObservationErrorClass(err)
+		} else {
+			response, requestErr := provisioner.httpClient().Do(request)
+			if requestErr != nil {
+				result.lastFailurePhase, result.lastFailureClass = "exchange", healthObservationErrorClass(requestErr)
+				cancel()
+			} else {
+				health, phase, class := decodeHealthResponse(response)
+				cancel()
+				if phase == "" {
+					result.latency = time.Since(started)
+					return health, result, nil
+				}
+				result.lastFailurePhase, result.lastFailureClass = phase, class
+			}
+		}
+		if attempt < healthObservationAttempts && retryableHealthObservationFailure(result.lastFailurePhase, result.lastFailureClass) && waitForHealthRetry(ctx) {
+			continue
+		}
+		break
+	}
+	result.latency = time.Since(started)
+	failure := healthObservationError{phase: result.lastFailurePhase, class: result.lastFailureClass, attempts: result.attempts, latency: result.latency}
+	return gatewaydataplane.HealthStatus{}, result, failure
+}
+
+func decodeHealthResponse(response *http.Response) (gatewaydataplane.HealthStatus, string, string) {
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return gatewaydataplane.HealthStatus{}, "status", "http_" + strconv.Itoa(response.StatusCode)
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 1025))
+	decoder.DisallowUnknownFields()
+	var health gatewaydataplane.HealthStatus
+	if err := decoder.Decode(&health); err != nil {
+		return gatewaydataplane.HealthStatus{}, "response_decode", healthObservationErrorClass(err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return gatewaydataplane.HealthStatus{}, "response_validation", healthObservationErrorClass(err)
+	}
+	return health, "", ""
+}
+
+func waitForHealthRetry(ctx context.Context) bool {
+	timer := time.NewTimer(healthObservationRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func retryableHealthObservationFailure(phase, class string) bool {
+	return phase == "exchange" && (class == "eof" || class == "unexpected_eof" || class == "connection_reset" || class == "closed_idle_connection")
+}
+
+func healthObservationErrorClass(err error) string {
+	if err == nil {
+		return "invalid_response"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return "unexpected_eof"
+	}
+	if errors.Is(err, io.EOF) {
+		return "eof"
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "connection reset") {
+		return "connection_reset"
+	}
+	if strings.Contains(message, "closed idle connection") {
+		return "closed_idle_connection"
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		if networkError.Timeout() {
+			return "timeout"
+		}
+		return "network"
+	}
+	var syntaxError *json.SyntaxError
+	if errors.As(err, &syntaxError) {
+		return "invalid_json"
+	}
+	return "invalid_response"
+}
+
+func (provisioner *Provisioner) reportHealthObservationFailure(ctx context.Context, gateway *wayv1.VPNGateway, err error) {
+	failure, ok := err.(healthObservationError)
+	if !ok {
+		failure = healthObservationError{phase: "unknown", class: "unknown", attempts: 1}
+	}
+	now := time.Now()
+	provisioner.healthObservationMu.Lock()
+	if provisioner.healthFailures == nil {
+		provisioner.healthFailures = map[string]healthObservationFailure{}
+	}
+	previous, exists := provisioner.healthFailures[string(gateway.UID)]
+	changed := !exists || previous.phase != failure.phase || previous.class != failure.class
+	if !exists {
+		previous.started = now
+	}
+	previous.phase, previous.class = failure.phase, failure.class
+	provisioner.healthFailures[string(gateway.UID)] = previous
+	provisioner.healthObservationMu.Unlock()
+	if !changed {
+		return
+	}
+	event := HealthObservationEvent{State: "not_ready", Phase: failure.phase, Class: failure.class, Attempts: failure.attempts, Latency: failure.latency}
+	ctrllog.FromContext(ctx).Info("gateway_health_observation_transition", "gateway_namespace", gateway.Namespace, "gateway_name", gateway.Name, "state", event.State, "phase", event.Phase, "class", event.Class, "attempts", event.Attempts, "latency", event.Latency.Round(time.Millisecond))
+	provisioner.emitHealthObservation(event)
+}
+
+func (provisioner *Provisioner) reportHealthObservationRecovery(ctx context.Context, gateway *wayv1.VPNGateway, result healthObservationResult) {
+	provisioner.healthObservationMu.Lock()
+	previous, existed := provisioner.healthFailures[string(gateway.UID)]
+	if existed {
+		delete(provisioner.healthFailures, string(gateway.UID))
+	}
+	provisioner.healthObservationMu.Unlock()
+	if existed {
+		event := HealthObservationEvent{State: "ready", Phase: previous.phase, Class: previous.class, Attempts: result.attempts, Latency: result.latency, UnavailableFor: time.Since(previous.started)}
+		ctrllog.FromContext(ctx).Info("gateway_health_observation_transition", "gateway_namespace", gateway.Namespace, "gateway_name", gateway.Name, "state", event.State, "recovered", true, "previous_phase", event.Phase, "previous_class", event.Class, "attempts", event.Attempts, "latency", event.Latency.Round(time.Millisecond), "unavailable_for", event.UnavailableFor.Round(time.Millisecond))
+		provisioner.emitHealthObservation(event)
+		return
+	}
+	if result.attempts > 1 {
+		event := HealthObservationEvent{State: "ready", Phase: result.lastFailurePhase, Class: result.lastFailureClass, Attempts: result.attempts, Latency: result.latency}
+		ctrllog.FromContext(ctx).Info("gateway_health_observation_retry", "gateway_namespace", gateway.Namespace, "gateway_name", gateway.Name, "state", event.State, "recovered", true, "previous_phase", event.Phase, "previous_class", event.Class, "attempts", event.Attempts, "latency", event.Latency.Round(time.Millisecond))
+		provisioner.emitHealthObservation(event)
+	}
+}
+
+func (provisioner *Provisioner) emitHealthObservation(event HealthObservationEvent) {
+	if provisioner.HealthObservationHook != nil {
+		provisioner.HealthObservationHook(event)
+	}
+}
+
 func pointer[T any](value T) *T                  { return &value }
 func intstrFromInt(value int) intstr.IntOrString { return intstr.FromInt(value) }
 

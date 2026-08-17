@@ -209,10 +209,13 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   RC.12 live upgrade exposed an ahead-of-status adapter generation. Its live
   GitOps replacement retained the qBittorrent Pod and lease identities while a
   watch observed the durable `Selecting` generation before automatic
-  activation. The fresh local-cluster epoch started at
-  `2026-08-17T08:59:18Z`, after binding readiness fully converged; complete its
-  minimum 72 unchanged-artifact hours before v1 graduation. ARM and other
-  platforms are future rows, not hidden blockers.
+  activation. The RC.13 local-cluster epoch was stopped after raw condition
+  history exposed brief controller-observation withdrawals and safe lease
+  generation churn that the one-minute sampler missed. RC.14 bounds and
+  classifies that observation path without retrying a valid not-ready response.
+  Publish and deploy the successor exact artifact, then complete a fresh minimum
+  72 unchanged-artifact hours before v1 graduation. ARM and other platforms are
+  future rows, not hidden blockers.
 
 ## Phase 0 — repository and design baseline
 
@@ -403,7 +406,8 @@ real-deployment-proven narrow integration. Loadstone remains future work.
   counts and durations, DNS state, lease renewal/withdrawal/recovery, listener
   and DHT state, packet evidence, restarts, identity changes, and bounded
   resource writes. Do not add nodes or activate Bitmagnet. The Aug 11–17
-  cross-release history is lifecycle evidence but does not replace this epoch.
+  cross-release history and the invalidated RC.13 epoch are lifecycle evidence
+  but do not replace this epoch.
 
 ### v0.3.3 controller correctness patch
 

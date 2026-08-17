@@ -2,6 +2,35 @@
 
 Last updated: 2026-08-17
 
+## RC.13 soak finding and RC.14 observation correction
+
+The RC.13 graduation epoch started at `2026-08-17T08:59:18Z` but was stopped
+and excluded at `2026-08-17T09:09:52Z`. All eleven one-minute samples were
+exact and green, yet the stable PortForwardLease UID advanced from handoff
+generation 33 to 34 and then 36. A subsequent raw watch captured another
+`VPNGateway` Ready/DNSReady withdrawal from `09:19:50Z` to `09:20:00Z`, followed
+by lease generation 37 becoming `Active` at `09:20:02Z`. This proves a
+one-minute collector can miss brief fail-closed transitions.
+
+The gateway agent emitted no reconcile-error or recovery transition during the
+captured interval, while Gluetun's local DNS-status endpoint returned HTTP 200
+throughout except for one delayed one-second sample. Fifteen paired A/AAAA UDP
+lookups from the VPN engine also passed 30/30 at 132–161 ms. The evidence points
+to the controller-to-agent HTTP observation boundary rather than torrent
+trackers or an observed agent DNS failure.
+
+The RC.14 correction reuses a bounded HTTP transport, adds one independent
+retry only for transient EOF/reset/closed-idle observation failures, and emits
+sanitized transition diagnostics for phase, class, attempts, latency, and
+recovery duration. Timeouts, cancellation, HTTP status/payload failures, and a
+valid agent response reporting tunnel or DNS loss are not retried. The agent's
+immediate fail-closed behavior is unchanged; this is not permissive DNS
+hysteresis. The soak collector now records a redacted condition watch in
+addition to periodic functional samples and counts every Ready/DNSReady
+withdrawal. RC.14 still requires signed publication, exact GitOps deployment,
+live validation, and a fresh minimum 72-hour local qBittorrent epoch before it
+can contribute graduation evidence.
+
 ## v0.1.0-rc.13 staged-generation candidate
 
 RC.13 corrects the handoff ordering defect found during RC.12 GitOps
@@ -38,17 +67,13 @@ The stopped RC.12 collector contributed 78 lifecycle samples over about 78
 minutes with zero restart increases and no public endpoint recorded. It also
 captured several fail-closed lease/listener windows, including an approximately
 seven-minute pending interval, four collection failures, and the planned
-release transition, so it is not clean graduation-soak evidence. A fresh
-minimum 72-hour unchanged-artifact RC.13 epoch started on the existing local
-cluster at `2026-08-17T08:59:18Z`, after the new node/binding observations had
-fully converged, with qBittorrent as the sole application canary and a nominal
-completion no earlier than `2026-08-20T08:59:18Z`. An earlier four-minute
-RC.13 collector was discarded from the graduation clock because binding
-readiness completed its release transition and safely advanced the handoff
-from generation 32 to 33 during that interval. Bitmagnet remains at zero
-replicas and no node was added. The collector requires
-the expected version and manifest digest explicitly and has no stale candidate
-default.
+release transition, so it is not clean graduation-soak evidence. The later
+RC.13 epoch is also lifecycle evidence only because raw condition history
+exposed recurring controller-observation withdrawals and lease generations
+33, 34, 36, and 37 while the minute samples stayed green. A successor exact
+artifact must start a new clock. Bitmagnet remains at zero replicas and no node
+was added. The collector requires the expected version and manifest digest
+explicitly and has no stale candidate default.
 
 ## v0.1.0-rc.12 support-matrix candidate
 
