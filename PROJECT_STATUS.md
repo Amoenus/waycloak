@@ -2,6 +2,38 @@
 
 Last updated: 2026-08-17
 
+## RC.14 live upgrade finding and RC.15 lease-status correction
+
+Signed `v0.1.0-rc.14` was published from commit `d9a802d3` after main CI run
+`32017729109`, CLI release run `32019002279`, and runtime release run
+`32019002294` passed, including independent public-artifact verification. Its
+canonical manifest identity is
+`sha256:e292855fb9f8d89d9ea851a45ca9f3c6386199c630e98dcd4d1feac65c470057`.
+Homelab `master` commit `4e23fec8` deployed the exact chart, runtime images, and
+qBittorrent adapter through install plan
+`sha256:ea4e15047b039780d6d56dc817807c70f80217a1e320ee61bd8bc8dd56317eac`.
+Root, Waycloak, and qBittorrent became Synced and Healthy; the qBittorrent Pod
+UID and PortForwardLease UID were preserved, and Bitmagnet remained at zero.
+
+That live upgrade exposed a lease-status concurrency defect before a soak epoch
+could start. The restarted runtime and persistent adapter advanced the handoff,
+but an older controller reconcile could force-apply stale status without a
+resource-version precondition. The lease status regressed to generation 47
+while the runtime had already accepted generation 48, so the runtime rejected
+later requests as `handoff generation regressed`. All externally observed lease
+conditions became `Unknown/ObservationUnavailable`; the system did not falsely
+advertise forwarding readiness. An exact status repair advanced 47 to the
+already-applied generation 48, after which the controller completed generation
+49 and restored all seven conditions. The stable lease UID and qBittorrent Pod
+UID remained unchanged.
+
+RC.15 replaces force-owned status apply with a resource-version-checked status
+update. A stale reconcile must now conflict instead of overwriting a newer
+handoff generation. Focused tests prove both the conflict and preservation of
+the newer generation. RC.14 deployment evidence remains upgrade and
+fail-closed lifecycle evidence only. RC.15 must be published, deployed by exact
+GitOps identity, and begin a new minimum 72-hour local-cluster qBittorrent epoch.
+
 ## RC.13 soak finding and RC.14 observation correction
 
 The RC.13 graduation epoch started at `2026-08-17T08:59:18Z` but was stopped
@@ -27,9 +59,10 @@ valid agent response reporting tunnel or DNS loss are not retried. The agent's
 immediate fail-closed behavior is unchanged; this is not permissive DNS
 hysteresis. The soak collector now records a redacted condition watch in
 addition to periodic functional samples and counts every Ready/DNSReady
-withdrawal. RC.14 still requires signed publication, exact GitOps deployment,
-live validation, and a fresh minimum 72-hour local qBittorrent epoch before it
-can contribute graduation evidence.
+withdrawal. RC.14 was signed and deployed exactly, but its live lease-status
+regression prevented the graduation epoch from starting. RC.15 carries the
+focused correction and must start a fresh minimum 72-hour local qBittorrent
+epoch before it can contribute graduation evidence.
 
 ## v0.1.0-rc.13 staged-generation candidate
 

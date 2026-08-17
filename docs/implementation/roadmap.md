@@ -213,8 +213,12 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   history exposed brief controller-observation withdrawals and safe lease
   generation churn that the one-minute sampler missed. RC.14 bounds and
   classifies that observation path without retrying a valid not-ready response.
-  Publish and deploy the successor exact artifact, then complete a fresh minimum
-  72 unchanged-artifact hours before v1 graduation. ARM and other platforms are
+  Its exact GitOps upgrade then exposed a stale status force-apply that could
+  regress handoff generation across controller replacement while the runtime
+  and persistent adapter remained ahead. RC.15 makes lease-status writes
+  resource-version checked, so the stale reconcile conflicts instead. Publish
+  and deploy the successor exact artifact, then complete a fresh minimum 72
+  unchanged-artifact hours before v1 graduation. ARM and other platforms are
   future rows, not hidden blockers.
 
 ## Phase 0 — repository and design baseline
@@ -401,6 +405,9 @@ real-deployment-proven narrow integration. Loadstone remains future work.
   gateway status patches.
 - [x] Cover sustained intermittent engine failures and concurrent controller
   updates in automated tests.
+- [x] Reject stale PortForwardLease status writes across controller handover so
+  an already-applied handoff generation cannot be overwritten by an older
+  reconcile.
 - [ ] Complete the minimum 72-hour unchanged-artifact local-cluster soak for
   #116/#141 with qBittorrent as the sole application canary. Record outage
   counts and durations, DNS state, lease renewal/withdrawal/recovery, listener
