@@ -20,11 +20,30 @@ the controller withdrew adapter and lease readiness on the mismatch. Deleting
 only the stale trust record and resyncing recreated it from committed Git,
 restored all conditions, and did not restart the qBittorrent Pod. The signed
 RC.24 documentation did not describe that required GitOps replacement step, so
-its soak began at `2026-08-18T06:08:55Z` only as lifecycle evidence and is not
+its soak began at `2026-08-18T03:08:55Z` only as lifecycle evidence and is not
 the final turnkey graduation epoch. RC.25 adds the controller-neutral procedure
 and the Argo CD force-recreation caveat without changing runtime, API
 schema, generated resources, or configuration semantics. Its exact deployment
 must start a fresh 72-hour local-cluster qBittorrent soak.
+
+Signed `v0.1.0-rc.25` was subsequently published from merge commit
+`511b210f9e2c800c76813311b868047326fa9902`. Runtime release run
+`32096066806` and CLI release run `32096066798` passed their independent
+published-artifact verifiers. Homelab GitOps master commit
+`779499d6e314ce707f2396bbae0ca5cbb18a63a8` deployed the exact manifest,
+chart, eight images, and qBittorrent adapter. The confirmation-bound release
+transition and exact-UID adapter trust recreation completed fail closed; all
+selected containers returned Ready with zero restarts and qBittorrent retained
+its Pod UID.
+
+The authoritative RC.25 epoch began at
+`2026-08-18T04:05:45.5042732Z` and is scheduled through
+`2026-08-21T04:05:45.5042732Z`. The collector writes offset-aware UTC values;
+earlier issue comments that copied PowerShell's local-time display as `Z` are
+superseded by explicit correction comments. This status-only correction does
+not change the deployed release manifest, GitOps revision, chart, images,
+configuration semantics, or canary intent and therefore does not reset that
+epoch.
 
 ## RC.23 documentation-coherence finding and RC.24 correction
 
