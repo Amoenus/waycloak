@@ -1,5 +1,33 @@
 # Project status
 
+## RC.23 documentation-coherence finding and RC.24 correction
+
+Signed `v0.1.0-rc.23` passed its complete PR, main, runtime, CLI, and
+independent-publication verification matrix and was deployed from homelab
+GitOps commit `18bbd55d`. Its exact local-cluster qBittorrent runtime remained
+healthy: all release component digests matched, every Waycloak and adapter
+container stayed Ready with zero restarts, lease expiry renewed monotonically,
+the handoff and object identities remained fixed, DNS/listener/external-TCP
+checks passed, DHT stayed positive, and a credential-contained aggregate
+checkpoint observed active torrent upload. No direct or public endpoint value
+entered the retained evidence.
+
+That epoch is nevertheless invalid for stable graduation. The documentation
+audit found that the signed candidate still called RC.13 current in README and
+Getting Started, provided RC.13 direct/Helm/KCL commands, scoped configuration
+to RC.11, linked RC.11 notes, and used RC.13 in the canonical soak example. A
+new user would therefore consume artifacts that disagreed with the release
+metadata and live runtime. RC.23 remains lifecycle, renewal, exact-identity,
+and real-torrent evidence, but contributes no graduation duration.
+
+RC.24 is a documentation/status-only correction. It selects one exact RC.24
+identity throughout user guidance, removes product-edition wording from the
+retained PRD text, and changes no runtime, public API schema, configuration
+semantic, or generated Kubernetes resource. After exact CI, publication,
+independent verification, and GitOps deployment, it must begin a fresh minimum
+72-hour local-cluster qBittorrent epoch. Bitmagnet remains at zero and out of
+scope; no node is added, reimaged, or repurposed.
+
 ## RC.22 retired qBittorrent endpoint handoff finding
 
 The exact RC.22 GitOps transition on the existing local cluster kept the

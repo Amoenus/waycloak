@@ -1,4 +1,4 @@
-# Getting started with Waycloak v0.1.0-rc.13
+# Getting started with Waycloak v0.1.0-rc.24
 
 Waycloak routes explicitly enrolled Kubernetes Pods through a shared
 Proton/OpenVPN gateway and fails closed when that protected path is not ready.
@@ -14,7 +14,7 @@ identity, image digests, observation trust, and safe activation sequence.
 
 ## Supported quick path
 
-RC.13 carries one certified operator support row:
+RC.24 carries one certified operator support row:
 
 | Kubernetes | Distribution/CNI | Runtime | Kernel | Architecture | VPN engine/configuration |
 | --- | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ Set the RC tag and download the complete release. Choose the CLI binary for your
 operating system and architecture.
 
 ```sh
-export WAYCLOAK_TAG=v0.1.0-rc.13
+export WAYCLOAK_TAG=v0.1.0-rc.24
 gh release download "$WAYCLOAK_TAG" \
   --repo Amoenus/waycloak \
   --dir "waycloak-${WAYCLOAK_TAG}"
@@ -235,13 +235,13 @@ kubectl --context "$KUBE_CONTEXT" -n media get \
 ## Helm and OCI consumption
 
 The chart is available both as the release asset
-`waycloak-0.1.0-rc.13.tgz` and as
-`oci://ghcr.io/amoenus/charts/waycloak:0.1.0-rc.13`. Its exact digest is in
+`waycloak-0.1.0-rc.24.tgz` and as
+`oci://ghcr.io/amoenus/charts/waycloak:0.1.0-rc.24`. Its exact digest is in
 `waycloak-chart.ref` and `release-manifest.json`:
 
 ```sh
 helm pull oci://ghcr.io/amoenus/charts/waycloak \
-  --version 0.1.0-rc.13
+  --version 0.1.0-rc.24
 ```
 
 Use Helm directly for inspection, rendering, and GitOps consumption after a
@@ -256,12 +256,12 @@ All runtime images are multi-platform OCI indexes. Consume their immutable
 
 KCL is optional and has no runtime role. The RC publishes the generated schema
 module as signed OCI artifact
-`oci://ghcr.io/amoenus/waycloak-kcl:0.1.0-rc.13` and as the downloadable
-`waycloak-kcl-v0.1.0-rc.13.tar`. Verify its exact digest in `waycloak-kcl.ref`.
+`oci://ghcr.io/amoenus/waycloak-kcl:0.1.0-rc.24` and as the downloadable
+`waycloak-kcl-v0.1.0-rc.24.tar`. Verify its exact digest in `waycloak-kcl.ref`.
 Add the OCI module to an existing KCL package, then import its schemas:
 
 ```sh
-kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.13
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.24
 ```
 
 ```python
@@ -290,7 +290,7 @@ the signed Helm/CLI transaction before applying KCL-rendered resources.
 - [Generated API reference](api/v1beta1.md)
 - [Upgrade, rollback, and repair](implementation/turnkey-bootstrap.md)
 - [Backup and restore](operations/backup-restore-and-disaster-recovery.md)
-- [Release-candidate scope and limitations](releases/v0.1.0-rc.13.md)
+- [Release-candidate scope and limitations](releases/v0.1.0-rc.24.md)
 
 Waycloak provides selected, fail-closed VPN egress within its documented threat
 model. It does not claim anonymity. Normal Helm uninstall does not delete CRDs

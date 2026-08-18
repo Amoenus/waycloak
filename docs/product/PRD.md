@@ -78,9 +78,9 @@ details and lease churn belong behind the Waycloak boundary.
 - Transparent high availability for a single provider tunnel in `v0.1`.
 - Supporting Windows nodes.
 - Automatically modifying already-running Pod network namespaces after annotations change.
-- Configuring every application's proprietary listen-port API in core Waycloak.
+- Configuring every application's proprietary listen-port API in the Waycloak controller.
 
-## Core user stories
+## Primary user stories
 
 ### Select private egress
 
@@ -150,7 +150,7 @@ cannot operate with a stable `spec.target.port`, cannot learn its external
 mapping through NAT-PMP/PCP/UPnP, and cannot consume the neutral file or local
 HTTP API. It must remain an explicit, least-privilege workload integration
 outside the controller, and its design must document why the generic
-mechanisms are insufficient. Core conditions must not acquire
+mechanisms are insufficient. Baseline conditions must not acquire
 application-specific semantics.
 
 Adapters implement a versioned, language-neutral Pod-local protocol and ship

@@ -104,17 +104,17 @@ knowledge is needed on the supported quick path.
 
 ## Phase 5 — API beta, operations and stable certification
 
-Current gate (2026-08-11): signed `v0.1.0-beta.1` artifacts passed independent
-verification and a destructive clean-break homelab install restored the sole
-qBittorrent canary without workload injection or direct-egress fallback. Live
-gateway replacement then exposed stale binding readiness while packets remained
-fail closed. The dependency-aware readiness correction passes unit, race,
-static, envtest, and full Linux tests, but a successor beta containing that
-correction still requires exact-artifact publication, homelab deployment, and
-repetition on the canary. This does not complete #141: the
-remaining #140 work, the unchanged-artifact local qBittorrent soak, the declared
-support-row audit, and the v1 graduation review remain release gates. #32,
-#33, and #137–#139 are complete.
+Current gate (2026-08-18): the signed beta cycle, dependencies #32/#33, and
+implementation issues #124–#139 have evidence-backed completion. RC.23 passed
+publication, independent verification, exact GitOps deployment, support-row
+matching, live qBittorrent torrent/DHT/port-forward operation, and its early
+runtime observations. Its graduation epoch was invalidated when the
+documentation audit found that Getting Started, README, configuration, and the
+soak example still selected RC.13/RC.11 artifacts. RC.24 corrects only that
+turnkey documentation/status surface and preserves the frozen runtime, schema,
+configuration semantics, and generated Kubernetes resources. It must pass
+exact publication, GitOps deployment, and a fresh minimum 72-hour local
+qBittorrent soak before #140/#141 and the `v1.0.0` graduation review can close.
 
 1. Publish signed standalone/chart CRD bundles and one support-matrix manifest.
 2. Test every supported beta upgrade/rollback, stored-version migration,
