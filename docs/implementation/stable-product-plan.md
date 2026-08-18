@@ -112,9 +112,12 @@ runtime observations. Its graduation epoch was invalidated when the
 documentation audit found that Getting Started, README, configuration, and the
 soak example still selected RC.13/RC.11 artifacts. RC.24 corrects only that
 turnkey documentation/status surface and preserves the frozen runtime, schema,
-configuration semantics, and generated Kubernetes resources. It must pass
-exact publication, GitOps deployment, and a fresh minimum 72-hour local
-qBittorrent soak before #140/#141 and the `v1.0.0` graduation review can close.
+configuration semantics, and generated Kubernetes resources. Its exact GitOps
+rollout then exposed that the immutable `WorkloadAdapter` trust record requires
+a resource-scoped replacement, which its signed operator guidance did not yet
+describe. RC.25 documents that fail-closed transaction. It must pass exact
+publication, GitOps deployment, and a fresh minimum 72-hour local qBittorrent
+soak before #140/#141 and the `v1.0.0` graduation review can close.
 
 1. Publish signed standalone/chart CRD bundles and one support-matrix manifest.
 2. Test every supported beta upgrade/rollback, stored-version migration,

@@ -160,6 +160,12 @@ operator-trusted digest references; it does not permit arbitrary image
 injection. Adapters receive no Kubernetes token, VPN credential, networking
 capability, or implicit application credential.
 
+The cluster-scoped adapter trust record is itself immutable. A digest or
+protocol change is an explicit replacement transaction at the stable object
+name, not an in-place edit. GitOps integrations must support an exact-object
+delete/recreate transaction and Waycloak must keep the affected adapter and lease fail closed
+until the recreated trust record and exact workload image are observed Ready.
+
 ### FR-9: Status
 
 Resources expose `observedGeneration`, conditions with stable reason codes, allocated client address, gateway reference, verified public IP where safe, active lease details, and last transition times. Registration alone is not readiness.

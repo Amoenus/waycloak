@@ -345,6 +345,13 @@ fixes these semantics.
 `spec.image` is an immutable OCI digest. It does not execute an adapter or
 contain application configuration.
 
+Changing either trust decision requires replacing the `WorkloadAdapter`
+object at its stable name. During a missing or digest-mismatched trust record,
+adapter and dependent lease readiness remain withdrawn. GitOps operators must
+use an exact-object delete/recreate transaction and verify the recreated UID, digest,
+adapter image, and conditions; the supported procedure is documented in
+[Turnkey bootstrap and lifecycle](../implementation/turnkey-bootstrap.md#rotate-immutable-workload-adapter-trust-records).
+
 A protected Pod selects the trust record and one existing sidecar through:
 
 - `networking.waycloak.io/workload-adapter: <WorkloadAdapter name>`

@@ -9,14 +9,16 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-18):** `v0.1.0-rc.24` preserves the
+**Release-candidate checkpoint (2026-08-18):** `v0.1.0-rc.25` preserves the
 existing `networking.waycloak.io/v1beta1` contract and packages the complete
-product for signed direct consumption, Helm OCI, and KCL OCI. It corrects the
-turnkey documentation mismatch found while RC.23 was healthy: user guidance
-still selected RC.13/RC.11 artifacts. It changes no runtime, schema,
-configuration semantic, or generated Kubernetes resource. RC.24 remains a
-release candidate, not closure of #123, #140, or #141 and not stable
-graduation. A fresh exact-artifact local-cluster qBittorrent soak is required.
+product for signed direct consumption, Helm OCI, and KCL OCI. RC.24 passed
+publication and exact GitOps deployment, but its live transition exposed an
+undocumented immutable `WorkloadAdapter` replacement requirement. RC.25 adds
+the controller-neutral transaction and the Argo CD force-recreation caveat. It
+changes no runtime, schema, configuration semantic, or generated Kubernetes
+resource. RC.25 remains a release candidate, not closure of #123, #140, or
+#141 and not stable graduation. A fresh exact-artifact local-cluster
+qBittorrent soak is required.
 
 **RC.18 publication correction (2026-08-17):** RC.17 passed exact main CI and
 its CLI publication verifier, but its runtime uploader lost a GitHub release
