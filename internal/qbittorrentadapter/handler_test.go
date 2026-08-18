@@ -46,8 +46,8 @@ func TestHandlerAcknowledgesExactGenerationAndWithdrawsToBackendPort(t *testing.
 		t.Fatalf("idempotent delivery response = %d calls=%#v", response.Code, application.calls)
 	}
 
-	withdrawal := wayportforward.WithdrawalIntent{APIVersion: wayportforward.RuntimeAPIVersion, LeaseNamespace: record.LeaseNamespace,
-		LeaseUID: record.LeaseUID, GatewayUID: "gateway-uid", HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
+	withdrawal := wayportforward.AdapterWithdrawalIntent{APIVersion: wayportforward.AdapterAPIVersion, LeaseNamespace: record.LeaseNamespace,
+		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
 	response = serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal)
 	if response.Code != http.StatusOK || len(application.calls) != 2 || application.calls[1] != (configureCall{record.ApplicationAddress, record.BackendPort, true}) {
 		t.Fatalf("withdrawal response = %d calls=%#v body=%s", response.Code, application.calls, response.Body.String())
@@ -112,7 +112,7 @@ func TestHandlerDurablyRecoversAndRevalidatesBeforeAcknowledging(t *testing.T) {
 	if len(restartedApplication.calls) != 1 || !restartedApplication.calls[0].reannounce {
 		t.Fatalf("restart did not revalidate and reannounce: %#v", restartedApplication.calls)
 	}
-	withdrawal := wayportforward.WithdrawalIntent{APIVersion: wayportforward.RuntimeAPIVersion, LeaseNamespace: record.LeaseNamespace,
+	withdrawal := wayportforward.AdapterWithdrawalIntent{APIVersion: wayportforward.AdapterAPIVersion, LeaseNamespace: record.LeaseNamespace,
 		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
 	if response := serveJSON(t, restarted, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal); response.Code != http.StatusOK {
 		t.Fatalf("persisted withdrawal = %d: %s", response.Code, response.Body.String())
@@ -146,7 +146,7 @@ func TestHandlerPersistsIntentBeforeMutationAndWithdrawsFailedDelivery(t *testin
 
 	application.err = nil
 	application.before = nil
-	withdrawal := wayportforward.WithdrawalIntent{APIVersion: wayportforward.RuntimeAPIVersion, LeaseNamespace: record.LeaseNamespace,
+	withdrawal := wayportforward.AdapterWithdrawalIntent{APIVersion: wayportforward.AdapterAPIVersion, LeaseNamespace: record.LeaseNamespace,
 		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
 	if response := serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal); response.Code != http.StatusOK {
 		t.Fatalf("failed delivery withdrawal = %d: %s", response.Code, response.Body.String())
@@ -161,7 +161,7 @@ func TestHandlerAcknowledgesWithdrawalWithoutTrackedMutation(t *testing.T) {
 	application := &fakeConfigurer{}
 	handler := &Handler{Application: application, Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod", Now: func() time.Time { return now }}
 	record := validRecord(now)
-	withdrawal := wayportforward.WithdrawalIntent{APIVersion: wayportforward.RuntimeAPIVersion, LeaseNamespace: record.LeaseNamespace,
+	withdrawal := wayportforward.AdapterWithdrawalIntent{APIVersion: wayportforward.AdapterAPIVersion, LeaseNamespace: record.LeaseNamespace,
 		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
 	response := serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal)
 	var acknowledgement wayportforward.AdapterWithdrawalAcknowledgement
@@ -170,6 +170,40 @@ func TestHandlerAcknowledgesWithdrawalWithoutTrackedMutation(t *testing.T) {
 	}
 	if len(application.calls) != 0 {
 		t.Fatalf("absent-state withdrawal mutated application: %#v", application.calls)
+	}
+}
+
+func TestHandlerClearsExactRetiredPodWhenBackendRestoreIsImpossible(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	application := &fakeConfigurer{}
+	handler := &Handler{Application: application, Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod", Now: func() time.Time { return now }}
+	record := validRecord(now)
+	if response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusOK {
+		t.Fatalf("initial delivery = %d: %s", response.Code, response.Body.String())
+	}
+	application.err = errors.New("retired application endpoint is unreachable")
+	withdrawal := wayportforward.AdapterWithdrawalIntent{APIVersion: wayportforward.AdapterAPIVersion, LeaseNamespace: record.LeaseNamespace,
+		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID, ApplicationEndpointRetired: true}
+	response := serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal)
+	if response.Code != http.StatusOK {
+		t.Fatalf("retired endpoint withdrawal = %d: %s", response.Code, response.Body.String())
+	}
+	if _, exists := handler.states[record.LeaseUID]; exists {
+		t.Fatal("retired endpoint state was not cleared")
+	}
+
+	application.err = nil
+	if response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusOK {
+		t.Fatalf("replacement setup = %d: %s", response.Code, response.Body.String())
+	}
+	application.err = errors.New("current application endpoint is unreachable")
+	withdrawal.ApplicationEndpointRetired = false
+	response = serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("current endpoint withdrawal = %d, want conflict", response.Code)
+	}
+	if _, exists := handler.states[record.LeaseUID]; !exists {
+		t.Fatal("current endpoint state was cleared without restoration")
 	}
 }
 

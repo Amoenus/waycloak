@@ -42,9 +42,20 @@ type AdapterAcknowledgement struct {
 	ExpiresAt         time.Time           `json:"expiresAt"`
 }
 
+// AdapterWithdrawalIntent is the complete application-facing withdrawal
+// request. It carries no gateway, provider, or Kubernetes discovery details.
+type AdapterWithdrawalIntent struct {
+	APIVersion                 string              `json:"apiVersion"`
+	LeaseNamespace             wayv1.NamespaceName `json:"leaseNamespace"`
+	LeaseUID                   wayv1.ObjectUID     `json:"leaseUID"`
+	HandoffGeneration          int64               `json:"handoffGeneration"`
+	PodUID                     wayv1.ObjectUID     `json:"podUID"`
+	ApplicationEndpointRetired bool                `json:"applicationEndpointRetired"`
+}
+
 type AdapterProtocol interface {
 	Deliver(context.Context, wayv1.ObjectName, AdapterLeaseRecord) (AdapterAcknowledgement, error)
-	Withdraw(context.Context, wayv1.ObjectName, WithdrawalIntent) (bool, error)
+	Withdraw(context.Context, wayv1.ObjectName, AdapterWithdrawalIntent) (bool, error)
 }
 
 // DeliveryManager makes the neutral no-adapter path explicit. Adapter-backed
@@ -86,7 +97,9 @@ func (d DeliveryManager) Withdraw(ctx context.Context, intent WithdrawalIntent) 
 	if d.Adapter == nil {
 		return false, errors.New("application adapter protocol is unavailable")
 	}
-	return d.Adapter.Withdraw(ctx, intent.AdapterName, intent)
+	request := AdapterWithdrawalIntent{APIVersion: AdapterAPIVersion, LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID,
+		HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID, ApplicationEndpointRetired: intent.ApplicationEndpointRetired}
+	return d.Adapter.Withdraw(ctx, intent.AdapterName, request)
 }
 
 func validDeliveryInput(intent Intent, provider ProviderObservation, now time.Time) error {

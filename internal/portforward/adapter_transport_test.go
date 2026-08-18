@@ -43,7 +43,7 @@ func TestHTTPAdapterClientUsesDeterministicCredentialFreeExactEndpoint(t *testin
 }
 
 func TestHTTPAdapterClientRejectsMismatchedWithdrawalAcknowledgement(t *testing.T) {
-	intent := WithdrawalIntent{APIVersion: RuntimeAPIVersion, LeaseNamespace: "apps", LeaseUID: "lease-uid", GatewayUID: "gateway-uid", HandoffGeneration: 2, PodUID: "pod-a", AdapterName: "qbittorrent"}
+	intent := AdapterWithdrawalIntent{APIVersion: AdapterAPIVersion, LeaseNamespace: "apps", LeaseUID: "lease-uid", HandoffGeneration: 2, PodUID: "pod-a"}
 	client := &HTTPAdapterClient{Port: 9443, ClusterDomain: "cluster.local", Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != adapterPath(intent.LeaseUID, "withdraw") {
 			t.Fatalf("withdrawal path = %s", request.URL.Path)
@@ -51,7 +51,7 @@ func TestHTTPAdapterClientRejectsMismatchedWithdrawalAcknowledgement(t *testing.
 		return adapterJSONResponse(t, AdapterWithdrawalAcknowledgement{APIVersion: AdapterAPIVersion, LeaseNamespace: intent.LeaseNamespace,
 			LeaseUID: intent.LeaseUID, HandoffGeneration: intent.HandoffGeneration, PodUID: "different-pod", ObservedAt: time.Now(), Withdrawn: true}), nil
 	})}}
-	if withdrawn, err := client.Withdraw(context.Background(), intent.AdapterName, intent); err != nil || withdrawn {
+	if withdrawn, err := client.Withdraw(context.Background(), "qbittorrent", intent); err != nil || withdrawn {
 		t.Fatalf("mismatched withdrawal = %t, %v", withdrawn, err)
 	}
 }

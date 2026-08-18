@@ -1,5 +1,25 @@
 # Project status
 
+## RC.22 retired qBittorrent endpoint handoff finding
+
+The exact RC.22 GitOps transition on the existing local cluster kept the
+gateway and replacement qBittorrent Pod Ready with zero restarts, but exposed a
+workload-adapter lifecycle defect before a graduation epoch could start. After
+the old qBittorrent Pod disappeared, the gateway runtime first withdrew its
+packet rules and then requested application cleanup for the old handoff
+generation. The adapter could no longer reach that exact retired Pod to restore
+its backend listener, returned conflict, and correctly kept the successor lease
+fail closed. The resulting window is retained as rolling-replacement and
+fail-closed lifecycle evidence; it contributes no unchanged-artifact soak time.
+
+The correction carries an authenticated `applicationEndpointRetired` fact only
+when Kubernetes has selected a different exact Pod UID. With gateway rules
+already observed withdrawn, restoration on that retired endpoint becomes
+best-effort. Unavailable current endpoints still block withdrawal. A successor
+RC must recover the existing qBittorrent canary and then begin a fresh minimum
+72-hour unchanged-artifact local-cluster epoch. Bitmagnet remains scaled to
+zero and out of scope, and no additional cluster node is required.
+
 Last updated: 2026-08-18
 
 ## RC.21 canonical soak finding and node-observation correction

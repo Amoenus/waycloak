@@ -268,6 +268,7 @@ func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *way
 	status := wayv1.PortForwardLeaseStatus{ObservedGeneration: lease.Generation, HandoffGeneration: lease.Status.HandoffGeneration, ActiveEndpoint: copyEndpoint(lease.Status.ActiveEndpoint)}
 	status.ActiveEndpoint.Phase = wayv1.EndpointPhaseDraining
 	withdrawal := WithdrawalFor(lease, evaluation.gateway)
+	withdrawal.ApplicationEndpointRetired = applicationEndpointRetired(status.ActiveEndpoint, evaluation)
 	allocator := r.Allocator
 	if allocator.Client == nil {
 		allocator = ProviderPortAllocator{Client: r.Client, Now: r.Now}
@@ -292,6 +293,10 @@ func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *way
 	}
 	status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
 	return status, time.Millisecond
+}
+
+func applicationEndpointRetired(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEvaluation) bool {
+	return current != nil && evaluation.hasSelected && evaluation.selected.PodUID != current.PodUID
 }
 
 func applyObservation(lease *wayv1.PortForwardLease, status *wayv1.PortForwardLeaseStatus, states map[string]wayconditions.State, observation Observation, now time.Time) {

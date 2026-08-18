@@ -324,7 +324,12 @@ changes. It does not acknowledge the new generation until the preferences,
 listener, and generation-bound reannounce request have all succeeded. A failed
 reannounce is retried, and a restarted adapter reannounces once before
 acknowledging. Expiry-only renewal of an unchanged generation does not repeat
-that application action.
+that application action. Withdrawal normally restores the stable backend port
+before acknowledgement. After gateway ingress rules are observably withdrawn,
+the authenticated controller may mark the exact old Pod UID's application
+endpoint retired when a different Pod UID has been selected. Restoration is
+then best-effort: an unreachable retired endpoint cannot block the successor,
+while an unavailable current endpoint still blocks withdrawal.
 
 Kubernetes environment variables are not a renewable delivery surface. An
 environment-only application explicitly runs under a supervisor that stops its
@@ -352,8 +357,17 @@ privilege escalation, and no hostPath, hostPort, device, or projected
 service-account-token access. It adds the selected protocol version and
 Pod-loopback lease endpoint as reserved environment variables.
 
-The versioned JSON/HTTP contract, acknowledgement identity, lifecycle, and
-conformance vectors are published under `protocol/adapter/v1alpha1`.
+The stable JSON/HTTPS contract is
+`networking.waycloak.io/adapter/v1`. Delivery uses
+`PUT /networking.waycloak.io/adapter/v1/leases/<leaseUID>` with the neutral
+lease record. Withdrawal uses
+`POST /networking.waycloak.io/adapter/v1/leases/<leaseUID>/withdraw` with only
+`apiVersion`, `leaseNamespace`, `leaseUID`, `handoffGeneration`, `podUID`, and
+`applicationEndpointRetired`; it intentionally exposes no provider, gateway,
+or Kubernetes discovery details. Health uses
+`GET /networking.waycloak.io/adapter/v1/healthz`. Exact response identities,
+lifecycle rules, and the language-neutral schema are published in
+[`workload-adapter-v1.json`](schemas/workload-adapter-v1.json).
 
 ## Common condition conventions
 

@@ -164,8 +164,8 @@ func (h *Handler) deliver(response http.ResponseWriter, request *http.Request, l
 }
 
 func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, leaseUID wayv1.ObjectUID, body []byte) {
-	var intent wayportforward.WithdrawalIntent
-	if decodeStrict(body, &intent) != nil || intent.APIVersion != wayportforward.RuntimeAPIVersion || intent.LeaseNamespace != h.Namespace || intent.LeaseUID != leaseUID ||
+	var intent wayportforward.AdapterWithdrawalIntent
+	if decodeStrict(body, &intent) != nil || intent.APIVersion != wayportforward.AdapterAPIVersion || intent.LeaseNamespace != h.Namespace || intent.LeaseUID != leaseUID ||
 		intent.HandoffGeneration < 1 || intent.PodUID == "" {
 		writeError(response, http.StatusBadRequest)
 		return
@@ -180,9 +180,13 @@ func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, 
 		return
 	}
 	if err := h.Application.Configure(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort, true); err != nil {
-		slog.Warn("qBittorrent adapter could not restore backend port", "lease_uid", leaseUID, "error", err)
-		writeError(response, http.StatusConflict)
-		return
+		if !intent.ApplicationEndpointRetired {
+			slog.Warn("qBittorrent adapter could not restore backend port", "lease_uid", leaseUID, "error", err)
+			writeError(response, http.StatusConflict)
+			return
+		}
+		slog.Info("qBittorrent adapter cleared retired endpoint after backend-port restoration became impossible", "lease_uid", leaseUID,
+			"handoff_generation", intent.HandoffGeneration, "pod_uid", intent.PodUID)
 	}
 	delete(h.states, leaseUID)
 	if err := h.persist(); err != nil {
@@ -194,7 +198,7 @@ func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, 
 	h.writeWithdrawalAcknowledgement(response, intent)
 }
 
-func (h *Handler) writeWithdrawalAcknowledgement(response http.ResponseWriter, intent wayportforward.WithdrawalIntent) {
+func (h *Handler) writeWithdrawalAcknowledgement(response http.ResponseWriter, intent wayportforward.AdapterWithdrawalIntent) {
 	_ = json.NewEncoder(response).Encode(wayportforward.AdapterWithdrawalAcknowledgement{APIVersion: wayportforward.AdapterAPIVersion,
 		LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID, HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID,
 		ObservedAt: h.now(), Withdrawn: true})

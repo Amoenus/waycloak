@@ -80,7 +80,7 @@ func (c *HTTPAdapterClient) Deliver(ctx context.Context, name wayv1.ObjectName, 
 	return acknowledgement, nil
 }
 
-func (c *HTTPAdapterClient) Withdraw(ctx context.Context, name wayv1.ObjectName, intent WithdrawalIntent) (bool, error) {
+func (c *HTTPAdapterClient) Withdraw(ctx context.Context, name wayv1.ObjectName, intent AdapterWithdrawalIntent) (bool, error) {
 	var acknowledgement AdapterWithdrawalAcknowledgement
 	if err := c.call(ctx, intent.LeaseNamespace, name, http.MethodPost, adapterPath(intent.LeaseUID, "withdraw"), intent, &acknowledgement); err != nil {
 		return false, err
