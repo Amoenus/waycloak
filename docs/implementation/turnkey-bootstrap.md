@@ -145,6 +145,38 @@ reviewed target while automatic runtime sync is suspended, execute the exact
 `waycloakctl install plan/apply` transition, and only then sync Argo to confirm
 the already matching target. Do not delete the class manually or use Argo as
 the transition executor.
+
+### Rotate immutable workload-adapter trust records
+
+`WorkloadAdapter.spec` is immutable because the object is an operator trust
+decision, not mutable application configuration. When a release changes an
+adapter digest, commit the new `WorkloadAdapter.spec.image` and the matching
+adapter workload image in the same reviewed Git revision. A normal Kubernetes
+apply cannot update the existing trust record: the GitOps controller must
+replace that one object after the `waycloakctl` release transition completes.
+
+Record the live object UID, verify that the committed desired state contains
+the new immutable digest, delete only that exact UID with a Kubernetes deletion
+precondition, and sync immediately so Git recreates the stable name. Never edit
+the trust record or adapter image out of band.
+
+Argo CD's resource annotation `Replace=true` is not sufficient for an immutable
+spec change: it uses `kubectl replace/create`, while deletion and recreation
+requires `Force=true,Replace=true`. Do not leave the force option on the steady
+desired state because it deletes and recreates the object whenever that
+resource is selected for sync. If organizational policy requires Argo to
+execute the deletion, use the force option only in the reviewed transition
+revision, selectively sync that exact `WorkloadAdapter`, verify its new UID and
+conditions, then remove the option in a follow-up Git revision before beginning
+the stable observation window.
+
+During the digest mismatch or brief absence, Waycloak withdraws adapter and
+lease readiness and retains fail-closed workload egress. After recreation,
+verify the new trust-record UID and digest, the exact adapter image, and all
+adapter and lease conditions before declaring the application healthy. A
+protected application Pod need not be replaced merely to rotate this trust
+record unless its own Pod template contains the changed adapter image.
+
 Every lifecycle Helm mutation uses explicit server-side apply and
 `--force-conflicts`. The reviewed plan therefore authorizes Waycloak's Helm
 field manager to reclaim only fields rendered by that exact chart and values

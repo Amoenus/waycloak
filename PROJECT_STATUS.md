@@ -1,5 +1,31 @@
 # Project status
 
+## RC.24 local-cluster rollout and RC.25 documentation correction
+
+Signed `v0.1.0-rc.24` was published from exact main commit
+`ee22a1388f48d76171dbd57abf817a706f337721` after runtime release run
+`32091226386`, CLI release run `32091226355`, and independent publication
+verification passed. Homelab GitOps master commit
+`abcba51b6cc00305310187d5921d5b29eae1db86` declared the exact chart,
+manifest, eight runtime images, and qBittorrent adapter. Waycloak and
+qBittorrent converged Synced and Healthy; all selected containers were Ready
+with zero restarts. Gateway, DNS, workload, lease, adapter, and TCP/UDP listener
+checks passed, and an aggregate qBittorrent checkpoint observed connected DHT,
+active torrents, and known peers without retaining names, hashes, paths,
+credentials, or a public endpoint.
+
+The rollout also proved the intended fail-closed behavior of immutable adapter
+trust. Argo CD could not patch the existing `WorkloadAdapter` to the new digest;
+the controller withdrew adapter and lease readiness on the mismatch. Deleting
+only the stale trust record and resyncing recreated it from committed Git,
+restored all conditions, and did not restart the qBittorrent Pod. The signed
+RC.24 documentation did not describe that required GitOps replacement step, so
+its soak began at `2026-08-18T06:08:55Z` only as lifecycle evidence and is not
+the final turnkey graduation epoch. RC.25 adds the controller-neutral procedure
+and the Argo CD force-recreation caveat without changing runtime, API
+schema, generated resources, or configuration semantics. Its exact deployment
+must start a fresh 72-hour local-cluster qBittorrent soak.
+
 ## RC.23 documentation-coherence finding and RC.24 correction
 
 Signed `v0.1.0-rc.23` passed its complete PR, main, runtime, CLI, and
