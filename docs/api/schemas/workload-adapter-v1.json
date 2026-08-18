@@ -47,6 +47,19 @@
         "expiresAt": { "type": "string", "format": "date-time" }
       }
     },
+    "withdrawalIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersion", "leaseNamespace", "leaseUID", "handoffGeneration", "podUID", "applicationEndpointRetired"],
+      "properties": {
+        "apiVersion": { "const": "networking.waycloak.io/adapter/v1" },
+        "leaseNamespace": { "type": "string", "minLength": 1, "maxLength": 63 },
+        "leaseUID": { "$ref": "#/$defs/uid" },
+        "handoffGeneration": { "type": "integer", "minimum": 1 },
+        "podUID": { "$ref": "#/$defs/uid" },
+        "applicationEndpointRetired": { "type": "boolean" }
+      }
+    },
     "withdrawalAcknowledgement": {
       "type": "object",
       "additionalProperties": false,

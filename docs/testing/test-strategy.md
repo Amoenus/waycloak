@@ -173,7 +173,10 @@ Mandatory scenarios:
   `ProviderAssignedApplicationPort` adapter capability, exact EndpointSlice Pod
   address, application-owned HTTPS, listener update/readback/probe, all-torrent
   reannounce, durable restart revalidation, and backend-port restoration on
-  withdrawal;
+  withdrawal. If a different exact Pod UID has already been selected and
+  gateway rules are observably withdrawn, unreachable retired-Pod cleanup may
+  complete without restoration; the same failure for a current Pod remains
+  blocking;
 - Kind/k3d rollout tests and real-provider qBittorrent tests prove no wrong-Pod
   delivery, stale advertisement, or direct-egress fallback. Failure keeps this
   optional capability unavailable.

@@ -82,6 +82,9 @@ func TestControllerActivatesAndDrainsBeforeRollingHandoff(t *testing.T) {
 	if got, want := runtime.calls, []string{"reconcile:pod-a:1", "withdraw:pod-a:1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("handoff ordering = %v, want %v", got, want)
 	}
+	if len(runtime.withdrawals) != 1 || !runtime.withdrawals[0].ApplicationEndpointRetired {
+		t.Fatalf("replacement withdrawal did not retire the old application endpoint: %#v", runtime.withdrawals)
+	}
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +118,9 @@ func TestControllerHoldsDrainUntilExactWithdrawal(t *testing.T) {
 	}
 	if len(runtime.calls) != 1 || runtime.calls[0] != "withdraw:old-pod:4" {
 		t.Fatalf("runtime calls = %v", runtime.calls)
+	}
+	if len(runtime.withdrawals) != 1 || !runtime.withdrawals[0].ApplicationEndpointRetired {
+		t.Fatalf("selected replacement did not retire the old endpoint: %#v", runtime.withdrawals)
 	}
 	if condition := apiMeta.FindStatusCondition(current.Status.Conditions, wayv1.ConditionReady); condition == nil || condition.Status != metav1.ConditionUnknown {
 		t.Fatalf("drain readiness = %#v", current.Status.Conditions)
@@ -187,6 +193,19 @@ func TestHandoffDrainReasonIdentifiesEachTrigger(t *testing.T) {
 	}
 }
 
+func TestApplicationEndpointRetiredRequiresDifferentSelectedPodUID(t *testing.T) {
+	current := &wayv1.ActiveLeaseEndpoint{PodUID: "pod-a"}
+	if applicationEndpointRetired(current, leaseEvaluation{}) {
+		t.Fatal("missing successor retired the current application endpoint")
+	}
+	if applicationEndpointRetired(current, leaseEvaluation{hasSelected: true, selected: Candidate{PodUID: "pod-a"}}) {
+		t.Fatal("same Pod UID retired the current application endpoint")
+	}
+	if !applicationEndpointRetired(current, leaseEvaluation{hasSelected: true, selected: Candidate{PodUID: "pod-b"}}) {
+		t.Fatal("different selected Pod UID did not retire the old application endpoint")
+	}
+}
+
 func TestControllerDerivesProviderAssignedPortOnlyFromReadyAdapterCapability(t *testing.T) {
 	lease, gateway, service := leaseFixture()
 	gateway.Namespace = lease.Namespace
@@ -242,6 +261,7 @@ type fakeRuntime struct {
 	withdrawReady bool
 	calls         []string
 	gatewayUIDs   []wayv1.ObjectUID
+	withdrawals   []WithdrawalIntent
 }
 
 func (f *fakeRuntime) Reconcile(_ context.Context, _ *wayv1.VPNGateway, intent Intent) (Observation, error) {
@@ -256,6 +276,7 @@ func (f *fakeRuntime) Reconcile(_ context.Context, _ *wayv1.VPNGateway, intent I
 
 func (f *fakeRuntime) Withdraw(_ context.Context, gateway *wayv1.VPNGateway, intent WithdrawalIntent) (Observation, error) {
 	f.gatewayUIDs = append(f.gatewayUIDs, wayv1.ObjectUID(gateway.UID))
+	f.withdrawals = append(f.withdrawals, intent)
 	f.calls = append(f.calls, fmt.Sprintf("withdraw:%s:%d", intent.PodUID, intent.HandoffGeneration))
 	return Observation{APIVersion: RuntimeAPIVersion, LeaseUID: intent.LeaseUID, GatewayUID: intent.GatewayUID, HandoffGeneration: intent.HandoffGeneration,
 		PodUID: intent.PodUID, ObservedAt: f.now, Withdrawn: f.withdrawReady}, nil

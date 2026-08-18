@@ -66,19 +66,20 @@ type ProviderObservation struct {
 }
 
 type WithdrawalIntent struct {
-	APIVersion           string                    `json:"apiVersion"`
-	LeaseNamespace       wayv1.NamespaceName       `json:"leaseNamespace"`
-	LeaseUID             wayv1.ObjectUID           `json:"leaseUID"`
-	GatewayUID           wayv1.ObjectUID           `json:"gatewayUID"`
-	HandoffGeneration    int64                     `json:"handoffGeneration"`
-	ServiceUID           wayv1.ObjectUID           `json:"serviceUID"`
-	EndpointSliceUID     wayv1.ObjectUID           `json:"endpointSliceUID"`
-	PodUID               wayv1.ObjectUID           `json:"podUID"`
-	ReleaseProvider      bool                      `json:"releaseProvider,omitempty"`
-	ProviderInternalPort uint16                    `json:"providerInternalPort,omitempty"`
-	PreviousPublicPort   uint16                    `json:"previousPublicPort,omitempty"`
-	Protocols            []wayv1.TransportProtocol `json:"protocols,omitempty"`
-	AdapterName          wayv1.ObjectName          `json:"adapterName,omitempty"`
+	APIVersion                 string                    `json:"apiVersion"`
+	LeaseNamespace             wayv1.NamespaceName       `json:"leaseNamespace"`
+	LeaseUID                   wayv1.ObjectUID           `json:"leaseUID"`
+	GatewayUID                 wayv1.ObjectUID           `json:"gatewayUID"`
+	HandoffGeneration          int64                     `json:"handoffGeneration"`
+	ServiceUID                 wayv1.ObjectUID           `json:"serviceUID"`
+	EndpointSliceUID           wayv1.ObjectUID           `json:"endpointSliceUID"`
+	PodUID                     wayv1.ObjectUID           `json:"podUID"`
+	ApplicationEndpointRetired bool                      `json:"applicationEndpointRetired,omitempty"`
+	ReleaseProvider            bool                      `json:"releaseProvider,omitempty"`
+	ProviderInternalPort       uint16                    `json:"providerInternalPort,omitempty"`
+	PreviousPublicPort         uint16                    `json:"previousPublicPort,omitempty"`
+	Protocols                  []wayv1.TransportProtocol `json:"protocols,omitempty"`
+	AdapterName                wayv1.ObjectName          `json:"adapterName,omitempty"`
 }
 
 // Runtime is implemented by the narrow authenticated gateway-runtime client.

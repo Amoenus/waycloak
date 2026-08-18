@@ -30,6 +30,7 @@ func TestPublishedAdapterSchemaTracksProtocolMessages(t *testing.T) {
 	for name, message := range map[string]any{
 		"leaseRecord":               wayportforward.AdapterLeaseRecord{},
 		"acknowledgement":           wayportforward.AdapterAcknowledgement{},
+		"withdrawalIntent":          wayportforward.AdapterWithdrawalIntent{},
 		"withdrawalAcknowledgement": wayportforward.AdapterWithdrawalAcknowledgement{},
 		"health":                    wayportforward.AdapterHealthObservation{},
 	} {
