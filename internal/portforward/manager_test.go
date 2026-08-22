@@ -85,6 +85,55 @@ func TestGatewayRuntimeDropsRulesWhenProviderObservationExpires(t *testing.T) {
 	}
 }
 
+func TestGatewayRuntimeRenewsOnlyAtProviderSchedule(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	driver := &managerDriver{now: now}
+	rules := &managerRules{}
+	delivery := &managerDelivery{}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: delivery, Now: func() time.Time { return now }}
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid"}}
+	intent := managerIntent("pod-a", 1)
+
+	first, err := manager.Reconcile(context.Background(), gateway, intent)
+	if err != nil || driver.ensureCalls != 1 {
+		t.Fatalf("initial reconcile = %#v, ensure calls=%d, %v", first, driver.ensureCalls, err)
+	}
+	now = now.Add(29 * time.Second)
+	driver.now = now
+	stable, err := manager.Reconcile(context.Background(), gateway, intent)
+	if err != nil || driver.ensureCalls != 1 {
+		t.Fatalf("stable reconcile renewed early: %#v, ensure calls=%d, %v", stable, driver.ensureCalls, err)
+	}
+	if !stable.Provider.ExpiresAt.Equal(first.Provider.ExpiresAt) {
+		t.Fatalf("stable expiry changed: %s -> %s", first.Provider.ExpiresAt, stable.Provider.ExpiresAt)
+	}
+
+	now = now.Add(time.Second)
+	driver.now = now
+	renewed, err := manager.Reconcile(context.Background(), gateway, intent)
+	if err != nil || driver.ensureCalls != 2 {
+		t.Fatalf("scheduled renewal = %#v, ensure calls=%d, %v", renewed, driver.ensureCalls, err)
+	}
+	if !renewed.Provider.ExpiresAt.After(first.Provider.ExpiresAt) {
+		t.Fatalf("scheduled renewal did not advance expiry: %s -> %s", first.Provider.ExpiresAt, renewed.Provider.ExpiresAt)
+	}
+}
+
+func TestGatewayRuntimeRejectsInvalidProviderRenewalSchedule(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	driver := &managerDriver{now: now, invalidRenewAfter: true}
+	rules := &managerRules{}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "network", UID: "gateway-uid"}}
+
+	if _, err := manager.Reconcile(context.Background(), gateway, managerIntent("pod-a", 1)); err == nil {
+		t.Fatal("invalid provider renewal schedule remained accepted")
+	}
+	if len(rules.current) != 0 {
+		t.Fatalf("invalid provider renewal schedule installed rules: %#v", rules.current)
+	}
+}
+
 func TestGatewayRuntimeDoesNotAuthorizeSuccessorUntilRulesAndDeliveryAreWithdrawn(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	rules := &managerRules{}
@@ -197,11 +246,13 @@ func managerIntent(podUID wayv1.ObjectUID, generation int64) Intent {
 }
 
 type managerDriver struct {
-	now          time.Time
-	ensureErr    error
-	releaseCalls int
-	lastRequest  provider.PortForwardLeaseRequest
-	capabilities *provider.PortForwardCapabilities
+	now               time.Time
+	ensureErr         error
+	ensureCalls       int
+	invalidRenewAfter bool
+	releaseCalls      int
+	lastRequest       provider.PortForwardLeaseRequest
+	capabilities      *provider.PortForwardCapabilities
 }
 
 func (d *managerDriver) ObserveCapabilities(context.Context) (provider.PortForwardCapabilities, error) {
@@ -212,11 +263,16 @@ func (d *managerDriver) ObserveCapabilities(context.Context) (provider.PortForwa
 }
 
 func (d *managerDriver) EnsureLease(_ context.Context, request provider.PortForwardLeaseRequest) (provider.PortForwardLeaseObservation, error) {
+	d.ensureCalls++
 	d.lastRequest = request
 	if d.ensureErr != nil {
 		return provider.PortForwardLeaseObservation{}, d.ensureErr
 	}
-	return provider.PortForwardLeaseObservation{PublicAddress: netip.MustParseAddr("8.8.8.8"), PublicPort: 42000, IssuedAt: d.now, RenewAfter: d.now.Add(30 * time.Second), ExpiresAt: d.now.Add(time.Minute)}, nil
+	renewAfter := d.now.Add(30 * time.Second)
+	if d.invalidRenewAfter {
+		renewAfter = d.now.Add(2 * time.Minute)
+	}
+	return provider.PortForwardLeaseObservation{PublicAddress: netip.MustParseAddr("8.8.8.8"), PublicPort: 42000, IssuedAt: d.now, RenewAfter: renewAfter, ExpiresAt: d.now.Add(time.Minute)}, nil
 }
 
 func (d *managerDriver) ReleaseLease(_ context.Context, request provider.PortForwardLeaseRequest) error {
