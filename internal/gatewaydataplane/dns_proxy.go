@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,10 +30,11 @@ type DNSProber interface {
 }
 
 type DNSProxy struct {
-	config Config
-	udp    net.PacketConn
-	tcp    net.Listener
-	ids    atomic.Uint32
+	config     Config
+	udp        net.PacketConn
+	tcp        net.Listener
+	ids        atomic.Uint32
+	probeCheck func(context.Context, string, string, dnsmessage.Type) error
 }
 
 type dnsIdentity struct {
@@ -241,18 +241,16 @@ func (proxy *DNSProxy) Probe(ctx context.Context) error {
 		{"udp4", "example.com.", dnsmessage.TypeAAAA},
 		{"tcp4", "example.com.", dnsmessage.TypeA},
 	}
-	var wait sync.WaitGroup
-	errorsByProbe := make([]error, len(probes))
-	for index := range probes {
-		wait.Add(1)
-		go func(index int) {
-			defer wait.Done()
-			probe := probes[index]
-			errorsByProbe[index] = proxy.probe(ctx, probe.network, probe.name, probe.typeCode)
-		}(index)
+	check := proxy.probe
+	if proxy.probeCheck != nil {
+		check = proxy.probeCheck
 	}
-	wait.Wait()
-	return errors.Join(errorsByProbe...)
+	for _, probe := range probes {
+		if err := check(ctx, probe.network, probe.name, probe.typeCode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (proxy *DNSProxy) probe(ctx context.Context, network, name string, typeCode dnsmessage.Type) error {

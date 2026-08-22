@@ -6,11 +6,14 @@ package gatewaydataplane
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -128,6 +131,67 @@ func TestDNSProbeDiagnosticsDistinguishQueryTypeValidationRCodeAndLatency(t *tes
 		if !strings.Contains(rcode.Error(), field) {
 			t.Fatalf("RCode diagnostic %q does not contain %q", rcode, field)
 		}
+	}
+}
+
+func TestDNSProbeRunsMandatoryChecksSerially(t *testing.T) {
+	var active atomic.Int32
+	var maximum atomic.Int32
+	var callsMu sync.Mutex
+	var calls []string
+	proxy := &DNSProxy{config: Config{ClusterDomain: "cluster.local"}}
+	proxy.probeCheck = func(_ context.Context, network, name string, typeCode dnsmessage.Type) error {
+		current := active.Add(1)
+		defer active.Add(-1)
+		for {
+			observed := maximum.Load()
+			if current <= observed || maximum.CompareAndSwap(observed, current) {
+				break
+			}
+		}
+		callsMu.Lock()
+		calls = append(calls, fmt.Sprintf("%s/%s/%s", network, name, dnsTypeName(typeCode)))
+		callsMu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+		return nil
+	}
+
+	if err := proxy.Probe(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"udp4/kubernetes.default.svc.cluster.local./A",
+		"tcp4/kubernetes.default.svc.cluster.local./A",
+		"udp4/example.com./A",
+		"udp4/example.com./AAAA",
+		"tcp4/example.com./A",
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("probe order = %#v, want %#v", calls, want)
+	}
+	if maximum.Load() != 1 {
+		t.Fatalf("maximum concurrent readiness probes = %d, want 1", maximum.Load())
+	}
+}
+
+func TestDNSProbeFailsClosedAtFirstFailedCheck(t *testing.T) {
+	var calls int
+	probeErr := errors.New("external UDP A unavailable")
+	proxy := &DNSProxy{config: Config{ClusterDomain: "cluster.local"}}
+	proxy.probeCheck = func(_ context.Context, _, _ string, _ dnsmessage.Type) error {
+		calls++
+		if calls == 3 {
+			return probeErr
+		}
+		return nil
+	}
+
+	err := proxy.Probe(context.Background())
+	if !errors.Is(err, probeErr) {
+		t.Fatalf("probe error = %v, want %v", err, probeErr)
+	}
+	if calls != 3 {
+		t.Fatalf("checks after first failure = %d, want 3 total", calls)
 	}
 }
 
