@@ -50,11 +50,12 @@ type GatewayRuntimeManager struct {
 }
 
 type runtimeState struct {
-	intent   Intent
-	mapping  ProviderObservation
-	draining bool
-	drained  bool
-	blocked  bool
+	intent     Intent
+	mapping    ProviderObservation
+	renewAfter time.Time
+	draining   bool
+	drained    bool
+	blocked    bool
 }
 
 func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VPNGateway, intent Intent) (Observation, error) {
@@ -100,18 +101,36 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 	if err != nil {
 		return Observation{}, err
 	}
-	providerLease, providerErr := m.PortForward.EnsureLease(ctx, request)
 	var mapping ProviderObservation
-	if providerErr == nil {
-		mapping = ProviderObservation{PublicAddress: providerLease.PublicAddress, PublicPort: providerLease.PublicPort, ExpiresAt: providerLease.ExpiresAt.UTC()}
-	} else if exists && previous.mapping.ExpiresAt.After(m.now()) {
+	var renewAfter time.Time
+	now := m.now()
+	providerRefreshDue := !exists || previous.renewAfter.IsZero() || !now.Before(previous.renewAfter) || !previous.mapping.ExpiresAt.After(now)
+	var providerErr error
+	if !providerRefreshDue {
 		mapping = previous.mapping
+		renewAfter = previous.renewAfter
 	} else {
-		delete(m.states, intent.LeaseUID)
-		_ = m.Rules.Replace(ctx, m.ruleSet())
-		return Observation{}, fmt.Errorf("ensure provider mapping: %w", providerErr)
+		providerLease, ensureErr := m.PortForward.EnsureLease(ctx, request)
+		providerErr = ensureErr
+		if providerErr == nil {
+			mapping = ProviderObservation{PublicAddress: providerLease.PublicAddress, PublicPort: providerLease.PublicPort, ExpiresAt: providerLease.ExpiresAt.UTC()}
+			renewAfter = providerLease.RenewAfter.UTC()
+			if !renewAfter.After(now) || !renewAfter.Before(mapping.ExpiresAt) {
+				providerErr = errors.New("provider returned an invalid renewal schedule")
+			}
+		}
+		if providerErr != nil {
+			if exists && previous.mapping.ExpiresAt.After(now) {
+				mapping = previous.mapping
+				renewAfter = previous.renewAfter
+			} else {
+				delete(m.states, intent.LeaseUID)
+				_ = m.Rules.Replace(ctx, m.ruleSet())
+				return Observation{}, fmt.Errorf("ensure provider mapping: %w", providerErr)
+			}
+		}
 	}
-	state := runtimeState{intent: intent, mapping: mapping}
+	state := runtimeState{intent: intent, mapping: mapping, renewAfter: renewAfter}
 	if exists && intent.HandoffGeneration == previous.intent.HandoffGeneration {
 		state.draining = previous.draining
 		state.drained = previous.drained
