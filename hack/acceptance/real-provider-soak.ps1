@@ -199,15 +199,18 @@ Write-JSONLine ([ordered]@{
 while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $sampleStarted = [DateTimeOffset]::UtcNow
     $summary.samples++
+    $samplePhase = "resource_read"
     try {
         $gatewayResource = Invoke-KubectlJSON @("-n", $Namespace, "get", "vpngateway", $Gateway, "-o", "json")
         $leaseResource = Invoke-KubectlJSON @("-n", $Namespace, "get", "portforwardlease", $Lease, "-o", "json")
         $podList = Invoke-KubectlJSON @("-n", $Namespace, "get", "pods", "-o", "json")
+        $samplePhase = "pod_selection"
         $pods = @($podList.items)
         $gatewayPod = Select-Pod $pods ("waycloak-gateway-{0}-" -f $Gateway)
         $workloadPod = @($pods | Where-Object { $_.metadata.name -match '^qbittorrent-[a-f0-9]+-' -and $_.metadata.name -notmatch 'adapter' } | Sort-Object { $_.metadata.name })[0]
         $adapterPod = Select-Pod $pods "qbittorrent-waycloak-adapter-"
 
+        $samplePhase = "condition_observation"
         $gatewayConditions = Get-ConditionMap $gatewayResource
         $leaseConditions = Get-ConditionMap $leaseResource
         $gatewayReady = $gatewayConditions["Ready"] -like "True/*"
@@ -216,17 +219,29 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         $workloadReady = Get-PodReady $workloadPod
         $adapterReady = Get-PodReady $adapterPod
         $gatewayPodReady = Get-PodReady $gatewayPod
-        $port = [int]$leaseResource.status.provider.publicPort
+        $providerStatus = $null
+        if ($null -ne $leaseResource.status -and $leaseResource.status.PSObject.Properties.Name -contains "provider") {
+            $providerStatus = $leaseResource.status.provider
+        }
+        $port = 0
+        $providerAddress = ""
+        if ($null -ne $providerStatus) {
+            $port = [int]$providerStatus.publicPort
+            $providerAddress = [string]$providerStatus.publicAddress
+        }
+        $samplePhase = "listener_observation"
         $listenerTCP = Test-QBittorrentListener $workloadPod.metadata.name $port "tcp"
         $listenerUDP = Test-QBittorrentListener $workloadPod.metadata.name $port "udp"
+        $samplePhase = "dns_observation"
         $externalDNS = Test-PodDNS $workloadPod.metadata.name "example.com"
         $clusterDNS = Test-PodDNS $workloadPod.metadata.name "kubernetes.default.svc.cluster.local"
 
+        $samplePhase = "release_identity"
         $releaseVersion = [string]$gatewayPod.metadata.annotations.'runtime.networking.waycloak.io/release-version'
         $releaseManifest = [string]$gatewayPod.metadata.annotations.'runtime.networking.waycloak.io/release-manifest-digest'
         $releaseExact = $releaseVersion -eq $ExpectedVersion -and $releaseManifest -eq $ExpectedManifestDigest
 
-        $mappingIdentity = "{0}:{1}" -f $leaseResource.status.provider.publicAddress, $port
+        $mappingIdentity = "{0}:{1}" -f $providerAddress, $port
         if (-not $baseline.ContainsKey("mapping")) { $baseline.mapping = $mappingIdentity }
         $mappingChanged = $mappingIdentity -ne $baseline.mapping
         if ($mappingChanged -and $mappingIdentity -ne $previous.mapping) { $summary.providerMappingChanges++ }
@@ -272,6 +287,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         if ($gatewayRVChanged) { $summary.gatewayResourceVersionChanges++ }
         if ($leaseRVChanged) { $summary.leaseResourceVersionChanges++ }
 
+        $samplePhase = "external_tcp"
         $externalTCP = $null
         if ((($summary.samples - 1) % $ExternalProbeEverySamples) -eq 0 -and $port -gt 0) {
             try {
@@ -295,6 +311,20 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         if (-not $externalDNS) { $summary.externalDNSFailures++ }
         if (-not $clusterDNS) { $summary.clusterDNSFailures++ }
 
+        $samplePhase = "evidence_serialization"
+        $providerExpiry = $null
+        if ($null -ne $providerStatus) {
+            $providerExpiryValue = [string]$providerStatus.expiresAt
+        } else {
+            $providerExpiryValue = ""
+        }
+        if ($providerExpiryValue) {
+            $parsedProviderExpiry = [DateTimeOffset]::MinValue
+            if (-not [DateTimeOffset]::TryParse($providerExpiryValue, [ref]$parsedProviderExpiry)) {
+                throw "provider expiry is not a valid timestamp"
+            }
+            $providerExpiry = $parsedProviderExpiry.ToString("O")
+        }
         Write-JSONLine ([ordered]@{
             kind = "WaycloakLocalSoakSample"
             apiVersion = "evidence.waycloak.io/v1"
@@ -318,7 +348,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
             restartIncrease = $restartIncrease
             gatewayResourceVersionChanged = [bool]$gatewayRVChanged
             leaseResourceVersionChanged = [bool]$leaseRVChanged
-            providerExpiry = ([DateTimeOffset]$leaseResource.status.provider.expiresAt).ToString("O")
+            providerExpiry = $providerExpiry
             handoffGeneration = $handoffGeneration
             gatewayConditions = $gatewayConditions
             leaseConditions = $leaseConditions
@@ -340,6 +370,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
             observedAt = $sampleStarted.ToString("O")
             collectionHealthy = $false
             failureCategory = $_.Exception.GetType().Name
+            failurePhase = $samplePhase
             publicEndpointRecorded = $false
         })
     }
