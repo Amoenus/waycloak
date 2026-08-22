@@ -9,16 +9,19 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-18):** `v0.1.0-rc.25` preserves the
-existing `networking.waycloak.io/v1beta1` contract and packages the complete
-product for signed direct consumption, Helm OCI, and KCL OCI. RC.24 passed
-publication and exact GitOps deployment, but its live transition exposed an
-undocumented immutable `WorkloadAdapter` replacement requirement. RC.25 adds
-the controller-neutral transaction and the Argo CD force-recreation caveat. It
-changes no runtime, schema, configuration semantic, or generated Kubernetes
-resource. RC.25 remains a release candidate, not closure of #123, #140, or
-#141 and not stable graduation. A fresh exact-artifact local-cluster
-qBittorrent soak is required.
+**Release-candidate checkpoint (2026-08-22):** `v0.1.0-rc.26` preserves the
+frozen `networking.waycloak.io/v1beta1` contract and packages the complete
+product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
+72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
+found an unchanged-state provider-renewal/status feedback loop, hundreds of
+adapter listener-probe timeouts, recurrent fail-closed DNS observations, three
+lease handoffs, and a harness serialization gap during absent-provider states.
+RC.26 honors the provider renewal schedule, serializes the same strict DNS
+checks, and retains failed lease condition evidence. It changes no public API
+schema or configuration contract. RC.26 remains a release candidate, not
+closure of #123, #140, or #141 and not stable graduation. Exact publication,
+GitOps deployment, live qBittorrent validation, and a fresh minimum 72-hour
+local-cluster soak are required.
 
 **RC.18 publication correction (2026-08-17):** RC.17 passed exact main CI and
 its CLI publication verifier, but its runtime uploader lost a GitHub release

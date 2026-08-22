@@ -1,6 +1,6 @@
 # Project status
 
-## RC.24 local-cluster rollout and RC.25 documentation correction
+## RC.25 local-cluster soak finding and RC.26 correction
 
 Signed `v0.1.0-rc.24` was published from exact main commit
 `ee22a1388f48d76171dbd57abf817a706f337721` after runtime release run
@@ -36,14 +36,40 @@ transition and exact-UID adapter trust recreation completed fail closed; all
 selected containers returned Ready with zero restarts and qBittorrent retained
 its Pod UID.
 
-The authoritative RC.25 epoch began at
-`2026-08-18T04:05:45.5042732Z` and is scheduled through
-`2026-08-21T04:05:45.5042732Z`. The collector writes offset-aware UTC values;
-earlier issue comments that copied PowerShell's local-time display as `Z` are
-superseded by explicit correction comments. This status-only correction does
-not change the deployed release manifest, GitOps revision, chart, images,
-configuration semantics, or canary intent and therefore does not reset that
-epoch.
+The authoritative RC.25 epoch ran from `2026-08-18T04:05:45.5042732Z` through
+`2026-08-21T04:05:46.0794252Z`: 72.0002 hours and 4,235 samples on the existing
+homelab cluster with qBittorrent as the sole application canary. The release
+identity, GitOps revision, selected Pod UIDs, and restart counts remained fixed.
+The collector recorded no public provider endpoint and 418 of 419 explicit
+external TCP results succeeded. Bitmagnet remained at zero and no node was
+added, reimaged, or repurposed.
+
+The epoch does not pass stable graduation. Nine samples observed the lease and
+TCP/UDP listeners unavailable before a missing provider expiry collapsed the
+record into an opaque harness exception. The lease handoff generation advanced
+three times. Gateway logs identify 35 fail-closed incidents: 34 split-DNS
+observations and one Gluetun tunnel-health failure. The longest DNS interval was
+60.123 seconds and affected external A over UDP and TCP, external AAAA over UDP,
+and the qBittorrent DNS checks; it was genuine DNS loss rather than a torrent
+tracker artifact. All incidents recovered without a selected Pod restart or UID
+change.
+
+The deeper write-rate audit found the principal Waycloak defect. The lease
+resource version changed between 4,234 of 4,235 minute samples. Eight live reads
+four seconds apart then observed eight different provider expiries at one fixed
+handoff generation. Runtime logs retained 430 adapter HTTP conflict responses;
+429 were qBittorrent listener-probe timeouts. Unchanged reconciliation was
+renewing NAT-PMP, rewriting status, and redelivering the same application record
+in a feedback loop.
+
+PR #238 bounds provider acquisition to the driver-supplied renewal schedule.
+PR #239 runs the unchanged mandatory A/AAAA and UDP/TCP readiness checks in
+deterministic sequence and still withdraws readiness at the first failed path;
+it adds no hysteresis or fallback. PR #240 preserves the actual failed
+lease/listener/DNS condition sample when provider expiry is absent. RC.26 carries
+those corrections without changing the frozen Kubernetes API or configuration
+contract. It requires exact publication, GitOps deployment, live qBittorrent
+validation, and a fresh minimum 72-hour local-cluster epoch before graduation.
 
 ## RC.23 documentation-coherence finding and RC.24 correction
 

@@ -25,10 +25,10 @@ releases. It does not substitute for the unchanged-artifact multi-day gate.
 Run from the trusted workstation that owns the homelab kubeconfig:
 
 ```powershell
-$evidence = Join-Path $env:TEMP "waycloak-rc25-qbittorrent-soak.jsonl"
+$evidence = Join-Path $env:TEMP "waycloak-rc26-qbittorrent-soak.jsonl"
 pwsh -File hack/acceptance/real-provider-soak.ps1 `
   -OutputPath $evidence `
-  -ExpectedVersion v0.1.0-rc.25 `
+  -ExpectedVersion v0.1.0-rc.26 `
   -ExpectedManifestDigest <exact-signed-release-manifest-digest> `
   -DurationHours 72 `
   -IntervalSeconds 60
@@ -75,8 +75,10 @@ packet evidence:
 3. qBittorrent UDP egress from the overlay through the tunnel; and
 4. fail-closed withdrawal during gateway loss with zero ordinary-egress match.
 
-Packet diagnostics use an immutable diagnostic image and must be removed by a
-clean gateway replacement after capture. They never install an allow rule.
+Packet diagnostics use an immutable, short-lived privileged diagnostic Pod on
+the existing qBittorrent node, enter only the live gateway network namespace,
+install no allow rule, and are deleted immediately after capture. They do not
+mutate or replace the gateway or workload Pods.
 
 ## Acceptance
 
