@@ -104,7 +104,7 @@ knowledge is needed on the supported quick path.
 
 ## Phase 5 — API beta, operations and stable certification
 
-Current gate (2026-08-18): the signed beta cycle, dependencies #32/#33, and
+Current gate (2026-08-22): the signed beta cycle, dependencies #32/#33, and
 implementation issues #124–#139 have evidence-backed completion. RC.23 passed
 publication, independent verification, exact GitOps deployment, support-row
 matching, live qBittorrent torrent/DHT/port-forward operation, and its early
@@ -115,9 +115,16 @@ turnkey documentation/status surface and preserves the frozen runtime, schema,
 configuration semantics, and generated Kubernetes resources. Its exact GitOps
 rollout then exposed that the immutable `WorkloadAdapter` trust record requires
 a resource-scoped replacement, which its signed operator guidance did not yet
-describe. RC.25 documents that fail-closed transaction. It must pass exact
-publication, GitOps deployment, and a fresh minimum 72-hour local qBittorrent
-soak before #140/#141 and the `v1.0.0` graduation review can close.
+describe. RC.25 documented that fail-closed transaction and completed its exact
+72-hour local-cluster qBittorrent interval. The interval remains lifecycle and
+recovery evidence, but failed graduation because unchanged reconciliation
+continuously renewed provider status, repeatedly drove the application adapter,
+and exposed recurrent DNS withdrawals plus incomplete failed-sample detail.
+RC.26 bounds renewal to the provider schedule, removes five-way DNS probe
+contention without hysteresis, and preserves absent-provider condition samples.
+It must pass exact publication, GitOps deployment, and a fresh minimum 72-hour
+local qBittorrent soak before #140/#141 and the `v1.0.0` graduation review can
+close.
 
 1. Publish signed standalone/chart CRD bundles and one support-matrix manifest.
 2. Test every supported beta upgrade/rollback, stored-version migration,
