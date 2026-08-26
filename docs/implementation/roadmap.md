@@ -23,6 +23,27 @@ closure of #123, #140, or #141 and not stable graduation. Exact publication,
 GitOps deployment, live qBittorrent validation, and a fresh minimum 72-hour
 local-cluster soak are required.
 
+**Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
+API and fail-closed behavior while delegating general protocol machinery to
+qualified maintained dependencies. Work proceeds in this order:
+
+- [ ] #242 establish exact dependency freshness, maintenance, security and
+  lightweight-runtime gates.
+- [ ] #245 separate workload-adapter Apply, Observe and renewal acknowledgement
+  semantics so unchanged renewal is a no-op.
+- [ ] #243 replace custom provider acquisition/renewal with Gluetun's native
+  authenticated port-forward capability.
+- [ ] #244 qualify a pinned CoreDNS gateway sidecar and retain Waycloak's strict
+  semantic DNS readiness/no-fallback probe.
+- [ ] #246 add bounded OpenTelemetry-first signals with no-op default and
+  optional OTLP/Prometheus-compatible export.
+
+Each slice is independently reversible and must pass exact artifact, packet,
+DNS leak, adapter, GitOps qBittorrent, resource-budget and privacy gates. The
+work does not authorize a new node, replacement CNI, service mesh, mandatory
+collector, or weakened readiness. The successor release starts a new 72-hour
+local-cluster graduation epoch.
+
 **RC.18 publication correction (2026-08-17):** RC.17 passed exact main CI and
 its CLI publication verifier, but its runtime uploader lost a GitHub release
 creation race after all runtime artifacts and attestations had been produced.

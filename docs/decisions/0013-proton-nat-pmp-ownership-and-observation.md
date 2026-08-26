@@ -8,6 +8,12 @@ the tokenless gateway runtime retains NAT-PMP ownership, but the Proton client
 is selected behind the Gluetun engine's port-forward capability boundary rather
 than imported by the generic runtime.
 
+Partially superseded by
+[ADR 0044](0044-delegate-protocol-machinery-and-use-lightweight-otel.md),
+which delegates provider protocol acquisition and renewal to Gluetun's native
+capability while preserving Waycloak's identity, observation-freshness,
+translation, handoff, status, and fail-closed responsibilities.
+
 ## Context
 
 Proton's manual OpenVPN port-forwarding contract uses NAT-PMP at

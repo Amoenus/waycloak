@@ -1,5 +1,19 @@
 # Project status
 
+## Dependency-backed stabilization direction
+
+ADR 0044 was accepted on 2026-08-26 after the RC.26 local-cluster qBittorrent
+evidence localized recurring risk in custom DNS serving, direct provider
+protocol renewal, and adapter observation semantics. The frozen Kubernetes API
+and fail-closed contract do not change. The next stabilization slices qualify
+maintained current dependencies, delegate provider mapping acquisition to
+Gluetun, qualify a pinned CoreDNS gateway sidecar, separate adapter Apply and
+Observe behavior, and add lightweight OpenTelemetry-first diagnostics with a
+no-op default. Issues #242-#246 track the implementation. None of this evidence
+completes #123, #140, or #141; a newly published exact release, GitOps
+qBittorrent validation, and a clean minimum 72-hour local-cluster soak remain
+mandatory before graduation.
+
 ## RC.25 local-cluster soak finding and RC.26 correction
 
 Signed `v0.1.0-rc.24` was published from exact main commit

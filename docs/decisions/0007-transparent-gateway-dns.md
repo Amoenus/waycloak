@@ -3,6 +3,11 @@
 Status: Accepted
 Date: 2026-07-13
 
+Amended by
+[ADR 0044](0044-delegate-protocol-machinery-and-use-lightweight-otel.md),
+which retains this routing and semantic readiness contract while selecting a
+qualified CoreDNS sidecar as the preferred DNS serving implementation.
+
 ## Context
 
 Protected Pods must retain Kubernetes search domains and service discovery, but

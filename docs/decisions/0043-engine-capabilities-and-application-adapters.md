@@ -4,6 +4,12 @@ Status: Accepted
 
 Date: 2026-08-13
 
+Amended by
+[ADR 0044](0044-delegate-protocol-machinery-and-use-lightweight-otel.md),
+which uses Gluetun's native port-forward control capability and separates
+application Apply, Observe, and renewal acknowledgement behavior without
+changing these responsibility boundaries.
+
 ## Context
 
 Waycloak uses Gluetun as its VPN engine dependency. Gluetun already owns VPN

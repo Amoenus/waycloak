@@ -2,7 +2,7 @@
 
 Status: Draft for implementation
 Owner: Waycloak maintainers
-Last updated: 2026-07-15
+Last updated: 2026-08-26
 
 > **Supersession notice (2026-07-26):** this PRD describes the implemented alpha
 > product and remains useful as an as-built requirements record. The proposed
@@ -67,6 +67,9 @@ details and lease churn belong behind the Waycloak boundary.
     rather than duplicating every provider and protocol option in Waycloak.
 13. Make unavoidable application adapters independently implementable,
     conformant, least-privilege, and distributable as immutable OCI artifacts.
+14. Prefer current, maintained upstream protocol components over custom
+    networking machinery, and expose bounded OpenTelemetry signals without
+    requiring an observability backend or making the runtime heavyweight.
 
 ## Non-goals
 
@@ -203,6 +206,20 @@ Uninstall documentation must state ordering. The webhook is removed without trap
 - Controller restart does not change client addresses or leases.
 - Agent reconnect rereads current configuration without requiring application restart where feasible.
 - Gateway/tunnel recovery is automatic and observable.
+
+### Dependency and observability discipline
+
+- New dependencies must be actively maintained, use the latest qualified
+  stable release where possible, and be pinned by exact version or digest.
+- Qualification covers license, security support, provenance, SBOM,
+  vulnerabilities, reproducibility, compatibility, binary/image size, CPU,
+  allocations and RSS. Deliberate version lag is documented and reviewed.
+- OpenTelemetry is the preferred internal instrumentation API with a no-op
+  default. OTLP and Prometheus-compatible export are optional; export cannot
+  block reconciliation or influence readiness.
+- Telemetry is bounded and non-sensitive. Per-packet signals, arbitrary domain
+  names, endpoints, ports, workload/lease identities and torrent metadata are
+  not exported.
 
 ### Performance
 
@@ -370,3 +387,9 @@ graduation epoch.
 - The first eBPF implementation is a developer-preview CNI creation-time
   handoff plus node owner; it is not the default or a production support claim
   ([ADR 0024](../decisions/0024-ebpf-preview-cni-handoff.md)).
+- General DNS serving and provider port-forward acquisition are delegated to
+  qualified, pinned CoreDNS and Gluetun capabilities while Waycloak retains
+  semantic readiness, stable identities, translation, handoff and fail-closed
+  withdrawal. Application effects and observations are separate, and
+  OpenTelemetry export remains optional
+  ([ADR 0044](../decisions/0044-delegate-protocol-machinery-and-use-lightweight-otel.md)).

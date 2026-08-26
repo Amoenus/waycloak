@@ -45,5 +45,6 @@ ADRs capture decisions that are expensive to reverse. Accepted ADRs are normativ
 - [0041: Portable intent backup reacquires runtime identity](0041-portable-state-backup-and-disaster-restore.md)
 - [0042: Exact release transitions bind source state and preserve denial](0042-exact-release-transition-and-rollback.md)
 - [0043: VPN engine capabilities and last-resort application adapters](0043-engine-capabilities-and-application-adapters.md)
+- [0044: Delegate protocol machinery and use lightweight OpenTelemetry](0044-delegate-protocol-machinery-and-use-lightweight-otel.md)
 
 New ADRs use the next number and include status, context, decision, consequences, alternatives, and supersession links.

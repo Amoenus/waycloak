@@ -1,7 +1,7 @@
 # Stable and turnkey Waycloak product requirements
 
 Status: Requirements accepted; replacement API frozen by issue #127
-Last updated: 2026-08-13
+Last updated: 2026-08-26
 Target: clean-break replacement architecture, then `v1` after beta evidence
 
 ## Product outcome
@@ -186,6 +186,30 @@ unsupported nodes, reference denial, CNI refusal, tunnel/DNS loss, drift,
 gateway replacement, lease renewal and adapter acknowledgement without Secret
 or sensitive endpoint disclosure.
 
+### ST-FR-13: Maintained upstream protocol and telemetry boundaries
+
+Waycloak uses maintained upstream components for general protocol machinery
+when they preserve the fail-closed contract. The Gluetun engine owns provider
+port-forward acquisition and renewal through its authenticated native control
+capability; Waycloak owns durable lease identity, stable targets, translation,
+observation freshness, handoff, status and withdrawal. A qualified, pinned DNS
+server sidecar owns split-DNS serving; Waycloak retains semantic end-to-end
+cluster/external A/AAAA UDP/TCP readiness and immediate denial on failure.
+
+Dependencies use the latest qualified stable release where possible and are
+pinned by version or digest. Adoption requires current maintenance, support,
+license, security, provenance, SBOM, vulnerability, reproducibility,
+compatibility, binary-size and runtime-resource evidence. Mutable tags,
+unreviewed automatic upgrades, and stale or inactive new dependencies are not
+accepted. A deliberate version lag has an owner, reason, and review date.
+
+OpenTelemetry is the internal model for bounded metrics and focused traces.
+The default provider is no-op; OTLP and Prometheus-compatible export are
+optional views of one instrument set. No collector, Prometheus installation,
+or observability backend is required for correctness. Export delay or failure
+never affects reconciliation, readiness, freshness, or fail-closed behavior.
+Per-packet telemetry and sensitive or high-cardinality attributes are forbidden.
+
 ## Reliability and security requirements
 
 - Zero direct-egress packets during startup, controller/admission/node-agent
@@ -197,6 +221,10 @@ or sensitive endpoint disclosure.
 - Reconciliation is level based, no-op suppressing, conflict aware and bounded;
   finalizers cannot block deletion indefinitely without an observable quarantine
   escape procedure.
+- Unchanged provider observation or adapter acknowledgement is a no-op.
+  Application mutation occurs only for a changed exact lease, target, Pod,
+  generation, or public-port identity; transient observation failure is not an
+  immutable conflict and cannot be hidden past the freshness deadline.
 - Provider credentials stay only with the gateway engine; node agents and
   workloads receive none.
 - Application containers gain no Linux capability, API token, host mount or
@@ -204,6 +232,9 @@ or sensitive endpoint disclosure.
 - Tenant-writable namespace labels cannot authorize cross-namespace access.
 - Multi-day exact-artifact real-provider soak, destructive lifecycle, backup,
   restore and gateway replacement tests gate stable release.
+- The mandatory runtime remains lightweight. Every new sidecar, exporter, or
+  library has measured idle and loaded CPU, RSS, allocation, image and binary
+  cost, and must fit the published resource budget.
 
 ## API quality requirements
 
@@ -241,6 +272,12 @@ or sensitive endpoint disclosure.
     valid lifecycle, fail-closed and recovery evidence, including windows that
     expose a defect, but their durations are not combined with or substituted
     for the clean unchanged-artifact graduation epoch.
+11. The dependency inventory contains no unexplained stale or unmaintained
+    direct dependency, and the exact release records every accepted version
+    lag and measured runtime cost.
+12. DNS and port-forward incidents are attributable to a bounded phase/result
+    through conditions, events, doctor output, and optional OpenTelemetry
+    without leaking endpoints, identities, domains, or application metadata.
 
 ## Non-goals
 
@@ -249,7 +286,8 @@ or sensitive endpoint disclosure.
 - Transparently converting an already-running unprotected Pod in place.
 - A weak fallback for clusters that prohibit chained CNI installation.
 - Hard runtime dependencies on Gateway API, cert-manager, KCL, Crossplane,
-  Argo CD, ESO, a service mesh or Prometheus Operator.
+  Argo CD, ESO, a service mesh, Prometheus Operator, OpenTelemetry Collector,
+  or observability backend.
 - Multiple stable data planes maintained for legacy compatibility.
 - Multi-gateway sharding, UI, or broad provider catalog before baseline proof.
 
@@ -262,3 +300,4 @@ or sensitive endpoint disclosure.
 - [Threat model](../security/threat-model.md)
 - [Stable implementation plan](../implementation/stable-product-plan.md)
 - [Architecture decisions](../decisions/README.md)
+- [ADR 0044: upstream protocol machinery and lightweight OpenTelemetry](../decisions/0044-delegate-protocol-machinery-and-use-lightweight-otel.md)
