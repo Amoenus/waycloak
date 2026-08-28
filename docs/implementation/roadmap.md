@@ -40,8 +40,14 @@ qualified maintained dependencies. Work proceeds in this order:
   acknowledgement, and conflict/unavailable classification survives both HTTP
   hops. Exact release and local qBittorrent GitOps evidence remain before the
   issue can be checked complete.
-- [ ] #243 replace custom provider acquisition/renewal with Gluetun's native
-  authenticated port-forward capability.
+- [ ] #243 has replaced custom provider acquisition/renewal with Gluetun
+  v3.41.3's native port-forward lifecycle and a least-privilege,
+  API-key-authenticated loopback observation route. Release-owned engine
+  settings prevent competing lifecycle owners; unchanged mapping observations
+  preserve identity and only refresh the bounded observation-validity window.
+  The old Proton NAT-PMP implementation is removed. Exact derived-image,
+  real-provider rotation, rollback, and local qBittorrent GitOps evidence remain
+  before the issue can be checked complete.
 - [ ] #244 qualify a pinned CoreDNS gateway sidecar and retain Waycloak's strict
   semantic DNS readiness/no-fallback probe.
 - [ ] #246 add bounded OpenTelemetry-first signals with no-op default and

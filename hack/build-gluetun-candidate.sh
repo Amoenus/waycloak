@@ -30,14 +30,14 @@ fi
 (
   cd "$source_dir"
   GOWORK=off "$go_bin" get \
-    github.com/cloudflare/circl@v1.6.3 \
-    golang.org/x/net@v0.56.0 \
-    golang.org/x/text@v0.39.0
+    github.com/cloudflare/circl@v1.6.5 \
+    golang.org/x/net@v0.58.0 \
+    golang.org/x/text@v0.41.0
   GOWORK=off "$go_bin" mod tidy
 
-  test "$(GOWORK=off "$go_bin" list -m -f '{{.Version}}' github.com/cloudflare/circl)" = v1.6.3
-  test "$(GOWORK=off "$go_bin" list -m -f '{{.Version}}' golang.org/x/net)" = v0.56.0
-  test "$(GOWORK=off "$go_bin" list -m -f '{{.Version}}' golang.org/x/text)" = v0.39.0
+  test "$(GOWORK=off "$go_bin" list -m -f '{{.Version}}' github.com/cloudflare/circl)" = v1.6.5
+  test "$(GOWORK=off "$go_bin" list -m -f '{{.Version}}' golang.org/x/net)" = v0.58.0
+  test "$(GOWORK=off "$go_bin" list -m -f '{{.Version}}' golang.org/x/text)" = v0.41.0
   GOWORK=off "$go_bin" run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./cmd/gluetun
 
   mapfile -t changed_files < <(git diff --name-only)

@@ -58,7 +58,7 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 		t.Fatalf("unsafe gateway Pod identity: %#v", statefulSet.Spec.Template.Spec)
 	}
 	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1]
-	if engine.Name != "vpn-engine" || len(engine.Env) != 3 || engine.Env[2].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[2].Value != controlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 {
+	if engine.Name != "vpn-engine" || len(engine.Env) != 4 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "off" || engine.Env[3].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[3].Value != staticControlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 || len(statefulSet.Spec.Template.Spec.InitContainers) != 0 {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
 	}
 	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 5 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" || engine.SecurityContext.Capabilities.Add[3] != "SETUID" || engine.SecurityContext.Capabilities.Add[4] != "KILL" {
@@ -175,15 +175,26 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 	}
 	statefulSet := &appsv1.StatefulSet{}
 	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
-	if len(statefulSet.Spec.Template.Spec.Containers) != 3 || len(statefulSet.Spec.Template.Spec.Volumes) != 3 {
-		t.Fatalf("port-forward gateway Pod shape = %d containers, %d volumes", len(statefulSet.Spec.Template.Spec.Containers), len(statefulSet.Spec.Template.Spec.Volumes))
+	if len(statefulSet.Spec.Template.Spec.Containers) != 3 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || len(statefulSet.Spec.Template.Spec.Volumes) != 4 {
+		t.Fatalf("port-forward gateway Pod shape = %d containers, %d init containers, %d volumes", len(statefulSet.Spec.Template.Spec.Containers), len(statefulSet.Spec.Template.Spec.InitContainers), len(statefulSet.Spec.Template.Spec.Volumes))
+	}
+	initContainer := statefulSet.Spec.Template.Spec.InitContainers[0]
+	if initContainer.Name != "gluetun-control-auth" || initContainer.Image != provisioner.PortForwardRuntimeImage || len(initContainer.VolumeMounts) != 2 || !strings.Contains(strings.Join(initContainer.Args, " "), "--write-gluetun-control-auth="+generatedControlAuthConfigPath) || !strings.Contains(strings.Join(initContainer.Args, " "), "--gluetun-control-api-key-output="+generatedControlAPIKeyPath) {
+		t.Fatalf("authenticated control policy init container is not exact: %#v", initContainer)
+	}
+	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1]
+	if len(engine.Env) != 8 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "on" || engine.Env[3].Name != "VPN_PORT_FORWARDING_STATUS_FILE" || engine.Env[3].Value != "/gluetun/forwarded_port" || engine.Env[7].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[7].Value != generatedControlAuthConfigPath || len(engine.VolumeMounts) != 3 {
+		t.Fatalf("Gluetun native port forwarding is not release-owned: %#v", engine)
+	}
+	if len(agent.VolumeMounts) != 1 || !strings.Contains(strings.Join(agent.Args, " "), "--gluetun-control-api-key-file="+generatedControlAPIKeyPath) {
+		t.Fatalf("gateway observer lacks authenticated control access: %#v", agent)
 	}
 	runtimeContainer := statefulSet.Spec.Template.Spec.Containers[2]
-	if runtimeContainer.Name != "port-forward-runtime" || runtimeContainer.Image != provisioner.PortForwardRuntimeImage || len(runtimeContainer.Env) != 0 || len(runtimeContainer.EnvFrom) != 0 || len(runtimeContainer.VolumeMounts) != 1 || runtimeContainer.VolumeMounts[0].Name != "port-forward-runtime-tls" {
+	if runtimeContainer.Name != "port-forward-runtime" || runtimeContainer.Image != provisioner.PortForwardRuntimeImage || len(runtimeContainer.Env) != 0 || len(runtimeContainer.EnvFrom) != 0 || len(runtimeContainer.VolumeMounts) != 2 || runtimeContainer.VolumeMounts[0].Name != "port-forward-runtime-tls" || runtimeContainer.VolumeMounts[1].Name != "gluetun-control-auth" {
 		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
 	}
 	joinedArgs := strings.Join(runtimeContainer.Args, " ")
-	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/proton-natpmp", "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local"} {
+	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/native-port-forward", "--gluetun-control-api-key-file=" + generatedControlAPIKeyPath, "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local"} {
 		if !strings.Contains(joinedArgs, required) {
 			t.Fatalf("runtime args %q lack %q", joinedArgs, required)
 		}
@@ -256,7 +267,7 @@ func TestProvisionerRejectsUnsupportedEnginePortForwardCapability(t *testing.T) 
 	provisioner.PortForwardRuntimeImage = "ghcr.io/amoenus/waycloak-gateway-runtime@sha256:" + strings.Repeat("d", 64)
 	provisioner.PortForwardRuntimePort = 9443
 	provisioner.AdapterPort = 9444
-	if _, err := provisioner.Reconcile(context.Background(), gateway); err == nil || !strings.Contains(err.Error(), "supported port-forward capability") {
+	if _, err := provisioner.Reconcile(context.Background(), gateway); err == nil || !strings.Contains(err.Error(), "qualified port-forward capability") {
 		t.Fatalf("unsupported Gluetun port-forward configuration error = %v", err)
 	}
 	statefulSet := &appsv1.StatefulSet{}
@@ -277,7 +288,7 @@ func TestProvisionerRejectsPartialPortForwardConfiguration(t *testing.T) {
 }
 
 func TestValidateEngineConfigRejectsControlAuthenticationOverrides(t *testing.T) {
-	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE"} {
+	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE", "VPN_PORT_FORWARDING", "VPN_PORT_FORWARDING_PROVIDER", "VPN_PORT_FORWARDING_STATUS_FILE", "VPN_PORT_FORWARDING_UP_COMMAND", "VPN_PORT_FORWARDING_DOWN_COMMAND", "VPN_PORT_FORWARDING_LISTENING_PORT"} {
 		if err := validateEngineConfig(map[string]string{key: "unsafe"}); err == nil {
 			t.Fatalf("accepted operator override of %s", key)
 		}

@@ -375,8 +375,9 @@ six Waycloak amd64/arm64 binaries, packages the
 chart with the tag-derived immutable version, publishes only digest-resolved
 identities, and assembles `release-manifest.json` with the derived Gluetun
 and pinned pause identities. The Gluetun image is built from upstream commit
-`7eed6eaf160440724a93ca66f66055068cebe4ac` on upstream multi-platform image
-digest `sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461`.
+`3d1e20c5551e9cae1f9d938dc7b7214a6987f27e` (v3.41.3) on upstream
+multi-platform image digest
+`sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027`.
 Only the reachable fixed Go dependencies are advanced; the release includes
 the exact patch, binary checksums, and preserved upstream MIT license.
 Call-graph analysis, upstream privileged tests, and the image vulnerability

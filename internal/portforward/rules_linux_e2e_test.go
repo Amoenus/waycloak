@@ -65,7 +65,7 @@ func TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal(t *testing.T
 	serveTCPIdentity(tcpB, "pod-b")
 	serveUDPIdentity(udpB, "pod-b")
 
-	rule := GatewayRule{LeaseUID: "lease-a", HandoffGeneration: 1, ProviderInternalPort: 50000,
+	rule := GatewayRule{LeaseUID: "lease-a", HandoffGeneration: 1, IngressPort: 50000,
 		OverlayAddress: "10.42.0.10", TargetPort: 6881, Protocols: []wayv1.TransportProtocol{wayv1.ProtocolTCP, wayv1.ProtocolUDP}}
 	backend := LinuxRuleBackend{TunnelInterface: "tun0", OverlayInterface: "way0"}
 	if err := gatewayNS.Do(func(ns.NetNS) error { return backend.Replace(context.Background(), []GatewayRule{rule}) }); err != nil {

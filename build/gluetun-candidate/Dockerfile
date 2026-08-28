@@ -10,6 +10,13 @@ ARG TARGETARCH
 ARG WAYCLOAK_RELEASE
 ARG WAYCLOAK_SOURCE_COMMIT
 
+# The exact stable upstream image can lag security-fixed Alpine packages.
+# Pin the narrow fixed set so rebuilds do not silently consume a later package.
+RUN apk add --no-cache --upgrade \
+      libcrypto3=3.5.8-r0 \
+      libssl3=3.5.8-r0 \
+      openssl=3.5.8-r0
+
 COPY --chmod=0755 bin/gluetun-entrypoint-linux-${TARGETARCH} /gluetun-entrypoint
 COPY --chmod=0444 control-auth.toml /etc/waycloak/gluetun-control-auth.toml
 COPY LICENSE /licenses/gluetun/LICENSE

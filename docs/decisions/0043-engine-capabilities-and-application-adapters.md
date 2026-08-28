@@ -48,12 +48,14 @@ The generic Waycloak port-forward manager depends only on the engine-selected
 selection, stable application-side port intent, provider-port-to-backend-port
 translation, atomic DNAT/return rules, handoff, status, and withdrawal.
 
-The Gluetun adapter currently selects
-`gluetun.waycloak.io/proton-natpmp` only when native configuration explicitly
-selects `VPN_SERVICE_PROVIDER=protonvpn` and `VPN_TYPE=openvpn`. Unsupported or
-ambiguous configuration fails before rendering the optional runtime. The
-generic runtime does not import the Proton implementation or expose a
-Proton-specific command-line option.
+As superseded by ADR 0044, the Gluetun adapter selects
+`gluetun.waycloak.io/native-port-forward` only when native configuration
+explicitly selects a qualified provider/VPN pair. Gluetun owns provider
+acquisition and renewal; the generic runtime only observes the authenticated
+loopback control API and retains mapping freshness, translation, handoff,
+delivery, status, and withdrawal. Unsupported or ambiguous configuration fails
+before rendering the optional runtime. No Proton protocol implementation or
+provider-specific command-line option remains in Waycloak.
 
 Application integration follows this mandatory preference order:
 

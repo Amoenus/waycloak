@@ -17,12 +17,12 @@ import (
 )
 
 type GatewayRule struct {
-	LeaseUID             wayv1.ObjectUID
-	HandoffGeneration    int64
-	ProviderInternalPort uint16
-	OverlayAddress       string
-	TargetPort           uint16
-	Protocols            []wayv1.TransportProtocol
+	LeaseUID          wayv1.ObjectUID
+	HandoffGeneration int64
+	IngressPort       uint16
+	OverlayAddress    string
+	TargetPort        uint16
+	Protocols         []wayv1.TransportProtocol
 }
 
 type RuleBackend interface {
@@ -266,7 +266,7 @@ func (m *GatewayRuntimeManager) ruleSet() []GatewayRule {
 }
 
 func ruleFor(state runtimeState) GatewayRule {
-	return GatewayRule{LeaseUID: state.intent.LeaseUID, HandoffGeneration: state.intent.HandoffGeneration, ProviderInternalPort: state.intent.ProviderInternalPort,
+	return GatewayRule{LeaseUID: state.intent.LeaseUID, HandoffGeneration: state.intent.HandoffGeneration, IngressPort: state.mapping.PublicPort,
 		OverlayAddress: state.intent.OverlayAddress.String(), TargetPort: effectiveTargetPort(state), Protocols: append([]wayv1.TransportProtocol(nil), state.intent.Protocols...)}
 }
 

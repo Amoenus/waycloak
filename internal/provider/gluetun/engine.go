@@ -31,6 +31,7 @@ func (err *httpStatusError) Error() string { return fmt.Sprintf("unexpected HTTP
 type Engine struct {
 	HealthURL  string
 	ControlURL string
+	APIKeyFile string
 	Client     *http.Client
 	Logger     *slog.Logger
 }
@@ -147,6 +148,13 @@ func (engine *Engine) getJSON(ctx context.Context, url string, target any) error
 		return err
 	}
 	request.Header.Set("Accept", "application/json")
+	if engine.APIKeyFile != "" {
+		apiKey, err := readControlAPIKey(engine.APIKeyFile)
+		if err != nil {
+			return err
+		}
+		request.Header.Set("X-API-Key", apiKey)
+	}
 	response, err := engine.client().Do(request)
 	if err != nil {
 		return err

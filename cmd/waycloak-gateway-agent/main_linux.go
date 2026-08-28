@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	var uid, overlayCIDR, gatewayAddress, overlayInterface, underlayInterface, tunnelInterface, dnsUpstream, clusterDNSUpstream, clusterDomain string
+	var uid, overlayCIDR, gatewayAddress, overlayInterface, underlayInterface, tunnelInterface, dnsUpstream, clusterDNSUpstream, clusterDomain, controlAPIKeyFile string
 	var vxlanPort, healthPort uint
 	var vni uint
 	var mtu int
@@ -33,6 +33,7 @@ func main() {
 	flag.StringVar(&dnsUpstream, "dns-upstream", "127.0.0.1:53", "loopback engine DNS upstream")
 	flag.StringVar(&clusterDNSUpstream, "cluster-dns-upstream", "", "reviewed Kubernetes DNS Service upstream")
 	flag.StringVar(&clusterDomain, "cluster-domain", "", "reviewed Kubernetes cluster DNS suffix")
+	flag.StringVar(&controlAPIKeyFile, "gluetun-control-api-key-file", "", "optional Pod-local Gluetun control API identity")
 	flag.UintVar(&vxlanPort, "vxlan-port", 4789, "VXLAN UDP port")
 	flag.UintVar(&healthPort, "health-port", 18080, "overlay health port")
 	flag.UintVar(&vni, "vni", 7999, "reviewed VXLAN network identifier")
@@ -55,7 +56,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	service := &gatewaydataplane.Service{Config: gatewaydataplane.Config{GatewayUID: uid, OverlayCIDR: pool.Masked(), GatewayAddress: address, OverlayInterface: overlayInterface, UnderlayInterface: underlayInterface, TunnelInterface: tunnelInterface, DNSUpstream: upstream, ClusterDNSUpstream: clusterUpstream, ClusterDomain: clusterDomain, VXLANPort: uint16(vxlanPort), HealthPort: uint16(healthPort), VNI: uint32(vni), MTU: mtu}, Backend: gatewaydataplane.LinuxBackend{}, Engine: gluetun.New(), ReconcileErrorHook: func(err error) {
+	engine := gluetun.New()
+	engine.APIKeyFile = controlAPIKeyFile
+	service := &gatewaydataplane.Service{Config: gatewaydataplane.Config{GatewayUID: uid, OverlayCIDR: pool.Masked(), GatewayAddress: address, OverlayInterface: overlayInterface, UnderlayInterface: underlayInterface, TunnelInterface: tunnelInterface, DNSUpstream: upstream, ClusterDNSUpstream: clusterUpstream, ClusterDomain: clusterDomain, VXLANPort: uint16(vxlanPort), HealthPort: uint16(healthPort), VNI: uint32(vni), MTU: mtu}, Backend: gatewaydataplane.LinuxBackend{}, Engine: engine, ReconcileErrorHook: func(err error) {
 		log.Printf("gateway_reconcile_transition state=not_ready fail_closed=true error=%q", err)
 	}, ReconcileRecoveryHook: func(previousError string, unavailableFor time.Duration) {
 		log.Printf("gateway_reconcile_transition state=ready recovered=true unavailable_for=%s previous_error=%q", unavailableFor.Round(time.Millisecond), previousError)

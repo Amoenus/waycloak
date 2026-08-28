@@ -78,13 +78,23 @@ application integration.
 See the `PortForwardLease` and `WorkloadAdapter` API reference before authoring
 those resources.
 
-Provider selection remains Gluetun-native. For the RC recipe, the Gluetun
-adapter recognizes `VPN_SERVICE_PROVIDER=protonvpn` with `VPN_TYPE=openvpn` and
-selects the narrow `gluetun.waycloak.io/proton-natpmp` port-forward capability.
-That capability manages only the provider mapping. It does not replace Gluetun,
-configure qBittorrent, select a backend, or own gateway packet rules. Other
-Gluetun configurations requesting port forwarding are rejected until their
-capability has an explicit implementation and conformance evidence.
+Provider selection and provider-protocol ownership remain Gluetun-native. For
+the qualified recipe, `VPN_SERVICE_PROVIDER=protonvpn` with
+`VPN_TYPE=openvpn` selects
+`gluetun.waycloak.io/native-port-forward`. Waycloak enables Gluetun's native
+port-forward lifecycle and observes the resulting single shared TCP/UDP port
+through an API-key-authenticated loopback control route. The key and narrow
+control policy are derived at Pod initialization from the existing runtime TLS
+identity and held only in a memory-backed volume. They are not Kubernetes API
+credentials and are not copied into protected workloads.
+
+Gluetun owns provider acquisition, renewal, and release. Waycloak owns stable
+lease and target identities, provider-port translation, observation freshness,
+handoff, application acknowledgement, status, atomic packet rules, and
+fail-closed withdrawal. Because the Gluetun API does not expose provider TTL,
+the frozen status `expiresAt` field is a bounded observation-validity deadline,
+not a claimed provider lease expiry. Other Gluetun configurations requesting
+port forwarding are rejected until they have explicit conformance evidence.
 
 Provider-initiated packets cross the shared gateway firewall only after the
 lease-owned prerouting chain matches the exact protocol and provider-internal

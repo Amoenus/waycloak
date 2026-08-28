@@ -41,7 +41,10 @@ const (
 	managedLabel                    = "runtime.networking.waycloak.io/gateway-uid"
 	releaseVersionAnnotation        = "runtime.networking.waycloak.io/release-version"
 	releaseManifestDigestAnnotation = "runtime.networking.waycloak.io/release-manifest-digest"
-	controlAuthConfigPath           = "/etc/waycloak/gluetun-control-auth.toml"
+	staticControlAuthConfigPath     = "/etc/waycloak/gluetun-control-auth.toml"
+	generatedControlAuthDirectory   = "/var/run/waycloak-gluetun-control"
+	generatedControlAuthConfigPath  = generatedControlAuthDirectory + "/auth.toml"
+	generatedControlAPIKeyPath      = generatedControlAuthDirectory + "/api-key"
 	portForwardTLSMountPath         = "/var/run/secrets/waycloak-port-forward-runtime"
 	healthObservationAttempts       = 2
 	healthObservationAttemptTimeout = 2 * time.Second
@@ -239,7 +242,7 @@ func inputNames(gateway *wayv1.VPNGateway) (string, string, string, error) {
 }
 
 func validateEngineConfig(data map[string]string) error {
-	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE"} {
+	for _, key := range []string{"HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", "HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE", "VPN_PORT_FORWARDING", "VPN_PORT_FORWARDING_PROVIDER", "VPN_PORT_FORWARDING_STATUS_FILE", "VPN_PORT_FORWARDING_UP_COMMAND", "VPN_PORT_FORWARDING_DOWN_COMMAND", "VPN_PORT_FORWARDING_LISTENING_PORT"} {
 		if _, exists := data[key]; exists {
 			return errors.New("gluetun control authentication is release-owned")
 		}
@@ -282,13 +285,34 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 		runtimeTLSResourceVersion = runtimeTLSSecret.GetResourceVersion()
 	}
 	hash := sha256.Sum256([]byte(configMap.ResourceVersion + "\x00" + secret.GetResourceVersion() + "\x00" + runtimeTLSResourceVersion))
-	containers := []corev1.Container{
-		{Name: "vpn-engine", Image: provisioner.EngineImage, ImagePullPolicy: corev1.PullIfNotPresent, EnvFrom: []corev1.EnvFromSource{{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}, Env: []corev1.EnvVar{{Name: "OPENVPN_USER", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "username"}}}, {Name: "OPENVPN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "password"}}}, {Name: "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", Value: controlAuthConfigPath}}, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &no, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN", "CHOWN", "DAC_OVERRIDE", "SETUID", "KILL"}, Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: []corev1.VolumeMount{{Name: "tun", MountPath: "/dev/net/tun"}, {Name: "engine-state", MountPath: "/gluetun"}}},
-		{Name: "gateway-agent", Image: provisioner.AgentImage, ImagePullPolicy: corev1.PullIfNotPresent, Args: []string{"--gateway-uid=" + string(gateway.UID), "--overlay-cidr=" + provisioner.OverlayCIDR.Masked().String(), "--gateway-address=" + gatewayAddress(provisioner.OverlayCIDR).String(), "--cluster-dns-upstream=" + provisioner.ClusterDNSUpstream.String(), "--cluster-domain=" + provisioner.ClusterDomain, "--vxlan-port=" + strconv.Itoa(int(provisioner.VXLANPort)), "--health-port=" + strconv.Itoa(int(provisioner.HealthPort)), "--vni=" + strconv.FormatUint(uint64(provisioner.VNI), 10), "--mtu=" + strconv.Itoa(int(provisioner.MTU))}, Ports: []corev1.ContainerPort{{Name: "vxlan", ContainerPort: int32(provisioner.VXLANPort), Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: int32(provisioner.HealthPort), Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: int32(gatewaydataplane.DNSListenPort), Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: int32(gatewaydataplane.DNSListenPort), Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstrFromInt(int(provisioner.HealthPort))}}, PeriodSeconds: 2, FailureThreshold: 2}, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN"}, Drop: []corev1.Capability{"ALL"}}}},
-	}
+	engineControlPath := staticControlAuthConfigPath
+	engineEnvironment := []corev1.EnvVar{{Name: "OPENVPN_USER", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "username"}}}, {Name: "OPENVPN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "password"}}}, {Name: "VPN_PORT_FORWARDING", Value: "off"}}
+	engineVolumeMounts := []corev1.VolumeMount{{Name: "tun", MountPath: "/dev/net/tun"}, {Name: "engine-state", MountPath: "/gluetun"}}
+	agentArgs := []string{"--gateway-uid=" + string(gateway.UID), "--overlay-cidr=" + provisioner.OverlayCIDR.Masked().String(), "--gateway-address=" + gatewayAddress(provisioner.OverlayCIDR).String(), "--cluster-dns-upstream=" + provisioner.ClusterDNSUpstream.String(), "--cluster-domain=" + provisioner.ClusterDomain, "--vxlan-port=" + strconv.Itoa(int(provisioner.VXLANPort)), "--health-port=" + strconv.Itoa(int(provisioner.HealthPort)), "--vni=" + strconv.FormatUint(uint64(provisioner.VNI), 10), "--mtu=" + strconv.Itoa(int(provisioner.MTU))}
+	agentVolumeMounts := []corev1.VolumeMount{}
+	initContainers := []corev1.Container{}
 	volumes := []corev1.Volume{{Name: "tun", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: pointer(corev1.HostPathCharDev)}}}, {Name: "engine-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 	if runtimeTLSSecretName != "" {
-		args := []string{"--gateway-uid=" + string(gateway.UID), "--listen-address=:" + strconv.Itoa(int(provisioner.PortForwardRuntimePort)), "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--tls-key=" + portForwardTLSMountPath + "/tls.key", "--client-ca=" + portForwardTLSMountPath + "/ca.crt", "--engine-port-forward-capability=" + portForwardCapability}
+		engineControlPath = generatedControlAuthConfigPath
+		engineEnvironment[2].Value = "on"
+		engineEnvironment = append(engineEnvironment, corev1.EnvVar{Name: "VPN_PORT_FORWARDING_STATUS_FILE", Value: "/gluetun/forwarded_port"}, corev1.EnvVar{Name: "VPN_PORT_FORWARDING_UP_COMMAND", Value: ""}, corev1.EnvVar{Name: "VPN_PORT_FORWARDING_DOWN_COMMAND", Value: ""}, corev1.EnvVar{Name: "VPN_PORT_FORWARDING_LISTENING_PORT", Value: "0"})
+		controlMount := corev1.VolumeMount{Name: "gluetun-control-auth", MountPath: generatedControlAuthDirectory, ReadOnly: true}
+		engineVolumeMounts = append(engineVolumeMounts, controlMount)
+		agentVolumeMounts = append(agentVolumeMounts, controlMount)
+		agentArgs = append(agentArgs, "--gluetun-control-api-key-file="+generatedControlAPIKeyPath)
+		initContainers = append(initContainers, corev1.Container{Name: "gluetun-control-auth", Image: provisioner.PortForwardRuntimeImage, ImagePullPolicy: corev1.PullIfNotPresent,
+			Args:            []string{"--write-gluetun-control-auth=" + generatedControlAuthConfigPath, "--gluetun-control-identity-source=" + portForwardTLSMountPath + "/tls.key", "--gluetun-control-api-key-output=" + generatedControlAPIKeyPath},
+			SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}},
+			VolumeMounts:    []corev1.VolumeMount{{Name: "port-forward-runtime-tls", MountPath: portForwardTLSMountPath, ReadOnly: true}, {Name: "gluetun-control-auth", MountPath: generatedControlAuthDirectory}}})
+		volumes = append(volumes, corev1.Volume{Name: "gluetun-control-auth", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory}}})
+	}
+	engineEnvironment = append(engineEnvironment, corev1.EnvVar{Name: "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH", Value: engineControlPath})
+	containers := []corev1.Container{
+		{Name: "vpn-engine", Image: provisioner.EngineImage, ImagePullPolicy: corev1.PullIfNotPresent, EnvFrom: []corev1.EnvFromSource{{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}, Env: engineEnvironment, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &no, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN", "CHOWN", "DAC_OVERRIDE", "SETUID", "KILL"}, Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: engineVolumeMounts},
+		{Name: "gateway-agent", Image: provisioner.AgentImage, ImagePullPolicy: corev1.PullIfNotPresent, Args: agentArgs, Ports: []corev1.ContainerPort{{Name: "vxlan", ContainerPort: int32(provisioner.VXLANPort), Protocol: corev1.ProtocolUDP}, {Name: "health", ContainerPort: int32(provisioner.HealthPort), Protocol: corev1.ProtocolTCP}, {Name: "dns-udp", ContainerPort: int32(gatewaydataplane.DNSListenPort), Protocol: corev1.ProtocolUDP}, {Name: "dns-tcp", ContainerPort: int32(gatewaydataplane.DNSListenPort), Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstrFromInt(int(provisioner.HealthPort))}}, PeriodSeconds: 2, FailureThreshold: 2}, SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN"}, Drop: []corev1.Capability{"ALL"}}}, VolumeMounts: agentVolumeMounts},
+	}
+	if runtimeTLSSecretName != "" {
+		args := []string{"--gateway-uid=" + string(gateway.UID), "--listen-address=:" + strconv.Itoa(int(provisioner.PortForwardRuntimePort)), "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--tls-key=" + portForwardTLSMountPath + "/tls.key", "--client-ca=" + portForwardTLSMountPath + "/ca.crt", "--engine-port-forward-capability=" + portForwardCapability, "--gluetun-control-api-key-file=" + generatedControlAPIKeyPath}
 		if requestsFeature(gateway, wayv1.FeatureWorkloadAdapter) {
 			args = append(args, "--adapter-ca="+portForwardTLSMountPath+"/adapter-ca.crt", "--adapter-client-cert="+portForwardTLSMountPath+"/adapter-client.crt", "--adapter-client-key="+portForwardTLSMountPath+"/adapter-client.key", "--adapter-port="+strconv.Itoa(int(provisioner.AdapterPort)), "--cluster-domain="+provisioner.ClusterDomain)
 		}
@@ -296,14 +320,14 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 			Ports:           []corev1.ContainerPort{{Name: "runtime", ContainerPort: int32(provisioner.PortForwardRuntimePort), Protocol: corev1.ProtocolTCP}},
 			ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstrFromInt(int(provisioner.PortForwardRuntimePort))}}, PeriodSeconds: 2, FailureThreshold: 2},
 			SecurityContext: &corev1.SecurityContext{RunAsUser: &runAsRoot, RunAsGroup: &runAsRoot, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Add: []corev1.Capability{"NET_ADMIN"}, Drop: []corev1.Capability{"ALL"}}},
-			VolumeMounts:    []corev1.VolumeMount{{Name: "port-forward-runtime-tls", MountPath: portForwardTLSMountPath, ReadOnly: true}}})
+			VolumeMounts:    []corev1.VolumeMount{{Name: "port-forward-runtime-tls", MountPath: portForwardTLSMountPath, ReadOnly: true}, {Name: "gluetun-control-auth", MountPath: generatedControlAuthDirectory, ReadOnly: true}}})
 		volumes = append(volumes, corev1.Volume{Name: "port-forward-runtime-tls", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: runtimeTLSSecretName, DefaultMode: pointer(int32(0o400))}}})
 	}
 	// The StatefulSet is a singleton rollout-control primitive, not durable
 	// application storage. Its engine state is EmptyDir-backed, and OnDelete
 	// keeps a target template inert until an operator activates the reviewed
 	// fail-closed gateway replacement.
-	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: gateway.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{owner(gateway)}}, Spec: appsv1.StatefulSetSpec{ServiceName: name, Replicas: &replicas, UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType}, Selector: &metav1.LabelSelector{MatchLabels: labels}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{"runtime.networking.waycloak.io/input-revision": hex.EncodeToString(hash[:]), releaseVersionAnnotation: provisioner.ReleaseIdentity.Version, releaseManifestDigestAnnotation: provisioner.ReleaseIdentity.ManifestDigest}}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, TerminationGracePeriodSeconds: pointer(int64(20)), NodeSelector: gateway.Spec.Placement.NodeSelector, Tolerations: gateway.Spec.Placement.Tolerations, DNSConfig: &corev1.PodDNSConfig{Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: pointer("1")}}}, Containers: containers, Volumes: volumes}}}}
+	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: gateway.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{owner(gateway)}}, Spec: appsv1.StatefulSetSpec{ServiceName: name, Replicas: &replicas, UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType}, Selector: &metav1.LabelSelector{MatchLabels: labels}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{"runtime.networking.waycloak.io/input-revision": hex.EncodeToString(hash[:]), releaseVersionAnnotation: provisioner.ReleaseIdentity.Version, releaseManifestDigestAnnotation: provisioner.ReleaseIdentity.ManifestDigest}}, Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, TerminationGracePeriodSeconds: pointer(int64(20)), NodeSelector: gateway.Spec.Placement.NodeSelector, Tolerations: gateway.Spec.Placement.Tolerations, DNSConfig: &corev1.PodDNSConfig{Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: pointer("1")}}}, InitContainers: initContainers, Containers: containers, Volumes: volumes}}}}
 }
 
 func (provisioner *Provisioner) reconcileObject(ctx context.Context, object client.Object) error {

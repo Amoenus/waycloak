@@ -29,6 +29,9 @@ func TestGatewayRuntimeRequiresDrainBeforeSuccessorAndPreservesProviderIdentity(
 	if err != nil || !observation.GatewayRulesReady || !observation.Delivered || !observation.Acknowledged {
 		t.Fatalf("first observation = %#v, %v", observation, err)
 	}
+	if len(rules.current) != 1 || rules.current[0].IngressPort != 42000 || rules.current[0].IngressPort == first.ProviderInternalPort {
+		t.Fatalf("gateway rule did not translate observed Gluetun ingress: %#v", rules.current)
+	}
 	successor := managerIntent("pod-b", 2)
 	if _, err := manager.Reconcile(context.Background(), gateway, successor); err == nil {
 		t.Fatal("successor was accepted before old rule withdrawal")

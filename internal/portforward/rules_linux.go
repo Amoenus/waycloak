@@ -121,7 +121,7 @@ func addGatewayLeaseRules(conn *nftables.Conn, table *nftables.Table, prerouting
 	if protocol == wayv1.ProtocolUDP {
 		transport = unix.IPPROTO_UDP
 	}
-	internalPort := portBytes(rule.ProviderInternalPort)
+	ingressPort := portBytes(rule.IngressPort)
 	targetPort := portBytes(rule.TargetPort)
 	target := netip.MustParseAddr(rule.OverlayAddress).AsSlice()
 	baseMatch := func() []expr.Any {
@@ -131,7 +131,7 @@ func addGatewayLeaseRules(conn *nftables.Conn, table *nftables.Table, prerouting
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{transport}},
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: internalPort},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ingressPort},
 		}
 	}
 	dnat := append(baseMatch(),
@@ -159,7 +159,7 @@ func addGatewayLeaseRules(conn *nftables.Conn, table *nftables.Table, prerouting
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: target},
 		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{transport}},
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 0, Len: 2}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: targetPort},
-		&expr.Immediate{Register: 1, Data: internalPort}, &expr.Masq{ToPorts: true, RegProtoMin: 1},
+		&expr.Immediate{Register: 1, Data: ingressPort}, &expr.Masq{ToPorts: true, RegProtoMin: 1},
 	}
 	conn.AddRule(&nftables.Rule{Table: table, Chain: postrouting, UserData: []byte(gatewayMarker(rule, protocol, "snat")), Exprs: returnMatch})
 }
@@ -202,7 +202,7 @@ func gatewayRuleMarkers() (map[string]struct{}, error) {
 
 func validateGatewayRule(rule GatewayRule) error {
 	address, err := netip.ParseAddr(rule.OverlayAddress)
-	if rule.LeaseUID == "" || rule.HandoffGeneration < 1 || rule.ProviderInternalPort < ProviderPortFirst || rule.TargetPort == 0 || err != nil || !address.Is4() || len(rule.Protocols) == 0 {
+	if rule.LeaseUID == "" || rule.HandoffGeneration < 1 || rule.IngressPort == 0 || rule.TargetPort == 0 || err != nil || !address.Is4() || len(rule.Protocols) == 0 {
 		return errors.New("gateway port-forward rule is invalid")
 	}
 	for _, protocol := range rule.Protocols {

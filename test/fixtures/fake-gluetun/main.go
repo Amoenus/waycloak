@@ -297,6 +297,7 @@ func serveObservation(ctx context.Context) error {
 	controlMux.HandleFunc("/v1/vpn/status", jsonResponse(`{"status":"running"}`))
 	controlMux.HandleFunc("/v1/dns/status", jsonResponse(`{"status":"running"}`))
 	controlMux.HandleFunc("/v1/publicip/ip", jsonResponse(`{"public_ip":"203.0.113.10"}`))
+	controlMux.HandleFunc("/v1/portforward", jsonResponse(`{"port":42000,"ports":[42000]}`))
 	control := &http.Server{Addr: "127.0.0.1:8000", Handler: controlMux, ReadHeaderTimeout: 2 * time.Second}
 	errorsChannel := make(chan error, 2)
 	go func() { errorsChannel <- health.ListenAndServe() }()

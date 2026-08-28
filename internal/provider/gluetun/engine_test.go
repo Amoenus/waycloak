@@ -11,9 +11,44 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestObserveAuthenticatesControlRequestsOnly(t *testing.T) {
+	keyFile := t.TempDir() + "/api-key"
+	if err := os.WriteFile(keyFile, []byte("fixture-key\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/health" {
+			if request.Header.Get("X-API-Key") != "" {
+				response.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			response.WriteHeader(http.StatusOK)
+			return
+		}
+		if request.Header.Get("X-API-Key") != "fixture-key" {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/dns/status":
+			_, _ = response.Write([]byte(`{"status":"running"}`))
+		case "/v1/publicip/ip":
+			_, _ = response.Write([]byte(`{"public_ip":"203.0.113.10"}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	engine := &Engine{HealthURL: server.URL + "/health", ControlURL: server.URL, APIKeyFile: keyFile, Client: server.Client()}
+	if _, err := engine.Observe(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestObserveRequiresTunnelAndDNSWhilePublicIPIsBestEffort(t *testing.T) {
 	dnsRunning := true

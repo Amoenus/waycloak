@@ -422,7 +422,7 @@ jobs:
           test -f /usr/lib/xtables/libxt_mark.so
       - name: Rebuild and test the exact patched Gluetun source twice
         run: |
-          upstream_commit=7eed6eaf160440724a93ca66f66055068cebe4ac
+          upstream_commit=3d1e20c5551e9cae1f9d938dc7b7214a6987f27e
           for build in first second; do
             source_dir="$RUNNER_TEMP/gluetun-source-$build"
             git init "$source_dir"
@@ -445,15 +445,15 @@ jobs:
             (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test "${upstream_test_args[@]}" ./...)
           fi
           go version -m "$RUNNER_TEMP/gluetun-first/bin/gluetun-entrypoint-linux-amd64" | tee "$RUNNER_TEMP/gluetun-modules"
-          grep -q $'dep\tgolang.org/x/text\tv0.39.0\t' "$RUNNER_TEMP/gluetun-modules"
-          grep -q $'dep\tgithub.com/cloudflare/circl\tv1.6.3\t' "$RUNNER_TEMP/gluetun-modules"
+          grep -q $'dep\tgolang.org/x/text\tv0.41.0\t' "$RUNNER_TEMP/gluetun-modules"
+          grep -q $'dep\tgithub.com/cloudflare/circl\tv1.6.5\t' "$RUNNER_TEMP/gluetun-modules"
       - name: Build and scan the derived image
         run: |
           docker buildx build \
             --file build/gluetun-candidate/Dockerfile \
             --platform=linux/amd64 \
-            --build-arg UPSTREAM_IMAGE=docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461 \
-            --build-arg GLUETUN_UPSTREAM_COMMIT=7eed6eaf160440724a93ca66f66055068cebe4ac \
+            --build-arg UPSTREAM_IMAGE=docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027 \
+            --build-arg GLUETUN_UPSTREAM_COMMIT=3d1e20c5551e9cae1f9d938dc7b7214a6987f27e \
             --build-arg WAYCLOAK_RELEASE=v0.1.0-beta.0 \
             --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
             --provenance=false \
@@ -462,8 +462,8 @@ jobs:
             --load \
             "$RUNNER_TEMP/gluetun-first"
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 waycloak-gluetun:test
-          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 7eed6eaf160440724a93ca66f66055068cebe4ac
-          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
+          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 3d1e20c5551e9cae1f9d938dc7b7214a6987f27e
+          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
           docker run --rm --entrypoint /bin/sh waycloak-gluetun:test -c \
             'test -x /gluetun-entrypoint && test -f /licenses/gluetun/LICENSE && test -s /licenses/gluetun/gluetun-dependency.patch && test -r /etc/waycloak/gluetun-control-auth.toml'
           docker run --rm --entrypoint cat waycloak-gluetun:test \

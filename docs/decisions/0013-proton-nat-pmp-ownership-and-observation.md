@@ -1,14 +1,14 @@
 # ADR 0013: Proton NAT-PMP ownership and observation
 
-Status: Accepted
+Status: Partially superseded by ADR 0044
 Date: 2026-07-13
 
-Amended by [ADR 0043](0043-engine-capabilities-and-application-adapters.md):
-the tokenless gateway runtime retains NAT-PMP ownership, but the Proton client
-is selected behind the Gluetun engine's port-forward capability boundary rather
-than imported by the generic runtime.
+ADR 0043 previously moved the Proton client behind Gluetun's capability
+boundary. ADR 0044 then superseded that interim ownership: the tokenless
+gateway runtime no longer implements NAT-PMP and observes Gluetun's native
+mapping instead.
 
-Partially superseded by
+Superseded in its direct protocol-ownership decision by
 [ADR 0044](0044-delegate-protocol-machinery-and-use-lightweight-otel.md),
 which delegates provider protocol acquisition and renewal to Gluetun's native
 capability while preserving Waycloak's identity, observation-freshness,
@@ -29,6 +29,11 @@ has a built-in port-forward loop; running both owners would create competing
 mappings.
 
 ## Decision
+
+The following direct NAT-PMP implementation decision is retained as historical
+context only. Current releases use Gluetun's authenticated native
+port-forwarding control API; Waycloak no longer sends provider NAT-PMP packets
+or renews provider mappings.
 
 The gateway manager is the sole NAT-PMP owner. The Proton driver uses a native
 UDP client, binds its socket to the configured VPN interface on Linux, validates
