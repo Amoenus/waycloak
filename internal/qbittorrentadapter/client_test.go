@@ -6,19 +6,55 @@ package qbittorrentadapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestUDPListenerProbeRequiresMatchingDHTResponse(t *testing.T) {
+	listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan error, 1)
+	go func() {
+		request := make([]byte, 2048)
+		count, peer, err := listener.ReadFromUDP(request)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !strings.Contains(string(request[:count]), "1:t2:wc") || !strings.Contains(string(request[:count]), "1:q4:ping") {
+			done <- errors.New("DHT request did not contain the bound ping transaction")
+			return
+		}
+		_, err = listener.WriteToUDP([]byte("d1:rd2:id20:qbittorrent-node-001e1:t2:wc1:y1:re"), peer)
+		done <- err
+	}()
+	endpoint := listener.LocalAddr().(*net.UDPAddr).AddrPort()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := probeListener(ctx, "udp", endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestClientAppliesObservesProbesAndReannouncesExactPod(t *testing.T) {
 	listenPort := uint16(6881)
 	reannounces := 0
 	probeEndpoint := netip.AddrPort{}
+	probedProtocols := []string{}
 	client := &Client{Port: 8443, ServerName: "qbittorrent.apps.test", Username: "user", Password: "password",
 		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 			if request.URL.Scheme != "https" || request.URL.Host != "10.42.0.10:8443" || request.Host != "qbittorrent.apps.test" {
@@ -57,12 +93,16 @@ func TestClientAppliesObservesProbesAndReannouncesExactPod(t *testing.T) {
 				t.Fatalf("unexpected qBittorrent request %s", request.URL.Path)
 				return nil, nil
 			}
-		}), Probe: func(_ context.Context, endpoint netip.AddrPort) error { probeEndpoint = endpoint; return nil }}
+		}), ProtocolProbe: func(_ context.Context, protocol string, endpoint netip.AddrPort) error {
+			probedProtocols = append(probedProtocols, protocol)
+			probeEndpoint = endpoint
+			return nil
+		}}
 	if err := client.Configure(context.Background(), netip.MustParseAddr("10.42.0.10"), 42000, true); err != nil {
 		t.Fatal(err)
 	}
-	if listenPort != 42000 || probeEndpoint != netip.MustParseAddrPort("10.42.0.10:42000") || reannounces != 1 {
-		t.Fatalf("qBittorrent result port=%d probe=%s reannounces=%d", listenPort, probeEndpoint, reannounces)
+	if listenPort != 42000 || probeEndpoint != netip.MustParseAddrPort("10.42.0.10:42000") || reannounces != 1 || strings.Join(probedProtocols, ",") != "tcp,udp" {
+		t.Fatalf("qBittorrent result port=%d probe=%s protocols=%v reannounces=%d", listenPort, probeEndpoint, probedProtocols, reannounces)
 	}
 }
 

@@ -37,6 +37,20 @@ generation, Pod UID, and expiry plus a fresh observation time. An
 acknowledgement means the adapter has applied and observed the application
 state, not merely accepted desired state.
 
+The wire operation has three internal responsibilities. `Apply` mutates the
+application only for a changed lease/target/Pod/generation/public-port
+identity. `Observe` independently verifies the exact application state and all
+required listener protocols with retry bounded below the fail-closed freshness
+deadline. `RenewAcknowledgement` advances an expiry-only record from a durable
+successful identity without logging in, rewriting preferences, reannouncing,
+or changing handoff generation. This separation is an implementation rule and
+does not add a language-specific endpoint or change the JSON schema.
+
+HTTP `409 Conflict` is reserved for permanent stale or contradictory identity,
+generation, or port input. Dial, authentication, application API, and listener
+observation failures return `503 Service Unavailable`; clients preserve that
+classification through the gateway-runtime boundary.
+
 `POST /networking.waycloak.io/adapter/v1/leases/{leaseUID}/withdraw` accepts the
 gateway runtime's exact withdrawal identity. Success means current application
 delivery for that lease UID, generation, and Pod UID has been removed. The
@@ -46,10 +60,11 @@ activate a successor until both are observed absent.
 ## Generation and restart rules
 
 Generation regression and identity changes within one generation are rejected.
-An unchanged current record is idempotent. Expiry-only extension may reobserve
-without application churn. An adapter restart must reload durable non-secret
-lease state and revalidate the application once before acknowledging. Missing
-durable state makes withdrawal unavailable; it must not guess or acknowledge.
+An unchanged current record is idempotent. Expiry-only extension uses renewal
+acknowledgement without an application call. An adapter restart must reload
+durable non-secret lease state and reobserve, but not reapply, the application
+once before acknowledging. Missing durable state makes withdrawal unavailable;
+it must not guess or acknowledge.
 
 The controller persists a new `Selecting` endpoint and handoff generation
 before the gateway runtime may acquire, program, or deliver it. A status-write
@@ -63,7 +78,8 @@ The reference adapter declares
 and UDP, requires `targetPort == publicPort`, uses application-owned HTTPS and
 credentials to address the exact EndpointSlice Pod IP, disables random/UPnP
 port selection, applies and reads back `listen_port`, probes the TCP listener,
-and requests reannounce for all active torrents before acknowledging. On
+proves the UDP listener with a transaction-bound BEP 5 DHT ping, and requests
+reannounce for all active torrents before acknowledging. On
 withdrawal it restores and observes the Service backend port and reannounces.
 It receives no Kubernetes or VPN credential and runs in a separate
 least-privilege Pod.

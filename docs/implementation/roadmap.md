@@ -33,8 +33,13 @@ qualified maintained dependencies. Work proceeds in this order:
   and build tools, and signed-release consumption of the byte-identical
   inventory. Kubernetes v0.37 remains an owned #141 lag because the observed
   local cluster and certified row are still v1.36.1+k3s1.
-- [ ] #245 separate workload-adapter Apply, Observe and renewal acknowledgement
-  semantics so unchanged renewal is a no-op.
+- [ ] #245 has implemented separate workload-adapter Apply, Observe and renewal
+  acknowledgement semantics: expiry-only renewal makes no application call,
+  changed identity applies once, TCP/UDP observation retries below freshness,
+  adapter replacement reobserves without mutation, withdrawal bypasses cached
+  acknowledgement, and conflict/unavailable classification survives both HTTP
+  hops. Exact release and local qBittorrent GitOps evidence remain before the
+  issue can be checked complete.
 - [ ] #243 replace custom provider acquisition/renewal with Gluetun's native
   authenticated port-forward capability.
 - [ ] #244 qualify a pinned CoreDNS gateway sidecar and retain Waycloak's strict

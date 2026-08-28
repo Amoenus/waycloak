@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,7 +16,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -27,28 +27,32 @@ import (
 const adapterPathPrefix = "/networking.waycloak.io/adapter/v1/leases/"
 
 type ApplicationConfigurer interface {
-	Configure(context.Context, netip.Addr, uint16, bool) error
+	Apply(context.Context, netip.Addr, uint16, bool) error
+	Observe(context.Context, netip.Addr, uint16, []string) error
 }
 
 type Handler struct {
-	Application     ApplicationConfigurer
-	Namespace       wayv1.NamespaceName
-	Name            wayv1.ObjectName
-	Image           string
-	PodUID          wayv1.ObjectUID
-	StateFile       string
-	HealthIdentity  string
-	RuntimeIdentity string
-	Now             func() time.Time
+	Application              ApplicationConfigurer
+	Namespace                wayv1.NamespaceName
+	Name                     wayv1.ObjectName
+	Image                    string
+	PodUID                   wayv1.ObjectUID
+	StateFile                string
+	HealthIdentity           string
+	RuntimeIdentity          string
+	Now                      func() time.Time
+	ObservationBudget        time.Duration
+	ObservationRetryInterval time.Duration
 
 	mu     sync.Mutex
 	states map[wayv1.ObjectUID]adapterState
 }
 
 type adapterState struct {
-	Record    wayportforward.AdapterLeaseRecord `json:"record"`
-	AppliedAt time.Time                         `json:"appliedAt"`
-	verified  bool
+	Record        wayportforward.AdapterLeaseRecord `json:"record"`
+	AppliedAt     time.Time                         `json:"appliedAt"`
+	ObservedAt    time.Time                         `json:"observedAt,omitempty"`
+	AdapterPodUID wayv1.ObjectUID                   `json:"adapterPodUID,omitempty"`
 }
 
 func (h *Handler) Load() error {
@@ -135,26 +139,62 @@ func (h *Handler) deliver(response http.ResponseWriter, request *http.Request, l
 		writeError(response, http.StatusConflict)
 		return
 	}
-	reannounce := !exists || !previous.verified || record.HandoffGeneration != previous.Record.HandoffGeneration || record.PodUID != previous.Record.PodUID ||
-		record.ApplicationAddress != previous.Record.ApplicationAddress || record.TargetPort != previous.Record.TargetPort
-	if !reannounce && reflect.DeepEqual(record, previous.Record) && previous.AppliedAt.After(h.now().Add(-wayportforward.DefaultObservationFreshness)) {
-		h.writeAcknowledgement(response, record, previous.AppliedAt)
+	identityEqual := exists && sameApplicationIdentity(record, previous.Record)
+	if identityEqual && previous.AdapterPodUID == h.PodUID && !record.ExpiresAt.Equal(previous.Record.ExpiresAt) && !previous.AppliedAt.IsZero() {
+		now := h.now()
+		renewed := previous
+		renewed.Record = record
+		renewed.ObservedAt = now
+		h.states[leaseUID] = renewed
+		if err := h.persist(); err != nil {
+			h.states[leaseUID] = previous
+			writeError(response, http.StatusServiceUnavailable)
+			return
+		}
+		h.writeAcknowledgement(response, record, now)
 		return
 	}
-	h.states[leaseUID] = adapterState{Record: record}
+	observedAt := previous.ObservedAt
+	if observedAt.IsZero() {
+		observedAt = previous.AppliedAt
+	}
+	if identityEqual && previous.AdapterPodUID == h.PodUID && recordsEqual(record, previous.Record) && observedAt.After(h.now().Add(-wayportforward.DefaultObservationFreshness)) {
+		h.writeAcknowledgement(response, record, observedAt)
+		return
+	}
+	needsApply := !identityEqual || previous.AppliedAt.IsZero()
+	pending := adapterState{Record: record}
+	if !needsApply {
+		pending.AppliedAt = previous.AppliedAt
+	}
+	h.states[leaseUID] = pending
 	if err := h.persist(); err != nil {
 		h.restoreState(leaseUID, previous, exists)
 		slog.Error("qBittorrent adapter could not persist delivery intent", "lease_uid", leaseUID, "error", err)
 		writeError(response, http.StatusServiceUnavailable)
 		return
 	}
-	if err := h.Application.Configure(request.Context(), record.ApplicationAddress, record.TargetPort, reannounce); err != nil {
-		slog.Warn("qBittorrent adapter could not apply delivery", "lease_uid", leaseUID, "error", err)
-		writeError(response, http.StatusConflict)
+	if needsApply {
+		if err := h.Application.Apply(request.Context(), record.ApplicationAddress, record.TargetPort, true); err != nil {
+			slog.Warn("qBittorrent adapter could not apply delivery", "lease_uid", leaseUID, "failure_kind", "unavailable", "error", err)
+			writeError(response, http.StatusServiceUnavailable)
+			return
+		}
+		pending.AppliedAt = h.now()
+		h.states[leaseUID] = pending
+		if err := h.persist(); err != nil {
+			slog.Error("qBittorrent adapter could not persist applied mutation", "lease_uid", leaseUID, "error", err)
+			writeError(response, http.StatusServiceUnavailable)
+			return
+		}
+	}
+	if err := h.observeWithRetry(request.Context(), record.ApplicationAddress, record.TargetPort); err != nil {
+		slog.Warn("qBittorrent adapter could not observe delivery", "lease_uid", leaseUID, "failure_kind", "unavailable", "error", err)
+		writeError(response, http.StatusServiceUnavailable)
 		return
 	}
 	now := h.now()
-	h.states[leaseUID] = adapterState{Record: record, AppliedAt: now, verified: true}
+	h.states[leaseUID] = adapterState{Record: record, AppliedAt: pending.AppliedAt, ObservedAt: now, AdapterPodUID: h.PodUID}
 	if err := h.persist(); err != nil {
 		slog.Error("qBittorrent adapter could not persist applied delivery", "lease_uid", leaseUID, "error", err)
 		writeError(response, http.StatusServiceUnavailable)
@@ -179,14 +219,18 @@ func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, 
 		writeError(response, http.StatusConflict)
 		return
 	}
-	if err := h.Application.Configure(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort, true); err != nil {
+	if err := h.Application.Apply(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort, true); err != nil {
 		if !intent.ApplicationEndpointRetired {
 			slog.Warn("qBittorrent adapter could not restore backend port", "lease_uid", leaseUID, "error", err)
-			writeError(response, http.StatusConflict)
+			writeError(response, http.StatusServiceUnavailable)
 			return
 		}
 		slog.Info("qBittorrent adapter cleared retired endpoint after backend-port restoration became impossible", "lease_uid", leaseUID,
 			"handoff_generation", intent.HandoffGeneration, "pod_uid", intent.PodUID)
+	} else if err := h.observeWithRetry(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort); err != nil && !intent.ApplicationEndpointRetired {
+		slog.Warn("qBittorrent adapter could not observe restored backend port", "lease_uid", leaseUID, "failure_kind", "unavailable", "error", err)
+		writeError(response, http.StatusServiceUnavailable)
+		return
 	}
 	delete(h.states, leaseUID)
 	if err := h.persist(); err != nil {
@@ -196,6 +240,56 @@ func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, 
 		return
 	}
 	h.writeWithdrawalAcknowledgement(response, intent)
+}
+
+func (h *Handler) observeWithRetry(ctx context.Context, address netip.Addr, port uint16) error {
+	budget := h.ObservationBudget
+	maximum := wayportforward.DefaultObservationFreshness - time.Second
+	if budget <= 0 || budget > maximum {
+		budget = maximum / 2
+	}
+	interval := h.ObservationRetryInterval
+	if interval <= 0 {
+		interval = 200 * time.Millisecond
+	}
+	observationContext, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	var lastErr error
+	for {
+		lastErr = h.Application.Observe(observationContext, address, port, []string{"tcp", "udp"})
+		if lastErr == nil {
+			return nil
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-observationContext.Done():
+			timer.Stop()
+			return fmt.Errorf("listener observation deadline: %w", lastErr)
+		case <-timer.C:
+		}
+	}
+}
+
+func sameApplicationIdentity(left, right wayportforward.AdapterLeaseRecord) bool {
+	return left.LeaseUID == right.LeaseUID && left.HandoffGeneration == right.HandoffGeneration && left.PodUID == right.PodUID &&
+		left.PublicAddress == right.PublicAddress && left.PublicPort == right.PublicPort && left.TargetPort == right.TargetPort &&
+		left.ApplicationAddress == right.ApplicationAddress && left.BackendPort == right.BackendPort && protocolsEqual(left.Protocols, right.Protocols)
+}
+
+func recordsEqual(left, right wayportforward.AdapterLeaseRecord) bool {
+	return sameApplicationIdentity(left, right) && left.APIVersion == right.APIVersion && left.LeaseNamespace == right.LeaseNamespace && left.ExpiresAt.Equal(right.ExpiresAt)
+}
+
+func protocolsEqual(left, right []wayv1.TransportProtocol) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) writeWithdrawalAcknowledgement(response http.ResponseWriter, intent wayportforward.AdapterWithdrawalIntent) {

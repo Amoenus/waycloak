@@ -25,12 +25,13 @@ import (
 const responseLimit = int64(64 << 10)
 
 type Client struct {
-	Transport  http.RoundTripper
-	Port       uint16
-	ServerName string
-	Username   string
-	Password   string
-	Probe      func(context.Context, netip.AddrPort) error
+	Transport     http.RoundTripper
+	Port          uint16
+	ServerName    string
+	Username      string
+	Password      string
+	Probe         func(context.Context, netip.AddrPort) error
+	ProtocolProbe func(context.Context, string, netip.AddrPort) error
 }
 
 func NewClient(caFile, serverName, usernameFile, passwordFile string, port uint16) (*Client, error) {
@@ -58,18 +59,10 @@ func NewClient(caFile, serverName, usernameFile, passwordFile string, port uint1
 	return &Client{Transport: transport, Port: port, ServerName: serverName, Username: username, Password: password}, nil
 }
 
-func (c *Client) Configure(ctx context.Context, address netip.Addr, port uint16, reannounce bool) error {
-	if c == nil || c.Transport == nil || c.Port == 0 || c.ServerName == "" || c.Username == "" || c.Password == "" || !address.Is4() || port == 0 {
-		return errors.New("exact qBittorrent application identity is required")
-	}
-	jar, err := cookiejar.New(nil)
+func (c *Client) Apply(ctx context.Context, address netip.Addr, port uint16, reannounce bool) error {
+	httpClient, origin, err := c.session(ctx, address, port)
 	if err != nil {
 		return err
-	}
-	httpClient := &http.Client{Transport: c.Transport, Jar: jar, Timeout: 10 * time.Second}
-	origin := &url.URL{Scheme: "https", Host: net.JoinHostPort(address.String(), strconv.Itoa(int(c.Port)))}
-	if err := c.authenticate(ctx, httpClient, origin); err != nil {
-		return fmt.Errorf("authenticate qBittorrent: %w", err)
 	}
 	// A successful login response is not sufficient proof of authorization:
 	// qBittorrent 5.2 may return 204 for a response without content. Require a
@@ -85,6 +78,28 @@ func (c *Client) Configure(ctx context.Context, address netip.Addr, port uint16,
 	if err := c.postForm(ctx, httpClient, origin, "/api/v2/app/setPreferences", url.Values{"json": {string(preferenceJSON)}}, ""); err != nil {
 		return fmt.Errorf("set qBittorrent listener: %w", err)
 	}
+	if reannounce {
+		if err := c.postForm(ctx, httpClient, origin, "/api/v2/torrents/reannounce", url.Values{"hashes": {"all"}}, ""); err != nil {
+			return fmt.Errorf("reannounce qBittorrent torrents: %w", err)
+		}
+	}
+	return nil
+}
+
+// Configure remains as a source-compatible convenience for embedders. The
+// adapter handler uses the separate Apply and Observe responsibilities.
+func (c *Client) Configure(ctx context.Context, address netip.Addr, port uint16, reannounce bool) error {
+	if err := c.Apply(ctx, address, port, reannounce); err != nil {
+		return err
+	}
+	return c.Observe(ctx, address, port, []string{"tcp", "udp"})
+}
+
+func (c *Client) Observe(ctx context.Context, address netip.Addr, port uint16, protocols []string) error {
+	httpClient, origin, err := c.session(ctx, address, port)
+	if err != nil {
+		return err
+	}
 	observed, err := c.preferences(ctx, httpClient, origin)
 	if err != nil {
 		return err
@@ -92,19 +107,40 @@ func (c *Client) Configure(ctx context.Context, address netip.Addr, port uint16,
 	if observed.ListenPort != port || observed.RandomPort || observed.UPnP {
 		return errors.New("qBittorrent listener observation does not match the lease")
 	}
-	probe := c.Probe
-	if probe == nil {
-		probe = probeTCP
-	}
-	if err := probe(ctx, netip.AddrPortFrom(address, port)); err != nil {
-		return fmt.Errorf("observe qBittorrent listener: %w", err)
-	}
-	if reannounce {
-		if err := c.postForm(ctx, httpClient, origin, "/api/v2/torrents/reannounce", url.Values{"hashes": {"all"}}, ""); err != nil {
-			return fmt.Errorf("reannounce qBittorrent torrents: %w", err)
+	endpoint := netip.AddrPortFrom(address, port)
+	for _, protocol := range protocols {
+		if protocol != "tcp" && protocol != "udp" {
+			return errors.New("qBittorrent listener protocol is invalid")
+		}
+		var probeErr error
+		if c.ProtocolProbe != nil {
+			probeErr = c.ProtocolProbe(ctx, protocol, endpoint)
+		} else if c.Probe != nil {
+			probeErr = c.Probe(ctx, endpoint)
+		} else {
+			probeErr = probeListener(ctx, protocol, endpoint)
+		}
+		if probeErr != nil {
+			return fmt.Errorf("observe qBittorrent %s listener: %w", protocol, probeErr)
 		}
 	}
 	return nil
+}
+
+func (c *Client) session(ctx context.Context, address netip.Addr, port uint16) (*http.Client, *url.URL, error) {
+	if c == nil || c.Transport == nil || c.Port == 0 || c.ServerName == "" || c.Username == "" || c.Password == "" || !address.Is4() || port == 0 {
+		return nil, nil, errors.New("exact qBittorrent application identity is required")
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	httpClient := &http.Client{Transport: c.Transport, Jar: jar, Timeout: 10 * time.Second}
+	origin := &url.URL{Scheme: "https", Host: net.JoinHostPort(address.String(), strconv.Itoa(int(c.Port)))}
+	if err := c.authenticate(ctx, httpClient, origin); err != nil {
+		return nil, nil, fmt.Errorf("authenticate qBittorrent: %w", err)
+	}
+	return httpClient, origin, nil
 }
 
 func (c *Client) authenticate(ctx context.Context, httpClient *http.Client, origin *url.URL) error {
@@ -216,11 +252,39 @@ func boundedBody(reader io.Reader) ([]byte, error) {
 	return body, nil
 }
 
-func probeTCP(ctx context.Context, endpoint netip.AddrPort) error {
+func probeListener(ctx context.Context, protocol string, endpoint netip.AddrPort) error {
 	dialer := net.Dialer{Timeout: 2 * time.Second}
-	connection, err := dialer.DialContext(ctx, "tcp", endpoint.String())
+	connection, err := dialer.DialContext(ctx, protocol, endpoint.String())
 	if err != nil {
 		return err
+	}
+	if protocol == "udp" {
+		deadline := time.Now().Add(2 * time.Second)
+		if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+			deadline = contextDeadline
+		}
+		if err := connection.SetDeadline(deadline); err != nil {
+			_ = connection.Close()
+			return err
+		}
+		// BEP 5 DHT ping. A matching transaction response proves that the UDP
+		// socket belongs to a live BitTorrent listener; UDP connect alone does not.
+		request := []byte("d1:ad2:id20:waycloak-listener-01e1:q4:ping1:t2:wc1:y1:qe")
+		if _, err := connection.Write(request); err != nil {
+			_ = connection.Close()
+			return err
+		}
+		response := make([]byte, 2048)
+		count, err := connection.Read(response)
+		if err != nil {
+			_ = connection.Close()
+			return err
+		}
+		body := string(response[:count])
+		if !strings.Contains(body, "1:t2:wc") || !strings.Contains(body, "1:y1:r") {
+			_ = connection.Close()
+			return errors.New("qBittorrent DHT ping response is invalid")
+		}
 	}
 	return connection.Close()
 }

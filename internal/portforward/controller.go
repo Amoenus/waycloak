@@ -68,7 +68,7 @@ func (r *PortForwardLeaseReconciler) Reconcile(ctx context.Context, request ctrl
 		if err := r.Patch(ctx, lease, client.MergeFrom(before), client.FieldOwner(wayv1.FieldManagerLeaseController)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("install provider cleanup finalizer: %w", err)
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
 	}
 
 	desired, requeueAfter := r.runtimeStatus(ctx, lease, evaluation)

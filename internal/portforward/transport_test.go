@@ -14,6 +14,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -28,6 +30,45 @@ import (
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type unavailableDelivery struct{}
+
+func (unavailableDelivery) Reconcile(context.Context, Intent, ProviderObservation) (bool, bool, error) {
+	return false, false, &AdapterRequestError{Kind: AdapterFailureUnavailable, StatusCode: http.StatusServiceUnavailable}
+}
+
+func (unavailableDelivery) Withdraw(context.Context, WithdrawalIntent) (bool, error) {
+	return false, &AdapterRequestError{Kind: AdapterFailureUnavailable, StatusCode: http.StatusServiceUnavailable}
+}
+
+func TestRuntimeTransportPreservesAdapterUnavailability(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	handler := RuntimeHandler{GatewayUID: "gateway-uid", Manager: &GatewayRuntimeManager{
+		PortForward: &managerDriver{now: now}, Rules: &managerRules{}, Delivery: unavailableDelivery{}, Now: func() time.Time { return now },
+	}}
+	intent := managerIntent("pod-a", 1)
+	body, err := json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, runtimePath(intent.LeaseUID, ""), bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("runtime handler status=%d", response.Code)
+	}
+
+	client := &RuntimeClient{BaseURL: &url.URL{Scheme: "https", Host: "runtime.test"}, Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader(`{"error":"request rejected"}`))}, nil
+	})}}
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
+	_, err = client.Reconcile(context.Background(), gateway, intent)
+	var runtimeError *RuntimeRequestError
+	if !errors.As(err, &runtimeError) || runtimeError.Kind != AdapterFailureUnavailable {
+		t.Fatalf("runtime client error=%#v, %v", runtimeError, err)
+	}
+}
 
 func TestRuntimeHandlerUsesExactVersionedLeaseIdentity(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()

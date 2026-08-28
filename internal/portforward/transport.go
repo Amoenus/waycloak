@@ -147,7 +147,11 @@ func (c *RuntimeClient) call(ctx context.Context, method, path string, input any
 		return Observation{}, err
 	}
 	if response.StatusCode != http.StatusOK {
-		return Observation{}, fmt.Errorf("gateway runtime rejected request with status %d", response.StatusCode)
+		kind := AdapterFailureUnavailable
+		if response.StatusCode == http.StatusConflict {
+			kind = AdapterFailureConflict
+		}
+		return Observation{}, &RuntimeRequestError{Kind: kind, StatusCode: response.StatusCode}
 	}
 	var observation Observation
 	if err := decodeStrict(responseBody, &observation); err != nil {
@@ -202,12 +206,28 @@ func (h RuntimeHandler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		return
 	}
 	if err != nil {
-		slog.Warn("gateway port-forward runtime request failed", "operation", operation, "lease_uid", leaseUID, "error", err)
-		writeRuntimeError(response, http.StatusConflict)
+		status := http.StatusConflict
+		failureKind := AdapterFailureConflict
+		var adapterError *AdapterRequestError
+		if errors.As(err, &adapterError) && adapterError.Kind == AdapterFailureUnavailable {
+			status = http.StatusServiceUnavailable
+			failureKind = AdapterFailureUnavailable
+		}
+		slog.Warn("gateway port-forward runtime request failed", "operation", operation, "lease_uid", leaseUID, "failure_kind", failureKind, "error", err)
+		writeRuntimeError(response, status)
 		return
 	}
 	response.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(response).Encode(observation)
+}
+
+type RuntimeRequestError struct {
+	Kind       AdapterFailureKind
+	StatusCode int
+}
+
+func (e *RuntimeRequestError) Error() string {
+	return fmt.Sprintf("gateway runtime request failed: kind=%s status=%d", e.Kind, e.StatusCode)
 }
 
 func ServerTLSConfig(caFile, expectedIdentity string) (*tls.Config, error) {

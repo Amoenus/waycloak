@@ -6,6 +6,7 @@ package portforward
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -14,6 +15,28 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 )
+
+func TestHTTPAdapterClientClassifiesConflictAndUnavailable(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		kind   AdapterFailureKind
+	}{{http.StatusConflict, AdapterFailureConflict}, {http.StatusServiceUnavailable, AdapterFailureUnavailable}} {
+		t.Run(test.kind.String(), func(t *testing.T) {
+			intent := managerIntent("pod-a", 4)
+			intent.AdapterName = "qbittorrent"
+			record := AdapterLeaseRecord{APIVersion: AdapterAPIVersion, LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID,
+				HandoffGeneration: intent.HandoffGeneration, PodUID: intent.PodUID}
+			client := &HTTPAdapterClient{Port: 9443, ClusterDomain: "cluster.local", Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: test.status, Body: io.NopCloser(strings.NewReader(`{"error":"request rejected"}`))}, nil
+			})}}
+			_, err := client.Deliver(context.Background(), intent.AdapterName, record)
+			var requestError *AdapterRequestError
+			if !errors.As(err, &requestError) || requestError.Kind != test.kind {
+				t.Fatalf("classified error = %#v, %v", requestError, err)
+			}
+		})
+	}
+}
 
 func TestHTTPAdapterClientUsesDeterministicCredentialFreeExactEndpoint(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()

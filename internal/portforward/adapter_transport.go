@@ -25,6 +25,24 @@ const (
 	DefaultAdapterPort = uint16(9444)
 )
 
+type AdapterFailureKind string
+
+func (k AdapterFailureKind) String() string { return string(k) }
+
+const (
+	AdapterFailureConflict    AdapterFailureKind = "conflict"
+	AdapterFailureUnavailable AdapterFailureKind = "unavailable"
+)
+
+type AdapterRequestError struct {
+	Kind       AdapterFailureKind
+	StatusCode int
+}
+
+func (e *AdapterRequestError) Error() string {
+	return fmt.Sprintf("application adapter request failed: kind=%s status=%d", e.Kind, e.StatusCode)
+}
+
 type AdapterWithdrawalAcknowledgement struct {
 	APIVersion        string              `json:"apiVersion"`
 	LeaseNamespace    wayv1.NamespaceName `json:"leaseNamespace"`
@@ -154,7 +172,11 @@ func (c *HTTPAdapterClient) call(ctx context.Context, namespace wayv1.NamespaceN
 		return err
 	}
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("application adapter rejected request with status %d", response.StatusCode)
+		kind := AdapterFailureUnavailable
+		if response.StatusCode == http.StatusConflict {
+			kind = AdapterFailureConflict
+		}
+		return &AdapterRequestError{Kind: kind, StatusCode: response.StatusCode}
 	}
 	if err := decodeStrict(responseBody, output); err != nil {
 		return fmt.Errorf("decode application adapter observation: %w", err)

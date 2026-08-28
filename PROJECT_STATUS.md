@@ -1,5 +1,26 @@
 # Project status
 
+## Adapter apply/observe implementation slice
+
+Issue #245 is implemented in source and focused tests, with exact-release and
+local qBittorrent evidence still outstanding. The stable v1 JSON contract is
+unchanged. The qBittorrent implementation now separates application `Apply`,
+listener `Observe`, and expiry-only renewal acknowledgement. A changed exact
+identity is durably applied once, then acknowledged only after matching
+preference state plus TCP and transaction-bound UDP/DHT listener observation.
+Observation retries are bounded below the fail-closed freshness deadline, and
+sustained loss remains unavailable.
+
+Expiry-only renewal performs no login, preference write, reannounce, or
+handoff change. Adapter-Pod replacement reloads durable state and reobserves
+without reapplying. Withdrawal never uses cached acknowledgement. Permanent
+stale/contradictory identities remain HTTP 409, while dial, authentication,
+application API, and listener failures are HTTP 503 and retain typed
+`conflict`/`unavailable` classification across the gateway-runtime hop. Focused
+unit tests and Linux-target Staticcheck v0.8.1 pass. The next implementation
+slice is #243; #245 remains unchecked until the new exact artifact passes the
+qBittorrent GitOps validation.
+
 ## Dependency governance slice
 
 Issue #242 is implemented. Waycloak now carries a machine-readable inventory

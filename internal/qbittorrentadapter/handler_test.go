@@ -109,8 +109,8 @@ func TestHandlerDurablyRecoversAndRevalidatesBeforeAcknowledging(t *testing.T) {
 	if response := serveJSON(t, restarted, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusOK {
 		t.Fatalf("restart revalidation = %d: %s", response.Code, response.Body.String())
 	}
-	if len(restartedApplication.calls) != 1 || !restartedApplication.calls[0].reannounce {
-		t.Fatalf("restart did not revalidate and reannounce: %#v", restartedApplication.calls)
+	if len(restartedApplication.calls) != 0 || len(restartedApplication.observations) != 1 {
+		t.Fatalf("restart reapplied instead of reobserving: calls=%#v observations=%#v", restartedApplication.calls, restartedApplication.observations)
 	}
 	withdrawal := wayportforward.AdapterWithdrawalIntent{APIVersion: wayportforward.AdapterAPIVersion, LeaseNamespace: record.LeaseNamespace,
 		LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID}
@@ -137,10 +137,10 @@ func TestHandlerPersistsIntentBeforeMutationAndWithdrawsFailedDelivery(t *testin
 		}
 	}
 	handler.Application = application
-	if response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusConflict {
+	if response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("failed application mutation = %d: %s", response.Code, response.Body.String())
 	}
-	if state, exists := handler.states[record.LeaseUID]; !exists || state.verified {
+	if state, exists := handler.states[record.LeaseUID]; !exists || !state.ObservedAt.IsZero() {
 		t.Fatalf("failed delivery state = %#v, exists=%t", state, exists)
 	}
 
@@ -199,8 +199,8 @@ func TestHandlerClearsExactRetiredPodWhenBackendRestoreIsImpossible(t *testing.T
 	application.err = errors.New("current application endpoint is unreachable")
 	withdrawal.ApplicationEndpointRetired = false
 	response = serveJSON(t, handler, http.MethodPost, adapterPathPrefix+string(record.LeaseUID)+"/withdraw", withdrawal)
-	if response.Code != http.StatusConflict {
-		t.Fatalf("current endpoint withdrawal = %d, want conflict", response.Code)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("current endpoint withdrawal = %d, want unavailable", response.Code)
 	}
 	if _, exists := handler.states[record.LeaseUID]; !exists {
 		t.Fatal("current endpoint state was cleared without restoration")
@@ -248,17 +248,79 @@ type configureCall struct {
 }
 
 type fakeConfigurer struct {
-	calls  []configureCall
-	before func()
-	err    error
+	calls        []configureCall
+	observations []configureCall
+	before       func()
+	err          error
+	observeErrs  []error
+	observeErr   error
 }
 
-func (f *fakeConfigurer) Configure(_ context.Context, address netip.Addr, port uint16, reannounce bool) error {
+func (f *fakeConfigurer) Apply(_ context.Context, address netip.Addr, port uint16, reannounce bool) error {
 	if f.before != nil {
 		f.before()
 	}
 	f.calls = append(f.calls, configureCall{address, port, reannounce})
 	return f.err
+}
+
+func (f *fakeConfigurer) Observe(_ context.Context, address netip.Addr, port uint16, protocols []string) error {
+	f.observations = append(f.observations, configureCall{address: address, port: port})
+	if len(protocols) != 2 || protocols[0] != "tcp" || protocols[1] != "udp" {
+		return errors.New("unexpected observation protocols")
+	}
+	if len(f.observeErrs) == 0 {
+		return f.observeErr
+	}
+	err := f.observeErrs[0]
+	f.observeErrs = f.observeErrs[1:]
+	return err
+}
+
+func TestHandlerExpiryRenewalDoesNotTouchApplication(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	application := &fakeConfigurer{}
+	handler := &Handler{Application: application, Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod", Now: func() time.Time { return now }}
+	record := validRecord(now)
+	if response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record); response.Code != http.StatusOK {
+		t.Fatalf("initial delivery = %d: %s", response.Code, response.Body.String())
+	}
+	applyCount, observationCount := len(application.calls), len(application.observations)
+	now = now.Add(10 * time.Second)
+	record.ExpiresAt = record.ExpiresAt.Add(time.Minute)
+	response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record)
+	if response.Code != http.StatusOK || len(application.calls) != applyCount || len(application.observations) != observationCount {
+		t.Fatalf("renewal touched application: status=%d applies=%d observes=%d", response.Code, len(application.calls), len(application.observations))
+	}
+}
+
+func TestHandlerRetriesObservationWithoutReapplying(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	application := &fakeConfigurer{observeErrs: []error{errors.New("temporary timeout"), nil}}
+	handler := &Handler{Application: application, Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod",
+		Now: func() time.Time { return now }, ObservationBudget: time.Second, ObservationRetryInterval: time.Millisecond}
+	record := validRecord(now)
+	response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record)
+	if response.Code != http.StatusOK || len(application.calls) != 1 || len(application.observations) != 2 {
+		t.Fatalf("retry result status=%d applies=%d observes=%d", response.Code, len(application.calls), len(application.observations))
+	}
+}
+
+func TestHandlerSustainedObservationLossIsUnavailableAndDoesNotReapply(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	application := &fakeConfigurer{observeErr: errors.New("listener unavailable")}
+	handler := &Handler{Application: application, Namespace: "apps", Name: "qbittorrent", Image: "digest", PodUID: "adapter-pod",
+		Now: func() time.Time { return now }, ObservationBudget: 5 * time.Millisecond, ObservationRetryInterval: time.Millisecond}
+	record := validRecord(now)
+	for attempt := 0; attempt < 2; attempt++ {
+		response := serveJSON(t, handler, http.MethodPut, adapterPathPrefix+string(record.LeaseUID), record)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("attempt %d status=%d", attempt, response.Code)
+		}
+	}
+	if len(application.calls) != 1 || len(application.observations) < 2 {
+		t.Fatalf("sustained loss applies=%d observations=%d", len(application.calls), len(application.observations))
+	}
 }
 
 func validRecord(now time.Time) wayportforward.AdapterLeaseRecord {

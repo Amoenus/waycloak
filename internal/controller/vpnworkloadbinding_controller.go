@@ -398,7 +398,7 @@ func (r *VPNWorkloadBindingReconciler) reconcileDeletion(ctx context.Context, bi
 		if err := r.applyStatus(ctx, binding, desired); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
 	}
 	allocator := waybinding.Allocator{Client: r.Client, Reader: r.reader(), Now: r.Now}
 	if r.withdrawalConfirmed(binding) {
