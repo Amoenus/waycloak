@@ -20,7 +20,7 @@ jobs:
       attestations: write
     steps:
       - name: Check out exact tag
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Validate the immutable Waycloak release tag
@@ -28,7 +28,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: bash hack/validate-release-tag.sh "$RELEASE_TAG"
       - name: Set up Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -43,7 +43,7 @@ jobs:
           cp "$RUNNER_TEMP/first"/* dist/waycloakctl/
           mv dist/waycloakctl/SHA256SUMS dist/waycloakctl/waycloakctl-SHA256SUMS
       - name: Generate SPDX SBOM
-        uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: dist/waycloakctl
           format: spdx-json
@@ -56,7 +56,7 @@ jobs:
           cosign sign-blob --yes --bundle dist/waycloakctl/waycloakctl-SHA256SUMS.sigstore.json dist/waycloakctl/waycloakctl-SHA256SUMS
           cosign sign-blob --yes --bundle dist/waycloakctl/waycloakctl.spdx.sigstore.json dist/waycloakctl/waycloakctl.spdx.json
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             dist/waycloakctl/waycloakctl-darwin-*

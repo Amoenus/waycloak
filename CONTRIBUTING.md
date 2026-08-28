@@ -11,4 +11,11 @@ Before starting substantial work:
 
 Changes should include tests proportional to risk. Networking and admission changes require end-to-end coverage, including a negative or failure-path test. Generated CRDs, chart copies, and KCL schemas must be updated in the same change as their source. Release contributors use the checksummed KCL CLI installed by `hack/install-kcl.sh`.
 
+Adding or materially upgrading a dependency also updates
+`dependencies/dependency-inventory.json`. Record maintenance and security
+ownership, license, exact pin, SBOM/provenance/vulnerability handling,
+compatibility, rollback, transitive weight, and measured binary/RSS impact.
+Run `make dependency-audit`; do not treat an automated update proposal as
+qualification evidence.
+
 Commits should be narrowly scoped and use an imperative subject. Pull requests should explain the user-visible outcome, security impact, verification performed, and any unresolved tradeoffs.

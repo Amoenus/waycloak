@@ -1,0 +1,26 @@
+name: Dependency governance
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify inventory and report upstream drift
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./hack/dependencyaudit --upstream | tee -a "$GITHUB_STEP_SUMMARY"

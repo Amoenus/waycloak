@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-version="0.12.4"
-checksum="01dc1d8914ed8fdfac7e8b34cc155227cf7f155ef8760f741f35b0f8529f08ca"
+version="0.12.8"
+checksum="8b663e88a9f679e129e4e60dd7dcd0641a1c8dd679adfcc24120f8fa5ef1cbb3"
 destination="${1:-${RUNNER_TEMP:-/tmp}/waycloak-kcl}"
 archive="$destination/kcl.tar.gz"
 

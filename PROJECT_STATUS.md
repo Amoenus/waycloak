@@ -1,5 +1,28 @@
 # Project status
 
+## Dependency governance slice
+
+Issue #242 is implemented. Waycloak now carries a machine-readable inventory
+covering every direct Go module, shipped base image, generated-client/build
+tool, and the chart, KCL module, and eight exact release images. A deterministic
+audit rejects inventory/go.mod drift, missing pins or qualification evidence,
+expired maintenance or lag reviews, incomplete release coverage, and resource
+budget regressions. CI also reports upstream drift without changing pins, and a
+weekly scheduled workflow catches drift when the repository is otherwise idle.
+The signed runtime release includes the byte-identical inventory in its
+checksum/provenance set, and independent publication verification consumes and
+revalidates it.
+
+The 2026-08-29 refresh advanced Prometheus client_golang to v1.24.1, x/net to
+v0.58.0, x/sys to v0.47.0, KCL CLI to v0.12.8, Trivy to v0.74.0, actionlint to
+v1.7.12, Staticcheck to v0.8.1, crane to v0.22.0, Helm to v4.2.4, Kind to
+v0.33.0, and the qualified SHA-pinned GitHub Actions. Linux-target compilation,
+generated KCL comparison, workflow validation, unit tests, reproducible binary
+size measurements, and the existing per-agent RSS evidence remain within the
+published budget. The live local cluster was directly observed at
+Kubernetes v1.36.1+k3s1, not 1.37, so Kubernetes v0.37 is an explicit #141
+compatibility lag reviewed by 2026-11-27. The next ordered slice is #245.
+
 ## Dependency-backed stabilization direction
 
 ADR 0044 was accepted on 2026-08-26 after the RC.26 local-cluster qBittorrent

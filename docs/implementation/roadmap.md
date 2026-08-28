@@ -27,8 +27,12 @@ local-cluster soak are required.
 API and fail-closed behavior while delegating general protocol machinery to
 qualified maintained dependencies. Work proceeds in this order:
 
-- [ ] #242 establish exact dependency freshness, maintenance, security and
-  lightweight-runtime gates.
+- [x] #242 establishes a machine-readable exact dependency and release-artifact
+  inventory, deterministic drift/review/resource-budget audit, report-only
+  upstream checks on CI and a weekly schedule, current qualified direct modules
+  and build tools, and signed-release consumption of the byte-identical
+  inventory. Kubernetes v0.37 remains an owned #141 lag because the observed
+  local cluster and certified row are still v1.36.1+k3s1.
 - [ ] #245 separate workload-adapter Apply, Observe and renewal acknowledgement
   semantics so unchanged renewal is a no-op.
 - [ ] #243 replace custom provider acquisition/renewal with Gluetun's native

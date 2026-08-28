@@ -1,6 +1,37 @@
-# Dependencies
+# Dependency governance
 
 Waycloak keeps the mandatory dependency set small and makes homelab tooling optional.
+
+The machine-readable source of truth is
+[`dependencies/dependency-inventory.json`](../../dependencies/dependency-inventory.json).
+It covers every direct Go module, shipped base image, generated-client tool,
+build/security tool, and exact release artifact. `make dependency-audit` fails
+when `go.mod` and the inventory diverge, a pin reference disappears, a
+qualification field is missing, a resource budget is exceeded, or a review or
+version-lag exception expires.
+
+CI separately runs `go run ./hack/dependencyaudit --upstream`. That operation
+reports newer stable Go modules and GitHub releases; it never edits a pin or
+merges an upgrade. A weekly scheduled run detects drift even when the repository
+is otherwise quiet. Network failure is reported as an upstream-check failure,
+not interpreted as proof that dependencies are current.
+
+Every dependency addition or material upgrade must update the inventory in the
+same change and record:
+
+- current and latest observed stable versions, maintenance state, source,
+  support/security path, and SPDX license expression;
+- exact version, commit, checksum, or image digest and every file that owns the
+  pin;
+- SBOM, provenance, reproducibility, and vulnerability evidence;
+- compatibility and rollback evidence for the boundary it affects;
+- transitive/binary, CPU, allocation, RSS, and image impact, using an aggregate
+  measurement only when the dependency cannot be isolated honestly; and
+- an owner, reason, and review date for every deliberate lag.
+
+Release publication copies the verified inventory into the signed checksum and
+provenance set. Independent exact-artifact verification requires it to be
+byte-identical to the release source and reruns the deterministic audit.
 
 ## Cluster prerequisites
 
@@ -28,17 +59,22 @@ Waycloak keeps the mandatory dependency set small and makes homelab tooling opti
 - OpenVPN or WireGuard support provided by the engine and provider;
 - provider port-forward support only when inbound leases are requested.
 
-Gluetun is pinned by digest in tested release metadata. It should eventually be replaceable through a driver/engine interface.
+Gluetun is pinned by exact source commit, base-image digest, and derived release
+digest. ADR 0044 and #243 own the transition from the current derived baseline
+to the latest qualified stable native-control release; the inventory records
+that lag explicitly rather than describing a branch commit as a stable release.
 
-## Go implementation candidates
+## Go implementation dependencies
 
-Exact module selection requires an ADR and maintenance review. Expected categories include:
+Exact module selection requires an ADR where the boundary is difficult to
+reverse and always requires inventory qualification. Current categories include:
 
 - `sigs.k8s.io/controller-runtime` and Kubernetes API libraries;
 - netlink operations, likely `github.com/vishvananda/netlink` or direct rtnetlink;
 - nftables operations, likely `github.com/google/nftables`;
 - structured logging through `log/slog` or controller-runtime-compatible logging;
-- Prometheus client only if metrics are not supplied adequately by controller-runtime;
+- the existing Prometheus client during the independently ordered
+  OpenTelemetry-first migration in #246;
 - testing with Ginkgo/Gomega or standard Go testing, envtest, and Kind.
 
 Avoid introducing a database, message broker, service mesh, or separate policy engine for the initial product.
@@ -67,7 +103,9 @@ These are compatible but never required by the controller:
 - GitHub Actions initially;
 - KCL CLI only for the optional KCL OCI module.
 
-Actions must be pinned by commit SHA. Build dependencies and base images must be pinned and updated through reviewed automation.
+Actions are pinned by full commit SHA. Build dependencies and base images are
+exactly pinned and updated only through reviewed changes; reporting automation
+does not mutate the repository.
 
 ## Upstream inspiration and licensing
 

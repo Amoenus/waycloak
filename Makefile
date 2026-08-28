@@ -2,7 +2,7 @@ GO ?= go
 CONTROLLER_GEN = $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.21.0
 SETUP_ENVTEST = $(GO) run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.2-0.20260522131650-4e7b752653a0
 KO = $(GO) run github.com/google/ko@v0.19.1
-ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+ACTIONLINT = $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 NODE_AGENT_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-node-agent
 WAYCLOAK_CNI_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-cni
 REPLACEMENT_CONTROLLER_IMAGE_REPOSITORY ?= waycloak.invalid/waycloak-replacement-controller
@@ -21,7 +21,7 @@ CHART_PACKAGE_DIR ?= dist/chart
 KCL_MODULE_DIR ?= kcl/waycloak
 KCL_PACKAGE_DIR ?= dist/kcl
 
-.PHONY: generate manifests api-reference test test-race vet envtest e2e baseline-runtime-images-oci release-runtime-images-oci waycloak-cni-image-oci node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
+.PHONY: generate manifests api-reference test test-race vet envtest e2e baseline-runtime-images-oci release-runtime-images-oci waycloak-cni-image-oci node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit dependency-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
 
@@ -130,6 +130,9 @@ alpha-audit:
 
 api-freeze-audit:
 	$(GO) run ./hack/apifreezeaudit
+
+dependency-audit:
+	$(GO) run ./hack/dependencyaudit
 
 verify-generated: generate api-reference verify-chart-generated verify-kcl-generated
 	git diff --exit-code -- api config docs/api/v1beta1.md kcl/waycloak/v1beta1 kcl/waycloak/k8s

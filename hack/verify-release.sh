@@ -86,6 +86,7 @@ retry_bounded_to_file() {
 expected_assets=(
   SHA256SUMS
   SHA256SUMS.sigstore.json
+  dependency-inventory.json
   release-manifest.json
   release-manifest.sigstore.json
   gluetun-binaries.SHA256SUMS
@@ -137,6 +138,10 @@ jq -e --arg version "$release_tag" \
   "$asset_dir/release-manifest.json" >/dev/null
 bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-inventory.sh" \
   "$asset_dir/release-manifest.json"
+cmp dependencies/dependency-inventory.json "$asset_dir/dependency-inventory.json"
+go run ./hack/dependencyaudit \
+  --inventory "$asset_dir/dependency-inventory.json" \
+  --root .
 test "$(jq -r '.chart.repository + "@" + .chart.digest' "$asset_dir/release-manifest.json")" = \
   "$(cat "$asset_dir/waycloak-chart.ref")"
 test "$(jq -r '.kcl.repository + "@" + .kcl.digest' "$asset_dir/release-manifest.json")" = \
