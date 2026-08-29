@@ -855,7 +855,8 @@ run_disruptive_verify() {
       .metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
       .metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
       .metadata.labels["controller-revision-hash"] == $revision and
-      ([.status.containerStatuses[] | select(.ready == true)] | length) == 2
+      (["vpn-engine", "coredns", "gateway-agent"] -
+        [.status.containerStatuses[] | select(.ready == true) | .name] | length) == 0
     ' >/dev/null
   # The verifier observes current-generation Ready on the recovered UID-bound
   # binding. Its outage Pod never receives an application process, so it can
