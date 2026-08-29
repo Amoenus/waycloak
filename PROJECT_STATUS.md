@@ -122,13 +122,17 @@ Kubernetes v1.36.1+k3s1, not 1.37, so Kubernetes v1.37 is an explicit #141
 compatibility lag reviewed by 2026-11-27. All ordered #242-#246 source slices
 are now implemented; exact release and live evidence are next.
 
-RC.29 is the publication candidate for those slices. It delegates provider
+RC.30 is the corrective publication candidate for those slices. RC.29 was
+published and exactly deployed, but live validation found that the
+port-forward table's unmatched-tunnel rule dropped established replies for
+ordinary protected-workload TCP egress. RC.30 preserves tracked tunnel return
+traffic before the fail-closed unmatched-ingress drop. It delegates provider
 mapping acquisition and renewal to Gluetun, separates adapter Apply and Observe,
 uses a qualified private CoreDNS gateway sidecar while keeping Waycloak's strict
 semantic probes, and adds bounded no-op-by-default OpenTelemetry signals. The
 cluster DNS upstream remains implementation-agnostic behind its configured
 Service address and cluster domain. The live cluster is still Kubernetes
-v1.36.1+k3s1, so RC.29 does not claim a 1.37 certified row.
+v1.36.1+k3s1, so RC.30 does not claim a 1.37 certified row.
 
 ## Dependency-backed stabilization direction
 

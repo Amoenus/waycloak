@@ -64,8 +64,22 @@ func (b LinuxRuleBackend) Replace(_ context.Context, rules []GatewayRule) error 
 			addGatewayLeaseRules(conn, table, prerouting, forward, postrouting, b, rule, protocol)
 		}
 	}
-	// Traffic arriving from the VPN tunnel that did not match an exact active
-	// lease is denied. Other forwarding remains outside this owned table.
+	// nftables evaluates every base chain registered on the forward hook. An
+	// accept verdict in the gateway-core table therefore does not prevent this
+	// table from seeing established replies to ordinary overlay egress. Preserve
+	// only those tracked replies before denying unsolicited tunnel ingress.
+	conn.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte("waycloak:established-tunnel-return:accept"), Exprs: []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes(b.TunnelInterface)},
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes(b.OverlayInterface)},
+		&expr.Ct{Register: 1, Key: expr.CtKeySTATE},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: []byte{0x06, 0, 0, 0}, Xor: []byte{0, 0, 0, 0}},
+		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: []byte{0, 0, 0, 0}},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	}})
+	// Traffic arriving from the VPN tunnel that is neither an exact active
+	// lease nor a tracked return packet is denied fail closed.
 	conn.AddRule(&nftables.Rule{Table: table, Chain: forward, UserData: []byte("waycloak:unmatched-tunnel:drop"), Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceNameBytes(b.TunnelInterface)},

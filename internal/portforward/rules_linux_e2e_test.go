@@ -64,6 +64,9 @@ func TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal(t *testing.T
 	serveUDPIdentity(udpA, "pod-a")
 	serveTCPIdentity(tcpB, "pod-b")
 	serveUDPIdentity(udpB, "pod-b")
+	egressTCP := listenTCP(t, vpnNS, "192.0.2.2:8443")
+	defer egressTCP.Close()
+	serveTCPIdentity(egressTCP, "vpn-egress")
 
 	rule := GatewayRule{LeaseUID: "lease-a", HandoffGeneration: 1, IngressPort: 50000,
 		OverlayAddress: "10.42.0.10", TargetPort: 6881, Protocols: []wayv1.TransportProtocol{wayv1.ProtocolTCP, wayv1.ProtocolUDP}}
@@ -85,6 +88,9 @@ func TestGatewayPortForwardTCPUDPReturnSymmetryHandoffAndWithdrawal(t *testing.T
 	}
 	assertTCPIdentity(t, vpnNS, "192.0.2.1:50000", "pod-a")
 	assertUDPIdentityAndSource(t, vpnNS, "192.0.2.1:50000", "pod-a")
+	// The port-forward catch-all must not drop established tunnel replies for
+	// ordinary protected-workload egress evaluated by the other base chains.
+	assertTCPIdentity(t, podANS, "192.0.2.2:8443", "vpn-egress")
 
 	successor := rule
 	successor.HandoffGeneration = 2
