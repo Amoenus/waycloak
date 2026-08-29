@@ -188,7 +188,7 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   `30360505871`. The Waycloak release workflow publishes all six first-party
   multi-platform binaries, a vulnerability-gated Gluetun derivative,
   a tag-versioned chart, per-artifact SPDX, keyless OCI signatures and
-  attestations, hosted-runner provenance, and the canonical eight-image manifest;
+  attestations, hosted-runner provenance, and the canonical nine-image manifest;
   its independent job verifies the downloaded and registry-resolved identities.
   The Gluetun artifact preserves the exact upstream commit/image identity, MIT
   license, and dependency-only patch instead of accepting reachable fixed

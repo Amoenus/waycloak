@@ -9,10 +9,10 @@ if [[ "$#" -ne 1 ]] || [[ ! -f "$1" ]]; then
   exit 2
 fi
 
-readonly expected='["gluetun","pause","replacement-controller","waycloak-cni","waycloak-gateway-agent","waycloak-gateway-runtime","waycloak-node-agent","waycloak-qbittorrent-adapter"]'
+readonly expected='["coredns","gluetun","pause","replacement-controller","waycloak-cni","waycloak-gateway-agent","waycloak-gateway-runtime","waycloak-node-agent","waycloak-qbittorrent-adapter"]'
 actual="$(jq -ce '.images | keys | sort' "$1")"
 if [[ "$actual" != "$expected" ]]; then
-  echo "release manifest must contain exactly the complete eight-image Waycloak inventory" >&2
+  echo "release manifest must contain exactly the complete nine-image Waycloak inventory" >&2
   exit 1
 fi
 

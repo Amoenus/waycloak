@@ -1260,7 +1260,8 @@ EOF
         .metadata.annotations["runtime.networking.waycloak.io/release-version"] == $version and
         .metadata.annotations["runtime.networking.waycloak.io/release-manifest-digest"] == $digest and
         .metadata.labels["controller-revision-hash"] == $revision and
-        ([.status.containerStatuses[] | select(.ready == true)] | length) == 2
+        (["vpn-engine", "coredns", "gateway-agent"] -
+          [.status.containerStatuses[] | select(.ready == true) | .name] | length) == 0
       ' >/dev/null; then
       gateway_rollout_ready=true
       break
@@ -1670,7 +1671,11 @@ apply_port_forward_capability() {
     any(.spec.template.spec.containers[] | select(.name == "controller") | .args[]; . == "--conformance-profile=networking.waycloak.io/Core-v1") and
     any(.spec.template.spec.volumes[]; .name == "port-forward-tls" and .secret.secretName == "waycloak-port-forward-controller-tls")
   ' >/dev/null
-  test "$(kubectl get statefulset --namespace "$smoke_namespace" -l app.kubernetes.io/component=gateway -o json | jq '[.items[].spec.template.spec.containers[]] | length')" = 2
+  kubectl get statefulset --namespace "$smoke_namespace" \
+    -l app.kubernetes.io/component=gateway -o json | jq -e '
+      (["vpn-engine", "coredns", "gateway-agent"] -
+        [.items[].spec.template.spec.containers[].name] | length) == 0
+    ' >/dev/null
 }
 
 run_disruptive_verify baseline

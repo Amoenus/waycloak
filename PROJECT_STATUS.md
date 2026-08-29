@@ -887,7 +887,7 @@ one product with baseline fail-closed egress and explicitly advertised optional
 capabilities. The current #140 slice replaces the historical `core.*` preview tag,
 workflow, helper, verifier, asset, and checksum names with normal Waycloak beta
 and stable SemVer publication. Every new release carries the complete signed
-eight-image amd64/arm64 inventory; artifact presence does not activate port
+nine-image amd64/arm64 inventory; artifact presence does not activate port
 forwarding. Historical six-image preview manifests are not accepted by the new
 publisher or installer. `Core-v1` remains only the baseline conformance-suite
 identifier inside the exact release manifest.
@@ -1238,7 +1238,7 @@ the gateway runtime and qBittorrent adapter as two implementation images in the
 complete release inventory. Both are repeat-built for Linux amd64/arm64 and
 pass the same digest, vulnerability, SPDX, signature, provenance, and
 independent redownload gates as every other release image. New manifests require
-the complete eight-image inventory and reject missing, partial, or unknown
+the complete nine-image inventory and reject missing, partial, or unknown
 inventories. Artifact availability does not enable the chart or change the default
 class feature set. #137 remains open for
 confirmation-gated deployment and the real-provider SingleActive rolling
@@ -1262,7 +1262,7 @@ to advertise port forwarding as supported.
 PR #205 added the confirmation boundary, but incorrectly promoted internal
 maturity labels into separate installation profiles. The
 corrected surface uses `waycloakctl install plan --enable-port-forwarding` with
-one exact Waycloak release manifest carrying the complete eight-image
+one exact Waycloak release manifest carrying the complete nine-image
 inventory. It binds a
 named immutable controller mTLS Secret by UID plus public CA and certificate
 digests, verifies the exact replacement-controller SPIFFE client identity, and
