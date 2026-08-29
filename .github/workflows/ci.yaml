@@ -184,6 +184,7 @@ jobs:
             --image "waycloak-node-agent=registry.invalid/waycloak-node-agent@$digest_d"
             --image "waycloak-gateway-agent=registry.invalid/waycloak-gateway-agent@$digest_e"
             --image "gluetun=docker.io/qmcgaw/gluetun@$digest_f"
+            --image "coredns=docker.io/coredns/coredns@$digest_d"
             --image "pause=registry.k8s.io/pause@$digest_a"
             --image "waycloak-gateway-runtime=registry.invalid/waycloak-gateway-runtime@$digest_b"
             --image "waycloak-qbittorrent-adapter=registry.invalid/waycloak-qbittorrent-adapter@$digest_c"

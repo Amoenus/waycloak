@@ -13,6 +13,7 @@ readonly registry_host="waycloak-registry.invalid"
 readonly registry_image="registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 readonly kind_node_image="kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
 readonly pause_ref="registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
+readonly coredns_ref="docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286"
 readonly curl_ref="docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b"
 readonly release_version="v0.0.0-turnkey-ci"
 readonly baseline_release_version="v0.0.0-turnkey-ci-baseline"
@@ -259,6 +260,7 @@ go run ./hack/release \
   --image "waycloak-gateway-runtime=$gateway_runtime_ref" \
   --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
   --image "gluetun=$gluetun_ref" \
+  --image "coredns=$coredns_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/release-manifest.json"
 
@@ -273,6 +275,7 @@ go run ./hack/release \
   --image "waycloak-gateway-runtime=$gateway_runtime_ref" \
   --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
   --image "gluetun=$gluetun_ref" \
+  --image "coredns=$coredns_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/baseline-release-manifest.json"
 
@@ -288,6 +291,7 @@ go run ./hack/release \
   --image "waycloak-gateway-runtime=$gateway_runtime_ref" \
   --image "waycloak-qbittorrent-adapter=$qbittorrent_adapter_ref" \
   --image "gluetun=$gluetun_ref" \
+  --image "coredns=$coredns_ref" \
   --image "pause=$pause_ref" \
   >"$work_dir/port-forward-release-manifest.json"
 
