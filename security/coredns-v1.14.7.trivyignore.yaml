@@ -1,0 +1,56 @@
+vulnerabilities:
+  - id: CVE-2023-28452
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.11.0 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2025-47950
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.12.2 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-26017
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.2 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-26018
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.2 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-32934
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.3 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-32936
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.3 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-33190
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.3 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-33489
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.3 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-35579
+    expired_at: 2026-11-27
+    statement: >-
+      CoreDNS v1.14.7 is newer than the 1.14.3 fix; Trivy compares the
+      release commit's pseudo-version as pre-release.
+  - id: CVE-2026-56864
+    expired_at: 2026-11-27
+    statement: >-
+      x/mod module-download verification code is not reachable in the fixed,
+      read-only CoreDNS DNS-serving process.
+  - id: CVE-2026-56865
+    expired_at: 2026-11-27
+    statement: >-
+      x/mod transparency-log verification code is not reachable in the fixed,
+      read-only CoreDNS DNS-serving process.

@@ -28,6 +28,23 @@ generates a CoreDNS SPDX asset, scans the exact image for HIGH/CRITICAL fixed
 vulnerabilities, verifies amd64 and arm64 availability, and carries the exact
 identity in the signed release manifest.
 
+The first RC.27 publication attempt exposed a Trivy version-ordering false
+positive rather than a vulnerable CoreDNS build. The official binary embeds
+its exact release commit as Go module pseudo-version
+`v0.0.0-20260819003913-427fc80ed9ca`; Trivy compares that as older than the
+semantic fixed versions and reported nine CoreDNS findings already fixed by
+1.14.3 or earlier. CoreDNS itself reports 1.14.7 and the upstream release tag
+resolves to the same embedded commit. Two additional findings concern x/mod
+module-download and transparency-log verification code, which is not reachable
+in this fixed, read-only DNS-serving process.
+
+`security/coredns-v1.14.7.trivyignore.yaml` records only those eleven findings,
+expires on 2026-11-27, and is used only when the release workflow scans the
+exact selected CoreDNS digest. The scan shows suppressed findings and still
+fails for any other fixed HIGH/CRITICAL vulnerability, any other image, a
+changed digest, or an expired exception. A dependency refresh must remove or
+re-qualify the exception; it is not a repository-wide vulnerability waiver.
+
 ## Candidate comparison
 
 | Candidate | Packaging cost | Protocol ownership | Operational fit | Decision |

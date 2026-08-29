@@ -366,7 +366,13 @@ jobs:
       - name: Enforce the release vulnerability policy
         run: |
           while read -r reference; do
-            trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$reference"
+            if [[ "$reference" == docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286 ]]; then
+              trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+                --ignorefile security/coredns-v1.14.7.trivyignore.yaml --show-suppressed \
+                --exit-code 1 "$reference"
+            else
+              trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$reference"
+            fi
           done < <(cat dist/release/*.ref | grep -v '^oci://')
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c

@@ -122,13 +122,13 @@ Kubernetes v1.36.1+k3s1, not 1.37, so Kubernetes v0.37 is an explicit #141
 compatibility lag reviewed by 2026-11-27. All ordered #242-#246 source slices
 are now implemented; exact release and live evidence are next.
 
-RC.27 is the publication candidate for those slices. It delegates provider
+RC.28 is the publication candidate for those slices. It delegates provider
 mapping acquisition and renewal to Gluetun, separates adapter Apply and Observe,
 uses a qualified private CoreDNS gateway sidecar while keeping Waycloak's strict
 semantic probes, and adds bounded no-op-by-default OpenTelemetry signals. The
 cluster DNS upstream remains implementation-agnostic behind its configured
 Service address and cluster domain. The live cluster is still Kubernetes
-v1.36.1+k3s1, so RC.27 does not claim a 1.37 certified row.
+v1.36.1+k3s1, so RC.28 does not claim a 1.37 certified row.
 
 ## Dependency-backed stabilization direction
 
