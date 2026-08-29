@@ -197,7 +197,7 @@ jobs:
             .version == "v0.0.0-ci" and
             (.manifestDigest | test("^sha256:[a-f0-9]{64}$")) and
             .kcl == {"repository":"oci://registry.invalid/waycloak-kcl","digest":$digest_f} and
-            (.images | keys | sort == ["gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-node-agent", "waycloak-qbittorrent-adapter"])
+            (.images | keys | sort == ["coredns", "gluetun", "pause", "replacement-controller", "waycloak-cni", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-node-agent", "waycloak-qbittorrent-adapter"])
           ' "$RUNNER_TEMP/release-manifest-1.json"
           bash hack/validate-release-inventory.sh "$RUNNER_TEMP/release-manifest-1.json"
           jq 'del(.images["waycloak-gateway-runtime"], .images["waycloak-qbittorrent-adapter"])' \
@@ -295,6 +295,15 @@ jobs:
           helm template "${disabled_metrics_args[@]}" >"$RUNNER_TEMP/metrics-disabled.yaml"
           grep -q -- '--metrics-bind-address=0' "$RUNNER_TEMP/metrics-disabled.yaml"
           test "$(grep -c '^ *- name: metrics$' "$RUNNER_TEMP/metrics-disabled.yaml" || true)" -eq 0
+          if grep -q -- '--gateway-otel-otlp-endpoint=' "$RUNNER_TEMP/enabled-1.yaml"; then
+            echo "default chart unexpectedly enables OTLP" >&2
+            exit 1
+          fi
+          otel_args=("${enabled_args[@]}" --set-string observability.openTelemetry.otlpEndpoint=http://otel-collector.monitoring.svc:4318 --set observability.openTelemetry.queueSize=128 --set-string observability.openTelemetry.exportInterval=30s --set-string observability.openTelemetry.exportTimeout=500ms)
+          helm template "${otel_args[@]}" >"$RUNNER_TEMP/otel-enabled.yaml"
+          grep -q -- '--gateway-otel-otlp-endpoint=http://otel-collector.monitoring.svc:4318' "$RUNNER_TEMP/otel-enabled.yaml"
+          grep -q -- '--gateway-otel-queue-size=128' "$RUNNER_TEMP/otel-enabled.yaml"
+          grep -q -- '--gateway-otel-export-timeout=500ms' "$RUNNER_TEMP/otel-enabled.yaml"
           test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^kind: DaemonSet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c '^kind: VPNGatewayClass$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1

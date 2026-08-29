@@ -16,6 +16,7 @@ import (
 
 	"github.com/Amoenus/waycloak/internal/gatewaydataplane"
 	"github.com/Amoenus/waycloak/internal/provider/gluetun"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 )
 
 func main() {
@@ -25,6 +26,7 @@ func main() {
 	var mtu int
 	var interval time.Duration
 	var initializeDataplane bool
+	var telemetryOptions telemetry.Options
 	flag.StringVar(&uid, "gateway-uid", "", "exact VPNGateway UID")
 	flag.StringVar(&overlayCIDR, "overlay-cidr", "", "reviewed overlay CIDR")
 	flag.StringVar(&gatewayAddress, "gateway-address", "", "gateway overlay address")
@@ -41,6 +43,7 @@ func main() {
 	flag.IntVar(&mtu, "mtu", 1320, "reviewed overlay MTU")
 	flag.DurationVar(&interval, "reconcile-interval", time.Second, "engine observation and fail-closed rule interval")
 	flag.BoolVar(&initializeDataplane, "initialize-dataplane", false, "create the overlay and initial fail-closed rules, then exit")
+	telemetryOptions.BindFlags(flag.CommandLine, "waycloak-gateway-agent")
 	flag.Parse()
 	pool, err := netip.ParsePrefix(overlayCIDR)
 	if err != nil {
@@ -75,13 +78,22 @@ func main() {
 	}
 	engine := gluetun.New()
 	engine.APIKeyFile = controlAPIKeyFile
-	service := &gatewaydataplane.Service{Config: config, Backend: backend, Engine: engine, ReconcileErrorHook: func(err error) {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	telemetryRuntime, err := telemetryOptions.Start(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = telemetryRuntime.Shutdown(shutdown)
+	}()
+	service := &gatewaydataplane.Service{Config: config, Backend: backend, Engine: engine, Telemetry: telemetryRuntime.Recorder, ReconcileErrorHook: func(err error) {
 		log.Printf("gateway_reconcile_transition state=not_ready fail_closed=true error=%q", err)
 	}, ReconcileRecoveryHook: func(previousError string, unavailableFor time.Duration) {
 		log.Printf("gateway_reconcile_transition state=ready recovered=true unavailable_for=%s previous_error=%q", unavailableFor.Round(time.Millisecond), previousError)
 	}}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
 	if err := service.Run(ctx, interval); err != nil {
 		log.Fatal(err)
 	}

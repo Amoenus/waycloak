@@ -18,6 +18,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/httpserverlog"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/qbittorrentadapter"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 )
 
 func main() {
@@ -25,6 +26,7 @@ func main() {
 	var namespace, name, image, podUID, stateFile string
 	var qbitCA, qbitServerName, qbitUsernameFile, qbitPasswordFile string
 	var qbitPort uint
+	var telemetryOptions telemetry.Options
 	flag.StringVar(&listenAddress, "listen-address", ":9444", "mTLS adapter listener")
 	flag.StringVar(&serverCert, "tls-cert", "", "adapter serving certificate")
 	flag.StringVar(&serverKey, "tls-key", "", "adapter serving private key")
@@ -41,6 +43,7 @@ func main() {
 	flag.StringVar(&qbitUsernameFile, "qbittorrent-username-file", "", "workload-owned qBittorrent username file")
 	flag.StringVar(&qbitPasswordFile, "qbittorrent-password-file", "", "workload-owned qBittorrent password file")
 	flag.UintVar(&qbitPort, "qbittorrent-port", 8080, "qBittorrent WebUI HTTPS port on the exact selected Pod address")
+	telemetryOptions.BindFlags(flag.CommandLine, "waycloak-qbittorrent-adapter")
 	flag.Parse()
 
 	if listenAddress == "" || serverCert == "" || serverKey == "" || clientCA == "" || gatewayIdentity == "" || controllerIdentity == "" || namespace == "" || name == "" || image == "" || podUID == "" || stateFile == "" || qbitPort == 0 || qbitPort > 65535 {
@@ -63,10 +66,21 @@ func main() {
 		slog.Error("load adapter client trust", "error", err)
 		os.Exit(1)
 	}
-	server := &http.Server{Addr: listenAddress, Handler: handler, TLSConfig: serverTLS, ErrorLog: httpserverlog.NewTLSProbeErrorLogger(os.Stderr), ReadHeaderTimeout: 2 * time.Second,
-		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	telemetryRuntime, err := telemetryOptions.Start(ctx)
+	if err != nil {
+		slog.Error("configure telemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = telemetryRuntime.Shutdown(shutdown)
+	}()
+	handler.Telemetry = telemetryRuntime.Recorder
+	server := &http.Server{Addr: listenAddress, Handler: handler, TLSConfig: serverTLS, ErrorLog: httpserverlog.NewTLSProbeErrorLogger(os.Stderr), ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

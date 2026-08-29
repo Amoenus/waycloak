@@ -49,15 +49,22 @@ qualified maintained dependencies. Work proceeds in this order:
   real-provider rotation, rollback, and local qBittorrent GitOps evidence remain
   before the issue can be checked complete.
 - [ ] #244 has removed custom DNS serving and provisions the exact CoreDNS
-  v1.14.7 image as a capability-free gateway sidecar. The generated Corefile
+  v1.14.7 image as a non-root gateway sidecar with only the upstream binary's
+  required `NET_BIND_SERVICE` capability. The generated Corefile
   uses only the preflight-bound generic cluster DNS endpoint and suffix plus
   Gluetun loopback; it has no Kubernetes API or cluster-CoreDNS dependency.
   Waycloak retains serial cluster/external A/AAAA UDP/TCP semantic readiness,
   EDNS0, truncation retry, immediate withdrawal, and no fallback/hysteresis.
   Exact release, live client matrix, resource, rotation, rollback, GitOps, and
   soak evidence remain before the issue can be checked complete.
-- [ ] #246 add bounded OpenTelemetry-first signals with no-op default and
-  optional OTLP/Prometheus-compatible export.
+- [ ] #246 has implemented bounded OpenTelemetry-first DNS, engine, mapping,
+  translation, delivery, acknowledgement, adapter Apply/Observe, withdrawal,
+  and recovery signals. Exporters are no-op by default; optional OTLP and a
+  Prometheus-compatible exporter consume the same fixed-cardinality instrument
+  set through a non-blocking 256-event queue with timeout, drop, and export
+  failure accounting. Exact Linux image/RSS, collector-loss, live timeline,
+  release, GitOps, and soak evidence remain before the issue can be checked
+  complete.
 
 Each slice is independently reversible and must pass exact artifact, packet,
 DNS leak, adapter, GitOps qBittorrent, resource-budget and privacy gates. The

@@ -16,8 +16,11 @@ Registry inspection confirmed linux/amd64 manifest
 and linux/arm64 manifest
 `sha256:9a631b1e34491f93a35334bc02d8ae190f16224be41689c7f42cc1711a95fe3a`.
 The image declares user/group `65532:65532`; Waycloak additionally enforces
-non-root execution, a read-only root filesystem, no privilege escalation, and
-all Linux capabilities dropped.
+non-root execution, a read-only root filesystem, and no privilege escalation.
+The official executable carries a `NET_BIND_SERVICE` file capability, so the
+container drops all capabilities and adds back only `NET_BIND_SERVICE`; an
+empty permitted set makes Linux reject the upstream executable under
+`no_new_privs`. CoreDNS still binds only Waycloak's unprivileged port 1053.
 
 The v1.14.7 source release is Apache-2.0, actively maintained, and corresponds
 to commit `427fc80ed9ca47f354585eb30a3f1332950856c4`. Every Waycloak release

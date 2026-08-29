@@ -5,6 +5,9 @@ from the replacement controller. Metrics help operators find availability and
 protection failures; they do not authorize packets, prove a tunnel, or replace
 resource Conditions and Events.
 
+Gateway and adapter operational diagnostics use OpenTelemetry separately from
+that status projection. They are no-op by default and remain non-authoritative.
+
 ## Metric contract
 
 | Metric | Stable labels | Meaning |
@@ -51,6 +54,34 @@ does not require Prometheus Operator, a `ServiceMonitor`, or a `PodMonitor`.
 A scrape interval of 30 seconds or longer is recommended because each scrape
 collects a current Kubernetes-state projection with a bounded five-second
 deadline.
+
+## Optional OpenTelemetry export
+
+OTLP is disabled by default. To send the fixed operational instrument set to an
+existing OTLP/HTTP receiver, configure only its endpoint and optionally retain
+the bounded defaults:
+
+```yaml
+observability:
+  openTelemetry:
+    otlpEndpoint: https://otel-collector.monitoring.svc:4318
+    queueSize: 256
+    exportInterval: 15s
+    exportTimeout: 1s
+```
+
+Waycloak does not install or require a collector. A standard optional collector
+can translate this same instrument set to Prometheus exposition. A missing,
+slow, or failing
+receiver cannot affect reconciliation or readiness; events may be dropped and
+the drop/export-failure instruments report that loss.
+
+Operational signal attributes are limited to fixed component, operation,
+result, phase, transport, DNS question type, and failure-class enums. They never
+contain credentials, endpoints, addresses, ports, object or Pod UIDs, names,
+image digests, arbitrary domains, torrent data, or error messages. See
+[`opentelemetry-qualification.md`](../implementation/opentelemetry-qualification.md)
+for the exact queue, timeout, sampling, qualification, and overhead evidence.
 
 ## Alert rules and dashboard
 

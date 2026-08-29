@@ -102,3 +102,10 @@ rules and a Grafana dashboard as ConfigMaps. This adds no Prometheus Operator
 or Grafana runtime dependency. See
 [`observability.md`](../../docs/operations/observability.md) for the stable
 metric contract, scrape fragment, privacy boundary, and alert semantics.
+
+OpenTelemetry operational signals are no-op by default. Set
+`observability.openTelemetry.otlpEndpoint` to an existing OTLP/HTTP receiver to
+enable bounded gateway export; the chart does not install or require a
+collector. Queue saturation and export failure never affect readiness. The
+fixed-cardinality schema and tuning values are documented in
+[`observability.md`](../../docs/operations/observability.md).

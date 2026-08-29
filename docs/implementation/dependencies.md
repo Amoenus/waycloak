@@ -73,8 +73,11 @@ reverse and always requires inventory qualification. Current categories include:
 - netlink operations, likely `github.com/vishvananda/netlink` or direct rtnetlink;
 - nftables operations, likely `github.com/google/nftables`;
 - structured logging through `log/slog` or controller-runtime-compatible logging;
-- the existing Prometheus client during the independently ordered
-  OpenTelemetry-first migration in #246;
+- OpenTelemetry Go v1.46.0 for the no-op-by-default bounded operational signal
+  contract and optional OTLP/HTTP export. A standard optional collector may
+  translate the same instruments to Prometheus exposition;
+- the existing Prometheus client for controller-runtime and the aggregate
+  Kubernetes-status projection, not a duplicate operational signal model;
 - testing with Ginkgo/Gomega or standard Go testing, envtest, and Kind.
 
 Avoid introducing a database, message broker, service mesh, or separate policy engine for the initial product.

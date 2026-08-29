@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/Amoenus/waycloak/internal/telemetry"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -34,6 +36,7 @@ type DNSProbe struct {
 	config     Config
 	ids        atomic.Uint32
 	probeCheck func(context.Context, string, string, dnsmessage.Type) error
+	telemetry  telemetry.Recorder
 }
 
 type dnsIdentity struct {
@@ -43,6 +46,10 @@ type dnsIdentity struct {
 
 func NewDNSProber(config Config) DNSProber {
 	return &DNSProbe{config: config}
+}
+
+func NewDNSProberWithTelemetry(config Config, recorder telemetry.Recorder) DNSProber {
+	return &DNSProbe{config: config, telemetry: recorder}
 }
 
 func parseDNSMessage(message []byte) (dnsmessage.Header, []dnsmessage.Question, error) {
@@ -109,7 +116,19 @@ func (probe *DNSProbe) Probe(ctx context.Context) error {
 		check = probe.probeCheck
 	}
 	for _, candidate := range checks {
-		if err := check(ctx, candidate.network, candidate.name, candidate.typeCode); err != nil {
+		started := time.Now()
+		err := check(ctx, candidate.network, candidate.name, candidate.typeCode)
+		phase := "external"
+		if candidate.name == clusterName {
+			phase = "cluster"
+		}
+		transport := "tcp"
+		if candidate.network == "udp4" {
+			transport = "udp"
+		}
+		telemetry.Emit(probe.telemetry, ctx, telemetry.Event{Component: "gateway_agent", Operation: "dns_probe", Result: telemetry.Result(err), Phase: phase, Transport: transport,
+			QueryType: strings.ToLower(dnsTypeName(candidate.typeCode)), FailureClass: telemetry.FailureClass(err), Duration: time.Since(started)})
+		if err != nil {
 			return err
 		}
 	}

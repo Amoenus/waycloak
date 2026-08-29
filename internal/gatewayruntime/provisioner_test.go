@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
@@ -72,7 +73,7 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if engine.Name != "vpn-engine" || len(engine.Env) != 4 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "off" || engine.Env[3].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[3].Value != staticControlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || statefulSet.Spec.Template.Spec.InitContainers[0].Name != "gateway-dataplane-init" {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
 	}
-	if coreDNS.Name != "coredns" || coreDNS.Image != provisioner.CoreDNSImage || len(coreDNS.Ports) != 2 || coreDNS.Ports[0].Protocol != corev1.ProtocolUDP || coreDNS.Ports[1].Protocol != corev1.ProtocolTCP || len(coreDNS.VolumeMounts) != 1 || coreDNS.VolumeMounts[0].MountPath != coreDNSConfigPath || coreDNS.VolumeMounts[0].SubPath != "Corefile" || coreDNS.SecurityContext == nil || coreDNS.SecurityContext.RunAsNonRoot == nil || !*coreDNS.SecurityContext.RunAsNonRoot || len(coreDNS.SecurityContext.Capabilities.Add) != 0 {
+	if coreDNS.Name != "coredns" || coreDNS.Image != provisioner.CoreDNSImage || len(coreDNS.Ports) != 2 || coreDNS.Ports[0].Protocol != corev1.ProtocolUDP || coreDNS.Ports[1].Protocol != corev1.ProtocolTCP || len(coreDNS.VolumeMounts) != 1 || coreDNS.VolumeMounts[0].MountPath != coreDNSConfigPath || coreDNS.VolumeMounts[0].SubPath != "Corefile" || coreDNS.SecurityContext == nil || coreDNS.SecurityContext.RunAsNonRoot == nil || !*coreDNS.SecurityContext.RunAsNonRoot || coreDNS.SecurityContext.Capabilities == nil || len(coreDNS.SecurityContext.Capabilities.Add) != 1 || coreDNS.SecurityContext.Capabilities.Add[0] != "NET_BIND_SERVICE" || len(coreDNS.SecurityContext.Capabilities.Drop) != 1 || coreDNS.SecurityContext.Capabilities.Drop[0] != "ALL" {
 		t.Fatalf("CoreDNS sidecar boundary is unsafe: %#v", coreDNS)
 	}
 	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 5 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" || engine.SecurityContext.Capabilities.Add[3] != "SETUID" || engine.SecurityContext.Capabilities.Add[4] != "KILL" {
@@ -184,6 +185,10 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 	provisioner.PortForwardRuntimePort = 9443
 	provisioner.AdapterPort = 9444
 	provisioner.AdapterEnabled = true
+	provisioner.OTLPEndpoint = "http://otel-collector.monitoring.svc:4318"
+	provisioner.OTelQueueSize = 128
+	provisioner.OTelExportInterval = 30 * time.Second
+	provisioner.OTelExportTimeout = 500 * time.Millisecond
 	if _, err := provisioner.Reconcile(context.Background(), gateway); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +205,8 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 	if len(engine.Env) != 8 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "on" || engine.Env[3].Name != "VPN_PORT_FORWARDING_STATUS_FILE" || engine.Env[3].Value != "/gluetun/forwarded_port" || engine.Env[7].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[7].Value != generatedControlAuthConfigPath || len(engine.VolumeMounts) != 3 {
 		t.Fatalf("Gluetun native port forwarding is not release-owned: %#v", engine)
 	}
-	if len(agent.VolumeMounts) != 1 || !strings.Contains(strings.Join(agent.Args, " "), "--gluetun-control-api-key-file="+generatedControlAPIKeyPath) {
+	agentArgs := strings.Join(agent.Args, " ")
+	if len(agent.VolumeMounts) != 1 || !strings.Contains(agentArgs, "--gluetun-control-api-key-file="+generatedControlAPIKeyPath) || !strings.Contains(agentArgs, "--otel-otlp-endpoint=http://otel-collector.monitoring.svc:4318") || !strings.Contains(agentArgs, "--otel-queue-size=128") {
 		t.Fatalf("gateway observer lacks authenticated control access: %#v", agent)
 	}
 	runtimeContainer := statefulSet.Spec.Template.Spec.Containers[3]
@@ -208,7 +214,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
 	}
 	joinedArgs := strings.Join(runtimeContainer.Args, " ")
-	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/native-port-forward", "--gluetun-control-api-key-file=" + generatedControlAPIKeyPath, "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local"} {
+	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/native-port-forward", "--gluetun-control-api-key-file=" + generatedControlAPIKeyPath, "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local", "--otel-otlp-endpoint=http://otel-collector.monitoring.svc:4318", "--otel-queue-size=128", "--otel-export-interval=30s", "--otel-export-timeout=500ms"} {
 		if !strings.Contains(joinedArgs, required) {
 			t.Fatalf("runtime args %q lack %q", joinedArgs, required)
 		}

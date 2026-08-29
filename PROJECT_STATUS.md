@@ -1,13 +1,40 @@
 # Project status
 
+## OpenTelemetry implementation slice
+
+Issue #246 is implemented in source and focused tests, with exact-release and
+live-cluster evidence still outstanding. OpenTelemetry Go v1.46.0 is the single
+internal operational signal model for gateway DNS/engine readiness, provider
+mapping refresh, rules and delivery, acknowledgement, qBittorrent adapter
+Apply/Observe, withdrawal, and recovery. The default creates no SDK, exporter,
+listener, worker, or collector dependency.
+
+When enabled, reconciliation only attempts a non-blocking write to a bounded
+256-event queue. Saturation drops telemetry and is counted; export failures are
+counted. OTLP work has short export budgets, and focused traces share the
+bounded event queue and batch. An optional
+collector can translate the same OTLP instruments to Prometheus output. Kubernetes
+Conditions, Events, semantic probes, and packet observations remain
+authoritative and exporter failure cannot affect readiness.
+
+The signal schema accepts only fixed component, operation, result, phase,
+transport, DNS type, and failure-class enums. It has no representation for
+credentials, endpoints, addresses, ports, UIDs, names, digests, arbitrary
+domains, torrents, or error messages. Host benchmarks measured a disabled call
+at 0.28-0.29 ns/op and a saturated enabled queue at 36-40 ns/op, both with zero
+allocations. Stripped Linux/amd64 binary growth is 152-200 KiB (0.76-2.00%)
+across the three instrumented components. Exact image/RSS, collector-loss, live failure localization,
+release, GitOps, and soak evidence remain before #246 is complete.
+
 ## CoreDNS gateway-sidecar implementation slice
 
 Issue #244 is implemented in source and focused tests, with exact-release and
 live-cluster qualification still outstanding. The 391-line custom DNS server
 has been removed from the gateway agent. A digest-only CoreDNS v1.14.7 sidecar
 now owns split-DNS serving in the existing gateway Pod network namespace. It
-runs as non-root with no capabilities, a read-only filesystem, bounded
-resources and concurrency, and a generated gateway-owned Corefile. A
+runs as non-root with a read-only filesystem, bounded resources and concurrency,
+and only the official executable's required `NET_BIND_SERVICE` capability after
+dropping all others. It binds Waycloak's unprivileged port 1053. A
 fail-closed gateway-agent init invocation establishes the overlay before the
 sidecar binds.
 
@@ -67,9 +94,9 @@ without reapplying. Withdrawal never uses cached acknowledgement. Permanent
 stale/contradictory identities remain HTTP 409, while dial, authentication,
 application API, and listener failures are HTTP 503 and retain typed
 `conflict`/`unavailable` classification across the gateway-runtime hop. Focused
-unit tests and Linux-target Staticcheck v0.8.1 pass. The next implementation
-slice is #243; #245 remains unchecked until the new exact artifact passes the
-qBittorrent GitOps validation.
+unit tests and Linux-target Staticcheck v0.8.1 pass. The ordered source slices
+#243, #244, and #246 are now also implemented; #245 remains unchecked until the
+new exact artifact passes the qBittorrent GitOps validation.
 
 ## Dependency governance slice
 
@@ -92,7 +119,8 @@ generated KCL comparison, workflow validation, unit tests, reproducible binary
 size measurements, and the existing per-agent RSS evidence remain within the
 published budget. The live local cluster was directly observed at
 Kubernetes v1.36.1+k3s1, not 1.37, so Kubernetes v0.37 is an explicit #141
-compatibility lag reviewed by 2026-11-27. The next ordered slice is #245.
+compatibility lag reviewed by 2026-11-27. All ordered #242-#246 source slices
+are now implemented; exact release and live evidence are next.
 
 ## Dependency-backed stabilization direction
 

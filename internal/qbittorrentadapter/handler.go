@@ -22,6 +22,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	wayportforward "github.com/Amoenus/waycloak/internal/portforward"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 )
 
 const adapterPathPrefix = "/networking.waycloak.io/adapter/v1/leases/"
@@ -43,6 +44,7 @@ type Handler struct {
 	Now                      func() time.Time
 	ObservationBudget        time.Duration
 	ObservationRetryInterval time.Duration
+	Telemetry                telemetry.Recorder
 
 	mu     sync.Mutex
 	states map[wayv1.ObjectUID]adapterState
@@ -175,7 +177,10 @@ func (h *Handler) deliver(response http.ResponseWriter, request *http.Request, l
 		return
 	}
 	if needsApply {
-		if err := h.Application.Apply(request.Context(), record.ApplicationAddress, record.TargetPort, true); err != nil {
+		started := time.Now()
+		err := h.Application.Apply(request.Context(), record.ApplicationAddress, record.TargetPort, true)
+		telemetry.Emit(h.Telemetry, request.Context(), telemetry.Event{Component: "qbittorrent_adapter", Operation: "adapter_apply", Result: telemetry.Result(err), Phase: "apply", FailureClass: telemetry.FailureClass(err), Duration: time.Since(started)})
+		if err != nil {
 			slog.Warn("qBittorrent adapter could not apply delivery", "lease_uid", leaseUID, "failure_kind", "unavailable", "error", err)
 			writeError(response, http.StatusServiceUnavailable)
 			return
@@ -219,7 +224,10 @@ func (h *Handler) withdraw(response http.ResponseWriter, request *http.Request, 
 		writeError(response, http.StatusConflict)
 		return
 	}
-	if err := h.Application.Apply(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort, true); err != nil {
+	started := time.Now()
+	err := h.Application.Apply(request.Context(), state.Record.ApplicationAddress, state.Record.BackendPort, true)
+	telemetry.Emit(h.Telemetry, request.Context(), telemetry.Event{Component: "qbittorrent_adapter", Operation: "adapter_apply", Result: telemetry.Result(err), Phase: "withdraw", FailureClass: telemetry.FailureClass(err), Duration: time.Since(started)})
+	if err != nil {
 		if !intent.ApplicationEndpointRetired {
 			slog.Warn("qBittorrent adapter could not restore backend port", "lease_uid", leaseUID, "error", err)
 			writeError(response, http.StatusServiceUnavailable)
@@ -256,7 +264,9 @@ func (h *Handler) observeWithRetry(ctx context.Context, address netip.Addr, port
 	defer cancel()
 	var lastErr error
 	for {
+		started := time.Now()
 		lastErr = h.Application.Observe(observationContext, address, port, []string{"tcp", "udp"})
+		telemetry.Emit(h.Telemetry, observationContext, telemetry.Event{Component: "qbittorrent_adapter", Operation: "adapter_observe", Result: telemetry.Result(lastErr), Phase: "observe", FailureClass: telemetry.FailureClass(lastErr), Duration: time.Since(started)})
 		if lastErr == nil {
 			return nil
 		}
@@ -327,6 +337,7 @@ func (h *Handler) validRecord(record wayportforward.AdapterLeaseRecord, leaseUID
 }
 
 func (h *Handler) writeAcknowledgement(response http.ResponseWriter, record wayportforward.AdapterLeaseRecord, observedAt time.Time) {
+	telemetry.Emit(h.Telemetry, context.Background(), telemetry.Event{Component: "qbittorrent_adapter", Operation: "acknowledgement", Result: "success", Phase: "acknowledge", Age: h.now().Sub(observedAt)})
 	_ = json.NewEncoder(response).Encode(wayportforward.AdapterAcknowledgement{APIVersion: wayportforward.AdapterAPIVersion,
 		LeaseNamespace: record.LeaseNamespace, LeaseUID: record.LeaseUID, HandoffGeneration: record.HandoffGeneration, PodUID: record.PodUID,
 		ObservedAt: observedAt, ExpiresAt: record.ExpiresAt})

@@ -19,6 +19,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/observationrelay"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/scheduling"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -41,6 +42,9 @@ func main() {
 	var gatewayEngineImage, gatewayAgentImage, gatewayCoreDNSImage, gatewayPortForwardRuntimeImage, gatewayOverlayCIDR, gatewayClusterDNSServiceIP, gatewayClusterDomain string
 	var gatewayVNI, gatewayVXLANPort, gatewayHealthPort, gatewayPortForwardRuntimePort, gatewayAdapterPort uint
 	var gatewayMTU int
+	var gatewayOTLPEndpoint string
+	var gatewayOTelQueueSize int
+	var gatewayOTelExportInterval, gatewayOTelExportTimeout time.Duration
 	var leaderElection bool
 	flag.StringVar(&metricsAddress, "metrics-bind-address", ":8080", "metrics listener")
 	flag.StringVar(&probeAddress, "health-probe-bind-address", ":8081", "health listener")
@@ -75,6 +79,10 @@ func main() {
 	flag.UintVar(&gatewayHealthPort, "gateway-health-port", 18080, "default gateway overlay health port")
 	flag.UintVar(&gatewayPortForwardRuntimePort, "gateway-port-forward-runtime-port", 0, "gateway-local tokenless port-forward runtime HTTPS port (zero disables the runtime)")
 	flag.UintVar(&gatewayAdapterPort, "gateway-adapter-port", 0, "deterministic out-of-process adapter HTTPS port (zero disables adapter integration)")
+	flag.StringVar(&gatewayOTLPEndpoint, "gateway-otel-otlp-endpoint", "", "optional OTLP/HTTP endpoint URL propagated to gateway components")
+	flag.IntVar(&gatewayOTelQueueSize, "gateway-otel-queue-size", 256, "bounded gateway telemetry queue")
+	flag.DurationVar(&gatewayOTelExportInterval, "gateway-otel-export-interval", 15*time.Second, "gateway OTLP metric export interval")
+	flag.DurationVar(&gatewayOTelExportTimeout, "gateway-otel-export-timeout", time.Second, "gateway telemetry export time budget")
 	options := zap.Options{Development: false}
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -137,12 +145,13 @@ func main() {
 	if gatewayEngineImage != "" || gatewayAgentImage != "" || gatewayCoreDNSImage != "" || gatewayOverlayCIDR != "" || gatewayClusterDNSServiceIP != "" || gatewayClusterDomain != "" {
 		overlay, overlayErr := netip.ParsePrefix(gatewayOverlayCIDR)
 		clusterDNS, clusterDNSErr := netip.ParseAddr(gatewayClusterDNSServiceIP)
-		if overlayErr != nil || clusterDNSErr != nil || !clusterDNS.Is4() || clusterDNS.IsUnspecified() || clusterDNS.IsLoopback() || len(utilvalidation.IsDNS1123Subdomain(gatewayClusterDomain)) != 0 || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayCoreDNSImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 {
+		if overlayErr != nil || clusterDNSErr != nil || !clusterDNS.Is4() || clusterDNS.IsUnspecified() || clusterDNS.IsLoopback() || len(utilvalidation.IsDNS1123Subdomain(gatewayClusterDomain)) != 0 || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayCoreDNSImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 || gatewayOTLPEndpoint != "" && (!telemetry.ValidOTLPEndpoint(gatewayOTLPEndpoint) || gatewayOTelQueueSize < 1 || gatewayOTelQueueSize > 4096 || gatewayOTelExportInterval < time.Second || gatewayOTelExportTimeout <= 0 || gatewayOTelExportTimeout > 10*time.Second) {
 			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
 			os.Exit(1)
 		}
 		provisioner := &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, CoreDNSImage: gatewayCoreDNSImage,
-			ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
+			ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort),
+			OTLPEndpoint: gatewayOTLPEndpoint, OTelQueueSize: gatewayOTelQueueSize, OTelExportInterval: gatewayOTelExportInterval, OTelExportTimeout: gatewayOTelExportTimeout}
 		configurePortForwardGatewayRuntime(provisioner, portForwardConfigured, gatewayPortForwardRuntimeImage, gatewayPortForwardRuntimePort, adapterConfigured, gatewayAdapterPort)
 		gatewayRuntime = provisioner
 	}

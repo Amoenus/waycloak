@@ -14,6 +14,7 @@ import (
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	"github.com/Amoenus/waycloak/internal/provider"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 )
 
 type GatewayRule struct {
@@ -44,6 +45,7 @@ type GatewayRuntimeManager struct {
 	Rules       RuleBackend
 	Delivery    DeliveryBackend
 	Now         func() time.Time
+	Telemetry   telemetry.Recorder
 
 	mu     sync.Mutex
 	states map[wayv1.ObjectUID]runtimeState
@@ -83,6 +85,7 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 		}
 	}
 	capabilities, capabilityErr := m.PortForward.ObserveCapabilities(ctx)
+	telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "provider_observe", Result: telemetry.Result(capabilityErr), Phase: "capability", FailureClass: telemetry.FailureClass(capabilityErr)})
 	if capabilityErr != nil {
 		if !exists || previous.blocked || !previous.mapping.ExpiresAt.After(m.now()) {
 			return Observation{}, fmt.Errorf("observe provider capabilities: %w", capabilityErr)
@@ -110,8 +113,14 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 		mapping = previous.mapping
 		renewAfter = previous.renewAfter
 	} else {
+		refreshStarted := time.Now()
 		providerLease, ensureErr := m.PortForward.EnsureLease(ctx, request)
 		providerErr = ensureErr
+		phase := "renew"
+		if !exists {
+			phase = "acquire"
+		}
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "mapping_refresh", Result: telemetry.Result(ensureErr), Phase: phase, FailureClass: telemetry.FailureClass(ensureErr), Duration: time.Since(refreshStarted)})
 		if providerErr == nil {
 			mapping = ProviderObservation{PublicAddress: providerLease.PublicAddress, PublicPort: providerLease.PublicPort, ExpiresAt: providerLease.ExpiresAt.UTC()}
 			renewAfter = providerLease.RenewAfter.UTC()
@@ -138,6 +147,7 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 	m.states[intent.LeaseUID] = state
 	rule := ruleFor(state)
 	if err := m.Rules.Replace(ctx, m.ruleSet()); err != nil {
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "rules_apply", Result: "failure", Phase: "translate", FailureClass: telemetry.FailureClass(err)})
 		if exists {
 			m.states[intent.LeaseUID] = previous
 		} else {
@@ -145,11 +155,27 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 		}
 		return m.observation(intent, mapping), fmt.Errorf("replace atomic gateway rules: %w", err)
 	}
+	telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "rules_apply", Result: "success", Phase: "translate"})
 	rulesReady, err := m.Rules.Ready(ctx, rule)
 	if err != nil || !rulesReady {
+		failure := telemetry.FailureClass(err)
+		if err == nil {
+			failure = "unavailable"
+		}
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "rules_apply", Result: "failure", Phase: "observe", FailureClass: failure})
 		return m.observation(intent, mapping), err
 	}
 	delivered, acknowledged, err := m.Delivery.Reconcile(ctx, effectiveIntent(state), mapping)
+	deliveryResult := telemetry.Result(err)
+	deliveryFailure := telemetry.FailureClass(err)
+	if err == nil && !delivered {
+		deliveryResult = "failure"
+		deliveryFailure = "unavailable"
+	}
+	telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "delivery", Result: deliveryResult, Phase: "apply", FailureClass: deliveryFailure})
+	if acknowledged {
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "acknowledgement", Result: "success", Phase: "acknowledge"})
+	}
 	observation := m.observation(intent, mapping)
 	observation.GatewayRulesReady = true
 	observation.Delivered = delivered
@@ -192,6 +218,7 @@ func (m *GatewayRuntimeManager) validateProviderCapabilities(intent Intent, capa
 }
 
 func (m *GatewayRuntimeManager) Withdraw(ctx context.Context, gateway *wayv1.VPNGateway, intent WithdrawalIntent) (Observation, error) {
+	started := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := validateWithdrawal(gateway, intent); err != nil {
@@ -209,6 +236,7 @@ func (m *GatewayRuntimeManager) Withdraw(ctx context.Context, gateway *wayv1.VPN
 		m.states[intent.LeaseUID] = state
 	}
 	if err := m.Rules.Replace(ctx, m.ruleSet()); err != nil {
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "withdrawal", Result: "failure", Phase: "withdraw", FailureClass: telemetry.FailureClass(err), Duration: time.Since(started)})
 		if exists {
 			state.draining = false
 			m.states[intent.LeaseUID] = state
@@ -217,10 +245,16 @@ func (m *GatewayRuntimeManager) Withdraw(ctx context.Context, gateway *wayv1.VPN
 	}
 	rulesWithdrawn, err := m.Rules.Withdrawn(ctx, intent.LeaseUID, intent.HandoffGeneration)
 	if err != nil || !rulesWithdrawn {
+		failure := telemetry.FailureClass(err)
+		if err == nil {
+			failure = "unavailable"
+		}
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "withdrawal", Result: "failure", Phase: "observe", FailureClass: failure, Duration: time.Since(started)})
 		return m.withdrawalObservation(intent, false), err
 	}
 	deliveryWithdrawn, err := m.Delivery.Withdraw(ctx, intent)
 	if err != nil || !deliveryWithdrawn {
+		telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "withdrawal", Result: "failure", Phase: "withdraw", FailureClass: telemetry.FailureClass(err), Duration: time.Since(started)})
 		return m.withdrawalObservation(intent, false), err
 	}
 	if exists {
@@ -245,6 +279,7 @@ func (m *GatewayRuntimeManager) Withdraw(ctx context.Context, gateway *wayv1.VPN
 		}
 		delete(m.states, intent.LeaseUID)
 	}
+	telemetry.Emit(m.Telemetry, ctx, telemetry.Event{Component: "gateway_runtime", Operation: "withdrawal", Result: "withdrawn", Phase: "withdraw", Duration: time.Since(started)})
 	return m.withdrawalObservation(intent, true), nil
 }
 

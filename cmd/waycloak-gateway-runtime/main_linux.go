@@ -20,6 +20,7 @@ import (
 	"github.com/Amoenus/waycloak/internal/httpserverlog"
 	"github.com/Amoenus/waycloak/internal/portforward"
 	"github.com/Amoenus/waycloak/internal/provider/gluetun"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 )
 
 func main() {
@@ -27,6 +28,7 @@ func main() {
 	var writeControlAuth, controlIdentitySource, controlAPIKeyOutput string
 	var adapterCA, adapterCert, adapterKey, clusterDomain string
 	var adapterPort uint
+	var telemetryOptions telemetry.Options
 	flag.StringVar(&listenAddress, "listen-address", ":9443", "mTLS gateway-runtime listener")
 	flag.StringVar(&serverCert, "tls-cert", "", "gateway-runtime serving certificate")
 	flag.StringVar(&serverKey, "tls-key", "", "gateway-runtime serving private key")
@@ -45,6 +47,7 @@ func main() {
 	flag.StringVar(&adapterKey, "adapter-client-key", "", "adapter-protocol client private key")
 	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic adapter Service HTTPS port")
 	flag.StringVar(&clusterDomain, "cluster-domain", "", "reviewed Kubernetes cluster DNS suffix")
+	telemetryOptions.BindFlags(flag.CommandLine, "waycloak-gateway-runtime")
 	flag.Parse()
 	if writeControlAuth != "" || controlIdentitySource != "" || controlAPIKeyOutput != "" {
 		if err := gluetun.WriteControlAuthentication(controlIdentitySource, writeControlAuth, controlAPIKeyOutput); err != nil {
@@ -80,18 +83,29 @@ func main() {
 		slog.Error("configure engine port-forward capability", "error", err)
 		os.Exit(1)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	telemetryRuntime, err := telemetryOptions.Start(ctx)
+	if err != nil {
+		slog.Error("configure telemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = telemetryRuntime.Shutdown(shutdown)
+	}()
 	manager := &portforward.GatewayRuntimeManager{
 		PortForward: capability,
 		Rules:       portforward.LinuxRuleBackend{TunnelInterface: tunnelInterface, OverlayInterface: overlayInterface},
 		Delivery:    portforward.DeliveryManager{Adapter: adapter},
+		Telemetry:   telemetryRuntime.Recorder,
 	}
 	server := &http.Server{
 		Addr: listenAddress, Handler: portforward.RuntimeHandler{Manager: manager, GatewayUID: wayv1.ObjectUID(gatewayUID)}, TLSConfig: serverTLS,
 		ErrorLog: httpserverlog.NewTLSProbeErrorLogger(os.Stderr), ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -115,6 +115,12 @@ spec:
             {{- else }}
             - --metrics-bind-address=0
             {{- end }}
+            {{- if .Values.observability.openTelemetry.otlpEndpoint }}
+            - --gateway-otel-otlp-endpoint={{ .Values.observability.openTelemetry.otlpEndpoint }}
+            - --gateway-otel-queue-size={{ .Values.observability.openTelemetry.queueSize }}
+            - --gateway-otel-export-interval={{ .Values.observability.openTelemetry.exportInterval }}
+            - --gateway-otel-export-timeout={{ .Values.observability.openTelemetry.exportTimeout }}
+            {{- end }}
           ports:
             - name: observations
               containerPort: {{ .Values.controller.observationPort }}

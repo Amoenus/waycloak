@@ -8,6 +8,11 @@ observability:
   metrics:
     enabled: true
     port: 8080
+  openTelemetry:
+    otlpEndpoint: ""
+    queueSize: 256
+    exportInterval: 15s
+    exportTimeout: 1s
   assets:
     enabled: false
 

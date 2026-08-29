@@ -18,7 +18,7 @@
     "observability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["metrics", "assets"],
+      "required": ["metrics", "openTelemetry", "assets"],
       "properties": {
         "metrics": {
           "type": "object",
@@ -27,6 +27,17 @@
           "properties": {
             "enabled": {"type": "boolean"},
             "port": {"type": "integer", "minimum": 1024, "maximum": 65535}
+          }
+        },
+        "openTelemetry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["otlpEndpoint", "queueSize", "exportInterval", "exportTimeout"],
+          "properties": {
+            "otlpEndpoint": {"type": "string", "pattern": "^$|^https?://[^[:space:]]+$"},
+            "queueSize": {"type": "integer", "minimum": 1, "maximum": 4096},
+            "exportInterval": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s|m)$"},
+            "exportTimeout": {"type": "string", "pattern": "^[1-9][0-9]*(ms|s)$"}
           }
         },
         "assets": {

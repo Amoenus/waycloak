@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Amoenus/waycloak/internal/provider"
+	"github.com/Amoenus/waycloak/internal/telemetry"
 )
 
 type Backend interface {
@@ -32,6 +33,7 @@ type Service struct {
 	DNSProber             DNSProber
 	ReconcileErrorHook    func(error)
 	ReconcileRecoveryHook func(previousError string, unavailableFor time.Duration)
+	Telemetry             telemetry.Recorder
 	healthy               atomic.Bool
 	tunnelReady           atomic.Bool
 	dnsReady              atomic.Bool
@@ -43,7 +45,11 @@ type HealthStatus struct {
 	DNSReady    bool `json:"dnsReady"`
 }
 
-func (service *Service) Reconcile(ctx context.Context) error {
+func (service *Service) Reconcile(ctx context.Context) (reconcileErr error) {
+	started := time.Now()
+	defer func() {
+		telemetry.Emit(service.Telemetry, ctx, telemetry.Event{Component: "gateway_agent", Operation: "reconcile", Result: telemetry.Result(reconcileErr), FailureClass: telemetry.FailureClass(reconcileErr), Duration: time.Since(started)})
+	}()
 	if service.Backend == nil || service.Engine == nil || service.DNSProber == nil {
 		return errors.New("gateway backend, engine observation, and split-DNS probe are required")
 	}
@@ -54,6 +60,13 @@ func (service *Service) Reconcile(ctx context.Context) error {
 		return errors.Join(err, service.Backend.ReplaceRules(ctx, service.Config, false))
 	}
 	observation, err := service.Engine.Observe(ctx)
+	engineResult := telemetry.Result(err)
+	engineFailure := telemetry.FailureClass(err)
+	if err == nil && (!observation.TunnelReady || !observation.DNSReady) {
+		engineResult = "failure"
+		engineFailure = "unavailable"
+	}
+	telemetry.Emit(service.Telemetry, ctx, telemetry.Event{Component: "gateway_agent", Operation: "engine_observe", Result: engineResult, FailureClass: engineFailure})
 	service.tunnelReady.Store(err == nil && observation.TunnelReady)
 	if err != nil || !observation.TunnelReady || !observation.DNSReady {
 		service.healthy.Store(false)
@@ -113,7 +126,7 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 	}()
 	go func() { _ = healthServer.Serve(healthListener) }()
 	if service.DNSProber == nil {
-		service.DNSProber = NewDNSProber(service.Config)
+		service.DNSProber = NewDNSProberWithTelemetry(service.Config, service.Telemetry)
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -129,10 +142,12 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		previousReconcileError := lastReconcileError
 		if err != nil && unavailableSince.IsZero() {
 			unavailableSince = time.Now()
+			telemetry.Emit(service.Telemetry, ctx, telemetry.Event{Component: "gateway_agent", Operation: "withdrawal", Result: "withdrawn", Phase: "withdraw", FailureClass: telemetry.FailureClass(err)})
 		}
 		lastReconcileError = service.reportReconcileError(err, lastReconcileError)
 		if err == nil && previousReconcileError != "" {
 			service.reportReconcileRecovery(previousReconcileError, unavailableSince)
+			telemetry.Emit(service.Telemetry, ctx, telemetry.Event{Component: "gateway_agent", Operation: "reconcile", Result: "recovered", Phase: "recovery", Duration: time.Since(unavailableSince)})
 			unavailableSince = time.Time{}
 		}
 		select {
