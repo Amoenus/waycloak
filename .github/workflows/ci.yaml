@@ -266,6 +266,7 @@ jobs:
             --set-string controller.observationTLSSecret=waycloak-observation-tls
             --set-string controller.gateway.engineImage.digest="$digest"
             --set-string controller.gateway.agentImage.digest="$digest"
+            --set-string controller.gateway.coreDNSImage.digest="$digest"
             --set-string controller.gateway.overlayCIDR=100.96.0.0/16
             --set-string controller.gateway.clusterDNS.serviceIP=10.96.0.10
             --set-string controller.gateway.clusterDNS.domain=cluster.local
