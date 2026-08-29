@@ -336,6 +336,17 @@ jobs:
           output-file: dist/release/gluetun.spdx.json
           upload-artifact: false
           upload-release-assets: false
+      - name: Record the qualified immutable CoreDNS sidecar
+        run: |
+          printf '%s\n' 'docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286' >dist/release/coredns.ref
+      - name: Generate CoreDNS SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286
+          format: spdx-json
+          output-file: dist/release/coredns.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - name: Generate chart SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
@@ -375,6 +386,7 @@ jobs:
             --image "waycloak-gateway-runtime=$(cat dist/release/waycloak-gateway-runtime.ref)" \
             --image "waycloak-qbittorrent-adapter=$(cat dist/release/waycloak-qbittorrent-adapter.ref)" \
             --image "gluetun=$(cat dist/release/gluetun.ref)" \
+            --image "coredns=$(cat dist/release/coredns.ref)" \
             --image pause=registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c \
             >dist/release/release-manifest.json
       - name: Attach the verified dependency qualification inventory

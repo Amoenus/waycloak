@@ -31,6 +31,9 @@ controller:
     agentImage:
       repository: ghcr.io/amoenus/waycloak-gateway-agent
       digest: ""
+    coreDNSImage:
+      repository: docker.io/coredns/coredns
+      digest: ""
     overlayCIDR: ""
     clusterDNS:
       serviceIP: ""

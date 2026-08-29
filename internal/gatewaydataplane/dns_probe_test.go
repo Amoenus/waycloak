@@ -20,104 +20,6 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-func TestSplitDNSProxyPreservesProtocolAndContainsSearchQueries(t *testing.T) {
-	cluster := startDNSFixture(t, false)
-	external := startDNSFixture(t, true)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	config := testConfig()
-	config.GatewayAddress = netip.MustParseAddr("127.0.0.1")
-	config.ClusterDNSUpstream = cluster.address
-	config.DNSUpstream = external.address
-	proxy, err := startDNSProxy(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	queries := []struct {
-		name, network string
-		typeCode      dnsmessage.Type
-	}{
-		{"kubernetes.default.svc.cluster.local.", "udp4", dnsmessage.TypeA},
-		{"kubernetes.default.svc.cluster.local.", "tcp4", dnsmessage.TypeA},
-		{"api.ipify.org.applications-media.svc.cluster.local.", "udp4", dnsmessage.TypeA},
-		{"example.com.", "udp4", dnsmessage.TypeA},
-		{"example.com.", "udp4", dnsmessage.TypeAAAA},
-		{"example.com.", "tcp4", dnsmessage.TypeA},
-	}
-	var wait sync.WaitGroup
-	for _, query := range queries {
-		query := query
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			request, identity, buildErr := proxy.probeRequest(query.name, query.typeCode)
-			if buildErr != nil {
-				t.Errorf("build %s: %v", query.name, buildErr)
-				return
-			}
-			var response []byte
-			if query.network == "udp4" {
-				response, buildErr = exchangeDNSUDP(ctx, dnsListenAddress(config), request)
-			} else {
-				response, buildErr = exchangeDNSTCP(ctx, dnsListenAddress(config), request)
-			}
-			if buildErr != nil {
-				t.Errorf("exchange %s/%s: %v", query.network, query.name, buildErr)
-				return
-			}
-			if _, buildErr = validateDNSResponse(response, identity); buildErr != nil {
-				t.Errorf("validate %s/%s: %v", query.network, query.name, buildErr)
-			}
-		}()
-	}
-	wait.Wait()
-	if !cluster.saw("udp4", "api.ipify.org.applications-media.svc.cluster.local.") || external.sawAny("api.ipify.org.applications-media.svc.cluster.local.") {
-		t.Fatal("Kubernetes search expansion escaped to the external VPN resolver")
-	}
-	if !cluster.saw("udp4", "kubernetes.default.svc.cluster.local.") || !cluster.saw("tcp4", "kubernetes.default.svc.cluster.local.") {
-		t.Fatal("cluster-local UDP/TCP did not use the reviewed cluster resolver")
-	}
-	if !external.saw("udp4", "example.com.") || !external.saw("tcp4", "example.com.") || cluster.sawAny("example.com.") {
-		t.Fatal("external UDP/TCP did not remain exclusive to the VPN resolver")
-	}
-	if !cluster.edns() || !external.edns() {
-		t.Fatal("EDNS0 was not preserved through both split paths")
-	}
-
-	largeRequest, largeIdentity, err := proxy.probeRequest("large.example.", dnsmessage.TypeA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	largeResponse, err := exchangeDNSUDP(ctx, dnsListenAddress(config), largeRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(largeResponse) <= 1500 {
-		t.Fatalf("fragmentation-sized DNS response = %d bytes", len(largeResponse))
-	}
-	if _, err := validateDNSResponse(largeResponse, largeIdentity); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := proxy.probe(ctx, "udp4", "truncated.example.", dnsmessage.TypeA); err != nil {
-		t.Fatalf("truncated UDP did not retry through TCP: %v", err)
-	}
-	if !external.saw("udp4", "truncated.example.") || !external.saw("tcp4", "truncated.example.") {
-		t.Fatal("truncation did not produce one external TCP retry")
-	}
-
-	err = proxy.probe(ctx, "udp4", "servfail.example.", dnsmessage.TypeAAAA)
-	if err == nil {
-		t.Fatal("ServFail response was accepted")
-	}
-	for _, field := range []string{"network=udp4", "qtype=AAAA", "phase=rcode", "rcode=ServFail", "latency="} {
-		if !strings.Contains(err.Error(), field) {
-			t.Fatalf("RCode diagnostic %q does not contain %q", err, field)
-		}
-	}
-}
-
 func TestDNSProbeDiagnosticsDistinguishQueryTypeValidationRCodeAndLatency(t *testing.T) {
 	started := time.Now().Add(-25 * time.Millisecond)
 	validation := dnsProbeFailure("udp4", "example.com.", dnsmessage.TypeAAAA, "response_validation", started, "", errors.New("mismatched response"))
@@ -134,12 +36,23 @@ func TestDNSProbeDiagnosticsDistinguishQueryTypeValidationRCodeAndLatency(t *tes
 	}
 }
 
+func TestDNSProbeUsesEDNSAndRetriesTruncatedUDPThroughTCP(t *testing.T) {
+	upstream := startDNSFixtureAt(t, DNSListenPort, true)
+	probe := &DNSProbe{config: Config{GatewayAddress: netip.MustParseAddr("127.0.0.1")}}
+	if err := probe.probe(context.Background(), "udp4", "truncated.example.", dnsmessage.TypeAAAA); err != nil {
+		t.Fatal(err)
+	}
+	if !upstream.saw("udp4", "truncated.example.") || !upstream.saw("tcp4", "truncated.example.") || !upstream.edns() {
+		t.Fatalf("truncated EDNS query did not traverse UDP then TCP: %#v", upstream.queries)
+	}
+}
+
 func TestDNSProbeRunsMandatoryChecksSerially(t *testing.T) {
 	var active atomic.Int32
 	var maximum atomic.Int32
 	var callsMu sync.Mutex
 	var calls []string
-	proxy := &DNSProxy{config: Config{ClusterDomain: "cluster.local"}}
+	proxy := &DNSProbe{config: Config{ClusterDomain: "cluster.local"}}
 	proxy.probeCheck = func(_ context.Context, network, name string, typeCode dnsmessage.Type) error {
 		current := active.Add(1)
 		defer active.Add(-1)
@@ -163,8 +76,9 @@ func TestDNSProbeRunsMandatoryChecksSerially(t *testing.T) {
 		"udp4/kubernetes.default.svc.cluster.local./A",
 		"tcp4/kubernetes.default.svc.cluster.local./A",
 		"udp4/example.com./A",
-		"udp4/example.com./AAAA",
 		"tcp4/example.com./A",
+		"udp4/example.com./AAAA",
+		"tcp4/example.com./AAAA",
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("probe order = %#v, want %#v", calls, want)
@@ -177,7 +91,7 @@ func TestDNSProbeRunsMandatoryChecksSerially(t *testing.T) {
 func TestDNSProbeFailsClosedAtFirstFailedCheck(t *testing.T) {
 	var calls int
 	probeErr := errors.New("external UDP A unavailable")
-	proxy := &DNSProxy{config: Config{ClusterDomain: "cluster.local"}}
+	proxy := &DNSProbe{config: Config{ClusterDomain: "cluster.local"}}
 	proxy.probeCheck = func(_ context.Context, _, _ string, _ dnsmessage.Type) error {
 		calls++
 		if calls == 3 {
@@ -196,9 +110,9 @@ func TestDNSProbeFailsClosedAtFirstFailedCheck(t *testing.T) {
 }
 
 func TestDNSProbeRetriesTransientLossWithinOriginalDeadline(t *testing.T) {
-	upstream := startDNSFixture(t, false)
+	upstream := startDNSFixture(t)
 	upstream.setDropUDP(1)
-	proxy := &DNSProxy{}
+	proxy := &DNSProbe{}
 	request, identity, err := proxy.probeRequest("example.com.", dnsmessage.TypeAAAA)
 	if err != nil {
 		t.Fatal(err)
@@ -220,9 +134,9 @@ func TestDNSProbeRetriesTransientLossWithinOriginalDeadline(t *testing.T) {
 }
 
 func TestDNSProbeFailsAfterBoundedAttempts(t *testing.T) {
-	upstream := startDNSFixture(t, false)
+	upstream := startDNSFixture(t)
 	upstream.setDropUDP(dnsProbeMaximumAttempts)
-	proxy := &DNSProxy{}
+	proxy := &DNSProbe{}
 	request, _, err := proxy.probeRequest("example.com.", dnsmessage.TypeA)
 	if err != nil {
 		t.Fatal(err)
@@ -241,17 +155,21 @@ func TestDNSProbeFailsAfterBoundedAttempts(t *testing.T) {
 }
 
 type dnsFixture struct {
-	address  netip.AddrPort
-	large    bool
-	mu       sync.Mutex
-	queries  map[string]int
-	sawEDNS0 bool
-	dropUDP  int
+	address     netip.AddrPort
+	mu          sync.Mutex
+	queries     map[string]int
+	sawEDNS0    bool
+	truncateUDP bool
+	dropUDP     int
 }
 
-func startDNSFixture(t *testing.T, large bool) *dnsFixture {
+func startDNSFixture(t *testing.T) *dnsFixture {
+	return startDNSFixtureAt(t, 0, false)
+}
+
+func startDNSFixtureAt(t *testing.T, requestedPort uint16, truncateUDP bool) *dnsFixture {
 	t.Helper()
-	udp, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	udp, err := net.ListenPacket("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(requestedPort))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +179,7 @@ func startDNSFixture(t *testing.T, large bool) *dnsFixture {
 		_ = udp.Close()
 		t.Fatal(err)
 	}
-	fixture := &dnsFixture{address: netip.MustParseAddrPort(net.JoinHostPort("127.0.0.1", strconv.Itoa(port))), large: large, queries: map[string]int{}}
+	fixture := &dnsFixture{address: netip.MustParseAddrPort(net.JoinHostPort("127.0.0.1", strconv.Itoa(port))), queries: map[string]int{}, truncateUDP: truncateUDP}
 	t.Cleanup(func() { _ = udp.Close(); _ = tcp.Close() })
 	go fixture.serveUDP(udp)
 	go fixture.serveTCP(tcp)
@@ -331,7 +249,7 @@ func (fixture *dnsFixture) response(network string, request []byte) ([]byte, err
 		response.RCode = dnsmessage.RCodeServerFailure
 		return response.Pack()
 	}
-	if network == "udp4" && name == "truncated.example." {
+	if network == "udp4" && fixture.truncateUDP {
 		response.Truncated = true
 		return response.Pack()
 	}
@@ -345,12 +263,6 @@ func (fixture *dnsFixture) response(network string, request []byte) ([]byte, err
 		header.Type = dnsmessage.TypeAAAA
 		response.Answers = append(response.Answers, dnsmessage.Resource{Header: header, Body: &dnsmessage.AAAAResource{AAAA: [16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}}})
 	}
-	if fixture.large && name == "large.example." {
-		header.Type = dnsmessage.TypeTXT
-		for index := 0; index < 10; index++ {
-			response.Answers = append(response.Answers, dnsmessage.Resource{Header: header, Body: &dnsmessage.TXTResource{TXT: []string{strings.Repeat("x", 200)}}})
-		}
-	}
 	return response.Pack()
 }
 
@@ -358,10 +270,6 @@ func (fixture *dnsFixture) saw(network, name string) bool {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	return fixture.queries[network+"|"+name] > 0
-}
-
-func (fixture *dnsFixture) sawAny(name string) bool {
-	return fixture.saw("udp4", name) || fixture.saw("tcp4", name)
 }
 
 func (fixture *dnsFixture) edns() bool {

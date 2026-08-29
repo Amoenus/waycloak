@@ -43,6 +43,17 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	}
 	statefulSet := &appsv1.StatefulSet{}
 	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
+	dnsConfig := &corev1.ConfigMap{}
+	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private-dns"}, dnsConfig))
+	corefile := dnsConfig.Data["Corefile"]
+	for _, required := range []string{"cluster.local:1053", "bind 100.96.0.1", "forward . 10.43.0.10:53", ".:1053", "forward . 127.0.0.1:53", "max_concurrent 128", "failfast_all_unhealthy_upstreams"} {
+		if !strings.Contains(corefile, required) {
+			t.Fatalf("cluster-agnostic Corefile lacks %q:\n%s", required, corefile)
+		}
+	}
+	if strings.Contains(corefile, "kubernetes") || strings.Contains(corefile, "kubeconfig") {
+		t.Fatalf("gateway sidecar depends on Kubernetes DNS implementation details:\n%s", corefile)
+	}
 	if statefulSet.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
 		t.Fatalf("gateway update strategy = %q, want explicit operator activation", statefulSet.Spec.UpdateStrategy.Type)
 	}
@@ -54,12 +65,15 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	}
 	statefulSet.UID = "statefulset-uid"
 	must(t, kube.Update(context.Background(), statefulSet))
-	if statefulSet.Spec.Template.Spec.AutomountServiceAccountToken == nil || *statefulSet.Spec.Template.Spec.AutomountServiceAccountToken || len(statefulSet.Spec.Template.Spec.Containers) != 2 {
+	if statefulSet.Spec.Template.Spec.AutomountServiceAccountToken == nil || *statefulSet.Spec.Template.Spec.AutomountServiceAccountToken || len(statefulSet.Spec.Template.Spec.Containers) != 3 {
 		t.Fatalf("unsafe gateway Pod identity: %#v", statefulSet.Spec.Template.Spec)
 	}
-	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1]
-	if engine.Name != "vpn-engine" || len(engine.Env) != 4 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "off" || engine.Env[3].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[3].Value != staticControlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 || len(statefulSet.Spec.Template.Spec.InitContainers) != 0 {
+	engine, coreDNS, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1], statefulSet.Spec.Template.Spec.Containers[2]
+	if engine.Name != "vpn-engine" || len(engine.Env) != 4 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "off" || engine.Env[3].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[3].Value != staticControlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || statefulSet.Spec.Template.Spec.InitContainers[0].Name != "gateway-dataplane-init" {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
+	}
+	if coreDNS.Name != "coredns" || coreDNS.Image != provisioner.CoreDNSImage || len(coreDNS.Ports) != 2 || coreDNS.Ports[0].Protocol != corev1.ProtocolUDP || coreDNS.Ports[1].Protocol != corev1.ProtocolTCP || len(coreDNS.VolumeMounts) != 1 || coreDNS.VolumeMounts[0].MountPath != coreDNSConfigPath || coreDNS.VolumeMounts[0].SubPath != "Corefile" || coreDNS.SecurityContext == nil || coreDNS.SecurityContext.RunAsNonRoot == nil || !*coreDNS.SecurityContext.RunAsNonRoot || len(coreDNS.SecurityContext.Capabilities.Add) != 0 {
+		t.Fatalf("CoreDNS sidecar boundary is unsafe: %#v", coreDNS)
 	}
 	if engine.SecurityContext == nil || engine.SecurityContext.Capabilities == nil || len(engine.SecurityContext.Capabilities.Add) != 5 || engine.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" || engine.SecurityContext.Capabilities.Add[1] != "CHOWN" || engine.SecurityContext.Capabilities.Add[2] != "DAC_OVERRIDE" || engine.SecurityContext.Capabilities.Add[3] != "SETUID" || engine.SecurityContext.Capabilities.Add[4] != "KILL" {
 		t.Fatalf("VPN engine lacks its exact runtime capabilities: %#v", engine.SecurityContext)
@@ -67,8 +81,8 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	if agent.SecurityContext == nil || agent.SecurityContext.Capabilities == nil || len(agent.SecurityContext.Capabilities.Add) != 1 || agent.SecurityContext.Capabilities.Add[0] != "NET_ADMIN" {
 		t.Fatalf("gateway agent capabilities were broadened: %#v", agent.SecurityContext)
 	}
-	if len(agent.Ports) != 4 || agent.Ports[2].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[2].Protocol != corev1.ProtocolUDP || agent.Ports[3].ContainerPort != int32(gatewaydataplane.DNSListenPort) || agent.Ports[3].Protocol != corev1.ProtocolTCP {
-		t.Fatalf("gateway DNS listener does not match the workload redirect: %#v", agent.Ports)
+	if len(coreDNS.Ports) != 2 || coreDNS.Ports[0].ContainerPort != int32(gatewaydataplane.DNSListenPort) || coreDNS.Ports[1].ContainerPort != int32(gatewaydataplane.DNSListenPort) {
+		t.Fatalf("CoreDNS listener does not match the workload redirect: %#v", coreDNS.Ports)
 	}
 	if agent.ReadinessProbe == nil || agent.ReadinessProbe.HTTPGet == nil || agent.ReadinessProbe.HTTPGet.Path != "/readyz" {
 		t.Fatalf("gateway readiness probe does not use the workload-observed contract: %#v", agent.ReadinessProbe)
@@ -175,21 +189,21 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 	}
 	statefulSet := &appsv1.StatefulSet{}
 	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private"}, statefulSet))
-	if len(statefulSet.Spec.Template.Spec.Containers) != 3 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || len(statefulSet.Spec.Template.Spec.Volumes) != 4 {
+	if len(statefulSet.Spec.Template.Spec.Containers) != 4 || len(statefulSet.Spec.Template.Spec.InitContainers) != 2 || len(statefulSet.Spec.Template.Spec.Volumes) != 5 {
 		t.Fatalf("port-forward gateway Pod shape = %d containers, %d init containers, %d volumes", len(statefulSet.Spec.Template.Spec.Containers), len(statefulSet.Spec.Template.Spec.InitContainers), len(statefulSet.Spec.Template.Spec.Volumes))
 	}
-	initContainer := statefulSet.Spec.Template.Spec.InitContainers[0]
+	initContainer := statefulSet.Spec.Template.Spec.InitContainers[1]
 	if initContainer.Name != "gluetun-control-auth" || initContainer.Image != provisioner.PortForwardRuntimeImage || len(initContainer.VolumeMounts) != 2 || !strings.Contains(strings.Join(initContainer.Args, " "), "--write-gluetun-control-auth="+generatedControlAuthConfigPath) || !strings.Contains(strings.Join(initContainer.Args, " "), "--gluetun-control-api-key-output="+generatedControlAPIKeyPath) {
 		t.Fatalf("authenticated control policy init container is not exact: %#v", initContainer)
 	}
-	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1]
+	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[2]
 	if len(engine.Env) != 8 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "on" || engine.Env[3].Name != "VPN_PORT_FORWARDING_STATUS_FILE" || engine.Env[3].Value != "/gluetun/forwarded_port" || engine.Env[7].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[7].Value != generatedControlAuthConfigPath || len(engine.VolumeMounts) != 3 {
 		t.Fatalf("Gluetun native port forwarding is not release-owned: %#v", engine)
 	}
 	if len(agent.VolumeMounts) != 1 || !strings.Contains(strings.Join(agent.Args, " "), "--gluetun-control-api-key-file="+generatedControlAPIKeyPath) {
 		t.Fatalf("gateway observer lacks authenticated control access: %#v", agent)
 	}
-	runtimeContainer := statefulSet.Spec.Template.Spec.Containers[2]
+	runtimeContainer := statefulSet.Spec.Template.Spec.Containers[3]
 	if runtimeContainer.Name != "port-forward-runtime" || runtimeContainer.Image != provisioner.PortForwardRuntimeImage || len(runtimeContainer.Env) != 0 || len(runtimeContainer.EnvFrom) != 0 || len(runtimeContainer.VolumeMounts) != 2 || runtimeContainer.VolumeMounts[0].Name != "port-forward-runtime-tls" || runtimeContainer.VolumeMounts[1].Name != "gluetun-control-auth" {
 		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
 	}
@@ -217,7 +231,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 		t.Fatalf("unrequested runtime Service was retained: %v", err)
 	}
 	must(t, kube.Get(context.Background(), client.ObjectKeyFromObject(statefulSet), statefulSet))
-	if len(statefulSet.Spec.Template.Spec.Containers) != 2 || len(statefulSet.Spec.Template.Spec.Volumes) != 2 {
+	if len(statefulSet.Spec.Template.Spec.Containers) != 3 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || len(statefulSet.Spec.Template.Spec.Volumes) != 3 {
 		t.Fatalf("baseline gateway retained port-forward runtime: %#v", statefulSet.Spec.Template.Spec)
 	}
 }
@@ -423,7 +437,7 @@ func TestHealthObservationClassifiesStatusAndResponseFailures(t *testing.T) {
 }
 
 func fixture(kube client.Client) *Provisioner {
-	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v0.0.0-core.test", ManifestDigest: "sha256:" + strings.Repeat("c", 64)}, OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
+	return &Provisioner{Client: kube, Reader: kube, EngineImage: "docker.io/qmcgaw/gluetun@sha256:" + strings.Repeat("a", 64), AgentImage: "ghcr.io/amoenus/waycloak-gateway-agent@sha256:" + strings.Repeat("b", 64), CoreDNSImage: "docker.io/coredns/coredns@sha256:" + strings.Repeat("d", 64), ReleaseIdentity: wayv1.ReleaseIdentity{Version: "v0.0.0-core.test", ManifestDigest: "sha256:" + strings.Repeat("c", 64)}, OverlayCIDR: netip.MustParsePrefix("100.96.0.0/24"), ClusterDNSUpstream: netip.MustParseAddrPort("10.43.0.10:53"), ClusterDomain: "cluster.local", VNI: 7999, MTU: 1320, VXLANPort: 4789, HealthPort: 18080, HTTPClient: &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ready":true,"tunnelReady":true,"dnsReady":true}`)), Header: http.Header{}}, nil
 	})}}
 }

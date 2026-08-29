@@ -38,7 +38,7 @@ func main() {
 	var portForwardRuntimePort uint
 	var adapterCA, adapterCert, adapterKey string
 	var adapterPort uint
-	var gatewayEngineImage, gatewayAgentImage, gatewayPortForwardRuntimeImage, gatewayOverlayCIDR, gatewayClusterDNSServiceIP, gatewayClusterDomain string
+	var gatewayEngineImage, gatewayAgentImage, gatewayCoreDNSImage, gatewayPortForwardRuntimeImage, gatewayOverlayCIDR, gatewayClusterDNSServiceIP, gatewayClusterDomain string
 	var gatewayVNI, gatewayVXLANPort, gatewayHealthPort, gatewayPortForwardRuntimePort, gatewayAdapterPort uint
 	var gatewayMTU int
 	var leaderElection bool
@@ -64,6 +64,7 @@ func main() {
 	flag.UintVar(&adapterPort, "adapter-port", uint(portforward.DefaultAdapterPort), "deterministic WorkloadAdapter Service HTTPS port")
 	flag.StringVar(&gatewayEngineImage, "gateway-engine-image", "", "exact default gateway engine image by digest")
 	flag.StringVar(&gatewayAgentImage, "gateway-agent-image", "", "exact default gateway agent image by digest")
+	flag.StringVar(&gatewayCoreDNSImage, "gateway-coredns-image", "", "exact CoreDNS gateway sidecar image by digest")
 	flag.StringVar(&gatewayPortForwardRuntimeImage, "gateway-port-forward-runtime-image", "", "exact tokenless gateway port-forward runtime image by digest")
 	flag.StringVar(&gatewayOverlayCIDR, "gateway-overlay-cidr", "", "reviewed default gateway overlay CIDR")
 	flag.StringVar(&gatewayClusterDNSServiceIP, "gateway-cluster-dns-service-ip", "", "reviewed Kubernetes DNS Service IPv4 address")
@@ -133,14 +134,14 @@ func main() {
 		os.Exit(1)
 	}
 	var gatewayRuntime waycontroller.GatewayRuntimeProvisioner
-	if gatewayEngineImage != "" || gatewayAgentImage != "" || gatewayOverlayCIDR != "" || gatewayClusterDNSServiceIP != "" || gatewayClusterDomain != "" {
+	if gatewayEngineImage != "" || gatewayAgentImage != "" || gatewayCoreDNSImage != "" || gatewayOverlayCIDR != "" || gatewayClusterDNSServiceIP != "" || gatewayClusterDomain != "" {
 		overlay, overlayErr := netip.ParsePrefix(gatewayOverlayCIDR)
 		clusterDNS, clusterDNSErr := netip.ParseAddr(gatewayClusterDNSServiceIP)
-		if overlayErr != nil || clusterDNSErr != nil || !clusterDNS.Is4() || clusterDNS.IsUnspecified() || clusterDNS.IsLoopback() || len(utilvalidation.IsDNS1123Subdomain(gatewayClusterDomain)) != 0 || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 {
+		if overlayErr != nil || clusterDNSErr != nil || !clusterDNS.Is4() || clusterDNS.IsUnspecified() || clusterDNS.IsLoopback() || len(utilvalidation.IsDNS1123Subdomain(gatewayClusterDomain)) != 0 || gatewayEngineImage == "" || gatewayAgentImage == "" || gatewayCoreDNSImage == "" || gatewayVNI == 0 || gatewayVNI > 16777215 || gatewayMTU < 576 || gatewayMTU > 9000 || gatewayVXLANPort == 0 || gatewayVXLANPort > 65535 || gatewayHealthPort == 0 || gatewayHealthPort > 65535 {
 			ctrl.Log.Error(overlayErr, "complete exact gateway runtime images and network parameters are required")
 			os.Exit(1)
 		}
-		provisioner := &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage,
+		provisioner := &gatewayruntime.Provisioner{Client: manager.GetClient(), Reader: manager.GetAPIReader(), EngineImage: gatewayEngineImage, AgentImage: gatewayAgentImage, CoreDNSImage: gatewayCoreDNSImage,
 			ReleaseIdentity: wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}, OverlayCIDR: overlay.Masked(), ClusterDNSUpstream: netip.AddrPortFrom(clusterDNS, 53), ClusterDomain: gatewayClusterDomain, VNI: uint32(gatewayVNI), MTU: int32(gatewayMTU), VXLANPort: uint16(gatewayVXLANPort), HealthPort: uint16(gatewayHealthPort)}
 		configurePortForwardGatewayRuntime(provisioner, portForwardConfigured, gatewayPortForwardRuntimeImage, gatewayPortForwardRuntimePort, adapterConfigured, gatewayAdapterPort)
 		gatewayRuntime = provisioner

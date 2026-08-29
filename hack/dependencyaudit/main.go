@@ -216,8 +216,8 @@ func verifyInventory(value inventory, root string, now time.Time) error {
 	if !equalStringMap(directModules, inventoryModules) {
 		return fmt.Errorf("direct Go module inventory does not exactly match go.mod: go.mod=%v inventory=%v", sortedPairs(directModules), sortedPairs(inventoryModules))
 	}
-	if len(value.ReleaseArtifacts) != 10 {
-		return errors.New("release artifact dependency inventory must cover chart, KCL, and eight images")
+	if len(value.ReleaseArtifacts) != 11 {
+		return errors.New("release artifact dependency inventory must cover chart, KCL, and nine images")
 	}
 	for _, artifact := range value.ReleaseArtifacts {
 		if artifact.Name == "" || artifact.IdentityIn != "release-manifest.json" || artifact.SBOM == "" || artifact.Provenance == "" {

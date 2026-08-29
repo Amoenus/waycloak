@@ -178,7 +178,7 @@ func (manifest ReleaseManifest) Validate() error {
 			return err
 		}
 	}
-	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-qbittorrent-adapter", "gluetun", "pause"}
+	requiredImages := []string{"replacement-controller", "waycloak-cni", "waycloak-node-agent", "waycloak-gateway-agent", "waycloak-gateway-runtime", "waycloak-qbittorrent-adapter", "gluetun", "coredns", "pause"}
 	if len(manifest.Images) != len(requiredImages) {
 		return errors.New("release manifest image inventory must contain exactly the complete Waycloak artifact set")
 	}
@@ -327,6 +327,7 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	pause := manifest.Images["pause"]
 	gatewayAgent := manifest.Images["waycloak-gateway-agent"]
 	engine := manifest.Images["gluetun"]
+	coreDNS := manifest.Images["coredns"]
 	controllerService := chartFullname(release) + "-controller"
 	rotationID := initialObservationRotation
 	controllerConformanceProfile := "networking.waycloak.io/Core-v1"
@@ -348,6 +349,9 @@ controller:
       repository: %q
       digest: %q
     agentImage:
+      repository: %q
+      digest: %q
+    coreDNSImage:
       repository: %q
       digest: %q
     overlayCIDR: %q
@@ -387,7 +391,7 @@ defaultGatewayClass:
   releaseIdentity:
     version: %q
     manifestDigest: %q
-`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", controllerConformanceProfile, engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
+`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", controllerConformanceProfile, engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, coreDNS.Repository, coreDNS.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
 		report.CNI.ConfigPath, report.CNI.BinaryPath, rotationID, architecture, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,

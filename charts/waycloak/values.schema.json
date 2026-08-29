@@ -70,13 +70,17 @@
         "gateway": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["engineImage", "agentImage", "overlayCIDR", "clusterDNS", "vni", "mtu", "vxlanPort", "healthPort"],
+          "required": ["engineImage", "agentImage", "coreDNSImage", "overlayCIDR", "clusterDNS", "vni", "mtu", "vxlanPort", "healthPort"],
           "properties": {
             "engineImage": {
               "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
               "properties": {"repository": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}}
             },
             "agentImage": {
+              "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
+              "properties": {"repository": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}}
+            },
+            "coreDNSImage": {
               "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
               "properties": {"repository": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"}}
             },

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -18,21 +17,21 @@ import (
 )
 
 const (
-	maximumDNSMessage            = 65535
-	maximumConcurrentDNSRequests = 128
-	dnsExchangeTimeout           = 3 * time.Second
-	dnsProbeAttemptTimeout       = time.Second
-	dnsProbeMaximumAttempts      = 3
+	maximumDNSMessage       = 65535
+	dnsExchangeTimeout      = 3 * time.Second
+	dnsProbeAttemptTimeout  = time.Second
+	dnsProbeMaximumAttempts = 3
 )
 
 type DNSProber interface {
 	Probe(context.Context) error
 }
 
-type DNSProxy struct {
+// DNSProbe independently verifies the semantic DNS behavior exposed by the
+// gateway sidecar. The sidecar process being alive is deliberately insufficient
+// for readiness: all required cluster and VPN-routed paths must answer.
+type DNSProbe struct {
 	config     Config
-	udp        net.PacketConn
-	tcp        net.Listener
 	ids        atomic.Uint32
 	probeCheck func(context.Context, string, string, dnsmessage.Type) error
 }
@@ -42,40 +41,8 @@ type dnsIdentity struct {
 	question dnsmessage.Question
 }
 
-func startDNSProxy(ctx context.Context, config Config) (*DNSProxy, error) {
-	address := dnsListenAddress(config)
-	udp, err := net.ListenPacket("udp4", address)
-	if err != nil {
-		return nil, fmt.Errorf("listen gateway DNS UDP: %w", err)
-	}
-	tcp, err := net.Listen("tcp4", address)
-	if err != nil {
-		_ = udp.Close()
-		return nil, fmt.Errorf("listen gateway DNS TCP: %w", err)
-	}
-	proxy := &DNSProxy{config: config, udp: udp, tcp: tcp}
-	go func() {
-		<-ctx.Done()
-		_ = udp.Close()
-		_ = tcp.Close()
-	}()
-	go proxy.serveUDP(ctx)
-	go proxy.serveTCP(ctx)
-	return proxy, nil
-}
-
-func (proxy *DNSProxy) upstream(request []byte) (string, dnsIdentity, error) {
-	header, questions, err := parseDNSMessage(request)
-	if err != nil || header.Response || header.OpCode != 0 || len(questions) != 1 {
-		return "", dnsIdentity{}, errors.New("DNS request must contain one standard query")
-	}
-	identity := dnsIdentity{id: header.ID, question: questions[0]}
-	name := strings.ToLower(identity.question.Name.String())
-	cluster := proxy.config.ClusterDomain + "."
-	if name == cluster || strings.HasSuffix(name, "."+cluster) {
-		return proxy.config.ClusterDNSUpstream.String(), identity, nil
-	}
-	return proxy.config.DNSUpstream.String(), identity, nil
+func NewDNSProber(config Config) DNSProber {
+	return &DNSProbe{config: config}
 }
 
 func parseDNSMessage(message []byte) (dnsmessage.Header, []dnsmessage.Question, error) {
@@ -95,111 +62,6 @@ func validateDNSResponse(response []byte, identity dnsIdentity) (dnsmessage.Head
 		return dnsmessage.Header{}, errors.New("DNS response does not match the exact query")
 	}
 	return header, nil
-}
-
-func (proxy *DNSProxy) serveUDP(ctx context.Context) {
-	semaphore := make(chan struct{}, maximumConcurrentDNSRequests)
-	buffer := make([]byte, maximumDNSMessage)
-	for {
-		count, peer, err := proxy.udp.ReadFrom(buffer)
-		if err != nil {
-			return
-		}
-		request := append([]byte(nil), buffer[:count]...)
-		select {
-		case semaphore <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-		go func() {
-			defer func() { <-semaphore }()
-			response, err := proxy.exchangeUDP(ctx, request)
-			if err == nil {
-				_, _ = proxy.udp.WriteTo(response, peer)
-			}
-		}()
-	}
-}
-
-func (proxy *DNSProxy) exchangeUDP(ctx context.Context, request []byte) ([]byte, error) {
-	upstream, identity, err := proxy.upstream(request)
-	if err != nil {
-		return nil, err
-	}
-	connection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "udp4", upstream)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	setDNSDeadline(connection, ctx, dnsExchangeTimeout)
-	if _, err := connection.Write(request); err != nil {
-		return nil, err
-	}
-	response := make([]byte, maximumDNSMessage)
-	count, err := connection.Read(response)
-	if err != nil {
-		return nil, err
-	}
-	response = response[:count]
-	if _, err := validateDNSResponse(response, identity); err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
-func (proxy *DNSProxy) serveTCP(ctx context.Context) {
-	semaphore := make(chan struct{}, maximumConcurrentDNSRequests)
-	for {
-		client, err := proxy.tcp.Accept()
-		if err != nil {
-			return
-		}
-		select {
-		case semaphore <- struct{}{}:
-		case <-ctx.Done():
-			_ = client.Close()
-			return
-		}
-		go func() {
-			defer func() { <-semaphore }()
-			defer client.Close()
-			setDNSDeadline(client, ctx, dnsExchangeTimeout)
-			for {
-				request, err := readDNSFrame(client)
-				if err != nil {
-					return
-				}
-				response, err := proxy.exchangeTCP(ctx, request)
-				if err != nil || writeDNSFrame(client, response) != nil {
-					return
-				}
-			}
-		}()
-	}
-}
-
-func (proxy *DNSProxy) exchangeTCP(ctx context.Context, request []byte) ([]byte, error) {
-	upstream, identity, err := proxy.upstream(request)
-	if err != nil {
-		return nil, err
-	}
-	connection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp4", upstream)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	setDNSDeadline(connection, ctx, dnsExchangeTimeout)
-	if err := writeDNSFrame(connection, request); err != nil {
-		return nil, err
-	}
-	response, err := readDNSFrame(connection)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := validateDNSResponse(response, identity); err != nil {
-		return nil, err
-	}
-	return response, nil
 }
 
 func readDNSFrame(reader io.Reader) ([]byte, error) {
@@ -229,39 +91,38 @@ func writeDNSFrame(writer io.Writer, message []byte) error {
 	return err
 }
 
-func (proxy *DNSProxy) Probe(ctx context.Context) error {
-	clusterName := "kubernetes.default.svc." + proxy.config.ClusterDomain + "."
-	probes := []struct {
+func (probe *DNSProbe) Probe(ctx context.Context) error {
+	clusterName := "kubernetes.default.svc." + probe.config.ClusterDomain + "."
+	checks := []struct {
 		network, name string
 		typeCode      dnsmessage.Type
 	}{
 		{"udp4", clusterName, dnsmessage.TypeA},
 		{"tcp4", clusterName, dnsmessage.TypeA},
 		{"udp4", "example.com.", dnsmessage.TypeA},
-		{"udp4", "example.com.", dnsmessage.TypeAAAA},
 		{"tcp4", "example.com.", dnsmessage.TypeA},
+		{"udp4", "example.com.", dnsmessage.TypeAAAA},
+		{"tcp4", "example.com.", dnsmessage.TypeAAAA},
 	}
-	check := proxy.probe
-	if proxy.probeCheck != nil {
-		check = proxy.probeCheck
+	check := probe.probe
+	if probe.probeCheck != nil {
+		check = probe.probeCheck
 	}
-	for _, probe := range probes {
-		if err := check(ctx, probe.network, probe.name, probe.typeCode); err != nil {
+	for _, candidate := range checks {
+		if err := check(ctx, candidate.network, candidate.name, candidate.typeCode); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (proxy *DNSProxy) probe(ctx context.Context, network, name string, typeCode dnsmessage.Type) error {
+func (probe *DNSProbe) probe(ctx context.Context, network, name string, typeCode dnsmessage.Type) error {
 	started := time.Now()
-	request, identity, err := proxy.probeRequest(name, typeCode)
+	request, identity, err := probe.probeRequest(name, typeCode)
 	if err != nil {
 		return dnsProbeFailure(network, name, typeCode, "request_build", started, "", err)
 	}
-	var response []byte
-	var attempts int
-	response, attempts, err = exchangeDNSProbe(ctx, network, dnsListenAddress(proxy.config), request)
+	response, attempts, err := exchangeDNSProbe(ctx, network, dnsListenAddress(probe.config), request)
 	if err != nil {
 		return dnsProbeFailure(network, name, typeCode, "exchange", started, "", fmt.Errorf("attempts=%d: %w", attempts, err))
 	}
@@ -273,7 +134,7 @@ func (proxy *DNSProxy) probe(ctx context.Context, network, name string, typeCode
 		return dnsProbeFailure(network, name, typeCode, "rcode", started, dnsRCodeName(header.RCode), nil)
 	}
 	if network == "udp4" && header.Truncated {
-		response, attempts, err = exchangeDNSProbe(ctx, "tcp4", dnsListenAddress(proxy.config), request)
+		response, attempts, err = exchangeDNSProbe(ctx, "tcp4", dnsListenAddress(probe.config), request)
 		if err != nil {
 			return dnsProbeFailure("tcp4", name, typeCode, "truncated_retry_exchange", started, "", fmt.Errorf("attempts=%d: %w", attempts, err))
 		}
@@ -355,12 +216,12 @@ func dnsRCodeName(rcode dnsmessage.RCode) string {
 	}
 }
 
-func (proxy *DNSProxy) probeRequest(name string, typeCode dnsmessage.Type) ([]byte, dnsIdentity, error) {
+func (probe *DNSProbe) probeRequest(name string, typeCode dnsmessage.Type) ([]byte, dnsIdentity, error) {
 	dnsName, err := dnsmessage.NewName(name)
 	if err != nil {
 		return nil, dnsIdentity{}, err
 	}
-	id := uint16(proxy.ids.Add(1))
+	id := uint16(probe.ids.Add(1))
 	question := dnsmessage.Question{Name: dnsName, Type: typeCode, Class: dnsmessage.ClassINET}
 	builder := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: id, RecursionDesired: true})
 	builder.EnableCompression()

@@ -112,12 +112,9 @@ func (service *Service) Run(ctx context.Context, interval time.Duration) error {
 		_ = healthServer.Shutdown(shutdown)
 	}()
 	go func() { _ = healthServer.Serve(healthListener) }()
-	dnsProxy, err := startDNSProxy(ctx, service.Config)
-	if err != nil {
-		_ = healthServer.Close()
-		return err
+	if service.DNSProber == nil {
+		service.DNSProber = NewDNSProber(service.Config)
 	}
-	service.DNSProber = dnsProxy
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	lastReconcileError := ""

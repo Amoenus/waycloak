@@ -37,7 +37,7 @@ func TestRunProducesDeterministicLoadableManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 8 || manifest.KCL == nil || manifest.ManifestDigest == "" || manifest.SupportMatrix == nil || len(manifest.SupportMatrix.Rows) != 1 {
+	if manifest.Version != "v1.0.0-beta.1" || len(manifest.Images) != 9 || manifest.KCL == nil || manifest.ManifestDigest == "" || manifest.SupportMatrix == nil || len(manifest.SupportMatrix.Rows) != 1 {
 		t.Fatalf("unexpected generated manifest: %#v", manifest)
 	}
 	row := manifest.SupportMatrix.Rows[0]
@@ -83,6 +83,7 @@ func validArguments() []string {
 		"--image", exactImage("waycloak-gateway-runtime", "waycloak-gateway-runtime", "2"),
 		"--image", exactImage("waycloak-qbittorrent-adapter", "waycloak-qbittorrent-adapter", "3"),
 		"--image", exactImage("gluetun", "gluetun", "f"),
+		"--image", exactImage("coredns", "coredns", "4"),
 		"--image", exactImage("pause", "pause", "1"),
 	}
 }

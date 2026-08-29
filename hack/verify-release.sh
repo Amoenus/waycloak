@@ -20,6 +20,7 @@ readonly chart_archive="waycloak-${release_tag#v}.tgz"
 readonly kcl_archive="waycloak-kcl-${release_tag}.tar"
 readonly gluetun_upstream_commit="3d1e20c5551e9cae1f9d938dc7b7214a6987f27e"
 readonly gluetun_upstream_image="docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027"
+readonly coredns_upstream_image="docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286"
 
 bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-tag.sh" "$release_tag"
 if [[ ! "$source_sha" =~ ^[a-f0-9]{40}$ ]]; then
@@ -95,6 +96,8 @@ expected_assets=(
   gluetun.LICENSE
   gluetun.ref
   gluetun.spdx.json
+  coredns.ref
+  coredns.spdx.json
   replacement-controller.ref
   replacement-controller.spdx.json
   waycloak-cni.ref
@@ -183,6 +186,12 @@ for ref_file in "${image_ref_files[@]}"; do
     --source-ref "refs/tags/${release_tag}" \
     --source-digest "$source_sha" \
     --deny-self-hosted-runners
+done
+
+test "$(cat "$asset_dir/coredns.ref")" = "$coredns_upstream_image"
+test "$(jq -r '.images.coredns.repository + "@" + .images.coredns.digest' "$asset_dir/release-manifest.json")" = "$coredns_upstream_image"
+for architecture in amd64 arm64; do
+  retry_bounded_quiet "CoreDNS linux/${architecture} manifest" crane manifest --platform "linux/$architecture" "$coredns_upstream_image"
 done
 
 gluetun_reference="$(cat "$asset_dir/gluetun.ref")"

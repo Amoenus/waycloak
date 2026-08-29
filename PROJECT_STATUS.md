@@ -1,5 +1,32 @@
 # Project status
 
+## CoreDNS gateway-sidecar implementation slice
+
+Issue #244 is implemented in source and focused tests, with exact-release and
+live-cluster qualification still outstanding. The 391-line custom DNS server
+has been removed from the gateway agent. A digest-only CoreDNS v1.14.7 sidecar
+now owns split-DNS serving in the existing gateway Pod network namespace. It
+runs as non-root with no capabilities, a read-only filesystem, bounded
+resources and concurrency, and a generated gateway-owned Corefile. A
+fail-closed gateway-agent init invocation establishes the overlay before the
+sidecar binds.
+
+The cluster boundary is implementation-neutral: preflight supplies a generic
+UDP/TCP port-53 endpoint and cluster suffix. The sidecar has no ServiceAccount
+token, Kubernetes plugin, kubeconfig, or API dependency, so alternative cluster
+DNS implementations remain supported when they satisfy that standard DNS
+contract. External names have only the Gluetun loopback upstream. There is no
+resolver fallback or permissive hysteresis.
+
+Waycloak retains the readiness authority through exact response validation for
+cluster A and external A/AAAA over both UDP and TCP, including EDNS0 and TCP
+retry after truncation. One failed path immediately clears readiness and
+withdraws forwarding. The official CoreDNS index and amd64/arm64 manifests are
+pinned in dependency and signed-release inventories with SPDX and vulnerability
+gates. A new exact release, homelab GitOps deployment, live client matrix,
+resource measurements, DNS leak/tunnel-loss/rotation/rollback evidence, and a
+new minimum 72-hour unchanged-artifact soak remain before #244 is complete.
+
 ## Gluetun-native port-forward implementation slice
 
 Issue #243 is implemented in source and focused tests, with exact-derived-image
@@ -48,7 +75,7 @@ qBittorrent GitOps validation.
 
 Issue #242 is implemented. Waycloak now carries a machine-readable inventory
 covering every direct Go module, shipped base image, generated-client/build
-tool, and the chart, KCL module, and eight exact release images. A deterministic
+tool, and the chart, KCL module, and nine exact release images. A deterministic
 audit rejects inventory/go.mod drift, missing pins or qualification evidence,
 expired maintenance or lag reviews, incomplete release coverage, and resource
 budget regressions. CI also reports upstream drift without changing pins, and a

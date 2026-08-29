@@ -48,8 +48,14 @@ qualified maintained dependencies. Work proceeds in this order:
   The old Proton NAT-PMP implementation is removed. Exact derived-image,
   real-provider rotation, rollback, and local qBittorrent GitOps evidence remain
   before the issue can be checked complete.
-- [ ] #244 qualify a pinned CoreDNS gateway sidecar and retain Waycloak's strict
-  semantic DNS readiness/no-fallback probe.
+- [ ] #244 has removed custom DNS serving and provisions the exact CoreDNS
+  v1.14.7 image as a capability-free gateway sidecar. The generated Corefile
+  uses only the preflight-bound generic cluster DNS endpoint and suffix plus
+  Gluetun loopback; it has no Kubernetes API or cluster-CoreDNS dependency.
+  Waycloak retains serial cluster/external A/AAAA UDP/TCP semantic readiness,
+  EDNS0, truncation retry, immediate withdrawal, and no fallback/hysteresis.
+  Exact release, live client matrix, resource, rotation, rollback, GitOps, and
+  soak evidence remain before the issue can be checked complete.
 - [ ] #246 add bounded OpenTelemetry-first signals with no-op default and
   optional OTLP/Prometheus-compatible export.
 

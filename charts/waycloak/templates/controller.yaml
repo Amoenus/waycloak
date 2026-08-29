@@ -5,6 +5,7 @@
 {{- $tlsSecret := required "controller.observationTLSSecret is required when controller.enabled=true" .Values.controller.observationTLSSecret }}
 {{- $engineDigest := required "controller.gateway.engineImage.digest is required when controller.enabled=true" .Values.controller.gateway.engineImage.digest }}
 {{- $agentDigest := required "controller.gateway.agentImage.digest is required when controller.enabled=true" .Values.controller.gateway.agentImage.digest }}
+{{- $coreDNSDigest := required "controller.gateway.coreDNSImage.digest is required when controller.enabled=true" .Values.controller.gateway.coreDNSImage.digest }}
 {{- $overlayCIDR := required "controller.gateway.overlayCIDR is required when controller.enabled=true" .Values.controller.gateway.overlayCIDR }}
 {{- $clusterDNSServiceIP := required "controller.gateway.clusterDNS.serviceIP is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.serviceIP }}
 {{- $clusterDNSDomain := required "controller.gateway.clusterDNS.domain is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.domain }}
@@ -86,6 +87,7 @@ spec:
             - --observation-agent-service-account={{ include "waycloak.fullname" . }}-node-agent
             - --gateway-engine-image={{ .Values.controller.gateway.engineImage.repository }}@{{ $engineDigest }}
             - --gateway-agent-image={{ .Values.controller.gateway.agentImage.repository }}@{{ $agentDigest }}
+            - --gateway-coredns-image={{ .Values.controller.gateway.coreDNSImage.repository }}@{{ $coreDNSDigest }}
             - --gateway-overlay-cidr={{ $overlayCIDR }}
             - --gateway-cluster-dns-service-ip={{ $clusterDNSServiceIP }}
             - --gateway-cluster-domain={{ $clusterDNSDomain }}
