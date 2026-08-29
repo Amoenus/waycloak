@@ -73,8 +73,42 @@ CoreDNS binds only the Waycloak overlay address on port 1053. A gateway-agent
 init invocation establishes the overlay and initial deny rules before the
 sidecar starts. The sidecar has bounded forwarding concurrency (`128`), reused
 upstream connections, a `5m` CPU/`16Mi` memory request, and a `100m` CPU/`64Mi`
-memory limit. There is no alternate resolver and no cache that could preserve
-answers across an upstream failure.
+memory limit. CoreDNS does not cache answers or use an alternate forwarding
+path. Gluetun's maintained loopback resolver does cache answers by default;
+therefore the semantic probe proves that the complete workload-visible path
+through Gluetun is currently usable, but an individual repeated name is not an
+assertion that Gluetun performed fresh upstream recursion for that sample.
+
+## RC.30 DNS-path finding and remediation
+
+The first RC.30 soak epochs are preserved as failed evidence. Under sustained
+qBittorrent tracker traffic, CoreDNS recorded bursts of upstream UDP timeouts
+only against Gluetun's loopback listener. Gluetun concurrently reported
+DNS-over-TLS timeout and TLS-connection failures, and independent external TCP
+checks also failed around some bursts. No CoreDNS, Gluetun, gateway-agent,
+controller, node-agent, adapter, or qBittorrent container restarted, and the
+release, Pod identities, and GitOps revision did not change. This localizes the
+failure below CoreDNS's serving implementation, while the simultaneous TCP
+evidence prevents attributing every event solely to DNS.
+
+The next candidate keeps the actively maintained CoreDNS and Gluetun
+implementations and changes the qualified Gluetun defaults from one DNS-over-TLS
+resolver to DNS-over-HTTPS with `cloudflare,google,quad9`. Gluetun owns resolver
+selection, encrypted transport, connection handling, caching, and retry. A
+native engine ConfigMap may still supply Gluetun's supported
+`DNS_UPSTREAM_RESOLVER_TYPE`, `DNS_UPSTREAM_RESOLVERS`, and `DNS_CACHING` values;
+Waycloak materializes those values explicitly and otherwise applies the
+qualified defaults. This preserves the frozen Kubernetes API and does not add a
+resolver library, custom DNS protocol code, direct ordinary-egress fallback, or
+readiness hysteresis.
+
+The dependency refresh on 2026-08-29 reconfirmed Gluetun v3.41.3, CoreDNS
+v1.14.7, and `golang.org/x/net` v0.58.0 as the latest stable qualified releases.
+Gluetun v3.41.3 includes the v3.41.2 DNS-over-TLS pool fixes; the observed
+failure therefore is not addressed by upgrading to another published stable
+Gluetun version. The new DoH/multi-resolver policy must pass controlled
+single-resolver, multi-resolver, DNS-load, tunnel-loss, and recovery tests before
+it can replace the failed RC.30 artifact.
 
 ## Readiness and failure behavior
 

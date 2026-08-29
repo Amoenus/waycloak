@@ -70,7 +70,7 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 		t.Fatalf("unsafe gateway Pod identity: %#v", statefulSet.Spec.Template.Spec)
 	}
 	engine, coreDNS, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[1], statefulSet.Spec.Template.Spec.Containers[2]
-	if engine.Name != "vpn-engine" || len(engine.Env) != 4 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "off" || engine.Env[3].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[3].Value != staticControlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || statefulSet.Spec.Template.Spec.InitContainers[0].Name != "gateway-dataplane-init" {
+	if engine.Name != "vpn-engine" || len(engine.Env) != 7 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "off" || engine.Env[3].Name != "DNS_UPSTREAM_RESOLVER_TYPE" || engine.Env[3].Value != "doh" || engine.Env[4].Name != "DNS_UPSTREAM_RESOLVERS" || engine.Env[4].Value != "cloudflare,google,quad9" || engine.Env[5].Name != "DNS_CACHING" || engine.Env[5].Value != "on" || engine.Env[6].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[6].Value != staticControlAuthConfigPath || agent.Name != "gateway-agent" || len(agent.Env) != 0 || len(agent.VolumeMounts) != 0 || len(statefulSet.Spec.Template.Spec.InitContainers) != 1 || statefulSet.Spec.Template.Spec.InitContainers[0].Name != "gateway-dataplane-init" {
 		t.Fatalf("credential boundary is unsafe: engine=%#v agent=%#v", engine, agent)
 	}
 	if coreDNS.Name != "coredns" || coreDNS.Image != provisioner.CoreDNSImage || len(coreDNS.Ports) != 2 || coreDNS.Ports[0].Protocol != corev1.ProtocolUDP || coreDNS.Ports[1].Protocol != corev1.ProtocolTCP || len(coreDNS.VolumeMounts) != 1 || coreDNS.VolumeMounts[0].MountPath != coreDNSConfigPath || coreDNS.VolumeMounts[0].SubPath != "Corefile" || coreDNS.SecurityContext == nil || coreDNS.SecurityContext.RunAsNonRoot == nil || !*coreDNS.SecurityContext.RunAsNonRoot || coreDNS.SecurityContext.Capabilities == nil || len(coreDNS.SecurityContext.Capabilities.Add) != 1 || coreDNS.SecurityContext.Capabilities.Add[0] != "NET_BIND_SERVICE" || len(coreDNS.SecurityContext.Capabilities.Drop) != 1 || coreDNS.SecurityContext.Capabilities.Drop[0] != "ALL" {
@@ -202,7 +202,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 		t.Fatalf("authenticated control policy init container is not exact: %#v", initContainer)
 	}
 	engine, agent := statefulSet.Spec.Template.Spec.Containers[0], statefulSet.Spec.Template.Spec.Containers[2]
-	if len(engine.Env) != 8 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "on" || engine.Env[3].Name != "VPN_PORT_FORWARDING_STATUS_FILE" || engine.Env[3].Value != "/gluetun/forwarded_port" || engine.Env[7].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[7].Value != generatedControlAuthConfigPath || len(engine.VolumeMounts) != 3 {
+	if len(engine.Env) != 11 || engine.Env[2].Name != "VPN_PORT_FORWARDING" || engine.Env[2].Value != "on" || engine.Env[3].Name != "DNS_UPSTREAM_RESOLVER_TYPE" || engine.Env[3].Value != "doh" || engine.Env[4].Name != "DNS_UPSTREAM_RESOLVERS" || engine.Env[4].Value != "cloudflare,google,quad9" || engine.Env[5].Name != "DNS_CACHING" || engine.Env[5].Value != "on" || engine.Env[6].Name != "VPN_PORT_FORWARDING_STATUS_FILE" || engine.Env[6].Value != "/gluetun/forwarded_port" || engine.Env[10].Name != "HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH" || engine.Env[10].Value != generatedControlAuthConfigPath || len(engine.VolumeMounts) != 3 {
 		t.Fatalf("Gluetun native port forwarding is not release-owned: %#v", engine)
 	}
 	agentArgs := strings.Join(agent.Args, " ")
@@ -315,6 +315,22 @@ func TestValidateEngineConfigRejectsControlAuthenticationOverrides(t *testing.T)
 	}
 	if err := validateEngineConfig(map[string]string{"VPN_SERVICE_PROVIDER": "protonvpn"}); err != nil {
 		t.Fatalf("rejected ordinary native engine configuration: %v", err)
+	}
+}
+
+func TestGluetunDNSEnvironmentUsesQualifiedDefaultsAndPreservesOverrides(t *testing.T) {
+	defaults := gluetunDNSEnvironment(nil)
+	if len(defaults) != 3 || defaults[0].Value != "doh" || defaults[1].Value != "cloudflare,google,quad9" || defaults[2].Value != "on" {
+		t.Fatalf("qualified DNS defaults = %#v", defaults)
+	}
+
+	overrides := gluetunDNSEnvironment(map[string]string{
+		"DNS_UPSTREAM_RESOLVER_TYPE": "dot",
+		"DNS_UPSTREAM_RESOLVERS":     "quad9",
+		"DNS_CACHING":                "off",
+	})
+	if len(overrides) != 3 || overrides[0].Value != "dot" || overrides[1].Value != "quad9" || overrides[2].Value != "off" {
+		t.Fatalf("configured DNS policy = %#v", overrides)
 	}
 }
 

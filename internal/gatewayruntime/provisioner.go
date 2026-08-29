@@ -48,6 +48,9 @@ const (
 	generatedControlAPIKeyPath      = generatedControlAuthDirectory + "/api-key"
 	portForwardTLSMountPath         = "/var/run/secrets/waycloak-port-forward-runtime"
 	coreDNSConfigPath               = "/Corefile"
+	defaultDNSResolverType          = "doh"
+	defaultDNSResolvers             = "cloudflare,google,quad9"
+	defaultDNSCaching               = "on"
 	healthObservationAttempts       = 2
 	healthObservationAttemptTimeout = 2 * time.Second
 	healthObservationRetryDelay     = 25 * time.Millisecond
@@ -261,6 +264,20 @@ func validateEngineConfig(data map[string]string) error {
 	return nil
 }
 
+func gluetunDNSEnvironment(data map[string]string) []corev1.EnvVar {
+	defaults := []corev1.EnvVar{
+		{Name: "DNS_UPSTREAM_RESOLVER_TYPE", Value: defaultDNSResolverType},
+		{Name: "DNS_UPSTREAM_RESOLVERS", Value: defaultDNSResolvers},
+		{Name: "DNS_CACHING", Value: defaultDNSCaching},
+	}
+	for index := range defaults {
+		if configured, ok := data[defaults[index].Name]; ok {
+			defaults[index].Value = configured
+		}
+	}
+	return defaults
+}
+
 func (provisioner *Provisioner) desiredService(gateway *wayv1.VPNGateway, name string, labels map[string]string) *corev1.Service {
 	return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: gateway.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{owner(gateway)}}, Spec: corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone, Selector: labels, Ports: []corev1.ServicePort{{Name: "health", Port: int32(provisioner.HealthPort), Protocol: corev1.ProtocolTCP}}}}
 }
@@ -328,6 +345,7 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 	hash := sha256.Sum256([]byte(configMap.ResourceVersion + "\x00" + secret.GetResourceVersion() + "\x00" + runtimeTLSResourceVersion + "\x00" + dnsConfig.Data["Corefile"]))
 	engineControlPath := staticControlAuthConfigPath
 	engineEnvironment := []corev1.EnvVar{{Name: "OPENVPN_USER", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "username"}}}, {Name: "OPENVPN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "password"}}}, {Name: "VPN_PORT_FORWARDING", Value: "off"}}
+	engineEnvironment = append(engineEnvironment, gluetunDNSEnvironment(configMap.Data)...)
 	engineVolumeMounts := []corev1.VolumeMount{{Name: "tun", MountPath: "/dev/net/tun"}, {Name: "engine-state", MountPath: "/gluetun"}}
 	agentArgs := []string{"--gateway-uid=" + string(gateway.UID), "--overlay-cidr=" + provisioner.OverlayCIDR.Masked().String(), "--gateway-address=" + gatewayAddress(provisioner.OverlayCIDR).String(), "--cluster-dns-upstream=" + provisioner.ClusterDNSUpstream.String(), "--cluster-domain=" + provisioner.ClusterDomain, "--vxlan-port=" + strconv.Itoa(int(provisioner.VXLANPort)), "--health-port=" + strconv.Itoa(int(provisioner.HealthPort)), "--vni=" + strconv.FormatUint(uint64(provisioner.VNI), 10), "--mtu=" + strconv.Itoa(int(provisioner.MTU))}
 	if provisioner.OTLPEndpoint != "" {

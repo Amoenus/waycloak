@@ -22,10 +22,15 @@ sidecar while retaining strict semantic probes, and adds optional bounded
 OpenTelemetry signals. It also corrects the RC.29 nftables base-chain
 interaction that dropped established TCP replies for ordinary protected
 egress, while retaining the unmatched unsolicited-tunnel drop. It changes no
-public API schema or fail-closed contract. RC.30 remains a release candidate, not
-closure of #123, #140, or #141 and not stable graduation. Exact publication,
-GitOps deployment, live qBittorrent validation, and a fresh minimum 72-hour
-local-cluster soak are required.
+public API schema or fail-closed contract. Its two local-cluster soak epochs are
+now preserved as failed: independent external TCP failures were followed by
+repeated Gluetun-loopback DNS timeouts, strict readiness withdrawal, and
+multiple handoffs without artifact, identity, or restart drift. The next
+candidate changes the qualified Gluetun defaults to its maintained DoH and
+multi-resolver machinery (`cloudflare,google,quad9`) while preserving explicit
+native overrides. RC.30 does not close #123, #140, or #141 and is not stable
+graduation. A new exact publication, GitOps deployment, controlled DNS/tunnel
+validation, and fresh minimum 72-hour local-cluster soak are required.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to
@@ -59,8 +64,13 @@ qualified maintained dependencies. Work proceeds in this order:
   Gluetun loopback; it has no Kubernetes API or cluster-CoreDNS dependency.
   Waycloak retains serial cluster/external A/AAAA UDP/TCP semantic readiness,
   EDNS0, truncation retry, immediate withdrawal, and no fallback/hysteresis.
-  Exact release, live client matrix, resource, rotation, rollback, GitOps, and
-  soak evidence remain before the issue can be checked complete.
+  RC.30 live evidence localized repeated upstream timeouts to Gluetun's
+  loopback encrypted-resolver path and invalidated both soak epochs. The next
+  candidate retains the latest qualified CoreDNS v1.14.7 and Gluetun v3.41.3,
+  defaults Gluetun to DoH with three maintained resolvers, and adds no DNS
+  library or custom protocol machinery. Exact release, live client matrix,
+  DNS-load, resource, rotation, rollback, GitOps, and clean-soak evidence remain
+  before the issue can be checked complete.
 - [ ] #246 has implemented bounded OpenTelemetry-first DNS, engine, mapping,
   translation, delivery, acknowledgement, adapter Apply/Observe, withdrawal,
   and recovery signals. Exporters are no-op by default; optional OTLP and a

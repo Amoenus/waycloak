@@ -122,7 +122,7 @@ Kubernetes v1.36.1+k3s1, not 1.37, so Kubernetes v1.37 is an explicit #141
 compatibility lag reviewed by 2026-11-27. All ordered #242-#246 source slices
 are now implemented; exact release and live evidence are next.
 
-RC.30 is the corrective publication candidate for those slices. RC.29 was
+RC.30 was the corrective publication candidate for those slices. RC.29 was
 published and exactly deployed, but live validation found that the
 port-forward table's unmatched-tunnel rule dropped established replies for
 ordinary protected-workload TCP egress. RC.30 preserves tracked tunnel return
@@ -133,6 +133,25 @@ semantic probes, and adds bounded no-op-by-default OpenTelemetry signals. The
 cluster DNS upstream remains implementation-agnostic behind its configured
 Service address and cluster domain. The live cluster is still Kubernetes
 v1.36.1+k3s1, so RC.30 does not claim a 1.37 certified row.
+
+Both RC.30 soak epochs are invalid for stable graduation. The first retained
+an isolated external TCP checker failure. The replacement epoch then recorded
+repeated external TCP failures, strict DNS-readiness withdrawals, and handoff
+generations through at least 246 without any Pod UID, restart, release, or
+GitOps change. CoreDNS localized every observed upstream DNS timeout to
+Gluetun's loopback resolver, while Gluetun recorded DNS-over-TLS timeout and TLS
+connection failures during the largest burst. The simultaneous independent TCP
+failures mean the deepest cause may include the selected VPN/provider path and
+is not attributed to CoreDNS alone.
+
+The next source candidate uses Gluetun's maintained DNS implementation with
+qualified defaults of DNS-over-HTTPS and the `cloudflare,google,quad9` resolver
+set, preserving explicit native Gluetun DNS overrides. The 2026-08-29 refresh
+reconfirmed Gluetun v3.41.3, CoreDNS v1.14.7, and `golang.org/x/net` v0.58.0 as
+the latest stable qualified versions. No new DNS library, public API field,
+fallback resolver, readiness hysteresis, or custom DNS serving code is added.
+This correction requires a new exact release, GitOps deployment, controlled
+DNS-load and tunnel tests, and a fresh unchanged-artifact soak.
 
 ## Dependency-backed stabilization direction
 
