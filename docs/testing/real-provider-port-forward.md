@@ -25,10 +25,10 @@ releases. It does not substitute for the unchanged-artifact multi-day gate.
 Run from the trusted workstation that owns the homelab kubeconfig:
 
 ```powershell
-$evidence = Join-Path $env:TEMP "waycloak-rc26-qbittorrent-soak.jsonl"
+$evidence = Join-Path $env:TEMP "waycloak-rc27-qbittorrent-soak.jsonl"
 pwsh -File hack/acceptance/real-provider-soak.ps1 `
   -OutputPath $evidence `
-  -ExpectedVersion v0.1.0-rc.26 `
+  -ExpectedVersion v0.1.0-rc.27 `
   -ExpectedManifestDigest <exact-signed-release-manifest-digest> `
   -DurationHours 72 `
   -IntervalSeconds 60

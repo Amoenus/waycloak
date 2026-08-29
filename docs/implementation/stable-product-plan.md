@@ -120,11 +120,10 @@ describe. RC.25 documented that fail-closed transaction and completed its exact
 recovery evidence, but failed graduation because unchanged reconciliation
 continuously renewed provider status, repeatedly drove the application adapter,
 and exposed recurrent DNS withdrawals plus incomplete failed-sample detail.
-RC.26 bounds renewal to the provider schedule, removes five-way DNS probe
-contention without hysteresis, and preserves absent-provider condition samples.
-It must pass exact publication, GitOps deployment, and a fresh minimum 72-hour
-local qBittorrent soak before #140/#141 and the `v1.0.0` graduation review can
-close.
+RC.27 adds the dependency-backed stabilization slices from ADR 0044 without
+changing the frozen API or fail-closed contract. It must pass exact publication,
+GitOps deployment, and a fresh minimum 72-hour local qBittorrent soak before
+#140/#141 and the `v1.0.0` graduation review can close.
 
 1. Publish signed standalone/chart CRD bundles and one support-matrix manifest.
 2. Test every supported beta upgrade/rollback, stored-version migration,
