@@ -846,6 +846,8 @@ run_disruptive_verify() {
     printf '%s explicit activation did not replace the exact gateway Pod\n' "$label" >&2
     return 1
   fi
+  # Require each mandatory gateway container by name so adding a sidecar cannot
+  # silently preserve a stale aggregate ready-count assertion.
   kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" -o json | \
     jq -e --arg engine "$expected_gateway_engine_image" --arg agent "$expected_gateway_agent_image" \
       --arg version "$expected_gateway_release_version" --arg digest "$expected_gateway_release_digest" \
