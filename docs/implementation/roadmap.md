@@ -9,18 +9,18 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-29):** `v0.1.0-rc.28` preserves the
+**Release-candidate checkpoint (2026-08-29):** `v0.1.0-rc.29` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
 72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
 found an unchanged-state provider-renewal/status feedback loop, hundreds of
 adapter listener-probe timeouts, recurrent fail-closed DNS observations, three
 lease handoffs, and a harness serialization gap during absent-provider states.
-RC.28 delegates provider acquisition and renewal to Gluetun, separates adapter
+RC.29 delegates provider acquisition and renewal to Gluetun, separates adapter
 Apply and Observe, replaces the gateway DNS server with a qualified CoreDNS
 sidecar while retaining strict semantic probes, and adds optional bounded
 OpenTelemetry signals. It changes no public API schema or fail-closed contract.
-RC.28 remains a release candidate, not
+RC.29 remains a release candidate, not
 closure of #123, #140, or #141 and not stable graduation. Exact publication,
 GitOps deployment, live qBittorrent validation, and a fresh minimum 72-hour
 local-cluster soak are required.

@@ -270,7 +270,7 @@ retry_bounded_to_file "KCL module manifest" "$work_dir/kcl.manifest.json" \
 jq -e --arg version "${release_tag#v}" '
   .schemaVersion == 2 and
   .mediaType == "application/vnd.oci.image.manifest.v1+json" and
-  .artifactType == "application/vnd.oci.image.layer.v1.tar" and
+  .artifactType == "application/vnd.oci.image.layer.v1.tar+gzip" and
   .annotations["org.kcllang.package.name"] == "waycloak" and
   .annotations["org.kcllang.package.version"] == $version
 ' "$work_dir/kcl.manifest.json" >/dev/null

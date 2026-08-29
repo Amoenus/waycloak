@@ -120,7 +120,7 @@ describe. RC.25 documented that fail-closed transaction and completed its exact
 recovery evidence, but failed graduation because unchanged reconciliation
 continuously renewed provider status, repeatedly drove the application adapter,
 and exposed recurrent DNS withdrawals plus incomplete failed-sample detail.
-RC.28 adds the dependency-backed stabilization slices from ADR 0044 without
+RC.29 adds the dependency-backed stabilization slices from ADR 0044 without
 changing the frozen API or fail-closed contract. It must pass exact publication,
 GitOps deployment, and a fresh minimum 72-hour local qBittorrent soak before
 #140/#141 and the `v1.0.0` graduation review can close.
