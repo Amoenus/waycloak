@@ -9,14 +9,14 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-29):** `v0.1.0-rc.30` preserves the
+**Release-candidate checkpoint (2026-08-29):** `v0.1.0-rc.31` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
 72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
 found an unchanged-state provider-renewal/status feedback loop, hundreds of
 adapter listener-probe timeouts, recurrent fail-closed DNS observations, three
 lease handoffs, and a harness serialization gap during absent-provider states.
-RC.30 delegates provider acquisition and renewal to Gluetun, separates adapter
+RC.30 delegated provider acquisition and renewal to Gluetun, separated adapter
 Apply and Observe, replaces the gateway DNS server with a qualified CoreDNS
 sidecar while retaining strict semantic probes, and adds optional bounded
 OpenTelemetry signals. It also corrects the RC.29 nftables base-chain
@@ -25,12 +25,20 @@ egress, while retaining the unmatched unsolicited-tunnel drop. It changes no
 public API schema or fail-closed contract. Its two local-cluster soak epochs are
 now preserved as failed: independent external TCP failures were followed by
 repeated Gluetun-loopback DNS timeouts, strict readiness withdrawal, and
-multiple handoffs without artifact, identity, or restart drift. The next
-candidate changes the qualified Gluetun defaults to its maintained DoH and
+multiple handoffs without artifact, identity, or restart drift. RC.31 changes
+the qualified Gluetun defaults to its maintained DoH and
 multi-resolver machinery (`cloudflare,google,quad9`) while preserving explicit
-native overrides. RC.30 does not close #123, #140, or #141 and is not stable
-graduation. A new exact publication, GitOps deployment, controlled DNS/tunnel
-validation, and fresh minimum 72-hour local-cluster soak are required.
+native overrides. It adds no DNS library, public API, fallback resolver,
+readiness hysteresis, or custom DNS server. Exact source commit
+`12845402a7ee76e2b9925638cf987689e84a88f3`, signed release, post-publication
+verification, confirmation-bound transition, GitOps revision
+`6daa3101f3ef7fe4134e9132867c600504b336fa`, and immutable adapter trust-record
+rotation passed. The clean RC.31 unchanged-artifact epoch began at
+`2026-08-29T21:59:40.8239325Z`; its initial audit is healthy with zero observed
+failures and its deadline is `2026-09-01T21:59:40.8239325Z`. RC.31 does not
+close #123, #140, or #141 and is not stable graduation. Controlled DNS/tunnel,
+rotation, rollback, terminal packet evidence, a strict completed soak audit,
+and the remaining beta/v1 gates are still required.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to
@@ -68,9 +76,10 @@ qualified maintained dependencies. Work proceeds in this order:
   loopback encrypted-resolver path and invalidated both soak epochs. The next
   candidate retains the latest qualified CoreDNS v1.14.7 and Gluetun v3.41.3,
   defaults Gluetun to DoH with three maintained resolvers, and adds no DNS
-  library or custom protocol machinery. Exact release, live client matrix,
-  DNS-load, resource, rotation, rollback, GitOps, and clean-soak evidence remain
-  before the issue can be checked complete.
+  library or custom protocol machinery. RC.31 exact publication and GitOps
+  deployment passed; live client-matrix, DNS-load, resource, rotation, rollback,
+  and completed clean-soak evidence remain before the issue can be checked
+  complete.
 - [ ] #246 has implemented bounded OpenTelemetry-first DNS, engine, mapping,
   translation, delivery, acknowledgement, adapter Apply/Observe, withdrawal,
   and recovery signals. Exporters are no-op by default; optional OTLP and a

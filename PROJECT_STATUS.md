@@ -95,7 +95,7 @@ stale/contradictory identities remain HTTP 409, while dial, authentication,
 application API, and listener failures are HTTP 503 and retain typed
 `conflict`/`unavailable` classification across the gateway-runtime hop. Focused
 unit tests and Linux-target Staticcheck v0.8.1 pass. The ordered source slices
-#243, #244, and #246 are now also implemented; #245 remains unchecked until the
+Issues #243, #244, and #246 are now also implemented; #245 remains unchecked until the
 new exact artifact passes the qBittorrent GitOps validation.
 
 ## Dependency governance slice
@@ -122,7 +122,7 @@ Kubernetes v1.36.1+k3s1, not 1.37, so Kubernetes v1.37 is an explicit #141
 compatibility lag reviewed by 2026-11-27. All ordered #242-#246 source slices
 are now implemented; exact release and live evidence are next.
 
-RC.30 was the corrective publication candidate for those slices. RC.29 was
+RC.30 was the first corrective publication candidate for those slices. RC.29 was
 published and exactly deployed, but live validation found that the
 port-forward table's unmatched-tunnel rule dropped established replies for
 ordinary protected-workload TCP egress. RC.30 preserves tracked tunnel return
@@ -144,14 +144,36 @@ connection failures during the largest burst. The simultaneous independent TCP
 failures mean the deepest cause may include the selected VPN/provider path and
 is not attributed to CoreDNS alone.
 
-The next source candidate uses Gluetun's maintained DNS implementation with
-qualified defaults of DNS-over-HTTPS and the `cloudflare,google,quad9` resolver
-set, preserving explicit native Gluetun DNS overrides. The 2026-08-29 refresh
-reconfirmed Gluetun v3.41.3, CoreDNS v1.14.7, and `golang.org/x/net` v0.58.0 as
-the latest stable qualified versions. No new DNS library, public API field,
-fallback resolver, readiness hysteresis, or custom DNS serving code is added.
-This correction requires a new exact release, GitOps deployment, controlled
-DNS-load and tunnel tests, and a fresh unchanged-artifact soak.
+RC.31 carries the bounded DNS-path correction. It uses Gluetun's maintained
+DNS implementation with qualified defaults of DNS-over-HTTPS and the
+`cloudflare,google,quad9` resolver set while preserving explicit native Gluetun
+DNS overrides. The 2026-08-29 refresh reconfirmed Gluetun v3.41.3, CoreDNS
+v1.14.7, and `golang.org/x/net` v0.58.0 as the latest stable qualified
+versions. No new DNS library, public API field, fallback resolver, readiness
+hysteresis, or custom DNS serving code was added.
+
+Signed `v0.1.0-rc.31` was published from exact commit
+`12845402a7ee76e2b9925638cf987689e84a88f3` after main CI run `33274865219`,
+runtime release run `33275624955`, and CLI release run `33275625172` passed,
+including post-publication signature, provenance, SBOM, checksum, and exact-
+manifest verification. Its canonical manifest identity is
+`sha256:38decaa02a3c36d3989a5b3b0d43d267b3f70916813463810f719499ddbeddf1`.
+The confirmation-bound RC.30-to-RC.31 transition and homelab GitOps revision
+`6daa3101f3ef7fe4134e9132867c600504b336fa` completed without weakening the
+CNI deny path. The immutable qBittorrent adapter trust record was replaced by
+exact UID precondition and recreated with the matching RC.31 digest. Doctor,
+gateway DNS/tunnel readiness, lease delivery and acknowledgement, TCP/UDP
+listeners, cluster/external DNS, independent external TCP, qBittorrent
+connection/DHT, and privacy-checked metrics passed the initial live checkpoint.
+
+One short pre-epoch collector run is preserved as invalid because its generated
+DHT collector retained an RC.23 Argo revision comparison; it recorded no
+product failure and contributes no duration. The clean unchanged-artifact
+RC.31 epoch began at `2026-08-29T21:59:40.8239325Z` and has a canonical deadline
+of `2026-09-01T21:59:40.8239325Z`. Its initial strict audit reports zero
+observed failures and `healthySoFar=true`. Controlled DNS-load, tunnel,
+rotation, rollback, terminal packet evidence, and the completed strict soak
+audit remain required.
 
 ## Dependency-backed stabilization direction
 
