@@ -80,6 +80,18 @@ the existing qBittorrent node, enter only the live gateway network namespace,
 install no allow rule, and are deleted immediately after capture. They do not
 mutate or replace the gateway or workload Pods.
 
+When a provider handoff occurs, preserve a separate
+`WaycloakBoundedProviderHandoffDiagnosis` JSON record and pass it to
+`audit-real-provider-soak.ps1` with `-BoundedHandoffEvidencePath`. The auditor
+accepts the lifecycle interval only when the raw evidence proves one monotonic
+handoff increment, external failure followed by binding and lease withdrawal
+within 30 seconds, recovery within 120 seconds, unchanged release/GitOps/Pod
+identities, zero restart increase, matching listener acknowledgement, and
+successful independent post-recovery probes. It reports the raw lifecycle and
+non-ready counts separately from unexplained failures. Without a valid
+diagnosis record, every failed external probe, handoff change, and non-ready
+condition remains fatal to the audit.
+
 ## Acceptance
 
 The epoch passes only when:

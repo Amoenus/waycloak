@@ -19,6 +19,7 @@ param(
     [string]$ExpectedVersion,
     [Parameter(Mandatory = $true)]
     [string]$ExpectedManifestDigest,
+    [string]$BoundedHandoffEvidencePath = "",
     [switch]$AllowIncomplete
 )
 
@@ -102,7 +103,7 @@ if ($start[0].expectedVersion -ne $ExpectedVersion -or
 }
 
 $canonicalSamples = @($canonical | Where-Object { $_.kind -eq "WaycloakLocalSoakSample" })
-$canonicalFailures = @($canonicalSamples | Where-Object {
+$canonicalBaseFailures = @($canonicalSamples | Where-Object {
     -not $_.collectionHealthy -or
     -not $_.releaseExact -or
     -not $_.gatewayReady -or
@@ -115,12 +116,16 @@ $canonicalFailures = @($canonicalSamples | Where-Object {
     -not $_.listenerUDP -or
     -not $_.externalDNS -or
     -not $_.clusterDNS -or
+    $_.uidChangedFromStart -or
+    $_.restartIncrease
+})
+
+$canonicalLifecycleSamples = @($canonicalSamples | Where-Object {
     $_.mappingChangedFromStart -or
     $_.handoffGenerationChangedFromStart -or
-    $_.uidChangedFromStart -or
-    $_.restartIncrease -or
     ($null -ne $_.externalTCP -and -not $_.externalTCP)
 })
+$canonicalFailures = @($canonicalBaseFailures + $canonicalLifecycleSamples | Sort-Object observedAt -Unique)
 
 $externalTCPChecks = @($canonicalSamples | Where-Object { $null -ne $_.externalTCP })
 $externalTCPFailures = @($externalTCPChecks | Where-Object { -not $_.externalTCP })
@@ -175,6 +180,136 @@ $heartbeatEvents = @($heartbeat | Where-Object { $_.kind -eq "WaycloakVPNWorkloa
 $leaseNonTrue = Measure-NonTrueCondition $leaseEvents "WaycloakPortForwardLeaseTransition"
 $bindingNonTrue = Measure-NonTrueCondition $bindingEvents "WaycloakVPNWorkloadBindingTransition"
 $heartbeatNonTrue = Measure-NonTrueCondition $heartbeatEvents "WaycloakVPNWorkloadBindingHeartbeat"
+
+$boundedHandoff = [ordered]@{
+    supplied = -not [string]::IsNullOrWhiteSpace($BoundedHandoffEvidencePath)
+    valid = $false
+    reason = if ([string]::IsNullOrWhiteSpace($BoundedHandoffEvidencePath)) { "NotSupplied" } else { "Invalid" }
+    externalTCPFailures = 0
+    leaseNonTrueEvents = 0
+    bindingNonTrueEvents = 0
+    heartbeatNonTrueEvents = 0
+    lifecycleSamples = 0
+    failureAt = $null
+    recoveredAt = $null
+    handoffGenerationBefore = $null
+    handoffGenerationAfter = $null
+    sha256 = $null
+}
+
+if ($boundedHandoff.supplied) {
+    if (-not (Test-Path -LiteralPath $BoundedHandoffEvidencePath -PathType Leaf)) {
+        throw "bounded handoff evidence file is missing: $BoundedHandoffEvidencePath"
+    }
+    try {
+        $handoffEvidence = Get-Content -LiteralPath $BoundedHandoffEvidencePath -Raw |
+            ConvertFrom-Json -DateKind String
+    } catch {
+        throw "bounded handoff evidence is invalid JSON"
+    }
+    if ($handoffEvidence.kind -ne "WaycloakBoundedProviderHandoffDiagnosis" -or
+        $handoffEvidence.apiVersion -ne "evidence.waycloak.io/v1" -or
+        $handoffEvidence.publicEndpointRecorded -ne $false -or
+        $handoffEvidence.credentialRecorded -ne $false) {
+        throw "bounded handoff evidence has an invalid identity or privacy boundary"
+    }
+
+    $failureAt = [DateTimeOffset]::Parse([string]$handoffEvidence.externalTCPFailureAt)
+    $bindingWithdrawalAt = [DateTimeOffset]::Parse([string]$handoffEvidence.bindingWithdrawalFirst)
+    $leaseWithdrawalAt = [DateTimeOffset]::Parse([string]$handoffEvidence.leaseWithdrawalFirst)
+    $recoveredAt = [DateTimeOffset]::Parse([string]$handoffEvidence.firstRecoveredCanonicalSample)
+    $beforeGeneration = [int64]$handoffEvidence.handoffGenerationBefore
+    $afterGeneration = [int64]$handoffEvidence.handoffGenerationAfter
+    $boundedHandoff.failureAt = $failureAt.ToString("O")
+    $boundedHandoff.recoveredAt = $recoveredAt.ToString("O")
+    $boundedHandoff.handoffGenerationBefore = $beforeGeneration
+    $boundedHandoff.handoffGenerationAfter = $afterGeneration
+    $boundedHandoff.sha256 = (Get-FileHash -LiteralPath $BoundedHandoffEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    $matchingExternalFailures = @($externalTCPFailures | Where-Object {
+        [DateTimeOffset]::Parse([string]$_.observedAt) -eq $failureAt
+    })
+    $observedGenerations = @($canonicalSamples | ForEach-Object { [int64]$_.handoffGeneration } |
+        Sort-Object -Unique)
+    $postRecoverySamples = @($canonicalSamples | Where-Object {
+        [DateTimeOffset]::Parse([string]$_.observedAt) -ge $recoveredAt
+    })
+    $postRecoveryFailures = @($postRecoverySamples | Where-Object {
+        -not $_.collectionHealthy -or -not $_.releaseExact -or
+        -not $_.gatewayReady -or -not $_.gatewayDNSReady -or -not $_.gatewayPodReady -or
+        -not $_.leaseReady -or -not $_.workloadReady -or -not $_.adapterReady -or
+        -not $_.listenerTCP -or -not $_.listenerUDP -or
+        -not $_.externalDNS -or -not $_.clusterDNS -or
+        $_.uidChangedFromStart -or $_.restartIncrease -or
+        ($null -ne $_.externalTCP -and -not $_.externalTCP)
+    })
+    $leaseNonTrueEvents = @($leaseEvents | Where-Object {
+        @($_.conditions.psobject.Properties.Value | Where-Object { $_.status -ne "True" }).Count -gt 0
+    })
+    $bindingNonTrueEvents = @($bindingEvents | Where-Object {
+        @($_.conditions.psobject.Properties.Value | Where-Object { $_.status -ne "True" }).Count -gt 0
+    })
+    $heartbeatNonTrueEvents = @($heartbeatEvents | Where-Object {
+        @($_.conditions.psobject.Properties.Value | Where-Object { $_.status -ne "True" }).Count -gt 0
+    })
+    $allNonTrueEvents = @($leaseNonTrueEvents + $bindingNonTrueEvents + $heartbeatNonTrueEvents)
+    $outsideWindow = @($allNonTrueEvents | Where-Object {
+        $observedAt = [DateTimeOffset]::Parse([string]$_.observedAt)
+        $observedAt -lt $failureAt -or $observedAt -gt $recoveredAt
+    })
+    $lifecycleOutsideWindow = @($canonicalLifecycleSamples | Where-Object {
+        $observedAt = [DateTimeOffset]::Parse([string]$_.observedAt)
+        ($null -ne $_.externalTCP -and -not $_.externalTCP -and $observedAt -ne $failureAt) -or
+        (($_.mappingChangedFromStart -or $_.handoffGenerationChangedFromStart) -and $observedAt -lt $failureAt)
+    })
+
+    $validHandoff =
+        $externalTCPFailures.Count -eq 1 -and $matchingExternalFailures.Count -eq 1 -and
+        $observedGenerations.Count -eq 2 -and
+        $observedGenerations[0] -eq $beforeGeneration -and
+        $observedGenerations[1] -eq $afterGeneration -and
+        $afterGeneration -eq ($beforeGeneration + 1) -and
+        $bindingWithdrawalAt -ge $failureAt -and
+        ($bindingWithdrawalAt - $failureAt).TotalSeconds -le 30 -and
+        $leaseWithdrawalAt -ge $bindingWithdrawalAt -and
+        ($leaseWithdrawalAt - $failureAt).TotalSeconds -le 30 -and
+        $recoveredAt -ge $leaseWithdrawalAt -and
+        ($recoveredAt - $failureAt).TotalSeconds -le 120 -and
+        $leaseNonTrueEvents.Count -gt 0 -and $bindingNonTrueEvents.Count -gt 0 -and
+        $heartbeatNonTrueEvents.Count -gt 0 -and
+        $outsideWindow.Count -eq 0 -and $lifecycleOutsideWindow.Count -eq 0 -and
+        $canonicalBaseFailures.Count -eq 0 -and $postRecoveryFailures.Count -eq 0 -and
+        $handoffEvidence.releaseIdentityChanged -eq $false -and
+        $handoffEvidence.gitOpsRevisionChanged -eq $false -and
+        $handoffEvidence.workloadUIDChanged -eq $false -and
+        $handoffEvidence.gatewayUIDChanged -eq $false -and
+        $handoffEvidence.adapterUIDChanged -eq $false -and
+        $handoffEvidence.restartIncrease -eq $false -and
+        [int]$handoffEvidence.postRecovery.directTCPAttempts -gt 0 -and
+        [int]$handoffEvidence.postRecovery.directTCPSuccesses -eq
+            [int]$handoffEvidence.postRecovery.directTCPAttempts -and
+        [int]$handoffEvidence.postRecovery.externalCheckerAttempts -gt 0 -and
+        [int]$handoffEvidence.postRecovery.externalCheckerSuccesses -eq
+            [int]$handoffEvidence.postRecovery.externalCheckerAttempts -and
+        $handoffEvidence.postRecovery.leaseConditionsTrue -eq $true -and
+        $handoffEvidence.postRecovery.listenerAcknowledged -eq $true
+
+    if ($validHandoff) {
+        $boundedHandoff.valid = $true
+        $boundedHandoff.reason = "BoundedAndRecovered"
+        $boundedHandoff.externalTCPFailures = $matchingExternalFailures.Count
+        $boundedHandoff.leaseNonTrueEvents = $leaseNonTrueEvents.Count
+        $boundedHandoff.bindingNonTrueEvents = $bindingNonTrueEvents.Count
+        $boundedHandoff.heartbeatNonTrueEvents = $heartbeatNonTrueEvents.Count
+        $boundedHandoff.lifecycleSamples = $canonicalLifecycleSamples.Count
+        $canonicalFailures = @($canonicalBaseFailures)
+    }
+}
+
+$unexplainedExternalTCPFailures = $externalTCPFailures.Count - $boundedHandoff.externalTCPFailures
+$unexplainedLeaseNonTrue = $leaseNonTrue - $boundedHandoff.leaseNonTrueEvents
+$unexplainedBindingNonTrue = $bindingNonTrue - $boundedHandoff.bindingNonTrueEvents
+$unexplainedHeartbeatNonTrue = $heartbeatNonTrue - $boundedHandoff.heartbeatNonTrueEvents
 
 $metricSamples = @($metrics | Where-Object { $_.kind -eq "WaycloakMetricsTimelineSample" })
 $metricFailures = @($metrics | Where-Object { $_.kind -eq "WaycloakMetricsTimelineFailure" })
@@ -239,14 +374,22 @@ if ($summary.Count -eq 1) {
             $summaryFailures++
             continue
         }
-        if ([int64]$counter.Value -ne 0) { $summaryFailures++ }
+        $expectedValue = 0
+        if ($boundedHandoff.valid -and $name -eq "handoffGenerationChanges") {
+            $expectedValue = 1
+        }
+        if ($boundedHandoff.valid -and $name -eq "externalTCPProbeFailures") {
+            $expectedValue = $boundedHandoff.externalTCPFailures
+        }
+        if ([int64]$counter.Value -ne $expectedValue) { $summaryFailures++ }
     }
 }
 
-$observedFailures = $canonicalFailures.Count + $externalTCPFailures.Count +
+$observedFailures = $canonicalFailures.Count + $unexplainedExternalTCPFailures +
     $gatewayTransitionErrors.Count + $gatewayNonTrue.Count + $dhtFailures.Count +
     $dhtBadSamples.Count + $leaseParseErrors.Count + $bindingParseErrors.Count +
-    $heartbeatParseErrors.Count + $leaseNonTrue + $bindingNonTrue + $heartbeatNonTrue +
+    $heartbeatParseErrors.Count + $unexplainedLeaseNonTrue + $unexplainedBindingNonTrue +
+    $unexplainedHeartbeatNonTrue +
     $metricFailures.Count + $metricBadSamples.Count + $metricFamilyDrift.Count +
     $summaryFailures
 
@@ -265,8 +408,10 @@ $report = [ordered]@{
         completedAt = if ($null -ne $completedAt) { $completedAt.ToString("O") } else { $null }
         samples = $canonicalSamples.Count
         badSamples = $canonicalFailures.Count
+        rawLifecycleSamples = $canonicalLifecycleSamples.Count
         externalTCPChecks = $externalTCPChecks.Count
         externalTCPFailures = $externalTCPFailures.Count
+        unexplainedExternalTCPFailures = $unexplainedExternalTCPFailures
         gatewayTransitions = $gatewayTransitions.Count
         gatewayNonTrue = $gatewayNonTrue.Count
         gatewayTransitionErrors = $gatewayTransitionErrors.Count
@@ -286,20 +431,24 @@ $report = [ordered]@{
     conditions = [ordered]@{
         leaseEvents = $leaseEvents.Count
         leaseNonTrue = $leaseNonTrue
+        unexplainedLeaseNonTrue = $unexplainedLeaseNonTrue
         leaseRange = $leaseRange
         leaseEventsPerHour = Get-RatePerHour $leaseEvents.Count $leaseRange.hours
         bindingEvents = $bindingEvents.Count
         bindingNonTrue = $bindingNonTrue
+        unexplainedBindingNonTrue = $unexplainedBindingNonTrue
         bindingRange = $bindingRange
         bindingEventsPerHour = Get-RatePerHour $bindingEvents.Count $bindingRange.hours
         heartbeatEvents = $heartbeatEvents.Count
         heartbeatNonTrue = $heartbeatNonTrue
+        unexplainedHeartbeatNonTrue = $unexplainedHeartbeatNonTrue
         heartbeatRange = $heartbeatRange
         heartbeatEventsPerHour = Get-RatePerHour $heartbeatEvents.Count $heartbeatRange.hours
         leaseSHA256 = (Get-FileHash -LiteralPath $leasePath -Algorithm SHA256).Hash.ToLowerInvariant()
         bindingSHA256 = (Get-FileHash -LiteralPath $bindingPath -Algorithm SHA256).Hash.ToLowerInvariant()
         heartbeatSHA256 = (Get-FileHash -LiteralPath $HeartbeatPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
+    boundedHandoff = $boundedHandoff
     metrics = [ordered]@{
         samples = $metricSamples.Count
         badSamples = $metricBadSamples.Count
