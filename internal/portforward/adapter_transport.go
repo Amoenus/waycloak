@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -77,6 +79,21 @@ type HTTPAdapterClient struct {
 }
 
 func NewHTTPAdapterClient(caFile, certFile, keyFile string, port uint16, clusterDomain string) (*HTTPAdapterClient, error) {
+	return newHTTPAdapterClient(caFile, certFile, keyFile, port, clusterDomain, nil)
+}
+
+// NewHTTPAdapterClientWithResolver confines generated adapter Service lookups
+// to an exact qualified DNS listener instead of mutable process-wide resolver
+// state. The controller-facing constructor intentionally remains cluster-native.
+func NewHTTPAdapterClientWithResolver(caFile, certFile, keyFile string, port uint16, clusterDomain, resolverAddress string) (*HTTPAdapterClient, error) {
+	resolverEndpoint, err := netip.ParseAddrPort(strings.TrimSpace(resolverAddress))
+	if err != nil || !resolverEndpoint.Addr().IsValid() || resolverEndpoint.Port() == 0 {
+		return nil, errors.New("exact adapter DNS resolver address is required")
+	}
+	return newHTTPAdapterClient(caFile, certFile, keyFile, port, clusterDomain, &resolverEndpoint)
+}
+
+func newHTTPAdapterClient(caFile, certFile, keyFile string, port uint16, clusterDomain string, resolverEndpoint *netip.AddrPort) (*HTTPAdapterClient, error) {
 	clusterDomain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(clusterDomain)), ".")
 	if port == 0 || len(utilvalidation.IsDNS1123Subdomain(clusterDomain)) != 0 {
 		return nil, errors.New("adapter HTTPS port and cluster domain are required")
@@ -85,9 +102,18 @@ func NewHTTPAdapterClient(caFile, certFile, keyFile string, port uint16, cluster
 	if err != nil {
 		return nil, err
 	}
-	return &HTTPAdapterClient{Port: port, ClusterDomain: clusterDomain, Client: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
-		Proxy: nil, TLSClientConfig: tlsConfig, DisableCompression: true, MaxIdleConns: 8, MaxIdleConnsPerHost: 2, IdleConnTimeout: 30 * time.Second,
-	}}}, nil
+	transport := &http.Transport{Proxy: nil, TLSClientConfig: tlsConfig, DisableCompression: true, MaxIdleConns: 8, MaxIdleConnsPerHost: 2, IdleConnTimeout: 30 * time.Second}
+	if resolverEndpoint != nil {
+		transport.DialContext = newAdapterDialer(*resolverEndpoint).DialContext
+	}
+	return &HTTPAdapterClient{Port: port, ClusterDomain: clusterDomain, Client: &http.Client{Timeout: 10 * time.Second, Transport: transport}}, nil
+}
+
+func newAdapterDialer(resolverEndpoint netip.AddrPort) *net.Dialer {
+	resolver := &net.Resolver{PreferGo: true, StrictErrors: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, resolverEndpoint.String())
+	}}
+	return &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second, Resolver: resolver}
 }
 
 func (c *HTTPAdapterClient) Deliver(ctx context.Context, name wayv1.ObjectName, record AdapterLeaseRecord) (AdapterAcknowledgement, error) {

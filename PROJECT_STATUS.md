@@ -236,6 +236,37 @@ existing handoff semantics. No API field, dependency, readiness hysteresis, or
 permissive recovery path is added. A new exact candidate and full controlled
 adapter-rotation proof are required.
 
+Signed `v0.1.0-rc.34` was published from exact commit
+`cd5b301caaa6c3f336d9ee448f1b555261860391`; its canonical manifest identity is
+`sha256:3ff1c8380928bf85736dd3316cd28de1fab7a061d6f0560b90a48741140e871d`.
+Runtime and CLI publication verification, the confirmation-bound transition,
+homelab GitOps revision `83b92e4b9b8eddd568e905a2e8e1374d91bf774f`,
+singleton gateway activation, immutable adapter rotation, DNS load, bounded
+metrics privacy, qBittorrent listener/DHT/tracker checks, and native Gluetun
+renewal passed. The adapter rotation preserved exact Service/Pod identity and
+handoff generation 260 as intended.
+
+RC.34 is nevertheless invalid before soak. A controlled `vpn-engine` restart
+withdrew gateway, binding, and lease readiness without changing the gateway or
+workload Pod UIDs or handoff generation, but the lease did not recover after
+the tunnel and gateway readiness returned. The gateway runtime repeatedly
+failed to resolve the stable adapter Service through `127.0.0.1:53`, whose
+Gluetun-owned process-local state had been disrupted by the engine restart.
+The runtime had inherited the Pod's mutable system resolver even though the
+qualified CoreDNS sidecar continued to expose the generic cluster DNS Service
+through the stable Waycloak overlay listener.
+
+The successor binds only adapter Service lookups to that existing sidecar
+listener using Go's maintained standard-library resolver and an exact IP:port
+argument generated from the internal overlay configuration. It adds no API
+field, external dependency, cluster-CoreDNS assumption, fallback resolver, or
+readiness hysteresis. UDP lookup, TCP resolver routing, failed-lookup recovery,
+and exact generated runtime arguments are covered in focused tests. The
+successful HTTP probe observed while some status layers were still non-ready
+is not treated as proof of ordinary-egress fallback; a successor candidate
+must repeat packet-level tunnel-loss proof and demonstrate both fail-closed
+withdrawal and automatic same-identity recovery before any new 72-hour epoch.
+
 ## Dependency-backed stabilization direction
 
 ADR 0044 was accepted on 2026-08-26 after the RC.26 local-cluster qBittorrent

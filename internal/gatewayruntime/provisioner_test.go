@@ -214,7 +214,7 @@ func TestProvisionerAddsOnlyExplicitTokenlessPortForwardRuntime(t *testing.T) {
 		t.Fatalf("unsafe tokenless runtime container: %#v", runtimeContainer)
 	}
 	joinedArgs := strings.Join(runtimeContainer.Args, " ")
-	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/native-port-forward", "--gluetun-control-api-key-file=" + generatedControlAPIKeyPath, "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local", "--otel-otlp-endpoint=http://otel-collector.monitoring.svc:4318", "--otel-queue-size=128", "--otel-export-interval=30s", "--otel-export-timeout=500ms"} {
+	for _, required := range []string{"--gateway-uid=gateway-uid", "--engine-port-forward-capability=gluetun.waycloak.io/native-port-forward", "--gluetun-control-api-key-file=" + generatedControlAPIKeyPath, "--tls-cert=" + portForwardTLSMountPath + "/tls.crt", "--adapter-client-cert=" + portForwardTLSMountPath + "/adapter-client.crt", "--cluster-domain=cluster.local", "--adapter-dns-resolver=100.96.0.1:1053", "--otel-otlp-endpoint=http://otel-collector.monitoring.svc:4318", "--otel-queue-size=128", "--otel-export-interval=30s", "--otel-export-timeout=500ms"} {
 		if !strings.Contains(joinedArgs, required) {
 			t.Fatalf("runtime args %q lack %q", joinedArgs, required)
 		}

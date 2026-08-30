@@ -9,7 +9,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-30):** `v0.1.0-rc.32` preserves the
+**Release-candidate checkpoint (2026-08-30):** `v0.1.0-rc.34` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
 72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
@@ -61,7 +61,17 @@ stale, so RC.33 is invalid before soak. The corrected successor uses stable
 `RefNotFound` plus a controller-owned adapter-unavailable message marker and
 preserves identity only when the gateway and exact Service/Pod remain
 unchanged. Real backend and gateway handoffs retain their prior semantics.
-Another exact candidate and clean 72-hour epoch are required.
+RC.34 exactly published and deployed that correction; controlled immutable
+adapter rotation then passed with the same Service/Pod identity and handoff
+generation. Its later `vpn-engine` restart gate exposed a separate recovery
+defect before soak: the long-running gateway runtime used Gluetun's mutable
+process-local system resolver for adapter Service lookup, so rules and delivery
+failed closed but remained withdrawn after gateway readiness recovered. The
+successor routes only generated adapter Service lookups through the existing
+qualified CoreDNS overlay listener using Go's standard-library resolver. This
+does not change the public API, cluster DNS implementation-neutral boundary,
+semantic readiness, or fail-closed policy. Another exact candidate, repeated
+packet-level tunnel-loss/recovery proof, and clean 72-hour epoch are required.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to

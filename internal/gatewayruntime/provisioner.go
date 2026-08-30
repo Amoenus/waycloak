@@ -380,7 +380,8 @@ func (provisioner *Provisioner) desiredStatefulSet(gateway *wayv1.VPNGateway, na
 			args = append(args, "--otel-otlp-endpoint="+provisioner.OTLPEndpoint, "--otel-queue-size="+strconv.Itoa(provisioner.OTelQueueSize), "--otel-export-interval="+provisioner.OTelExportInterval.String(), "--otel-export-timeout="+provisioner.OTelExportTimeout.String())
 		}
 		if requestsFeature(gateway, wayv1.FeatureWorkloadAdapter) {
-			args = append(args, "--adapter-ca="+portForwardTLSMountPath+"/adapter-ca.crt", "--adapter-client-cert="+portForwardTLSMountPath+"/adapter-client.crt", "--adapter-client-key="+portForwardTLSMountPath+"/adapter-client.key", "--adapter-port="+strconv.Itoa(int(provisioner.AdapterPort)), "--cluster-domain="+provisioner.ClusterDomain)
+			adapterDNSResolver := netip.AddrPortFrom(gatewayAddress(provisioner.OverlayCIDR), gatewaydataplane.DNSListenPort)
+			args = append(args, "--adapter-ca="+portForwardTLSMountPath+"/adapter-ca.crt", "--adapter-client-cert="+portForwardTLSMountPath+"/adapter-client.crt", "--adapter-client-key="+portForwardTLSMountPath+"/adapter-client.key", "--adapter-port="+strconv.Itoa(int(provisioner.AdapterPort)), "--cluster-domain="+provisioner.ClusterDomain, "--adapter-dns-resolver="+adapterDNSResolver.String())
 		}
 		containers = append(containers, corev1.Container{Name: "port-forward-runtime", Image: provisioner.PortForwardRuntimeImage, ImagePullPolicy: corev1.PullIfNotPresent, Args: args,
 			Ports:           []corev1.ContainerPort{{Name: "runtime", ContainerPort: int32(provisioner.PortForwardRuntimePort), Protocol: corev1.ProtocolTCP}},

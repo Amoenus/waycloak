@@ -8,12 +8,17 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 func TestHTTPAdapterClientClassifiesConflictAndUnavailable(t *testing.T) {
@@ -103,6 +108,99 @@ func TestHTTPAdapterClientObservesExactHealthyAdapterIdentity(t *testing.T) {
 	})
 	if _, err := client.Observe(context.Background(), namespace, name, image); err == nil || !strings.Contains(err.Error(), "identity mismatch") {
 		t.Fatalf("mismatched adapter health error = %v", err)
+	}
+}
+
+func TestAdapterDialerUsesExplicitResolverAndRecoversAfterFailedLookup(t *testing.T) {
+	dns, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dns.Close()
+	dnsUDPAddress := dns.LocalAddr().(*net.UDPAddr)
+	dnsTCP, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: dnsUDPAddress.IP, Port: dnsUDPAddress.Port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dnsTCP.Close()
+	var queries atomic.Int32
+	go func() {
+		buffer := make([]byte, 1232)
+		for {
+			length, peer, readErr := dns.ReadFrom(buffer)
+			if readErr != nil {
+				return
+			}
+			var parser dnsmessage.Parser
+			header, parseErr := parser.Start(buffer[:length])
+			if parseErr != nil {
+				continue
+			}
+			question, parseErr := parser.Question()
+			if parseErr != nil {
+				continue
+			}
+			responseHeader := dnsmessage.Header{ID: header.ID, Response: true, Authoritative: true}
+			if queries.Add(1) == 1 {
+				responseHeader.RCode = dnsmessage.RCodeNameError
+			}
+			builder := dnsmessage.NewBuilder(nil, responseHeader)
+			builder.EnableCompression()
+			if builder.StartQuestions() != nil || builder.Question(question) != nil || builder.StartAnswers() != nil {
+				continue
+			}
+			if responseHeader.RCode == dnsmessage.RCodeSuccess && question.Type == dnsmessage.TypeA {
+				resourceHeader := dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 1}
+				if builder.AResource(resourceHeader, dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}}) != nil {
+					continue
+				}
+			}
+			response, buildErr := builder.Finish()
+			if buildErr == nil {
+				_, _ = dns.WriteTo(response, peer)
+			}
+		}
+	}()
+
+	resolverEndpoint := netip.MustParseAddrPort(dns.LocalAddr().String())
+	dialer := newAdapterDialer(resolverEndpoint)
+	if _, err := dialer.Resolver.LookupNetIP(context.Background(), "ip4", "adapter.apps.svc.cluster.local"); err == nil {
+		t.Fatal("first failed sidecar lookup unexpectedly succeeded")
+	}
+	addresses, err := dialer.Resolver.LookupNetIP(context.Background(), "ip4", "adapter.apps.svc.cluster.local")
+	if err != nil || len(addresses) != 1 || addresses[0].String() != "127.0.0.1" || queries.Load() != 2 {
+		t.Fatalf("sidecar lookup recovery = %v queries=%d, %v", addresses, queries.Load(), err)
+	}
+	tcpResolverConnection, err := dialer.Resolver.Dial(context.Background(), "tcp", "192.0.2.53:53")
+	if err != nil {
+		t.Fatalf("TCP resolver path did not use the explicit sidecar: %v", err)
+	}
+	acceptedDNSConnection, err := dnsTCP.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = acceptedDNSConnection.Close()
+	_ = tcpResolverConnection.Close()
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	port := listener.Addr().(*net.TCPAddr).Port
+	connection, err := dialer.DialContext(context.Background(), "tcp4", net.JoinHostPort("adapter.apps.svc.cluster.local", strconv.Itoa(port)))
+	if err != nil {
+		t.Fatalf("adapter transport did not use the explicit resolver: %v", err)
+	}
+	_ = connection.Close()
+}
+
+func TestHTTPAdapterClientRequiresExactIPResolver(t *testing.T) {
+	for _, resolverAddress := range []string{"", "127.0.0.1", "127.0.0.1:0", "dns.cluster.local:1053"} {
+		_, err := NewHTTPAdapterClientWithResolver("missing-ca", "missing-cert", "missing-key", DefaultAdapterPort, "cluster.local", resolverAddress)
+		if err == nil || err.Error() != "exact adapter DNS resolver address is required" {
+			t.Fatalf("resolver %q validation error = %v", resolverAddress, err)
+		}
 	}
 }
 
