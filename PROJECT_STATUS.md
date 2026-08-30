@@ -91,6 +91,15 @@ commit/checksums, and adds no provider protocol implementation or runtime
 dependency. RC.37 remains rejected before soak; a new exact candidate must
 repeat provider ingress and every pre-soak gate.
 
+The first successor publication attempt, v0.1.0-rc.38, was rejected before
+release completion because the vulnerability workflow treated the new
+`gluetun-servers.ref` source-provenance asset as an OCI image reference. All
+source CI, including the duplicate exact Gluetun/data build and derived-image
+scan, passed. The release gate now enumerates only the eight runtime OCI
+reference assets explicitly; source-provenance references remain independently
+verified release inputs but cannot be passed to the image scanner. RC.38 is not
+reused; the corrected exact source requires a new signed candidate.
+
 ## Adapter apply/observe implementation slice
 
 Issue #245 is implemented in source and focused tests, with exact-release and
