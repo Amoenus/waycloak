@@ -37,11 +37,14 @@ const (
 )
 
 const (
-	installCheckpointSource         = "Source"
-	installCheckpointClassWithdrawn = "ClassWithdrawn"
-	installCheckpointClassReplaced  = "ClassReplaced"
-	installCheckpointStaged         = "Staged"
-	installCheckpointTarget         = "Target"
+	installCheckpointSource                 = "Source"
+	installCheckpointQuiesced               = "Quiesced"
+	installCheckpointClassWithdrawn         = "ClassWithdrawn"
+	installCheckpointQuiescedClassWithdrawn = "QuiescedClassWithdrawn"
+	installCheckpointClassReplaced          = "ClassReplaced"
+	installCheckpointQuiescedClassReplaced  = "QuiescedClassReplaced"
+	installCheckpointStaged                 = "Staged"
+	installCheckpointTarget                 = "Target"
 )
 
 var installRuntimeImageNames = []string{
@@ -73,26 +76,28 @@ type InstalledReleaseObservation struct {
 }
 
 type deployedReleaseComponents struct {
-	HelmRevision              int64
-	ControllerVersion         string
-	ControllerManifest        string
-	CNIVersion                string
-	CNIManifest               string
-	NodeAgentVersion          string
-	NodeAgentManifest         string
-	ClassPresent              bool
-	ClassVersion              string
-	ClassManifest             string
-	ClassUID                  string
-	ClassGeneration           int64
-	Images                    map[string]string
-	ObservationCAUID          string
-	ObservationTLSUID         string
-	ObservationCADigest       string
-	ObservationServingDigest  string
-	ObservationRotationID     string
-	ObservationCapabilityHeld bool
-	CRDIdentities             map[string]string
+	HelmRevision                int64
+	ControllerVersion           string
+	ControllerManifest          string
+	CNIVersion                  string
+	CNIManifest                 string
+	NodeAgentVersion            string
+	NodeAgentManifest           string
+	ClassPresent                bool
+	ClassVersion                string
+	ClassManifest               string
+	ClassUID                    string
+	ClassGeneration             int64
+	Images                      map[string]string
+	ObservationCAUID            string
+	ObservationTLSUID           string
+	ObservationCADigest         string
+	ObservationServingDigest    string
+	ObservationRotationID       string
+	ObservationCapabilityHeld   bool
+	ObservationCapabilityHoldID string
+	TransitionPlanID            string
+	CRDIdentities               map[string]string
 }
 
 func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, release string) (InstalledReleaseObservation, error) {
@@ -207,6 +212,13 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 	}
 	if capabilityHeld {
 		return InstalledReleaseObservation{}, errors.New("deployed node agent retains an observation capability hold")
+	}
+	capabilityHoldID, err := observationCapabilityHoldID(agentContainer.Args)
+	if err != nil {
+		return InstalledReleaseObservation{}, err
+	}
+	if capabilityHoldID != "" || agent.Spec.Template.Annotations[installTransitionPlanKey] != "" {
+		return InstalledReleaseObservation{}, errors.New("deployed node agent retains release-transition authority")
 	}
 	if len(cniContainer.Args) < 2 {
 		return InstalledReleaseObservation{}, errors.New("CNI installer lacks release identity arguments")
@@ -343,6 +355,10 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 	if err != nil {
 		return observation, err
 	}
+	capabilityHoldID, err := observationCapabilityHoldID(agentContainer.Args)
+	if err != nil {
+		return observation, err
+	}
 	if len(cniContainer.Args) < 2 {
 		return observation, errors.New("transition CNI installer lacks release identity arguments")
 	}
@@ -371,9 +387,11 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 		CNIVersion: cniVersion, CNIManifest: cniManifest, NodeAgentVersion: nodeVersion, NodeAgentManifest: nodeManifest,
 		Images: images, ObservationCAUID: string(caSecret.UID), ObservationTLSUID: string(tlsSecret.UID),
 		ObservationCADigest: digestBytes(caSecret.Data["ca.crt"]), ObservationServingDigest: digestBytes(tlsSecret.Data["tls.crt"]),
-		ObservationRotationID:     rotationID,
-		ObservationCapabilityHeld: capabilityHeld,
-		CRDIdentities:             crds,
+		ObservationRotationID:       rotationID,
+		ObservationCapabilityHeld:   capabilityHeld,
+		ObservationCapabilityHoldID: capabilityHoldID,
+		TransitionPlanID:            agent.Spec.Template.Annotations[installTransitionPlanKey],
+		CRDIdentities:               crds,
 	}
 	if classErr == nil {
 		observation.ClassPresent = true
@@ -389,16 +407,69 @@ func classifyInstallTransitionCheckpoint(components deployedReleaseComponents, p
 	if exactSourceComponents(components, plan.Source, false) {
 		return installCheckpointSource, nil
 	}
+	if exactQuiescedComponents(components, plan, false) {
+		return installCheckpointQuiesced, nil
+	}
 	if exactSourceComponents(components, plan.Source, true) {
 		return installCheckpointClassWithdrawn, nil
+	}
+	if exactQuiescedComponents(components, plan, true) {
+		return installCheckpointQuiescedClassWithdrawn, nil
 	}
 	if exactClassReplacedComponents(components, plan.Source, plan.Target) {
 		return installCheckpointClassReplaced, nil
 	}
-	if exactStagedComponents(components, plan.Source, plan.Target, plan.TargetCRDs) {
+	if exactQuiescedClassReplacedComponents(components, plan) {
+		return installCheckpointQuiescedClassReplaced, nil
+	}
+	if exactStagedComponents(components, plan, plan.TargetCRDs) {
 		return installCheckpointStaged, nil
 	}
 	return "", errors.New("release state does not match a journal-bound exact transition checkpoint")
+}
+
+func exactQuiescedComponents(components deployedReleaseComponents, plan InstallPlan, classWithdrawn bool) bool {
+	if !exactQuiescedRuntimeComponents(components, plan) {
+		return false
+	}
+	if classWithdrawn {
+		return !components.ClassPresent
+	}
+	return components.ClassPresent && components.ClassVersion == plan.Source.Version &&
+		components.ClassManifest == plan.Source.ManifestDigest && components.ClassUID == plan.Source.GatewayClassUID &&
+		components.ClassGeneration == plan.Source.GatewayClassGeneration
+}
+
+func exactQuiescedClassReplacedComponents(components deployedReleaseComponents, plan InstallPlan) bool {
+	return exactQuiescedRuntimeComponents(components, plan) && components.ClassPresent &&
+		components.ClassVersion == plan.Target.Version && components.ClassManifest == plan.Target.ManifestDigest &&
+		components.ClassUID != "" && components.ClassUID != plan.Source.GatewayClassUID && components.ClassGeneration >= 1
+}
+
+func exactQuiescedRuntimeComponents(components deployedReleaseComponents, plan InstallPlan) bool {
+	if plan.Source.State != installStateDeployed || components.HelmRevision != plan.Source.HelmRevision ||
+		!components.ObservationCapabilityHeld || components.ObservationCapabilityHoldID != plan.PlanID || components.TransitionPlanID != plan.PlanID ||
+		components.ControllerVersion != plan.Source.Version || components.ControllerManifest != plan.Source.ManifestDigest ||
+		components.CNIVersion != plan.Source.Version || components.CNIManifest != plan.Source.ManifestDigest ||
+		components.NodeAgentVersion != plan.Source.Version || components.NodeAgentManifest != plan.Source.ManifestDigest ||
+		components.ObservationRotationID != plan.Source.ObservationRotationID || !sameTransitionTrust(components, plan.Source) ||
+		!reflect.DeepEqual(components.CRDIdentities, plan.Source.CRDIdentities) {
+		return false
+	}
+	for _, name := range installRuntimeImageNames {
+		wanted := plan.Source.Images[name]
+		if name == "waycloak-node-agent" {
+			artifact, ok := plan.Target.Images[name]
+			if !ok {
+				return false
+			}
+			wanted = artifact.Repository + "@" + artifact.Digest
+		}
+		if components.Images[name] != wanted {
+			return false
+		}
+	}
+	return true
 }
 
 func exactSourceComponents(components deployedReleaseComponents, source InstalledReleaseObservation, classWithdrawn bool) bool {
@@ -414,7 +485,7 @@ func exactSourceComponents(components deployedReleaseComponents, source Installe
 
 func exactSourceRuntimeComponents(components deployedReleaseComponents, source InstalledReleaseObservation) bool {
 	return source.State == installStateDeployed && components.HelmRevision == source.HelmRevision &&
-		!components.ObservationCapabilityHeld &&
+		!components.ObservationCapabilityHeld && components.ObservationCapabilityHoldID == "" && components.TransitionPlanID == "" &&
 		components.ControllerVersion == source.Version && components.ControllerManifest == source.ManifestDigest &&
 		components.CNIVersion == source.Version && components.CNIManifest == source.ManifestDigest &&
 		components.NodeAgentVersion == source.Version && components.NodeAgentManifest == source.ManifestDigest &&
@@ -429,9 +500,10 @@ func exactClassReplacedComponents(components deployedReleaseComponents, source I
 		components.ClassUID != "" && components.ClassUID != source.GatewayClassUID && components.ClassGeneration >= 1
 }
 
-func exactStagedComponents(components deployedReleaseComponents, source InstalledReleaseObservation, target ReleaseManifest, targetCRDs map[string]string) bool {
+func exactStagedComponents(components deployedReleaseComponents, plan InstallPlan, targetCRDs map[string]string) bool {
+	source, target := plan.Source, plan.Target
 	if source.State != installStateDeployed || components.HelmRevision <= source.HelmRevision || !components.ClassPresent ||
-		components.ObservationCapabilityHeld ||
+		!components.ObservationCapabilityHeld || components.ObservationCapabilityHoldID != plan.PlanID || components.TransitionPlanID != plan.PlanID ||
 		components.ControllerVersion != target.Version || components.ControllerManifest != target.ManifestDigest ||
 		components.CNIVersion != target.Version || components.CNIManifest != target.ManifestDigest ||
 		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
@@ -443,9 +515,6 @@ func exactStagedComponents(components deployedReleaseComponents, source Installe
 	}
 	for _, name := range installRuntimeImageNames {
 		wanted := target.Images[name].Repository + "@" + target.Images[name].Digest
-		if name == "waycloak-node-agent" {
-			wanted = source.Images[name]
-		}
 		if components.Images[name] != wanted {
 			return false
 		}
@@ -709,6 +778,21 @@ func observationCapabilityHeld(arguments []string) (bool, error) {
 		held = true
 	}
 	return held, nil
+}
+
+func observationCapabilityHoldID(arguments []string) (string, error) {
+	identity := ""
+	for _, argument := range arguments {
+		if !strings.HasPrefix(argument, "--observation-capability-hold-id=") {
+			continue
+		}
+		value := strings.TrimPrefix(argument, "--observation-capability-hold-id=")
+		if identity != "" || !validDigest(value) {
+			return "", errors.New("deployed node agent has an invalid observation capability hold identity")
+		}
+		identity = value
+	}
+	return identity, nil
 }
 
 func validExactImageReference(reference string) bool {

@@ -391,20 +391,39 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 			}
 		}
 	}
-	if checkpoint == installCheckpointSource {
-		if err := replaceGatewayClassForTransition(ctx, clients, plan.Source, plan.Target); err != nil {
+	if changedTransition && checkpoint == installCheckpointSource {
+		if err := ensureTransitionQuiescence(ctx, clients, plan); err != nil {
 			return err
 		}
-		if changedTransition {
-			components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
-			if err != nil {
-				return fmt.Errorf("observe immutable gateway class withdrawal checkpoint: %w", err)
-			}
-			if !exactSourceComponents(components, plan.Source, true) {
-				return errors.New("immutable gateway class withdrawal did not reach the exact journal-bound checkpoint")
-			}
-			checkpoint = installCheckpointClassWithdrawn
+		checkpoint = installCheckpointQuiesced
+	}
+	if changedTransition && checkpoint == installCheckpointClassWithdrawn {
+		// A predecessor may have stopped after deleting the class. Establish
+		// the deny acknowledgement before any further mutation; the already
+		// elapsed legacy gap remains visible in its qualification evidence.
+		if err := ensureTransitionQuiescence(ctx, clients, plan); err != nil {
+			return err
 		}
+		checkpoint = installCheckpointQuiescedClassWithdrawn
+	}
+	if changedTransition && checkpoint == installCheckpointQuiesced {
+		if err := replaceGatewayClassForTransition(ctx, clients, plan); err != nil {
+			return err
+		}
+		components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
+		if err != nil {
+			return fmt.Errorf("observe immutable gateway class withdrawal checkpoint: %w", err)
+		}
+		if !exactQuiescedComponents(components, plan, true) {
+			return errors.New("immutable gateway class withdrawal did not retain the exact acknowledged deny checkpoint")
+		}
+		checkpoint = installCheckpointQuiescedClassWithdrawn
+	}
+	if changedTransition && checkpoint == installCheckpointClassReplaced {
+		if err := ensureTransitionQuiescence(ctx, clients, plan); err != nil {
+			return err
+		}
+		checkpoint = installCheckpointQuiescedClassReplaced
 	}
 	if !deployed {
 		bootstrapValuesPath := filepath.Join(directory, "controller-first-bootstrap.yaml")
@@ -415,8 +434,8 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		if err != nil {
 			return fmt.Errorf("controller-first Helm bootstrap failed before baseline activation: %w: %s", err, bounded(output, 4096))
 		}
-	} else if changedTransition && (checkpoint == installCheckpointClassWithdrawn || checkpoint == installCheckpointClassReplaced) {
-		holdValues, err := nodeAgentTransitionHoldValues(plan.Source)
+	} else if changedTransition && (checkpoint == installCheckpointQuiescedClassWithdrawn || checkpoint == installCheckpointQuiescedClassReplaced) {
+		holdValues, err := nodeAgentTransitionHoldValues(plan)
 		if err != nil {
 			return err
 		}
@@ -432,10 +451,17 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		if err != nil {
 			return fmt.Errorf("observe exact Helm transition staging checkpoint: %w", err)
 		}
-		if !exactStagedComponents(components, plan.Source, plan.Target, targetCRDs) {
+		if !exactStagedComponents(components, plan, targetCRDs) {
 			return errors.New("helm transition staging did not reach the exact journal-bound checkpoint")
 		}
 		checkpoint = installCheckpointStaged
+	}
+	if changedTransition && checkpoint == installCheckpointStaged {
+		// Keep every workload attachment denied while OnDelete gateway Pods
+		// advance to the exact target and report current data-plane readiness.
+		if err := ensureTargetGatewayPods(ctx, clients, plan.Target); err != nil {
+			return err
+		}
 	}
 	output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath)...)
 	if err != nil {
@@ -465,27 +491,38 @@ func helmUpgradeArguments(plan InstallPlan, chart string, valuesPaths ...string)
 	return append(arguments, "--wait", "--timeout", "10m")
 }
 
-func nodeAgentTransitionHoldValues(source InstalledReleaseObservation) (string, error) {
-	reference := source.Images["waycloak-node-agent"]
-	separator := strings.LastIndex(reference, "@")
-	if separator < 1 || !validDigest(reference[separator+1:]) {
-		return "", errors.New("reviewed source lacks an exact node-agent image for transition staging")
+func nodeAgentTransitionHoldValues(plan InstallPlan) (string, error) {
+	artifact, ok := plan.Target.Images["waycloak-node-agent"]
+	if !ok || artifact.Repository == "" || !validDigest(artifact.Digest) || !validDigest(plan.PlanID) {
+		return "", errors.New("reviewed transition lacks an exact successor node-agent hold identity")
 	}
 	return fmt.Sprintf(`nodeAgent:
+  observationCapabilityHold: true
+  transitionPlanID: %q
   image:
     repository: %q
     digest: %q
   releaseIdentity:
     version: %q
     manifestDigest: %q
-`, reference[:separator], reference[separator+1:], source.Version, source.ManifestDigest), nil
+`, plan.PlanID, artifact.Repository, artifact.Digest, plan.Source.Version, plan.Source.ManifestDigest), nil
 }
 
-func replaceGatewayClassForTransition(ctx context.Context, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest) error {
-	if source.State != installStateDeployed || source.ManifestDigest == target.ManifestDigest {
+func replaceGatewayClassForTransition(ctx context.Context, clients *Clients, plan InstallPlan) error {
+	if plan.Source.State != installStateDeployed || plan.Source.ManifestDigest == plan.Target.ManifestDigest {
 		return nil
 	}
-	uid := types.UID(source.GatewayClassUID)
+	if err := waitForTransitionQuiescence(ctx, clients, plan, installCheckpointQuiesced); err != nil {
+		return err
+	}
+	components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
+	if err != nil {
+		return fmt.Errorf("observe acknowledged deny before gateway class replacement: %w", err)
+	}
+	if !exactQuiescedComponents(components, plan, false) {
+		return errors.New("refusing gateway class replacement before every node attachment acknowledges the exact transition deny")
+	}
+	uid := types.UID(plan.Source.GatewayClassUID)
 	if err := clients.Dynamic.Resource(gatewayClassGVR).Delete(ctx, "gluetun.waycloak.io", metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
 		return fmt.Errorf("replace exact immutable gateway class for release transition: %w", err)
 	}

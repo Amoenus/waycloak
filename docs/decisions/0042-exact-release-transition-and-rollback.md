@@ -60,12 +60,21 @@ silently regenerated; it requires the explicit certificate-rotation recovery
 procedure.
 
 `VPNGatewayClass.spec`, including its release identity, is immutable. A release
-transition therefore deletes only the exact reviewed class UID with a
-Kubernetes UID precondition immediately before Helm, waits for that object to
-be absent, and requires Helm to create the same class name with a new UID and
-the exact target identity. During this bounded class gap, gateways and enrolled
-workloads remain unavailable behind the installed CNI deny path. The lifecycle
-must never weaken class immutability or edit the old object in place.
+transition therefore first replaces only the node-agent executable with the
+reviewed successor while retaining the source release identity and adding an
+immutable-plan-bound capability hold. Startup and every reconciliation under
+that hold install deny-first state for every durable attachment; ADD and CHECK
+cannot reopen a path. Apply waits for the complete DaemonSet rollout and for
+each current binding to contain a post-hold authenticated withdrawal
+observation before it may delete the exact reviewed class UID with a Kubernetes
+UID precondition. The held agent uses the reviewed plan digest as its bounded
+instance identity, so the existing source relay can persist a cryptographic
+acknowledgement without changing the frozen API or the relay JSON schema. It
+then waits for that object to be absent and requires Helm
+to create the same class name with a new UID and the exact target identity.
+During this bounded class gap, gateways and enrolled workloads remain
+unavailable behind the observed CNI deny path. The lifecycle must never weaken
+class immutability or edit the old object in place.
 
 The chart refuses a connected Helm render when the live default class has a
 different exact release identity. That refusal occurs before Helm stores a new
@@ -81,15 +90,20 @@ not a release-transition authority or a runtime dependency.
 Forward transition and rollback use the same confirmation-gated plan/apply
 boundary with different independently verified target manifests. An existing
 release never executes the controller-only clean-install bootstrap revision.
-A changed release instead advances through two fail-closed Helm revisions. The
-first deploys the target controller, CNI installer, and immutable class while
-retaining the exact reviewed source node-agent image and release identity. Once
-that revision is Ready, the target CNI binary and receipt exist while the old
-agent socket is still authoritative. The second revision activates the target
-node agent. This breaks the installer/agent restart dependency without a CNI
-bypass, disabled deny path, or ordinary-egress interval. Apply then observes the
-exact target CRDs, runtime images, newly created immutable class identity, and
-preserved certificate identity before reporting success.
+A changed release advances through one direct, journal-bound node-agent hold
+and two fail-closed Helm revisions. The hold runs the successor node-agent image
+with the exact source release identity, so it can authenticate to the source
+controller and validate the source CNI receipt while refusing all local path
+activation. The first Helm revision deploys the target controller, CNI
+installer, immutable class, and successor node-agent image while preserving the
+hold and source node-agent release identity. Apply then replaces every stale
+`OnDelete` gateway Pod and requires the exact target Pod and current Gateway
+`Ready=True` observation while workloads remain denied. The second revision
+removes the hold and activates the target node-agent release identity. This
+breaks the installer/agent restart dependency without a CNI bypass, disabled
+deny path, old-gateway traffic window, or ordinary-egress interval. Apply then
+observes the exact target CRDs, runtime images, newly created immutable class
+identity, and preserved certificate identity before reporting success.
 
 The target agent starts by validating the target receipt and reinstalling deny
 state for every durable attachment. It reports `Ready=False` through the
@@ -101,13 +115,18 @@ second report publishes the live target capability.
 
 An interrupted CLI may resume only the original confirmed plan. Planning
 returns that exact journaled plan when the requested verified manifest and
-current preflight still match. Apply recognizes four states:
+current preflight still match. Apply recognizes the following bounded state
+families:
 
 1. the exact reviewed source;
-2. that source with only the exact class UID already absent;
-3. one newer staged Helm revision with the target controller, CNI, pause,
-   gateway images, and class but the exact source node agent; or
-4. the fully activated exact target.
+2. that source with the exact successor-agent hold installed and acknowledged;
+3. the source or held source with only the exact class UID already absent;
+4. a legacy class-replaced checkpoint, which must enter the same acknowledged
+   hold before continuing;
+5. one newer staged Helm revision with the target controller, CNI, pause,
+   gateway images, and class while the successor agent remains held under the
+   source release identity; or
+6. the fully activated exact target.
 
 Completed mutations are skipped. The staged state is verified before target
 node-agent activation, and an already completed target is retry-idempotent.
@@ -117,11 +136,12 @@ is refused while the installed deny path remains authoritative. A Helm release
 left in a pending/corrupt state is deliberately outside these checkpoints and
 requires a separate explicit repair plan; recovery never guesses through it.
 
-Gateway activation remains explicit. After the controller, CNI installer, and
-node agent report the target release, the operator activates each singleton
-gateway one at a time during a declared fail-closed window and verifies a fresh
-gateway Pod UID, route/binding recovery, protected denial during loss, and no
-ordinary-egress fallback.
+Gateway activation remains explicit within the confirmation-bound transaction.
+After the staged controller and CNI report the target release, apply activates
+each singleton gateway one at a time while the node-agent hold retains denial,
+and verifies a fresh target gateway Pod plus current data-plane readiness before
+releasing the hold. Qualification separately verifies route/binding recovery,
+protected denial during loss, and no ordinary-egress fallback.
 Each gateway Pod template carries controller-owned runtime annotations for the
 exact release version and manifest digest. These annotations are rollout
 evidence rather than user configuration or a compatibility API. They ensure
@@ -193,8 +213,8 @@ install/certificate operation is refused while the installed deny path remains.
 - Rollback means applying a reviewed prior exact manifest, not trusting an
   opaque Helm history entry.
 - The CNI chain and deny state stay installed throughout ordinary transitions;
-  the staging revision retains the exact source agent until the target CNI is
-  installed, and existing releases never temporarily disable node enforcement.
+  a successor agent uses the source identity under a plan-bound hold, and the
+  target gateway reaches observed readiness before final activation.
 - Every changed release receives a new immutable gateway-class UID at the same
   stable class name; attachment recovers only after the target class is live.
 - Raw Helm and Argo release changes stop before creating a mixed-release
@@ -205,6 +225,11 @@ install/certificate operation is refused while the installed deny path remains.
 - Exact class-withdrawn and post-staging CLI interruptions are resumable without
   repeating completed mutations. One journal-bound pending/corrupt Helm
   revision has a separate confirmation-bound repair transaction.
+- The implementation reuses Kubernetes DaemonSet rollout/status semantics,
+  server-side status observations, and maintained `client-go` polling. No new
+  lifecycle or packet-filter library is introduced: the transaction ordering
+  is Waycloak-specific, while packet denial remains the existing native
+  nftables/netlink node-agent primitive.
 - Observation certificate rotation is explicit and restart-safe. The declared
   single-server K3s datastore-snapshot row completes issue #32; additional
   distributions or datastore topologies are separate support expansion.
@@ -217,8 +242,9 @@ install/certificate operation is refused while the installed deny path remains.
   controller/node updates without adding security value.
 - Let Helm silently leave old CRDs while claiming success: makes the runtime
   and API contract unverifiable.
-- Automatically restart every singleton gateway: creates an unreviewed tunnel
-  outage and can invalidate active provider mappings.
+- Automatically restart every singleton gateway outside the reviewed
+  transition: creates an unbound tunnel outage and can invalidate active
+  provider mappings without the retained node-agent deny hold.
 - Force a changed CRD schema during rollback: can corrupt or hide stored beta
   fields and violates the explicit storage lifecycle.
 

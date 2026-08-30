@@ -93,6 +93,10 @@ defaultGatewayClass:
 nodeAgent:
   enabled: false
   observationRotationID: initial
+  # Reserved for the confirmation-bound waycloakctl release transaction.
+  # A held successor retains deny-first state under the source identity.
+  observationCapabilityHold: false
+  transitionPlanID: ""
   nodeSelector: {}
   image:
     repository: ghcr.io/amoenus/waycloak-node-agent

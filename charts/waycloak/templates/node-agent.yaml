@@ -8,6 +8,12 @@
 {{- $cniBinary := required "nodeAgent.cniBinaryHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniBinaryHostPath }}
 {{- $cniConfig := required "nodeAgent.cniConfigHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniConfigHostPath }}
 {{- $rotationID := required "nodeAgent.observationRotationID is required when nodeAgent.enabled=true" .Values.nodeAgent.observationRotationID }}
+{{- if and .Values.nodeAgent.observationCapabilityHold (not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.nodeAgent.transitionPlanID)) }}
+{{- fail "nodeAgent.transitionPlanID must be an exact sha256 digest when observationCapabilityHold=true" }}
+{{- end }}
+{{- if and (not .Values.nodeAgent.observationCapabilityHold) (ne .Values.nodeAgent.transitionPlanID "") }}
+{{- fail "nodeAgent.transitionPlanID requires observationCapabilityHold=true" }}
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -50,6 +56,9 @@ spec:
     metadata:
       annotations:
         install.waycloak.io/observation-rotation-id: {{ $rotationID | quote }}
+        {{ with .Values.nodeAgent.transitionPlanID }}
+        install.waycloak.io/transition-plan-id: {{ . | quote }}
+        {{ end }}
       labels:
         {{- include "waycloak.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: node-agent
@@ -79,6 +88,10 @@ spec:
             - --release-version={{ $releaseVersion }}
             - --release-manifest-digest={{ $releaseDigest }}
             - --conformance-profile={{ .Values.nodeAgent.conformanceProfile }}
+            {{ if .Values.nodeAgent.observationCapabilityHold }}
+            - --observation-capability-hold=true
+            - --observation-capability-hold-id={{ .Values.nodeAgent.transitionPlanID }}
+            {{ end }}
             - --state-dir=/var/lib/cni/waycloak/attachments
             - --cni-receipt-file=/var/run/waycloak-cni-install/install-receipt.json
             - --cni-binary-file=/var/run/waycloak-cni-install/waycloak-cni

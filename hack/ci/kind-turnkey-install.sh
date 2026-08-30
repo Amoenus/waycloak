@@ -881,7 +881,7 @@ apply_exact_transition() {
   local before_controller_image before_cni_image before_agent_image
   local before_gateway_pod_uid before_gateway_pod_revision after_gateway_pod_uid
   local gateway_rollout_ready expected_gateway_revision
-  local expected_gateway_engine_image expected_gateway_agent_image
+  local expected_gateway_engine_image expected_gateway_agent_image expected_node_agent_image
 
   expected_digest="$(jq -r '.manifestDigest' "$manifest_path")"
   current_version="$(kubectl get vpngatewayclass gluetun.waycloak.io \
@@ -902,6 +902,7 @@ apply_exact_transition() {
   test -n "$before_gateway_pod_revision"
   expected_gateway_engine_image="$(jq -r '.images.gluetun.repository + "@" + .images.gluetun.digest' "$manifest_path")"
   expected_gateway_agent_image="$(jq -r '.images["waycloak-gateway-agent"].repository + "@" + .images["waycloak-gateway-agent"].digest' "$manifest_path")"
+  expected_node_agent_image="$(jq -r '.images["waycloak-node-agent"].repository + "@" + .images["waycloak-node-agent"].digest' "$manifest_path")"
   source_secret_path="$work_dir/source-helm-revision-${label}.json"
   kubectl get secret "sh.helm.release.v1.${release_name}.v${before_revision}" \
     --namespace "$system_namespace" -o json >"$source_secret_path"
@@ -1021,6 +1022,37 @@ EOF
       .metadata.annotations["install.waycloak.io/transition-plan-id"] == $plan and
       (.data["plan.json"] | fromjson | .planID) == $plan
     ' >/dev/null
+  kubectl get daemonset/waycloak-node-agent --namespace "$system_namespace" -o json | \
+    jq -e --arg plan "$plan_id" --arg image "$expected_node_agent_image" \
+      --arg source "$current_version" '
+      .spec.template.metadata.annotations["install.waycloak.io/transition-plan-id"] == $plan and
+      (.spec.template.spec.containers[] | select(.name == "node-agent") |
+        .image == $image and
+        (.args | index("--release-version=" + $source) != null) and
+        (.args | index("--observation-capability-hold=true") != null) and
+        (.args | index("--observation-capability-hold-id=" + $plan) != null))
+    ' >/dev/null
+  local transition_deny_observed=false
+  for _ in $(seq 1 60); do
+    if kubectl get vpnworkloadbindings --all-namespaces -o json | \
+      jq -e --arg plan "$plan_id" '
+        (.items | length) > 0 and all(.items[];
+          .status.observedGeneration == .metadata.generation and
+          (.status.appliedGeneration // 0) == 0 and
+          .status.agent.instanceID == $plan and
+          ([.status.conditions[] | select(.type == "Programmed" or .type == "Ready" or .type == "NodeReady")] | length) == 3 and
+          all(.status.conditions[] | select(.type == "Programmed" or .type == "Ready" or .type == "NodeReady"); .status != "True"))
+      ' >/dev/null; then
+      transition_deny_observed=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$transition_deny_observed" != true ]]; then
+    printf '%s staged transition lacked exact plan-bound binding withdrawal\n' "$label" >&2
+    return 1
+  fi
+  test "$(kubectl get pod waycloak-gateway-disposable-0 --namespace "$smoke_namespace" -o jsonpath='{.metadata.uid}')" = "$before_gateway_pod_uid"
   "$work_dir/waycloakctl" install plan \
     --release-manifest "$manifest_path" \
     --namespace "$system_namespace" \

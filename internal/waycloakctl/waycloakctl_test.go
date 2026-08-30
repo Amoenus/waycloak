@@ -356,6 +356,31 @@ func TestInstallPlanRejectsRemovedTierFlags(t *testing.T) {
 	}
 }
 
+func TestObservationCapabilityHoldIdentityIsExactAndSingular(t *testing.T) {
+	planID := "sha256:" + strings.Repeat("a", 64)
+	held, err := observationCapabilityHeld([]string{"--observation-capability-hold=true", "--observation-capability-hold-id=" + planID})
+	identity, identityErr := observationCapabilityHoldID([]string{"--observation-capability-hold=true", "--observation-capability-hold-id=" + planID})
+	if err != nil || identityErr != nil || !held || identity != planID {
+		t.Fatalf("exact transition hold was not observed: held=%t identity=%q err=%v identityErr=%v", held, identity, err, identityErr)
+	}
+	for name, arguments := range map[string][]string{
+		"mutable identity": {"--observation-capability-hold-id=latest"},
+		"duplicate hold":   {"--observation-capability-hold=true", "--observation-capability-hold=true"},
+		"duplicate identity": {
+			"--observation-capability-hold-id=" + planID,
+			"--observation-capability-hold-id=" + planID,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, holdErr := observationCapabilityHeld(arguments); holdErr == nil {
+				if _, idErr := observationCapabilityHoldID(arguments); idErr == nil {
+					t.Fatal("ambiguous transition hold identity was accepted")
+				}
+			}
+		})
+	}
+}
+
 func TestPortForwardInstallApplyRejectsTLSIdentitySwapBeforeMutation(t *testing.T) {
 	clients := supportedClients(t)
 	ca, certificate, key := portForwardControllerIdentity(t)
@@ -442,6 +467,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	upgradeCalls := 0
 	activeManifest := manifest
 	stageSource := source
+	activeTransitionPlan := InstallPlan{}
 	revision := int64(0)
 	runner := func(_ context.Context, name string, arguments ...string) ([]byte, error) {
 		if name != "helm" {
@@ -473,7 +499,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 			}
 		}
 		if upgradeCalls == 3 || upgradeCalls == 5 {
-			holdValues, err := nodeAgentTransitionHoldValues(stageSource)
+			holdValues, err := nodeAgentTransitionHoldValues(activeTransitionPlan)
 			if err != nil || len(values) != 2 || values[1] != holdValues {
 				t.Fatalf("release transition did not retain the exact prior node agent: %#v %v", values, err)
 			}
@@ -484,7 +510,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 				revision = 2
 			}
 			if upgradeCalls == 3 || upgradeCalls == 5 {
-				seedStagedRelease(t, clients, stageSource, activeManifest, plan.Namespace, plan.Release, revision, testCRDs)
+				seedStagedRelease(t, clients, stageSource, activeManifest, activeTransitionPlan.PlanID, plan.Namespace, plan.Release, revision, testCRDs)
 			} else {
 				seedInstalledRelease(t, clients, activeManifest, plan.Namespace, plan.Release, revision, testCRDs)
 			}
@@ -526,6 +552,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	}
 	stageSource = forwardSource
 	activeManifest = forward
+	activeTransitionPlan = forwardPlan
 	if err := ApplyInstallPlan(context.Background(), clients, runner, forwardPlan, forwardPlan.PlanID); err != nil {
 		t.Fatal(err)
 	}
@@ -550,6 +577,7 @@ func TestInstallApplyCreatesInMemoryTLSAndRejectsTampering(t *testing.T) {
 	}
 	stageSource = rollbackSource
 	activeManifest = manifest
+	activeTransitionPlan = rollbackPlan
 	if err := ApplyInstallPlan(context.Background(), clients, runner, rollbackPlan, rollbackPlan.PlanID); err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +667,7 @@ func TestInstallApplyResumesOnlyJournalBoundExactCheckpoints(t *testing.T) {
 			}
 		}
 		if staging {
-			seedStagedRelease(t, clients, source, target, plan.Namespace, plan.Release, revision, crdObjects)
+			seedStagedRelease(t, clients, source, target, plan.PlanID, plan.Namespace, plan.Release, revision, crdObjects)
 			if interruptStage {
 				interruptStage = false
 				return nil, context.Canceled
@@ -782,7 +810,8 @@ func TestInstallApplyResumesAfterExactClassWithdrawal(t *testing.T) {
 	if _, err = ensureInstallTransitionJournal(ctx, clients, plan); err != nil {
 		t.Fatal(err)
 	}
-	if err = replaceGatewayClassForTransition(ctx, clients, source, target); err != nil {
+	uid := k8stypes.UID(source.GatewayClassUID)
+	if err = clients.Dynamic.Resource(gatewayClassGVR).Delete(ctx, "gluetun.waycloak.io", metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -798,7 +827,7 @@ func TestInstallApplyResumesAfterExactClassWithdrawal(t *testing.T) {
 		upgradeCalls++
 		revision++
 		if upgradeCalls == 1 {
-			seedStagedRelease(t, clients, source, target, plan.Namespace, plan.Release, revision, crdObjects)
+			seedStagedRelease(t, clients, source, target, plan.PlanID, plan.Namespace, plan.Release, revision, crdObjects)
 		} else {
 			seedInstalledRelease(t, clients, target, plan.Namespace, plan.Release, revision, crdObjects)
 		}
@@ -809,6 +838,102 @@ func TestInstallApplyResumesAfterExactClassWithdrawal(t *testing.T) {
 	}
 	if upgradeCalls != 2 {
 		t.Fatalf("class-withdrawn recovery ran %d Helm upgrades, want stage and activation", upgradeCalls)
+	}
+}
+
+func TestTransitionClassWithdrawalWaitsForObservedAttachmentDeny(t *testing.T) {
+	ctx := context.Background()
+	clients := supportedClients(t)
+	report, err := Preflight(ctx, clients, "100.96.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = clients.Kubernetes.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "waycloak-system", Labels: map[string]string{"pod-security.kubernetes.io/enforce": "privileged"},
+	}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = ensureObservationSecrets(ctx, clients, "waycloak-system", "waycloak", "sha256:"+strings.Repeat("3", 64)); err != nil {
+		t.Fatal(err)
+	}
+	crdObjects, crds, _ := testInstallCRDBundle(t)
+	sourceManifest := releaseManifest()
+	seedInstalledRelease(t, clients, sourceManifest, "waycloak-system", "waycloak", 1, crdObjects)
+	source, err := ObserveInstalledRelease(ctx, clients, "waycloak-system", "waycloak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := sourceManifest
+	target.Version = "v1.0.0-beta.2"
+	target.Images["waycloak-node-agent"] = Artifact{Repository: target.Images["waycloak-node-agent"].Repository, Digest: "sha256:" + strings.Repeat("a", 64)}
+	target.ManifestDigest, err = target.IdentityDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "", report, source, crds, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ensureInstallTransitionJournal(ctx, clients, plan); err != nil {
+		t.Fatal(err)
+	}
+	binding := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "networking.waycloak.io/v1beta1", "kind": "VPNWorkloadBinding",
+		"metadata": map[string]any{"name": "binding", "namespace": "media", "generation": int64(1)},
+		"status": map[string]any{"conditions": []any{
+			map[string]any{"type": "Ready", "status": "True"},
+			map[string]any{"type": "NodeReady", "status": "True"},
+		}},
+	}}
+	if _, err = clients.Dynamic.Resource(transitionBindingGVR).Namespace("media").Create(ctx, binding, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	bounded, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	err = ensureTransitionQuiescence(bounded, clients, plan)
+	cancel()
+	if err == nil || !strings.Contains(err.Error(), "acknowledge transition deny") {
+		t.Fatalf("ready attachment allowed transition quiescence: %v", err)
+	}
+	if _, err = clients.Dynamic.Resource(gatewayClassGVR).Get(ctx, "gluetun.waycloak.io", metav1.GetOptions{}); err != nil {
+		t.Fatalf("class was withdrawn before attachment deny acknowledgement: %v", err)
+	}
+	current, err := clients.Dynamic.Resource(transitionBindingGVR).Namespace("media").Get(ctx, "binding", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = unstructured.SetNestedField(current.Object, int64(1), "status", "observedGeneration"); err != nil {
+		t.Fatal(err)
+	}
+	if err = unstructured.SetNestedField(current.Object, int64(0), "status", "appliedGeneration"); err != nil {
+		t.Fatal(err)
+	}
+	if err = unstructured.SetNestedMap(current.Object, map[string]any{
+		"nodeName": "node", "instanceID": plan.PlanID,
+	}, "status", "agent"); err != nil {
+		t.Fatal(err)
+	}
+	if err = unstructured.SetNestedSlice(current.Object, []any{
+		map[string]any{"type": "Programmed", "status": "False"},
+		map[string]any{"type": "Ready", "status": "False"},
+		map[string]any{"type": "NodeReady", "status": "False"},
+	}, "status", "conditions"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = clients.Dynamic.Resource(transitionBindingGVR).Namespace("media").Update(ctx, current, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = ensureTransitionQuiescence(ctx, clients, plan); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := observeInstallTransitionCheckpoint(ctx, clients, plan, crds)
+	if err != nil || checkpoint != installCheckpointQuiesced {
+		t.Fatalf("restarted apply did not recover the exact quiesced checkpoint: checkpoint=%q err=%v", checkpoint, err)
+	}
+	if err = replaceGatewayClassForTransition(ctx, clients, plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = clients.Dynamic.Resource(gatewayClassGVR).Get(ctx, "gluetun.waycloak.io", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("acknowledged transition did not withdraw the exact class: %v", err)
 	}
 }
 
@@ -1137,9 +1262,9 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 		Containers:     []corev1.Container{{Name: "receipt-holder", Image: image("pause")}},
 	}}}}
 	upsertTestDaemonSet(t, clients, cni)
-	agent := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: fullname + "-node-agent", Namespace: namespace}, Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
+	agent := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: fullname + "-node-agent", Namespace: namespace, Generation: 1}, Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
 		Name: "node-agent", Image: image("waycloak-node-agent"), Args: []string{"--release-version=" + manifest.Version, "--release-manifest-digest=" + manifest.ManifestDigest},
-	}}}}}}
+	}}}}}, Status: appsv1.DaemonSetStatus{ObservedGeneration: 1, DesiredNumberScheduled: 1, UpdatedNumberScheduled: 1, NumberReady: 1, NumberAvailable: 1}}
 	upsertTestDaemonSet(t, clients, agent)
 	class := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "networking.waycloak.io/v1beta1", "kind": "VPNGatewayClass",
@@ -1164,16 +1289,18 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 	}
 }
 
-func seedStagedRelease(t *testing.T, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest, namespace, release string, revision int64, crds []*apiextensionsv1.CustomResourceDefinition) {
+func seedStagedRelease(t *testing.T, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest, planID, namespace, release string, revision int64, crds []*apiextensionsv1.CustomResourceDefinition) {
 	t.Helper()
 	seedInstalledRelease(t, clients, target, namespace, release, revision, crds)
-	reference := source.Images["waycloak-node-agent"]
 	agent, err := clients.Kubernetes.AppsV1().DaemonSets(namespace).Get(context.Background(), chartFullname(release)+"-node-agent", metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent.Spec.Template.Spec.Containers[0].Image = reference
-	agent.Spec.Template.Spec.Containers[0].Args = []string{"--release-version=" + source.Version, "--release-manifest-digest=" + source.ManifestDigest}
+	agent.Spec.Template.Spec.Containers[0].Args = []string{"--release-version=" + source.Version, "--release-manifest-digest=" + source.ManifestDigest, "--observation-capability-hold=true", "--observation-capability-hold-id=" + planID}
+	if agent.Spec.Template.Annotations == nil {
+		agent.Spec.Template.Annotations = map[string]string{}
+	}
+	agent.Spec.Template.Annotations[installTransitionPlanKey] = planID
 	if _, err = clients.Kubernetes.AppsV1().DaemonSets(namespace).Update(context.Background(), agent, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}

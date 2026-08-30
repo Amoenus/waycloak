@@ -302,6 +302,44 @@ calls in the gateway-transition collector with PowerShell 5.1-compatible
 equivalents, preserving failed RC.35 evidence while allowing the successor
 preflight and soak collectors to complete.
 
+Signed `v0.1.0-rc.36` was published from exact commit
+`f4dee0a0cc8e24f282162279e3ed4704e56e7d97`; its canonical manifest identity
+is `sha256:5998e82a535c228b31d33039f0b786437e54f386fb9d36d774826aec139a4ddf`.
+Publication verification and the confirmation-bound deployment from homelab
+GitOps revision `5d92fa42ccefeb8fcef391445c86376e0cce2a6e` passed. Controlled engine
+restart, CoreDNS recovery, DNS load, qBittorrent listener/DHT/tracker behavior,
+UDP ingress/forwarding/tunnel egress packet capture, and ordinary-interface
+zero-packet fail-closed evidence passed. One reacquired provider session then
+accepted and returned translated TCP SYN/SYN-ACK traffic inside the tunnel but
+did not deliver the SYN-ACK to independent external clients; that provider-side
+TCP NAT return-path failure is preserved separately and was cleared only by an
+exact same-candidate gateway replacement. No RC.36 soak began.
+
+The exact RC.36-to-RC.35 rollback exposed a Waycloak release-ordering defect.
+`waycloakctl` deleted the immutable class before the source gateway Pod was
+removed and before every node attachment had acknowledged deny-first state.
+Three protected HTTPS attempts succeeded early in the class-gap observation;
+the retained evidence does not prove ordinary fallback and is consistent with
+the still-running source VPN, but ADR 0042 requires unavailability throughout
+that gap, so RC.36 fails rollback qualification. The cluster is deliberately
+left on exact RC.35 while GitOps continues to declare RC.36 with automatic
+runtime sync suspended.
+
+The successor source introduces no new dependency or packet-control mechanism.
+It uses the existing native node-agent `LockdownAll` primitive plus maintained
+Kubernetes `client-go` DaemonSet/status machinery. Before class withdrawal, the
+reviewed successor node-agent image runs with the source release identity under
+a plan-bound capability hold, continually retains lockdown, rejects new
+ADD/CHECK activation, and publishes authenticated withdrawal observations.
+Apply requires the complete DaemonSet rollout and a post-hold, generation-
+current withdrawal acknowledgement for every binding. It then stages the
+target components, rolls every target gateway to current `Ready=True` while the
+hold remains, and removes the hold only in final activation. Exact quiesced,
+class-withdrawn, legacy class-replaced, staged, and target checkpoints are
+restart-safe and journal-bound. Focused source, chart, and lifecycle tests pass;
+a signed successor release and repeated forward/rollback packet qualification
+are required before a fresh 72-hour epoch.
+
 ## Dependency-backed stabilization direction
 
 ADR 0044 was accepted on 2026-08-26 after the RC.26 local-cluster qBittorrent

@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestCapabilityHoldAffectsOnlyPublishedReadiness(t *testing.T) {
+func TestCertificateCapabilityHoldAffectsOnlyPublishedReadiness(t *testing.T) {
 	service := &Service{RequireRelay: true, CapabilityHeld: true, NodeName: "node", NodeBootID: "boot", InstanceID: "instance"}
 	service.SetBackendHealthy(true)
 	service.SetRelayHealthy(true)
@@ -41,6 +41,19 @@ func TestCapabilityHoldAffectsOnlyPublishedReadiness(t *testing.T) {
 	service.CapabilityHeld = false
 	if !service.Report().Node.Ready {
 		t.Fatal("released certificate hold did not publish live readiness")
+	}
+}
+
+func TestTransitionHoldRejectsNewProtectedPathProgramming(t *testing.T) {
+	programmer := &fakeProgrammer{}
+	service := &Service{Programmer: programmer, CapabilityHeld: true, TransitionHeld: true}
+	service.SetBackendHealthy(true)
+	service.SetRelayHealthy(true)
+	if err := service.Prepare(context.Background(), waycni.PodIdentity{}, waycni.Binding{}); err == nil {
+		t.Fatal("transition hold accepted a new protected path")
+	}
+	if len(programmer.events) != 0 {
+		t.Fatalf("transition hold reached packet programming: %v", programmer.events)
 	}
 }
 
@@ -316,6 +329,25 @@ func TestControllerRelayLossRejectsPrepareAndWithdrawsEveryAttachment(t *testing
 	service.SetRelayHealthy(true)
 	if err := service.Prepare(context.Background(), identity, reference); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTransitionHoldReconciliationNeverReopensDurableAttachment(t *testing.T) {
+	service, identity, reference, programmer := fixture(t)
+	service.CapabilityHeld = true
+	service.TransitionHeld = true
+	service.Store = staticAttachments{{
+		Network: "kindnet", Pod: identity, NamespaceIdentity: "1:2", Phase: waycni.PhaseReady,
+		BindingUID: reference.UID, BindingGeneration: reference.Generation, GatewayUID: reference.GatewayUID,
+	}}
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"lockdown"}; !reflect.DeepEqual(programmer.events, want) {
+		t.Fatalf("transition-hold operations = %v, want %v", programmer.events, want)
+	}
+	if observations := service.Observations(); len(observations) != 1 || observations[0].Ready {
+		t.Fatalf("transition hold did not publish exact withdrawal: %#v", observations)
 	}
 }
 

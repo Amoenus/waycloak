@@ -362,14 +362,20 @@ func observeInstallRepairLiveState(ctx context.Context, clients *Clients, plan I
 }
 
 func classifyInstallRepairCheckpoint(components deployedReleaseComponents, transition InstallPlan, effectiveRevision int64) (string, error) {
+	if exactQuiescedComponents(components, transition, true) {
+		return installCheckpointQuiescedClassWithdrawn, nil
+	}
 	if exactSourceComponents(components, transition.Source, true) {
 		return installCheckpointClassWithdrawn, nil
 	}
 	if exactClassReplacedComponents(components, transition.Source, transition.Target) {
 		return installCheckpointClassReplaced, nil
 	}
+	if exactQuiescedClassReplacedComponents(components, transition) {
+		return installCheckpointQuiescedClassReplaced, nil
+	}
 	components.HelmRevision = effectiveRevision
-	if exactStagedComponents(components, transition.Source, transition.Target, transition.TargetCRDs) {
+	if exactStagedComponents(components, transition, transition.TargetCRDs) {
 		return installCheckpointStaged, nil
 	}
 	if exactTargetComponents(components, transition.Source, transition.Target, transition.TargetCRDs) {
@@ -379,7 +385,7 @@ func classifyInstallRepairCheckpoint(components deployedReleaseComponents, trans
 }
 
 func exactTargetComponents(components deployedReleaseComponents, source InstalledReleaseObservation, target ReleaseManifest, targetCRDs map[string]string) bool {
-	if source.State != installStateDeployed || components.HelmRevision <= source.HelmRevision || !components.ClassPresent || components.ObservationCapabilityHeld ||
+	if source.State != installStateDeployed || components.HelmRevision <= source.HelmRevision || !components.ClassPresent || components.ObservationCapabilityHeld || components.ObservationCapabilityHoldID != "" || components.TransitionPlanID != "" ||
 		components.ControllerVersion != target.Version || components.ControllerManifest != target.ManifestDigest ||
 		components.CNIVersion != target.Version || components.CNIManifest != target.ManifestDigest ||
 		components.NodeAgentVersion != target.Version || components.NodeAgentManifest != target.ManifestDigest ||
@@ -399,12 +405,16 @@ func repairCheckpointRank(checkpoint string) int {
 	switch checkpoint {
 	case installCheckpointClassWithdrawn:
 		return 1
-	case installCheckpointClassReplaced:
+	case installCheckpointQuiescedClassWithdrawn:
 		return 2
-	case installCheckpointStaged:
+	case installCheckpointClassReplaced:
 		return 3
-	case installCheckpointTarget:
+	case installCheckpointQuiescedClassReplaced:
 		return 4
+	case installCheckpointStaged:
+		return 5
+	case installCheckpointTarget:
+		return 6
 	default:
 		return 0
 	}

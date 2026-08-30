@@ -35,7 +35,7 @@ import (
 
 func main() {
 	var socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile string
-	var cniReceiptFile, cniBinaryFile, cniConfigFile string
+	var cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID string
 	var observationCapabilityHold bool
 	var interval time.Duration
 	flag.StringVar(&socketPath, "socket", waycni.DefaultAgentSocket, "root-only local CNI socket")
@@ -46,6 +46,7 @@ func main() {
 	flag.StringVar(&relayToken, "observation-token-file", "/var/run/secrets/waycloak-observation/token", "Pod-bound Kubernetes token")
 	flag.StringVar(&relayCA, "observation-ca-file", "/var/run/secrets/waycloak-observation/ca.crt", "observation relay CA")
 	flag.BoolVar(&observationCapabilityHold, "observation-capability-hold", false, "report authenticated capability as not ready during a reviewed trust transition")
+	flag.StringVar(&observationCapabilityHoldID, "observation-capability-hold-id", "", "exact reviewed transition plan identity")
 	flag.StringVar(&releaseVersion, "release-version", "", "immutable signed release version")
 	flag.StringVar(&releaseManifestDigest, "release-manifest-digest", "", "immutable signed release manifest digest")
 	flag.StringVar(&conformanceProfile, "conformance-profile", "networking.waycloak.io/Core-v1", "immutable conformance profile identity")
@@ -54,17 +55,20 @@ func main() {
 	flag.StringVar(&cniConfigFile, "cni-config-file", "/var/run/waycloak-cni-install/waycloak.conflist", "read-only active CNI conflist")
 	flag.DurationVar(&interval, "reconcile-interval", 5*time.Second, "drift and observation interval")
 	flag.Parse()
-	if err := run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, interval, observationCapabilityHold); err != nil {
+	if err := run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID, interval, observationCapabilityHold); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile string, interval time.Duration, observationCapabilityHold bool) error {
+func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID string, interval time.Duration, observationCapabilityHold bool) error {
 	if nodeName == "" || relayURL == "" || interval < time.Second || filepath.Dir(socketPath) != filepath.Dir(keyFile) {
 		return errors.New("node name, observation relay, bounded reconcile interval, and one protected local protocol directory are required")
 	}
 	if !validReleaseIdentity(releaseVersion, releaseManifestDigest) || conformanceProfile == "" {
 		return errors.New("exact release identity and conformance profile are required")
+	}
+	if !observationCapabilityHold && observationCapabilityHoldID != "" || observationCapabilityHoldID != "" && !validReleaseIdentity("transition", observationCapabilityHoldID) {
+		return errors.New("capability hold has an invalid transition plan identity")
 	}
 	releaseIdentity := wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}
 	if err := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
@@ -96,9 +100,12 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 	if err != nil {
 		return fmt.Errorf("read node boot identity: %w", err)
 	}
-	instanceID, err := randomID()
-	if err != nil {
-		return err
+	instanceID := observationCapabilityHoldID
+	if instanceID == "" {
+		instanceID, err = randomID()
+		if err != nil {
+			return err
+		}
 	}
 	reporter := nodeagent.Reporter{URL: relayURL, TokenFile: relayToken, CAFile: relayCA}
 	service := &nodeagent.Service{
@@ -107,7 +114,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		// controller-runtime cache that may still hold a prior name/UID pair.
 		Reader: manager.GetAPIReader(), Programmer: waycni.LinuxEnforcer{Backend: backend},
 		Store: waycni.FileStore{Directory: stateDir}, NodeName: nodeName, NodeBootID: bootID, InstanceID: instanceID,
-		RequireRelay: true, CapabilityHeld: observationCapabilityHold, Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
+		RequireRelay: true, CapabilityHeld: observationCapabilityHold, TransitionHeld: observationCapabilityHoldID != "", Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
 		ReleaseIdentity:     releaseIdentity,
 		ConformanceProfile:  wayv1.QualifiedName(conformanceProfile),
 		WithdrawalPublisher: reporter.Report,

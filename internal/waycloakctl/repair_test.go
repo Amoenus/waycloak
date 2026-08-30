@@ -254,7 +254,8 @@ func installRepairFixture(t *testing.T, checkpoint string) (*Clients, InstallRep
 	if _, err = ensureInstallTransitionJournal(ctx, clients, transition); err != nil {
 		t.Fatal(err)
 	}
-	if err = replaceGatewayClassForTransition(ctx, clients, source, target); err != nil {
+	uid := k8stypes.UID(source.GatewayClassUID)
+	if err = clients.Dynamic.Resource(gatewayClassGVR).Delete(ctx, "gluetun.waycloak.io", metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
 		t.Fatal(err)
 	}
 	switch checkpoint {
@@ -264,7 +265,7 @@ func installRepairFixture(t *testing.T, checkpoint string) (*Clients, InstallRep
 		seedTargetClassOnSourceRuntime(t, clients, source, target, transition.Namespace, transition.Release)
 		createStuckHelmRevision(t, clients, transition.Namespace, transition.Release, 2)
 	case installCheckpointStaged:
-		seedStagedRelease(t, clients, source, target, transition.Namespace, transition.Release, 2, crdObjects)
+		seedStagedRelease(t, clients, source, target, transition.PlanID, transition.Namespace, transition.Release, 2, crdObjects)
 		normalizeStuckHelmRevisions(t, clients, transition.Namespace, transition.Release, 1, 2)
 	case installCheckpointTarget:
 		seedInstalledRelease(t, clients, target, transition.Namespace, transition.Release, 2, crdObjects)
@@ -326,7 +327,7 @@ func repairRunner(t *testing.T, clients *Clients, plan InstallRepairPlan, target
 		}
 		revision := plan.StuckRevision.Version + int64(*calls)
 		if (plan.Checkpoint == installCheckpointClassWithdrawn || plan.Checkpoint == installCheckpointClassReplaced) && *calls == 1 {
-			seedStagedRelease(t, clients, plan.Transition.Source, target, plan.Namespace, plan.Release, revision, crds)
+			seedStagedRelease(t, clients, plan.Transition.Source, target, plan.Transition.PlanID, plan.Namespace, plan.Release, revision, crds)
 		} else {
 			seedInstalledRelease(t, clients, target, plan.Namespace, plan.Release, revision, crds)
 		}

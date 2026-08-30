@@ -9,7 +9,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-30):** `v0.1.0-rc.34` preserves the
+**Release-candidate checkpoint (2026-08-30):** `v0.1.0-rc.36` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
 72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
@@ -91,6 +91,24 @@ with the Windows PowerShell 5.1 host used for local certification by replacing
 unsupported UTC timestamp and JSON parsing options. A one-sample live collector
 check emitted healthy start, sample, transition, and summary records without
 recording the provider endpoint.
+RC.36 exactly published and deployed the CoreDNS recovery correction. Engine
+restart, semantic DNS recovery, DNS load, qBittorrent behavior, and controlled
+TCP/UDP/tunnel/fail-closed packet gates passed. A separately preserved provider
+session exhibited a TCP NAT return-path failure outside the translated tunnel
+path and was replaced without changing the candidate. The subsequent exact
+RC.36-to-RC.35 rollback exposed a product sequencing gap: the immutable class
+was withdrawn before node attachment denial was acknowledged, and three early
+protected requests succeeded while the source VPN Pod was still present. The
+evidence does not claim ordinary fallback, but it violates ADR 0042's required
+class-gap unavailability, so RC.36 is rejected before soak. The successor uses
+the existing node-agent lockdown implementation and maintained Kubernetes
+`client-go` primitives: it rolls a plan-bound successor-agent hold under the
+source identity, requires generation-current withdrawal acknowledgement from
+every binding before class deletion, rolls target gateways to observed Ready
+while that hold remains, and releases the hold only in final activation. No new
+dependency, packet-filter implementation, API field, hysteresis, or permissive
+audit exception is added. A new exact candidate must repeat forward and
+rollback packet qualification before a fresh 72-hour epoch.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to

@@ -102,6 +102,7 @@ type Service struct {
 	Now                 func() time.Time
 	RequireRelay        bool
 	CapabilityHeld      bool
+	TransitionHeld      bool
 	Capabilities        []string
 	ReleaseIdentity     wayv1.ReleaseIdentity
 	ConformanceProfile  wayv1.QualifiedName
@@ -207,7 +208,7 @@ func (s *Service) SetRelayHealthy(healthy bool) { s.relayHealthy.Store(healthy) 
 func (s *Service) SetBackendHealthy(healthy bool) { s.backendHealthy.Store(healthy) }
 
 func (s *Service) Ready() bool {
-	return s.backendHealthy.Load() && (!s.RequireRelay || s.relayHealthy.Load())
+	return !s.TransitionHeld && s.backendHealthy.Load() && (!s.RequireRelay || s.relayHealthy.Load())
 }
 
 func (s *Service) Status() waycni.AgentStatus {
@@ -350,6 +351,12 @@ func (s *Service) withdrawalBinding(ctx context.Context, namespace, podUID strin
 // on itself. A revoked or unverifiable live Pod is locked down; only an absent
 // exact Pod is cleaned.
 func (s *Service) ReconcileAll(ctx context.Context) error {
+	if s.TransitionHeld {
+		// A release-transition hold is a packet-path state, not merely an
+		// observation label. Keep every durable attachment denied and never
+		// allow ordinary drift reconciliation to reopen it.
+		return s.LockdownAll(ctx)
+	}
 	attachments, err := s.Store.ListAll()
 	if err != nil {
 		return fmt.Errorf("list durable CNI attachments: %w", err)
