@@ -56,9 +56,9 @@ spec:
     metadata:
       annotations:
         install.waycloak.io/observation-rotation-id: {{ $rotationID | quote }}
-        {{ with .Values.nodeAgent.transitionPlanID }}
-        install.waycloak.io/transition-plan-id: {{ . | quote }}
-        {{ end }}
+        # Render the empty baseline value so Helm's server-side apply takes
+        # ownership back from the pre-transition quiescence update.
+        install.waycloak.io/transition-plan-id: {{ .Values.nodeAgent.transitionPlanID | quote }}
       labels:
         {{- include "waycloak.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: node-agent
