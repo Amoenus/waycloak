@@ -1752,12 +1752,58 @@ spec:
 EOF
 kubectl wait vpnegressroute/transition-guard --namespace "$smoke_namespace" \
   --for=condition=Ready --timeout=2m
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: transition-bound-probe
+  namespace: ${smoke_namespace}
+  labels:
+    networking.waycloak.io/egress-route: transition-guard
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: ${curl_ref}
+      command: ["sleep", "600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+EOF
+kubectl wait pod/transition-bound-probe --namespace "$smoke_namespace" \
+  --for=condition=Ready --timeout=2m
+transition_probe_uid="$(kubectl get pod/transition-bound-probe --namespace "$smoke_namespace" \
+  -o jsonpath='{.metadata.uid}')"
+transition_binding_ready=false
+for _ in $(seq 1 60); do
+  if kubectl get vpnworkloadbindings --all-namespaces -o json | jq -e --arg uid "$transition_probe_uid" '
+    [.items[] | select(.spec.podRef.uid == $uid)] | length == 1 and
+    (.[0].status.observedGeneration == .[0].metadata.generation) and
+    (.[0].status.appliedGeneration == .[0].metadata.generation) and
+    any(.[0].status.conditions[]; .type == "Ready" and .status == "True")
+  ' >/dev/null; then
+    transition_binding_ready=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$transition_binding_ready" != true ]]; then
+  printf 'transition fixture did not establish one ready protected binding\n' >&2
+  exit 1
+fi
 apply_exact_transition forward "$work_dir/release-manifest.json" "$release_version"
 run_disruptive_verify forward
 apply_exact_transition rollback "$work_dir/baseline-release-manifest.json" "$baseline_release_version"
 run_disruptive_verify rollback
 apply_certificate_rotation
 run_disruptive_verify certificate-rotation
+kubectl delete pod/transition-bound-probe --namespace "$smoke_namespace" \
+  --wait=true --timeout=2m
 kubectl delete vpnegressroute/transition-guard --namespace "$smoke_namespace" \
   --wait=true --timeout=2m
 
