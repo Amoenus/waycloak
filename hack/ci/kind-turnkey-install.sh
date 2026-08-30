@@ -1772,6 +1772,8 @@ spec:
         capabilities:
           drop: ["ALL"]
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
 EOF
