@@ -159,6 +159,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           upstream_commit=3d1e20c5551e9cae1f9d938dc7b7214a6987f27e
+          servers_commit=0c7381faba8b0ef5d59caec11eae7ef629f6b4c9
           upstream_image=docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
           repository=ghcr.io/amoenus/waycloak-gluetun
           release_version="${RELEASE_TAG#v}"
@@ -174,12 +175,22 @@ jobs:
 
           checkout_upstream "$RUNNER_TEMP/gluetun-source-first"
           checkout_upstream "$RUNNER_TEMP/gluetun-source-second"
+          checkout_servers() {
+            local destination="$1"
+            git init "$destination"
+            git -C "$destination" remote add origin https://github.com/qdm12/gluetun-servers.git
+            git -C "$destination" fetch --depth=1 origin "$servers_commit"
+            git -C "$destination" checkout --detach FETCH_HEAD
+            test "$(git -C "$destination" rev-parse HEAD)" = "$servers_commit"
+          }
+          checkout_servers "$RUNNER_TEMP/gluetun-servers-first"
+          checkout_servers "$RUNNER_TEMP/gluetun-servers-second"
           GO=go bash hack/build-gluetun-candidate.sh \
-            "$RUNNER_TEMP/gluetun-source-first" "$RUNNER_TEMP/gluetun-first" \
-            "$upstream_commit" "$RELEASE_TAG"
+            "$RUNNER_TEMP/gluetun-source-first" "$RUNNER_TEMP/gluetun-servers-first" "$RUNNER_TEMP/gluetun-first" \
+            "$upstream_commit" "$servers_commit" "$RELEASE_TAG"
           GO=go bash hack/build-gluetun-candidate.sh \
-            "$RUNNER_TEMP/gluetun-source-second" "$RUNNER_TEMP/gluetun-second" \
-            "$upstream_commit" "$RELEASE_TAG"
+            "$RUNNER_TEMP/gluetun-source-second" "$RUNNER_TEMP/gluetun-servers-second" "$RUNNER_TEMP/gluetun-second" \
+            "$upstream_commit" "$servers_commit" "$RELEASE_TAG"
           diff --recursive --no-dereference "$RUNNER_TEMP/gluetun-first" "$RUNNER_TEMP/gluetun-second"
           if ! (cd "$RUNNER_TEMP/gluetun-source-first" && sudo env "PATH=$PATH" GOWORK=off go test ./...); then
             echo "upstream suite failed once; retrying the complete suite once" >&2
@@ -191,6 +202,7 @@ jobs:
             --platform=linux/amd64,linux/arm64 \
             --build-arg "UPSTREAM_IMAGE=$upstream_image" \
             --build-arg "GLUETUN_UPSTREAM_COMMIT=$upstream_commit" \
+            --build-arg "GLUETUN_SERVERS_COMMIT=$servers_commit" \
             --build-arg "WAYCLOAK_RELEASE=$RELEASE_TAG" \
             --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
             --provenance=false \
@@ -205,6 +217,9 @@ jobs:
           fi
           printf '%s@%s\n' "$repository" "$digest" >dist/release/gluetun.ref
           cp "$RUNNER_TEMP/gluetun-first/gluetun-dependency.patch" dist/release/
+          cp "$RUNNER_TEMP/gluetun-first/gluetun-servers.LICENSE" dist/release/
+          cp "$RUNNER_TEMP/gluetun-first/gluetun-servers.ref" dist/release/
+          cp "$RUNNER_TEMP/gluetun-first/gluetun-servers.SHA256SUMS" dist/release/
           cp "$RUNNER_TEMP/gluetun-first/control-auth.toml" dist/release/gluetun-control-auth.toml
           cp "$RUNNER_TEMP/gluetun-first/LICENSE" dist/release/gluetun.LICENSE
           cp "$RUNNER_TEMP/gluetun-first/gluetun-binaries.SHA256SUMS" dist/release/

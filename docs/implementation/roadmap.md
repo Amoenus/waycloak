@@ -132,7 +132,12 @@ qualified maintained dependencies. Work proceeds in this order:
   API-key-authenticated loopback observation route. Release-owned engine
   settings prevent competing lifecycle owners; unchanged mapping observations
   preserve identity and only refresh the bounded observation-validity window.
-  The old Proton NAT-PMP implementation is removed. Exact derived-image,
+  The old Proton NAT-PMP implementation is removed. RC.37 provider isolation
+  proved that failed ingress never reached the tunnel, then dependency review
+  found its exact v3.41.3 binary embedded November 2025 Proton server metadata.
+  The successor reproducibly imports the latest maintained, GitHub-verified
+  `gluetun-servers` v0.2.0 Proton dataset at the same schema version and
+  preserves exact commit, checksum, and MIT-license provenance. Exact derived-image,
   real-provider rotation, rollback, and local qBittorrent GitOps evidence remain
   before the issue can be checked complete.
 - [ ] #244 has removed custom DNS serving and provisions the exact CoreDNS

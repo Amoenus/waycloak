@@ -434,16 +434,23 @@ jobs:
       - name: Rebuild and test the exact patched Gluetun source twice
         run: |
           upstream_commit=3d1e20c5551e9cae1f9d938dc7b7214a6987f27e
+          servers_commit=0c7381faba8b0ef5d59caec11eae7ef629f6b4c9
           for build in first second; do
             source_dir="$RUNNER_TEMP/gluetun-source-$build"
+            servers_dir="$RUNNER_TEMP/gluetun-servers-$build"
             git init "$source_dir"
             git -C "$source_dir" remote add origin https://github.com/passteque/gluetun.git
             git -C "$source_dir" fetch --depth=1 origin "$upstream_commit"
             git -C "$source_dir" checkout --detach FETCH_HEAD
             test "$(git -C "$source_dir" rev-parse HEAD)" = "$upstream_commit"
+            git init "$servers_dir"
+            git -C "$servers_dir" remote add origin https://github.com/qdm12/gluetun-servers.git
+            git -C "$servers_dir" fetch --depth=1 origin "$servers_commit"
+            git -C "$servers_dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$servers_dir" rev-parse HEAD)" = "$servers_commit"
             GO=go bash hack/build-gluetun-candidate.sh \
-              "$source_dir" "$RUNNER_TEMP/gluetun-$build" \
-              "$upstream_commit" v0.1.0-beta.0
+              "$source_dir" "$servers_dir" "$RUNNER_TEMP/gluetun-$build" \
+              "$upstream_commit" "$servers_commit" v0.1.0-beta.0
           done
           diff --recursive --no-dereference "$RUNNER_TEMP/gluetun-first" "$RUNNER_TEMP/gluetun-second"
           # Test_leakCheck calls an uncontrolled third-party JSON API whose
@@ -465,6 +472,7 @@ jobs:
             --platform=linux/amd64 \
             --build-arg UPSTREAM_IMAGE=docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027 \
             --build-arg GLUETUN_UPSTREAM_COMMIT=3d1e20c5551e9cae1f9d938dc7b7214a6987f27e \
+            --build-arg GLUETUN_SERVERS_COMMIT=0c7381faba8b0ef5d59caec11eae7ef629f6b4c9 \
             --build-arg WAYCLOAK_RELEASE=v0.1.0-beta.0 \
             --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
             --provenance=false \
@@ -475,8 +483,9 @@ jobs:
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 waycloak-gluetun:test
           test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-commit"}}')" = 3d1e20c5551e9cae1f9d938dc7b7214a6987f27e
           test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.upstream-image"}}')" = docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+          test "$(docker image inspect waycloak-gluetun:test --format '{{index .Config.Labels "io.waycloak.gluetun.servers-commit"}}')" = 0c7381faba8b0ef5d59caec11eae7ef629f6b4c9
           docker run --rm --entrypoint /bin/sh waycloak-gluetun:test -c \
-            'test -x /gluetun-entrypoint && test -f /licenses/gluetun/LICENSE && test -s /licenses/gluetun/gluetun-dependency.patch && test -r /etc/waycloak/gluetun-control-auth.toml'
+            'test -x /gluetun-entrypoint && test -f /licenses/gluetun/LICENSE && test -s /licenses/gluetun/gluetun-dependency.patch && test -f /licenses/gluetun-servers/LICENSE && test -s /licenses/gluetun-servers/gluetun-servers.ref && test -s /licenses/gluetun-servers/gluetun-servers.SHA256SUMS && test -r /etc/waycloak/gluetun-control-auth.toml'
           docker run --rm --entrypoint cat waycloak-gluetun:test \
             /etc/waycloak/gluetun-control-auth.toml | cmp - build/gluetun-candidate/control-auth.toml
 

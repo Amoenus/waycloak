@@ -20,6 +20,7 @@ readonly chart_archive="waycloak-${release_tag#v}.tgz"
 readonly kcl_archive="waycloak-kcl-${release_tag}.tar"
 readonly gluetun_upstream_commit="3d1e20c5551e9cae1f9d938dc7b7214a6987f27e"
 readonly gluetun_upstream_image="docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027"
+readonly gluetun_servers_commit="0c7381faba8b0ef5d59caec11eae7ef629f6b4c9"
 readonly coredns_upstream_image="docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286"
 
 bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-tag.sh" "$release_tag"
@@ -93,6 +94,9 @@ expected_assets=(
   gluetun-binaries.SHA256SUMS
   gluetun-control-auth.toml
   gluetun-dependency.patch
+  gluetun-servers.LICENSE
+  gluetun-servers.ref
+  gluetun-servers.SHA256SUMS
   gluetun.LICENSE
   gluetun.ref
   gluetun.spdx.json
@@ -205,8 +209,10 @@ for architecture in amd64 arm64; do
   jq -e \
     --arg commit "$gluetun_upstream_commit" \
     --arg image "$gluetun_upstream_image" \
+    --arg servers_commit "$gluetun_servers_commit" \
     '.config.Labels["io.waycloak.gluetun.upstream-commit"] == $commit and
-     .config.Labels["io.waycloak.gluetun.upstream-image"] == $image' \
+     .config.Labels["io.waycloak.gluetun.upstream-image"] == $image and
+     .config.Labels["io.waycloak.gluetun.servers-commit"] == $servers_commit' \
     "$work_dir/gluetun-${architecture}.config.json" >/dev/null
   retry_bounded_to_file "Gluetun linux/${architecture} filesystem" "$work_dir/gluetun-${architecture}.tar" \
     crane export --platform "linux/$architecture" "$gluetun_reference" -
@@ -217,7 +223,15 @@ for architecture in amd64 arm64; do
   tar -xOf "$work_dir/gluetun-${architecture}.tar" etc/waycloak/gluetun-control-auth.toml \
     >"$work_dir/gluetun-control-auth-${architecture}.toml"
   cmp "$asset_dir/gluetun-control-auth.toml" "$work_dir/gluetun-control-auth-${architecture}.toml"
+  for servers_asset in LICENSE gluetun-servers.ref gluetun-servers.SHA256SUMS; do
+    tar -xOf "$work_dir/gluetun-${architecture}.tar" "licenses/gluetun-servers/${servers_asset}" \
+      >"$work_dir/gluetun-servers-${architecture}-${servers_asset}"
+  done
+  cmp "$asset_dir/gluetun-servers.LICENSE" "$work_dir/gluetun-servers-${architecture}-LICENSE"
+  cmp "$asset_dir/gluetun-servers.ref" "$work_dir/gluetun-servers-${architecture}-gluetun-servers.ref"
+  cmp "$asset_dir/gluetun-servers.SHA256SUMS" "$work_dir/gluetun-servers-${architecture}-gluetun-servers.SHA256SUMS"
 done
+test "$(cat "$asset_dir/gluetun-servers.ref")" = "github.com/qdm12/gluetun-servers@${gluetun_servers_commit}"
 
 chart_reference="$(sed 's|^oci://||' "$asset_dir/waycloak-chart.ref")"
 retry_bounded_quiet "chart signature" cosign verify \

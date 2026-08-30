@@ -378,8 +378,13 @@ and pinned pause identities. The Gluetun image is built from upstream commit
 `3d1e20c5551e9cae1f9d938dc7b7214a6987f27e` (v3.41.3) on upstream
 multi-platform image digest
 `sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027`.
+Its Proton server database is deterministically refreshed from the maintained
+`gluetun-servers` v0.2.0 commit
+`0c7381faba8b0ef5d59caec11eae7ef629f6b4c9` only when the manifest, provider
+schema version, timestamp ordering, source identity, and clean worktrees pass.
 Only the reachable fixed Go dependencies are advanced; the release includes
-the exact patch, binary checksums, and preserved upstream MIT license.
+the exact patch, binary and server-data checksums, exact data reference, and
+both preserved upstream MIT licenses.
 Call-graph analysis, upstream privileged tests, and the image vulnerability
 scan must pass. Publication is refused on HIGH/CRITICAL fixed vulnerabilities.
 Every published OCI artifact receives an SPDX attestation, keyless signature,

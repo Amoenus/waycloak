@@ -77,6 +77,20 @@ existing upstream-test, govulncheck, reproducibility, and Trivy gates. A new
 exact release, GitOps deployment, real-provider renewal/rotation/rollback, and
 qBittorrent TCP/UDP evidence remain required before #243 is complete.
 
+RC.37 live qualification acquired and renewed otherwise healthy Proton
+mappings across multiple gateway sessions, but independent TCP checks never
+delivered a matching inbound packet to `tun0`. Direction-aware nftables
+counters, packet capture, and Gluetun's upstream local-listener isolation
+procedure excluded Waycloak DNAT, the workload adapter, and qBittorrent from
+that failure boundary. The exact v3.41.3 binary was then found to embed Proton
+server data timestamped 2025-11-18 with 1,600 records. The latest maintained
+`gluetun-servers` v0.2.0 release is a GitHub-verified exact commit from
+2026-08-06 with 2,096 same-schema Proton records. The successor imports only
+that upstream dataset reproducibly, preserves its MIT license and exact
+commit/checksums, and adds no provider protocol implementation or runtime
+dependency. RC.37 remains rejected before soak; a new exact candidate must
+repeat provider ingress and every pre-soak gate.
+
 ## Adapter apply/observe implementation slice
 
 Issue #245 is implemented in source and focused tests, with exact-release and
@@ -111,7 +125,9 @@ The signed runtime release includes the byte-identical inventory in its
 checksum/provenance set, and independent publication verification consumes and
 revalidates it.
 
-The 2026-08-29 refresh advanced Prometheus client_golang to v1.24.1, x/net to
+The 2026-08-31 refresh added the exact maintained `gluetun-servers` v0.2.0
+runtime-data source after live qualification exposed stale embedded Proton
+metadata. The 2026-08-29 refresh advanced Prometheus client_golang to v1.24.1, x/net to
 v0.58.0, x/sys to v0.47.0, KCL CLI to v0.12.8, Trivy to v0.74.0, actionlint to
 v1.7.12, Staticcheck to v0.8.1, crane to v0.22.0, Helm to v4.2.4, Kind to
 v0.33.0, and the qualified SHA-pinned GitHub Actions. Linux-target compilation,
