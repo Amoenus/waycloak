@@ -154,6 +154,31 @@ func TestDNSProbeFailsAfterBoundedAttempts(t *testing.T) {
 	}
 }
 
+func TestDNSProbeRetriesTransientSERVFAILWithinOriginalDeadline(t *testing.T) {
+	upstream := startDNSFixtureAt(t, DNSListenPort, false)
+	upstream.setSERVFAILUDP(1)
+	probe := &DNSProbe{config: Config{GatewayAddress: netip.MustParseAddr("127.0.0.1")}}
+	if err := probe.probe(context.Background(), "udp4", "example.com.", dnsmessage.TypeAAAA); err != nil {
+		t.Fatal(err)
+	}
+	if got := upstream.queryCount("udp4", "example.com."); got != 2 {
+		t.Fatalf("UDP query count = %d, want 2", got)
+	}
+}
+
+func TestDNSProbeFailsClosedAfterBoundedSERVFAILAttempts(t *testing.T) {
+	upstream := startDNSFixtureAt(t, DNSListenPort, false)
+	upstream.setSERVFAILUDP(dnsProbeMaximumAttempts)
+	probe := &DNSProbe{config: Config{GatewayAddress: netip.MustParseAddr("127.0.0.1")}}
+	err := probe.probe(context.Background(), "udp4", "example.com.", dnsmessage.TypeAAAA)
+	if err == nil || !strings.Contains(err.Error(), "rcode=ServFail") {
+		t.Fatalf("persistent SERVFAIL error = %v", err)
+	}
+	if got := upstream.queryCount("udp4", "example.com."); got != dnsProbeMaximumAttempts {
+		t.Fatalf("UDP query count = %d, want %d", got, dnsProbeMaximumAttempts)
+	}
+}
+
 type dnsFixture struct {
 	address     netip.AddrPort
 	mu          sync.Mutex
@@ -161,6 +186,7 @@ type dnsFixture struct {
 	sawEDNS0    bool
 	truncateUDP bool
 	dropUDP     int
+	servfailUDP int
 }
 
 func startDNSFixture(t *testing.T) *dnsFixture {
@@ -238,6 +264,10 @@ func (fixture *dnsFixture) response(network string, request []byte) ([]byte, err
 	name := query.Questions[0].Name.String()
 	fixture.mu.Lock()
 	fixture.queries[network+"|"+name]++
+	servfail := network == "udp4" && fixture.servfailUDP > 0
+	if servfail {
+		fixture.servfailUDP--
+	}
 	for _, additional := range query.Additionals {
 		if additional.Header.Type == dnsmessage.TypeOPT {
 			fixture.sawEDNS0 = true
@@ -245,7 +275,7 @@ func (fixture *dnsFixture) response(network string, request []byte) ([]byte, err
 	}
 	fixture.mu.Unlock()
 	response := dnsmessage.Message{Header: dnsmessage.Header{ID: query.ID, Response: true, RecursionDesired: query.RecursionDesired, RecursionAvailable: true}, Questions: query.Questions}
-	if name == "servfail.example." {
+	if name == "servfail.example." || servfail {
 		response.RCode = dnsmessage.RCodeServerFailure
 		return response.Pack()
 	}
@@ -272,6 +302,12 @@ func (fixture *dnsFixture) saw(network, name string) bool {
 	return fixture.queries[network+"|"+name] > 0
 }
 
+func (fixture *dnsFixture) queryCount(network, name string) int {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	return fixture.queries[network+"|"+name]
+}
+
 func (fixture *dnsFixture) edns() bool {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
@@ -282,4 +318,10 @@ func (fixture *dnsFixture) setDropUDP(count int) {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	fixture.dropUDP = count
+}
+
+func (fixture *dnsFixture) setSERVFAILUDP(count int) {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.servfailUDP = count
 }

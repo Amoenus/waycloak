@@ -33,12 +33,16 @@ readiness hysteresis, or custom DNS server. Exact source commit
 `12845402a7ee76e2b9925638cf987689e84a88f3`, signed release, post-publication
 verification, confirmation-bound transition, GitOps revision
 `6daa3101f3ef7fe4134e9132867c600504b336fa`, and immutable adapter trust-record
-rotation passed. The clean RC.31 unchanged-artifact epoch began at
-`2026-08-29T21:59:40.8239325Z`; its initial audit is healthy with zero observed
-failures and its deadline is `2026-09-01T21:59:40.8239325Z`. RC.31 does not
-close #123, #140, or #141 and is not stable graduation. Controlled DNS/tunnel,
-rotation, rollback, terminal packet evidence, a strict completed soak audit,
-and the remaining beta/v1 gates are still required.
+rotation passed. The RC.31 unchanged-artifact epoch that began at
+`2026-08-29T21:59:40.8239325Z` is preserved as invalid: it recorded two handoff
+increments, the second after a transient UDP AAAA `SERVFAIL` caused immediate
+fail-closed withdrawal. Exact artifacts and Pods did not change and retained
+external TCP checks passed, but the strict audit correctly rejects multiple
+unexplained lifecycle events. The successor source spends the existing bounded
+three-attempt DNS observation budget on transient `SERVFAIL` responses while
+still rejecting persistent failures immediately after that bound. It adds no
+dependency or hysteresis. A new exact candidate and clean 72-hour epoch are
+required; RC.31 does not close #123, #140, or #141.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to
@@ -77,9 +81,12 @@ qualified maintained dependencies. Work proceeds in this order:
   candidate retains the latest qualified CoreDNS v1.14.7 and Gluetun v3.41.3,
   defaults Gluetun to DoH with three maintained resolvers, and adds no DNS
   library or custom protocol machinery. RC.31 exact publication and GitOps
-  deployment passed; live client-matrix, DNS-load, resource, rotation, rollback,
-  and completed clean-soak evidence remain before the issue can be checked
-  complete.
+  deployment passed, but its epoch exposed an immediate single-response
+  `SERVFAIL` withdrawal after transport errors had already received bounded
+  retries. The successor reuses that existing attempt/deadline bound for
+  `SERVFAIL`, remains fail closed for sustained errors, and requires a new exact
+  release plus live client-matrix, DNS-load, resource, rotation, rollback, and
+  completed clean-soak evidence before the issue can be checked complete.
 - [ ] #246 has implemented bounded OpenTelemetry-first DNS, engine, mapping,
   translation, delivery, acknowledgement, adapter Apply/Observe, withdrawal,
   and recovery signals. Exporters are no-op by default; optional OTLP and a

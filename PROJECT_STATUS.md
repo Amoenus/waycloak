@@ -168,12 +168,27 @@ connection/DHT, and privacy-checked metrics passed the initial live checkpoint.
 
 One short pre-epoch collector run is preserved as invalid because its generated
 DHT collector retained an RC.23 Argo revision comparison; it recorded no
-product failure and contributes no duration. The clean unchanged-artifact
-RC.31 epoch began at `2026-08-29T21:59:40.8239325Z` and has a canonical deadline
-of `2026-09-01T21:59:40.8239325Z`. Its initial strict audit reports zero
-observed failures and `healthySoFar=true`. Controlled DNS-load, tunnel,
-rotation, rollback, terminal packet evidence, and the completed strict soak
-audit remain required.
+product failure and contributes no duration. The unchanged-artifact RC.31 epoch
+that began at `2026-08-29T21:59:40.8239325Z` is also invalid. It recorded an
+unexplained backend-selection loss and handoff generation 249 to 250, followed
+by a single UDP AAAA `SERVFAIL` from the Gluetun/CoreDNS path that immediately
+withdrew gateway readiness and advanced the lease from 250 to 251. No Pod UID,
+restart, release, mapping, or GitOps identity changed, recovery took 1.183
+seconds for the DNS event, and the retained independent external TCP checks did
+not fail. The strict audit correctly remains unhealthy because the two events
+cannot be represented as one bounded handoff.
+
+The DNS defect is in Waycloak's semantic probe, not in CoreDNS protocol serving:
+transport failures receive up to three attempts, but a syntactically valid
+`SERVFAIL` response was returned immediately without using that same bounded
+attempt budget. The successor source retries only `SERVFAIL`, over the same
+transport and within the existing three-attempt/three-second observation bound.
+It still fails closed on a persistent `SERVFAIL`, every other unsuccessful
+RCode, an invalid response, or exhausted transport attempts. This is bounded
+observation, not readiness hysteresis, and adds no dependency; the already
+qualified `golang.org/x/net` DNS message implementation remains in use. A new
+exact candidate, GitOps transition, controlled fault evidence, and fresh
+minimum 72-hour unchanged-artifact soak are required.
 
 ## Dependency-backed stabilization direction
 

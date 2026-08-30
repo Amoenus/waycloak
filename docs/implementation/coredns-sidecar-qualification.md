@@ -110,6 +110,18 @@ Gluetun version. The new DoH/multi-resolver policy must pass controlled
 single-resolver, multi-resolver, DNS-load, tunnel-loss, and recovery tests before
 it can replace the failed RC.30 artifact.
 
+RC.31 proved that the multi-resolver DoH configuration removed the earlier
+timeout bursts, but its first epoch still observed one syntactically valid UDP
+AAAA `SERVFAIL`. CoreDNS correctly relayed that upstream result. Waycloak's
+probe retried transport errors but treated the first `SERVFAIL` as terminal,
+withdrawing the gateway for 1.183 seconds even though the next observation
+succeeded. The successor applies the same existing maximum of three attempts
+and three seconds to `SERVFAIL` responses on the required transport. It does
+not accept a TCP result as proof of UDP health, retry other unsuccessful RCodes,
+or retain readiness after the bounded observation fails. This keeps strict
+per-transport semantics without adding a resolver dependency or readiness
+hysteresis.
+
 ## Readiness and failure behavior
 
 Waycloak, not CoreDNS, remains the readiness authority. The gateway agent probes

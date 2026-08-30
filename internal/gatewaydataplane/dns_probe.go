@@ -141,13 +141,26 @@ func (probe *DNSProbe) probe(ctx context.Context, network, name string, typeCode
 	if err != nil {
 		return dnsProbeFailure(network, name, typeCode, "request_build", started, "", err)
 	}
-	response, attempts, err := exchangeDNSProbe(ctx, network, dnsListenAddress(probe.config), request)
-	if err != nil {
-		return dnsProbeFailure(network, name, typeCode, "exchange", started, "", fmt.Errorf("attempts=%d: %w", attempts, err))
-	}
-	header, err := validateDNSResponse(response, identity)
-	if err != nil {
-		return dnsProbeFailure(network, name, typeCode, "response_validation", started, "", err)
+	probeCtx, cancelProbe := context.WithTimeout(ctx, dnsExchangeTimeout)
+	defer cancelProbe()
+	remainingAttempts := dnsProbeMaximumAttempts
+	var response []byte
+	var header dnsmessage.Header
+	var attempts int
+	var exchangeErr error
+	for {
+		response, attempts, exchangeErr = exchangeDNSProbeAttempts(probeCtx, network, dnsListenAddress(probe.config), request, remainingAttempts)
+		remainingAttempts -= attempts
+		if exchangeErr != nil {
+			return dnsProbeFailure(network, name, typeCode, "exchange", started, "", fmt.Errorf("attempts=%d: %w", dnsProbeMaximumAttempts-remainingAttempts, exchangeErr))
+		}
+		header, err = validateDNSResponse(response, identity)
+		if err != nil {
+			return dnsProbeFailure(network, name, typeCode, "response_validation", started, "", err)
+		}
+		if header.RCode != dnsmessage.RCodeServerFailure || remainingAttempts == 0 || probeCtx.Err() != nil {
+			break
+		}
 	}
 	if header.RCode != dnsmessage.RCodeSuccess {
 		return dnsProbeFailure(network, name, typeCode, "rcode", started, dnsRCodeName(header.RCode), nil)
@@ -172,10 +185,14 @@ func (probe *DNSProbe) probe(ctx context.Context, network, name string, typeCode
 }
 
 func exchangeDNSProbe(ctx context.Context, network, address string, request []byte) ([]byte, int, error) {
+	return exchangeDNSProbeAttempts(ctx, network, address, request, dnsProbeMaximumAttempts)
+}
+
+func exchangeDNSProbeAttempts(ctx context.Context, network, address string, request []byte, maximumAttempts int) ([]byte, int, error) {
 	probeCtx, cancelProbe := context.WithTimeout(ctx, dnsExchangeTimeout)
 	defer cancelProbe()
 	var lastErr error
-	for attempt := 1; attempt <= dnsProbeMaximumAttempts; attempt++ {
+	for attempt := 1; attempt <= maximumAttempts; attempt++ {
 		attemptCtx, cancelAttempt := context.WithTimeout(probeCtx, dnsProbeAttemptTimeout)
 		var response []byte
 		if network == "udp4" {
@@ -191,7 +208,7 @@ func exchangeDNSProbe(ctx context.Context, network, address string, request []by
 			return nil, attempt, lastErr
 		}
 	}
-	return nil, dnsProbeMaximumAttempts, lastErr
+	return nil, maximumAttempts, lastErr
 }
 
 func dnsProbeFailure(network, name string, typeCode dnsmessage.Type, phase string, started time.Time, rcode string, err error) error {
