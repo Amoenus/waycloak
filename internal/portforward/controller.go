@@ -154,7 +154,7 @@ func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.
 		adapter := &wayv1.WorkloadAdapter{}
 		if err := r.reader().Get(ctx, client.ObjectKey{Namespace: lease.Namespace, Name: string(lease.Spec.ApplicationAdapterRef.Name)}, adapter); err != nil ||
 			!wayconditions.CurrentTrue(adapter.Status.Conditions, wayv1.ConditionReady, adapter.Status.ObservedGeneration, adapter.Generation) {
-			evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, "Application adapter reference is unresolved")
+			evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonNotReady, "Application adapter reference is unavailable")
 			return evaluation
 		}
 		evaluation.adapterReady = true
@@ -202,7 +202,9 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 				"resolved_refs_reason", resolved.Reason,
 			)
 		}
-		return r.drainStatus(ctx, lease, evaluation, drainReason == "adapter_not_ready")
+		preserveIdentity := drainReason == "adapter_not_ready" ||
+			(drainReason == "already_draining" && adapterSuspensionInProgress(lease, evaluation))
+		return r.drainStatus(ctx, lease, evaluation, preserveIdentity)
 	}
 	if current == nil {
 		status.HandoffGeneration++
@@ -242,6 +244,21 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 	applyObservation(lease, &status, states, observation, r.now())
 	status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
 	return status, r.observationFreshness() / 2
+}
+
+func adapterSuspensionInProgress(lease *wayv1.PortForwardLease, evaluation leaseEvaluation) bool {
+	current := lease.Status.ActiveEndpoint
+	if current == nil || current.Phase != wayv1.EndpointPhaseDraining || !evaluation.gatewayReady ||
+		!evaluation.adapterRequired || !evaluation.hasSelected ||
+		current.ServiceUID != evaluation.selected.ServiceUID || current.PodUID != evaluation.selected.PodUID {
+		return false
+	}
+	for _, condition := range lease.Status.Conditions {
+		if condition.Type == wayv1.ConditionResolvedRefs {
+			return condition.Status == metav1.ConditionFalse && condition.Reason == wayv1.ReasonNotReady
+		}
+	}
+	return false
 }
 
 func handoffDrainReason(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEvaluation) string {

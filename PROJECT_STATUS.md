@@ -203,6 +203,35 @@ handoff generation; after exact withdrawal and adapter recovery, the runtime
 may resume only that same target and generation. A real backend identity change
 still requires the existing drain-before-successor handoff.
 
+Signed `v0.1.0-rc.32` was published from exact commit
+`58b9c3550e483f13c7ba7ed1b0517d266afbb3a0`; runtime release run
+`33287364188` and CLI release run `33287364118` passed independent publication
+verification. Its canonical manifest identity is
+`sha256:dfca9f5d4573c1b3e908d7c8bdc782599605a264cc6537e8a9a46245e4b7bf70`.
+The confirmation-bound transition, gateway activation, and homelab GitOps
+revision `0c2baf0cf65e7eb45f9332c3823e12f6bd6639a8` completed with exact RC.32
+runtime images and fail-closed recovery.
+
+RC.32 qualification then exposed a second adapter-suspension defect before a
+soak epoch began. The immutable adapter trust-record rotation correctly made
+the lease non-ready, but runtime withdrawal needed more than one reconcile.
+The first reconcile marked the endpoint `Draining`; the next classified only
+that generic phase and lost the original adapter-suspension cause. Completion
+therefore stopped preserving the unchanged Service/Pod identity, advanced the
+handoff generation from 255 to 256, and left the lease withdrawn with
+`ObservationUnavailable` after the replacement adapter was Ready. This is a
+product failure, not provider rotation or soak evidence.
+
+The successor records adapter unavailability with the existing `NotReady`
+condition reason and carries that cause across a pending multi-reconcile
+withdrawal only while the gateway and exact backend Service/Pod identities
+remain unchanged. Completed withdrawal can then resume the same endpoint and
+handoff generation after adapter recovery. Gateway loss and real backend
+identity changes retain their existing handoff semantics. No API field,
+dependency, readiness hysteresis, or permissive recovery path is added. RC.32
+cannot enter the graduation soak; a new exact candidate and full controlled
+adapter-rotation proof are required.
+
 ## Dependency-backed stabilization direction
 
 ADR 0044 was accepted on 2026-08-26 after the RC.26 local-cluster qBittorrent

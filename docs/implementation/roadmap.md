@@ -9,7 +9,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-29):** `v0.1.0-rc.31` preserves the
+**Release-candidate checkpoint (2026-08-30):** `v0.1.0-rc.32` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
 72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
@@ -47,7 +47,18 @@ recovery. It also spends the existing bounded three-attempt DNS observation
 budget on transient `SERVFAIL` responses while still rejecting persistent
 failures immediately after that bound. It adds no dependency or hysteresis. A
 new exact candidate and clean 72-hour epoch are required; RC.31 does not close
-#123, #140, or #141.
+#123, #140, or #141. RC.32 exact publication, confirmation-bound deployment,
+gateway activation, and GitOps revision
+`0c2baf0cf65e7eb45f9332c3823e12f6bd6639a8` passed, but the immutable adapter
+trust-record rotation exposed a follow-on defect before any soak epoch began.
+When adapter withdrawal required multiple reconciles, the persisted generic
+`Draining` phase lost its adapter-suspension cause; completion advanced the
+unchanged backend from handoff generation 255 to 256 and remained withdrawn
+after the replacement adapter became Ready. The successor persists that cause
+with the existing `NotReady` condition reason and preserves identity only when
+the gateway and exact Service/Pod remain unchanged. Real backend and gateway
+handoffs retain their prior semantics. RC.32 contributes lifecycle evidence
+only; another exact candidate and clean 72-hour epoch are required.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to
