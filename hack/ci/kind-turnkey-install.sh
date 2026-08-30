@@ -1060,6 +1060,19 @@ EOF
     sleep 1
   done
   if [[ "$transition_deny_observed" != true ]]; then
+	  kubectl get vpnworkloadbindings --all-namespaces -o json | jq '{items: [.items[] | {
+	    namespace: .metadata.namespace,
+	    name: .metadata.name,
+	    uid: .metadata.uid,
+	    generation: .metadata.generation,
+	    nodeName: .spec.nodeName,
+	    status: .status
+	  }]}' >&2 || true
+	  kubectl get node -o json | jq '{items: [.items[] | {
+	    name: .metadata.name,
+	    waycloakLabels: (.metadata.labels | with_entries(select(.key | startswith("networking.waycloak.io"))))
+	  }]}' >&2 || true
+	  kubectl logs daemonset/waycloak-node-agent --namespace "$system_namespace" --all-containers=true >&2 || true
     printf '%s staged transition lacked exact plan-bound binding withdrawal\n' "$label" >&2
     return 1
   fi
