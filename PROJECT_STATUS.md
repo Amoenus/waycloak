@@ -170,7 +170,7 @@ One short pre-epoch collector run is preserved as invalid because its generated
 DHT collector retained an RC.23 Argo revision comparison; it recorded no
 product failure and contributes no duration. The unchanged-artifact RC.31 epoch
 that began at `2026-08-29T21:59:40.8239325Z` is also invalid. It recorded an
-unexplained backend-selection loss and handoff generation 249 to 250, followed
+adapter-reference convergence loss and handoff generation 249 to 250, followed
 by a single UDP AAAA `SERVFAIL` from the Gluetun/CoreDNS path that immediately
 withdrew gateway readiness and advanced the lease from 250 to 251. No Pod UID,
 restart, release, mapping, or GitOps identity changed, recovery took 1.183
@@ -189,6 +189,19 @@ observation, not readiness hysteresis, and adds no dependency; the already
 qualified `golang.org/x/net` DNS message implementation remains in use. A new
 exact candidate, GitOps transition, controlled fault evidence, and fresh
 minimum 72-hour unchanged-artifact soak are required.
+
+The first handoff is also a Waycloak defect rather than a provider rotation.
+The immutable `WorkloadAdapter` trust record had been recreated at 21:52:10Z;
+its Service and exact adapter Pod stayed stable, but its EndpointSlice/status
+converged at 22:11:10Z. The lease controller checked adapter readiness before
+persisting the already-resolved application backend into its evaluation. A
+non-True adapter status therefore appeared as `backend_not_selected`, causing
+an unnecessary drain and handoff increment even though the Service and Pod UIDs
+did not change. The successor keeps those identities separate: adapter loss
+still atomically withdraws rules and delivery, but retains the endpoint and
+handoff generation; after exact withdrawal and adapter recovery, the runtime
+may resume only that same target and generation. A real backend identity change
+still requires the existing drain-before-successor handoff.
 
 ## Dependency-backed stabilization direction
 

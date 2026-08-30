@@ -37,12 +37,17 @@ rotation passed. The RC.31 unchanged-artifact epoch that began at
 `2026-08-29T21:59:40.8239325Z` is preserved as invalid: it recorded two handoff
 increments, the second after a transient UDP AAAA `SERVFAIL` caused immediate
 fail-closed withdrawal. Exact artifacts and Pods did not change and retained
-external TCP checks passed, but the strict audit correctly rejects multiple
-unexplained lifecycle events. The successor source spends the existing bounded
-three-attempt DNS observation budget on transient `SERVFAIL` responses while
-still rejecting persistent failures immediately after that bound. It adds no
-dependency or hysteresis. A new exact candidate and clean 72-hour epoch are
-required; RC.31 does not close #123, #140, or #141.
+external TCP checks passed, but the strict audit correctly rejects the epoch.
+The first increment was traced to an adapter-reference convergence race: the
+lease evaluator treated a non-True `WorkloadAdapter` as loss of the separately
+resolved backend and rotated an unchanged Service/Pod identity. The successor
+withdraws rules and delivery while preserving that identity and generation,
+then resumes only the exact same target after completed withdrawal and adapter
+recovery. It also spends the existing bounded three-attempt DNS observation
+budget on transient `SERVFAIL` responses while still rejecting persistent
+failures immediately after that bound. It adds no dependency or hysteresis. A
+new exact candidate and clean 72-hour epoch are required; RC.31 does not close
+#123, #140, or #141.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to

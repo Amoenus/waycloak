@@ -80,6 +80,9 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 		if intent.HandoffGeneration == previous.intent.HandoffGeneration && !sameRuntimeTarget(previous.intent, intent) {
 			return Observation{}, errors.New("target identity changed within one handoff generation")
 		}
+		if intent.HandoffGeneration == previous.intent.HandoffGeneration && previous.draining && !previous.drained {
+			return Observation{}, errors.New("target resumed before withdrawal completed")
+		}
 		if intent.HandoffGeneration > previous.intent.HandoffGeneration && !previous.drained {
 			return Observation{}, errors.New("successor target arrived before old rules were withdrawn")
 		}
@@ -139,11 +142,10 @@ func (m *GatewayRuntimeManager) Reconcile(ctx context.Context, gateway *wayv1.VP
 			}
 		}
 	}
+	// A completed fail-closed suspension may resume the same exact target and
+	// generation. Reconcile is reached only after the controller observed the
+	// withdrawal, so the new state deliberately clears draining/drained.
 	state := runtimeState{intent: intent, mapping: mapping, renewAfter: renewAfter}
-	if exists && intent.HandoffGeneration == previous.intent.HandoffGeneration {
-		state.draining = previous.draining
-		state.drained = previous.drained
-	}
 	m.states[intent.LeaseUID] = state
 	rule := ruleFor(state)
 	if err := m.Rules.Replace(ctx, m.ruleSet()); err != nil {

@@ -88,11 +88,13 @@ type leaseEvaluation struct {
 	hasSelected                     bool
 	runtimeEligible                 bool
 	gatewayReady                    bool
+	adapterRequired                 bool
+	adapterReady                    bool
 	providerAssignedApplicationPort bool
 }
 
 func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.PortForwardLease) leaseEvaluation {
-	evaluation := leaseEvaluation{states: pendingLeaseStates(lease.Spec.ApplicationAdapterRef == nil)}
+	evaluation := leaseEvaluation{states: pendingLeaseStates(lease.Spec.ApplicationAdapterRef == nil), adapterRequired: lease.Spec.ApplicationAdapterRef != nil, adapterReady: lease.Spec.ApplicationAdapterRef == nil}
 	authorizer := r.Authorizer
 	if authorizer == nil {
 		authorizer = reference.GatewayAuthorizer{Reader: r.reader()}
@@ -138,6 +140,12 @@ func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.
 		return evaluation
 	}
 	evaluation.resolution = backend
+	selected, ok := Select(backend.Candidates, lease.Status.ActiveEndpoint)
+	if !ok {
+		evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, "No eligible SingleActive Service endpoint is available")
+		return evaluation
+	}
+	evaluation.selected, evaluation.hasSelected = selected, true
 	if lease.Spec.ApplicationAdapterRef != nil {
 		if !hasGatewayFeature(gateway, wayv1.FeatureWorkloadAdapter) {
 			evaluation.states[wayv1.ConditionAccepted] = wayconditions.False(wayv1.ReasonUnsupportedFeature, "Gateway does not advertise workload adapters")
@@ -149,6 +157,7 @@ func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.
 			evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, "Application adapter reference is unresolved")
 			return evaluation
 		}
+		evaluation.adapterReady = true
 		for _, feature := range adapter.Spec.SupportedFeatures {
 			if feature == ProviderAssignedApplicationPortFeature {
 				evaluation.providerAssignedApplicationPort = true
@@ -156,13 +165,7 @@ func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.
 			}
 		}
 	}
-	selected, ok := Select(backend.Candidates, lease.Status.ActiveEndpoint)
-	if !ok {
-		evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, "No eligible SingleActive Service endpoint is available")
-		return evaluation
-	}
 	evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.True(wayv1.ReasonResolvedRefs, "Gateway and exact Service endpoint are resolved")
-	evaluation.selected, evaluation.hasSelected = selected, true
 	return evaluation
 }
 
@@ -199,7 +202,7 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 				"resolved_refs_reason", resolved.Reason,
 			)
 		}
-		return r.drainStatus(ctx, lease, evaluation)
+		return r.drainStatus(ctx, lease, evaluation, drainReason == "adapter_not_ready")
 	}
 	if current == nil {
 		status.HandoffGeneration++
@@ -250,6 +253,8 @@ func handoffDrainReason(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEval
 		return "gateway_not_ready"
 	case current.Phase == wayv1.EndpointPhaseDraining:
 		return "already_draining"
+	case evaluation.hasSelected && evaluation.adapterRequired && !evaluation.adapterReady:
+		return "adapter_not_ready"
 	case !evaluation.hasSelected:
 		return "backend_not_selected"
 	case current.ServiceUID != evaluation.selected.ServiceUID:
@@ -261,7 +266,7 @@ func handoffDrainReason(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEval
 	}
 }
 
-func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *wayv1.PortForwardLease, evaluation leaseEvaluation) (wayv1.PortForwardLeaseStatus, time.Duration) {
+func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *wayv1.PortForwardLease, evaluation leaseEvaluation, preserveIdentity bool) (wayv1.PortForwardLeaseStatus, time.Duration) {
 	states := pendingLeaseStates(lease.Spec.ApplicationAdapterRef == nil)
 	states[wayv1.ConditionAccepted] = evaluation.states[wayv1.ConditionAccepted]
 	states[wayv1.ConditionResolvedRefs] = evaluation.states[wayv1.ConditionResolvedRefs]
@@ -283,6 +288,11 @@ func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *way
 	observation, err := r.Runtime.Withdraw(ctx, evaluation.gateway, withdrawal)
 	if err != nil || !r.currentWithdrawal(observation, withdrawal) {
 		unknownRuntimeStates(states)
+		status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
+		return status, r.observationFreshness() / 2
+	}
+	if preserveIdentity {
+		status.ActiveEndpoint.Phase = wayv1.EndpointPhaseSelecting
 		status.Conditions = wayv1.LeaseConditions(wayconditions.Build(lease.Status.Conditions, lease.Generation, r.now(), leaseConditionOrder, states))
 		return status, r.observationFreshness() / 2
 	}

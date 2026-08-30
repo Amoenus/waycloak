@@ -54,6 +54,28 @@ func TestGatewayRuntimeRequiresDrainBeforeSuccessorAndPreservesProviderIdentity(
 	}
 }
 
+func TestGatewayRuntimeResumesExactTargetAfterCompletedSuspension(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	driver := &managerDriver{now: now}
+	rules := &managerRules{}
+	manager := &GatewayRuntimeManager{PortForward: driver, Rules: rules, Delivery: &managerDelivery{}, Now: func() time.Time { return now }}
+	gateway := &wayv1.VPNGateway{ObjectMeta: metav1.ObjectMeta{UID: "gateway-uid"}}
+	intent := managerIntent("pod-a", 7)
+	if _, err := manager.Reconcile(context.Background(), gateway, intent); err != nil {
+		t.Fatal(err)
+	}
+	withdrawal := WithdrawalIntent{APIVersion: RuntimeAPIVersion, LeaseNamespace: intent.LeaseNamespace, LeaseUID: intent.LeaseUID, GatewayUID: intent.GatewayUID, HandoffGeneration: intent.HandoffGeneration, ServiceUID: intent.ServiceUID, EndpointSliceUID: intent.EndpointSliceUID, PodUID: intent.PodUID}
+	if observation, err := manager.Withdraw(context.Background(), gateway, withdrawal); err != nil || !observation.Withdrawn {
+		t.Fatalf("suspension withdrawal = %#v, %v", observation, err)
+	}
+	if observation, err := manager.Reconcile(context.Background(), gateway, intent); err != nil || !observation.GatewayRulesReady {
+		t.Fatalf("same-generation resume = %#v, %v", observation, err)
+	}
+	if got, want := rules.replacements, [][]wayv1.ObjectUID{{"lease-uid"}, {}, {"lease-uid"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("suspension replacements = %#v, want %#v", got, want)
+	}
+}
+
 func TestGatewayRuntimeCanReleaseAfterRestartFromDurableWithdrawalIdentity(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	driver := &managerDriver{now: now}

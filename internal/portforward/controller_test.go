@@ -206,6 +206,77 @@ func TestApplicationEndpointRetiredRequiresDifferentSelectedPodUID(t *testing.T)
 	}
 }
 
+func TestUnavailableAdapterPreservesStableBackendIdentity(t *testing.T) {
+	lease, gateway, service := leaseFixture()
+	gateway.Namespace = lease.Namespace
+	lease.Spec.GatewayRef.Namespace = wayv1.NamespaceName(lease.Namespace)
+	lease.Spec.ApplicationAdapterRef = &wayv1.LocalObjectReference{Name: "qbittorrent"}
+	readyGateway(gateway)
+	gateway.Status.SupportedFeatures = append(gateway.Status.SupportedFeatures, wayv1.FeatureWorkloadAdapter)
+	pod, binding := boundPod("app-a", "pod-a", "binding-a", gateway)
+	endpointSlice := endpointSlice("slice-a", "slice-a", service, pod, 8080)
+	lease.Status.ActiveEndpoint = endpointFor(Candidate{ServiceUID: wayv1.ObjectUID(service.UID), EndpointSliceUID: wayv1.ObjectUID(endpointSlice.UID), PodUID: wayv1.ObjectUID(pod.UID)}, wayv1.EndpointPhaseActive)
+	adapter := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent", Namespace: lease.Namespace, Generation: 1}}
+	kube := leaseClient(t, lease, gateway, service, pod, binding, endpointSlice, adapter)
+	evaluation := (&PortForwardLeaseReconciler{Client: kube, APIReader: kube}).evaluate(context.Background(), lease)
+	if !evaluation.hasSelected || !evaluation.adapterRequired || evaluation.adapterReady || evaluation.selected.PodUID != wayv1.ObjectUID(pod.UID) {
+		t.Fatalf("unavailable adapter lost stable selection: %#v", evaluation)
+	}
+	if got := handoffDrainReason(lease.Status.ActiveEndpoint, evaluation); got != "adapter_not_ready" {
+		t.Fatalf("adapter suspension reason = %q", got)
+	}
+}
+
+func TestUnavailableAdapterWithdrawsWithoutHandoffAndRecoversSameIdentity(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	lease, gateway, service := leaseFixture()
+	gateway.Namespace = lease.Namespace
+	lease.Spec.GatewayRef.Namespace = wayv1.NamespaceName(lease.Namespace)
+	lease.Spec.ApplicationAdapterRef = &wayv1.LocalObjectReference{Name: "qbittorrent"}
+	readyGateway(gateway)
+	gateway.Status.SupportedFeatures = append(gateway.Status.SupportedFeatures, wayv1.FeatureWorkloadAdapter)
+	pod, binding := boundPod("app-a", "pod-a", "binding-a", gateway)
+	endpointSlice := endpointSlice("slice-a", "slice-a", service, pod, 8080)
+	lease.Finalizers = []string{ProviderCleanupFinalizer}
+	lease.Status = wayv1.PortForwardLeaseStatus{ObservedGeneration: lease.Generation, HandoffGeneration: 7,
+		ActiveEndpoint: endpointFor(Candidate{ServiceUID: wayv1.ObjectUID(service.UID), EndpointSliceUID: wayv1.ObjectUID(endpointSlice.UID), PodUID: wayv1.ObjectUID(pod.UID)}, wayv1.EndpointPhaseActive),
+		Provider:       &wayv1.ProviderMappingStatus{PublicAddress: "8.8.8.8", PublicPort: 42000, ExpiresAt: metav1.NewTime(now.Add(time.Minute))}}
+	adapter := &wayv1.WorkloadAdapter{ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent", Namespace: lease.Namespace, Generation: 1}}
+	kube := leaseClient(t, lease, gateway, service, pod, binding, endpointSlice, adapter)
+	runtime := &fakeRuntime{now: now, withdrawReady: true}
+	reconciler := &PortForwardLeaseReconciler{Client: kube, APIReader: kube, Runtime: runtime, Now: func() time.Time { return now }}
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(lease)}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	suspended := getLease(t, kube, lease)
+	if suspended.Status.HandoffGeneration != 7 || suspended.Status.ActiveEndpoint == nil || suspended.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) || suspended.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseSelecting {
+		t.Fatalf("adapter suspension changed stable identity: %#v", suspended.Status)
+	}
+	if got := runtime.calls; !reflect.DeepEqual(got, []string{"withdraw:pod-a:7"}) {
+		t.Fatalf("adapter suspension calls = %v", got)
+	}
+
+	currentAdapter := &wayv1.WorkloadAdapter{}
+	if err := kube.Get(context.Background(), client.ObjectKeyFromObject(adapter), currentAdapter); err != nil {
+		t.Fatal(err)
+	}
+	currentAdapter.Status = wayv1.WorkloadAdapterStatus{ObservedGeneration: 1, Conditions: wayv1.Conditions{{Type: wayv1.ConditionReady, Status: metav1.ConditionTrue, Reason: wayv1.ReasonReady, ObservedGeneration: 1, LastTransitionTime: metav1.NewTime(now)}}}
+	if err := kube.Update(context.Background(), currentAdapter); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	recovered := getLease(t, kube, lease)
+	if recovered.Status.HandoffGeneration != 7 || recovered.Status.ActiveEndpoint == nil || recovered.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) {
+		t.Fatalf("adapter recovery rotated stable identity: %#v", recovered.Status)
+	}
+	if got := runtime.calls; !reflect.DeepEqual(got, []string{"withdraw:pod-a:7", "reconcile:pod-a:7"}) {
+		t.Fatalf("adapter recovery calls = %v", got)
+	}
+}
+
 func TestControllerDerivesProviderAssignedPortOnlyFromReadyAdapterCapability(t *testing.T) {
 	lease, gateway, service := leaseFixture()
 	gateway.Namespace = lease.Namespace
