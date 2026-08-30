@@ -102,8 +102,12 @@ Its authenticated observation relay accepts that source identity only when the
 report is `Ready=False` and its instance identity equals the plan digest; a
 positive report, foreign plan, or any other source identity remains rejected.
 This keeps the withdrawal acknowledgement current after the controller changes
-without making the relay dual-release capable outside the transaction. Apply
-then replaces every stale
+without making the relay dual-release capable outside the transaction. While
+held, the agent also reports every binding assigned to its node as not applied,
+including a binding created after the hold began and before CNI has a durable
+attachment to enumerate. That negative-only coverage is sourced from the
+existing controller-runtime cache and remains bound to the authenticated node,
+plan digest, Pod UID, binding UID, and gateway UID. Apply then replaces every stale
 `OnDelete` gateway Pod and requires the exact target Pod and current Gateway
 `Ready=True` observation while workloads remain denied. The second revision
 removes the hold and activates the target node-agent release identity. This

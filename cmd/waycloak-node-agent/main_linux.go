@@ -112,7 +112,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		// CNI ADD is a creation-time security boundary. Resolve the exact Pod UID
 		// and node assignment from the API server, not an eventually consistent
 		// controller-runtime cache that may still hold a prior name/UID pair.
-		Reader: manager.GetAPIReader(), Programmer: waycni.LinuxEnforcer{Backend: backend},
+		Reader: manager.GetAPIReader(), BindingReader: manager.GetClient(), Programmer: waycni.LinuxEnforcer{Backend: backend},
 		Store: waycni.FileStore{Directory: stateDir}, NodeName: nodeName, NodeBootID: bootID, InstanceID: instanceID,
 		RequireRelay: true, CapabilityHeld: observationCapabilityHold, TransitionHeld: observationCapabilityHoldID != "", Capabilities: []string{"nftables", "netlink", "vxlan", "ipv4", "dns-udp-tcp"},
 		ReleaseIdentity:     releaseIdentity,

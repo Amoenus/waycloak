@@ -351,6 +351,24 @@ func TestTransitionHoldReconciliationNeverReopensDurableAttachment(t *testing.T)
 	}
 }
 
+func TestTransitionHoldWithdrawsNodeBindingWithoutDurableAttachment(t *testing.T) {
+	service, _, _, programmer := fixture(t)
+	service.CapabilityHeld = true
+	service.TransitionHeld = true
+	service.Store = staticAttachments{}
+	if err := service.ReconcileAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(programmer.events) != 0 {
+		t.Fatalf("binding without attachment mutated packet state: %v", programmer.events)
+	}
+	observations := service.Observations()
+	if len(observations) != 1 || observations[0].Ready || observations[0].BindingUID != "binding-uid" ||
+		observations[0].InstanceID != "agent-a" {
+		t.Fatalf("transition hold did not cover binding without attachment: %#v", observations)
+	}
+}
+
 func TestAuthenticatedRestartRecoveryBypassesOnlyPublicReadinessGate(t *testing.T) {
 	service, identity, reference, programmer := fixture(t)
 	service.RequireRelay = true

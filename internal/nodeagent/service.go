@@ -94,6 +94,7 @@ type Report struct {
 // repair for one node.
 type Service struct {
 	Reader              client.Reader
+	BindingReader       client.Reader
 	Programmer          Programmer
 	Store               AttachmentStore
 	NodeName            string
@@ -248,6 +249,32 @@ func (s *Service) LockdownAll(ctx context.Context) error {
 			continue
 		}
 		if binding, readErr := s.rawBinding(ctx, attachment.Pod.Namespace, attachment.Pod.UID); readErr == nil {
+			s.observe(binding, false)
+		}
+	}
+	// A binding can be created while the node-wide transition hold is already
+	// active, before CNI has a durable attachment to enumerate. The authenticated
+	// node agent still has exact authority to report that local binding as not
+	// applied: the hold keeps CNI readiness closed and every existing attachment
+	// locked down. Cover every binding assigned to this node so the controller
+	// cannot retain or create an unacknowledged status gap during a release
+	// transition or relay-loss withdrawal.
+	bindings := &wayv1.VPNWorkloadBindingList{}
+	bindingReader := s.BindingReader
+	if bindingReader == nil {
+		bindingReader = s.Reader
+	}
+	if bindingReader == nil {
+		errs = append(errs, errors.New("kubernetes binding reader is unavailable"))
+	} else if listErr := bindingReader.List(ctx, bindings); listErr != nil {
+		errs = append(errs, fmt.Errorf("list node bindings for withdrawal: %w", listErr))
+	} else {
+		for index := range bindings.Items {
+			binding := &bindings.Items[index]
+			if string(binding.Spec.NodeName) != s.NodeName || binding.Generation < 1 || binding.UID == "" ||
+				binding.Spec.PodRef.UID == "" || binding.Spec.GatewayRef.UID == "" {
+				continue
+			}
 			s.observe(binding, false)
 		}
 	}
