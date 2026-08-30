@@ -222,14 +222,18 @@ handoff generation from 255 to 256, and left the lease withdrawn with
 `ObservationUnavailable` after the replacement adapter was Ready. This is a
 product failure, not provider rotation or soak evidence.
 
-The successor records adapter unavailability with the existing `NotReady`
-condition reason and carries that cause across a pending multi-reconcile
-withdrawal only while the gateway and exact backend Service/Pod identities
-remain unchanged. Completed withdrawal can then resume the same endpoint and
-handoff generation after adapter recovery. Gateway loss and real backend
-identity changes retain their existing handoff semantics. No API field,
-dependency, readiness hysteresis, or permissive recovery path is added. RC.32
-cannot enter the graduation soak; a new exact candidate and full controlled
+The first successor attempted to record adapter unavailability with `NotReady`,
+but live RC.33 validation correctly rejected that as an unstable
+`ResolvedRefs` reason under the frozen API policy. The runtime had already
+withdrawn while the rejected status remained stale, so RC.33 is also invalid
+before any soak epoch. The corrected implementation keeps the stable
+`RefNotFound` reason and a controller-owned adapter-unavailable message marker,
+then carries that cause across a pending multi-reconcile withdrawal only while
+the gateway and exact backend Service/Pod identities remain unchanged.
+Completed withdrawal can resume the same endpoint and handoff generation after
+adapter recovery. Gateway loss and real backend identity changes retain their
+existing handoff semantics. No API field, dependency, readiness hysteresis, or
+permissive recovery path is added. A new exact candidate and full controlled
 adapter-rotation proof are required.
 
 ## Dependency-backed stabilization direction

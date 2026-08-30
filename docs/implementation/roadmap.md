@@ -54,11 +54,14 @@ trust-record rotation exposed a follow-on defect before any soak epoch began.
 When adapter withdrawal required multiple reconciles, the persisted generic
 `Draining` phase lost its adapter-suspension cause; completion advanced the
 unchanged backend from handoff generation 255 to 256 and remained withdrawn
-after the replacement adapter became Ready. The successor persists that cause
-with the existing `NotReady` condition reason and preserves identity only when
-the gateway and exact Service/Pod remain unchanged. Real backend and gateway
-handoffs retain their prior semantics. RC.32 contributes lifecycle evidence
-only; another exact candidate and clean 72-hour epoch are required.
+after the replacement adapter became Ready. RC.33 then proved that `NotReady`
+is intentionally rejected as an unstable `ResolvedRefs` reason by the frozen
+API admission policy; the runtime withdrew but the rejected status stayed
+stale, so RC.33 is invalid before soak. The corrected successor uses stable
+`RefNotFound` plus a controller-owned adapter-unavailable message marker and
+preserves identity only when the gateway and exact Service/Pod remain
+unchanged. Real backend and gateway handoffs retain their prior semantics.
+Another exact candidate and clean 72-hour epoch are required.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to

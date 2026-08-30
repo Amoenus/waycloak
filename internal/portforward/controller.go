@@ -27,6 +27,7 @@ const (
 	LeaseBackendIndex           = "networking.waycloak.io/lease-backend-service"
 	DefaultObservationFreshness = 20 * time.Second
 	DefaultCleanupTimeout       = 10 * time.Minute
+	adapterUnavailableMessage   = "Application adapter reference is unavailable"
 )
 
 var leaseConditionOrder = []string{
@@ -154,7 +155,7 @@ func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.
 		adapter := &wayv1.WorkloadAdapter{}
 		if err := r.reader().Get(ctx, client.ObjectKey{Namespace: lease.Namespace, Name: string(lease.Spec.ApplicationAdapterRef.Name)}, adapter); err != nil ||
 			!wayconditions.CurrentTrue(adapter.Status.Conditions, wayv1.ConditionReady, adapter.Status.ObservedGeneration, adapter.Generation) {
-			evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonNotReady, "Application adapter reference is unavailable")
+			evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, adapterUnavailableMessage)
 			return evaluation
 		}
 		evaluation.adapterReady = true
@@ -255,7 +256,7 @@ func adapterSuspensionInProgress(lease *wayv1.PortForwardLease, evaluation lease
 	}
 	for _, condition := range lease.Status.Conditions {
 		if condition.Type == wayv1.ConditionResolvedRefs {
-			return condition.Status == metav1.ConditionFalse && condition.Reason == wayv1.ReasonNotReady
+			return condition.Status == metav1.ConditionFalse && condition.Reason == wayv1.ReasonRefNotFound && condition.Message == adapterUnavailableMessage
 		}
 	}
 	return false

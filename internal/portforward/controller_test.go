@@ -225,6 +225,9 @@ func TestUnavailableAdapterPreservesStableBackendIdentity(t *testing.T) {
 	if got := handoffDrainReason(lease.Status.ActiveEndpoint, evaluation); got != "adapter_not_ready" {
 		t.Fatalf("adapter suspension reason = %q", got)
 	}
+	if state := evaluation.states[wayv1.ConditionResolvedRefs]; state.Reason != wayv1.ReasonRefNotFound || state.Message != adapterUnavailableMessage {
+		t.Fatalf("adapter suspension marker = %#v", state)
+	}
 }
 
 func TestUnavailableAdapterWithdrawsWithoutHandoffAndRecoversSameIdentity(t *testing.T) {
