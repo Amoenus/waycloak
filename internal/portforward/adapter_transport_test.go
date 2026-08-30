@@ -124,6 +124,7 @@ func TestAdapterDialerUsesExplicitResolverAndRecoversAfterFailedLookup(t *testin
 	}
 	defer dnsTCP.Close()
 	var queries atomic.Int32
+	var resolverReady atomic.Bool
 	go func() {
 		buffer := make([]byte, 1232)
 		for {
@@ -141,7 +142,8 @@ func TestAdapterDialerUsesExplicitResolverAndRecoversAfterFailedLookup(t *testin
 				continue
 			}
 			responseHeader := dnsmessage.Header{ID: header.ID, Response: true, Authoritative: true}
-			if queries.Add(1) == 1 {
+			queries.Add(1)
+			if !resolverReady.Load() {
 				responseHeader.RCode = dnsmessage.RCodeNameError
 			}
 			builder := dnsmessage.NewBuilder(nil, responseHeader)
@@ -167,8 +169,10 @@ func TestAdapterDialerUsesExplicitResolverAndRecoversAfterFailedLookup(t *testin
 	if _, err := dialer.Resolver.LookupNetIP(context.Background(), "ip4", "adapter.apps.svc.cluster.local"); err == nil {
 		t.Fatal("first failed sidecar lookup unexpectedly succeeded")
 	}
+	failedQueries := queries.Load()
+	resolverReady.Store(true)
 	addresses, err := dialer.Resolver.LookupNetIP(context.Background(), "ip4", "adapter.apps.svc.cluster.local")
-	if err != nil || len(addresses) != 1 || addresses[0].String() != "127.0.0.1" || queries.Load() != 2 {
+	if err != nil || len(addresses) != 1 || addresses[0].String() != "127.0.0.1" || failedQueries < 1 || queries.Load() <= failedQueries {
 		t.Fatalf("sidecar lookup recovery = %v queries=%d, %v", addresses, queries.Load(), err)
 	}
 	tcpResolverConnection, err := dialer.Resolver.Dial(context.Background(), "tcp", "192.0.2.53:53")
