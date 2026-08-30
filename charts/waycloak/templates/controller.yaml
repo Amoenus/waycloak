@@ -80,6 +80,11 @@ spec:
             - --release-version={{ $version }}
             - --release-manifest-digest={{ $manifest }}
             - --conformance-profile={{ .Values.controller.conformanceProfile }}
+            {{ if .Values.nodeAgent.observationCapabilityHold }}
+            - --transition-plan-id={{ required "nodeAgent.transitionPlanID is required for a held transition controller" .Values.nodeAgent.transitionPlanID }}
+            - --transition-source-version={{ required "nodeAgent.releaseIdentity.version is required for a held transition controller" .Values.nodeAgent.releaseIdentity.version }}
+            - --transition-source-manifest-digest={{ required "nodeAgent.releaseIdentity.manifestDigest is required for a held transition controller" .Values.nodeAgent.releaseIdentity.manifestDigest }}
+            {{ end }}
             - --observation-bind-address=:{{ .Values.controller.observationPort }}
             - --observation-tls-cert=/var/run/secrets/waycloak-observation/tls.crt
             - --observation-tls-key=/var/run/secrets/waycloak-observation/tls.key

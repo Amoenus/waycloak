@@ -1292,6 +1292,18 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 func seedStagedRelease(t *testing.T, clients *Clients, source InstalledReleaseObservation, target ReleaseManifest, planID, namespace, release string, revision int64, crds []*apiextensionsv1.CustomResourceDefinition) {
 	t.Helper()
 	seedInstalledRelease(t, clients, target, namespace, release, revision, crds)
+	controller, err := clients.Kubernetes.AppsV1().Deployments(namespace).Get(context.Background(), chartFullname(release)+"-controller", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.Spec.Template.Spec.Containers[0].Args = append(controller.Spec.Template.Spec.Containers[0].Args,
+		"--transition-plan-id="+planID,
+		"--transition-source-version="+source.Version,
+		"--transition-source-manifest-digest="+source.ManifestDigest,
+	)
+	if _, err = clients.Kubernetes.AppsV1().Deployments(namespace).Update(context.Background(), controller, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	agent, err := clients.Kubernetes.AppsV1().DaemonSets(namespace).Get(context.Background(), chartFullname(release)+"-node-agent", metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)

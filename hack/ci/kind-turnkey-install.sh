@@ -873,7 +873,7 @@ apply_exact_transition() {
   local manifest_path="$2"
   local expected_version="$3"
   local plan_path="$work_dir/install-plan-${label}.json"
-  local expected_digest current_version before_revision after_revision plan_id
+  local expected_digest current_version source_digest before_revision after_revision plan_id
   local before_ca before_tls after_ca after_tls before_class_uid after_class_uid receipt_ready
   local helm_wrapper_dir stage_marker interrupted_pid startup_denied pod_name doctor_degraded
   local source_secret_path staged_revision repair_plan_path repair_plan_id repair_marker
@@ -913,6 +913,7 @@ apply_exact_transition() {
     --release "$release_name" \
     --output json >"$plan_path"
   plan_id="$(jq -r '.planID' "$plan_path")"
+  source_digest="$(jq -r '.source.manifestDigest' "$plan_path")"
   jq -e --arg source "$current_version" --arg target "$expected_version" --arg digest "$expected_digest" '
     .operation == "ExactReleaseTransition" and
     .source.state == "Deployed" and
@@ -1031,6 +1032,16 @@ EOF
         (.args | index("--release-version=" + $source) != null) and
         (.args | index("--observation-capability-hold=true") != null) and
         (.args | index("--observation-capability-hold-id=" + $plan) != null))
+    ' >/dev/null
+  kubectl get deployment/waycloak-controller --namespace "$system_namespace" -o json | \
+    jq -e --arg plan "$plan_id" --arg source "$current_version" --arg sourceDigest "$source_digest" \
+      --arg target "$expected_version" --arg targetDigest "$expected_digest" '
+      (.spec.template.spec.containers[] | select(.name == "controller") |
+        (.args | index("--release-version=" + $target) != null) and
+        (.args | index("--release-manifest-digest=" + $targetDigest) != null) and
+        (.args | index("--transition-plan-id=" + $plan) != null) and
+        (.args | index("--transition-source-version=" + $source) != null) and
+        (.args | index("--transition-source-manifest-digest=" + $sourceDigest) != null))
     ' >/dev/null
   local transition_deny_observed=false
   for _ in $(seq 1 60); do

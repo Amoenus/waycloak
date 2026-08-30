@@ -35,6 +35,7 @@ import (
 func main() {
 	var metricsAddress, probeAddress, observationAddress, observationCert, observationKey, observationAgentNamespace, observationAgentServiceAccount string
 	var gatewayControllerName, releaseVersion, releaseManifestDigest, conformanceProfile string
+	var transitionPlanID, transitionSourceVersion, transitionSourceManifestDigest string
 	var portForwardRuntimeCA, portForwardRuntimeCert, portForwardRuntimeKey string
 	var portForwardRuntimePort uint
 	var adapterCA, adapterCert, adapterKey string
@@ -58,6 +59,9 @@ func main() {
 	flag.StringVar(&releaseVersion, "release-version", "", "immutable signed release version")
 	flag.StringVar(&releaseManifestDigest, "release-manifest-digest", "", "immutable signed release manifest digest")
 	flag.StringVar(&conformanceProfile, "conformance-profile", "networking.waycloak.io/Core-v1", "immutable conformance profile identity")
+	flag.StringVar(&transitionPlanID, "transition-plan-id", "", "exact active release-transition plan digest; empty disables source withdrawal acknowledgement")
+	flag.StringVar(&transitionSourceVersion, "transition-source-version", "", "exact source release version accepted only for a plan-bound negative node report")
+	flag.StringVar(&transitionSourceManifestDigest, "transition-source-manifest-digest", "", "exact source release manifest accepted only for a plan-bound negative node report")
 	flag.StringVar(&portForwardRuntimeCA, "port-forward-runtime-ca", "", "CA bundle for per-gateway runtime Services; empty disables port forwarding")
 	flag.StringVar(&portForwardRuntimeCert, "port-forward-runtime-client-cert", "", "controller mTLS certificate for gateway runtimes")
 	flag.StringVar(&portForwardRuntimeKey, "port-forward-runtime-client-key", "", "controller mTLS private key for gateway runtimes")
@@ -87,8 +91,16 @@ func main() {
 	options.BindFlags(flag.CommandLine)
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options)))
-	if !waycontroller.ValidReleaseIdentity(wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}) {
+	releaseIdentity := wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}
+	if !waycontroller.ValidReleaseIdentity(releaseIdentity) {
 		ctrl.Log.Error(nil, "exact signed release version and manifest digest are required")
+		os.Exit(1)
+	}
+	transitionIdentity := wayv1.ReleaseIdentity{Version: transitionSourceVersion, ManifestDigest: transitionSourceManifestDigest}
+	transitionConfigured := transitionPlanID != "" || transitionSourceVersion != "" || transitionSourceManifestDigest != ""
+	if transitionConfigured && (!waycontroller.ValidReleaseIdentity(wayv1.ReleaseIdentity{Version: "transition", ManifestDigest: transitionPlanID}) ||
+		!waycontroller.ValidReleaseIdentity(transitionIdentity) || transitionIdentity == releaseIdentity) {
+		ctrl.Log.Error(nil, "transition acknowledgement requires one exact plan and a distinct exact source release identity")
 		os.Exit(1)
 	}
 	supportedFeatures := wayv1.BaselineFeatures()
@@ -224,7 +236,7 @@ func main() {
 			Reviewer: clientset.AuthenticationV1().TokenReviews(), Reader: manager.GetAPIReader(), Writer: manager.GetClient(),
 			AgentNamespace: observationAgentNamespace, AgentServiceAccount: observationAgentServiceAccount,
 			NodePublisher: &scheduling.Publisher{Client: manager.GetClient(),
-				ReleaseIdentity:    wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest},
+				ReleaseIdentity: releaseIdentity, TransitionPlanID: transitionPlanID, TransitionReleaseIdentity: transitionIdentity,
 				ConformanceProfile: wayv1.QualifiedName(conformanceProfile)},
 			OperationHook: func(operation string, elapsed time.Duration, operationErr error) {
 				logger := ctrl.Log.WithName("node-observation-relay").WithValues("operation", operation, "latency", elapsed.Round(time.Millisecond).String())

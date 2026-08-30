@@ -78,6 +78,52 @@ func TestPublisherWithdrawsSkewedOrUnsupportedReportsAndRejectsForeignNode(t *te
 	}
 }
 
+func TestPublisherAcceptsOnlyExactPlanBoundNegativeSourceReport(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	planID := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	source := releaseIdentity()
+	target := wayv1.ReleaseIdentity{Version: "v1.0.0-rc.2", ManifestDigest: "sha256:5555555555555555555555555555555555555555555555555555555555555555"}
+	validTransitionReport := validReport("node-a", now)
+	validTransitionReport.ReleaseIdentity = source
+	validTransitionReport.InstanceID = planID
+	validTransitionReport.Ready = false
+
+	kube := fakeClient(t, readyNode("node-a", now))
+	publisher := Publisher{Client: kube, ReleaseIdentity: target, TransitionPlanID: planID, TransitionReleaseIdentity: source,
+		ConformanceProfile: "networking.waycloak.io/Core-v1", Now: func() time.Time { return now }}
+	if err := publisher.Apply(context.Background(), agentPod("node-a"), validTransitionReport); err != nil {
+		t.Fatalf("exact transition withdrawal report was rejected: %v", err)
+	}
+	node := &corev1.Node{}
+	if err := kube.Get(context.Background(), client.ObjectKey{Name: "node-a"}, node); err != nil {
+		t.Fatal(err)
+	}
+	if node.Labels[CNIReadyLabel] != "" || node.Labels[CapabilityEpochLabel] != "" || node.Labels[ObservationEpochLabel] != "2000000000000" {
+		t.Fatalf("transition report did not publish an observed withdrawal: %#v", node.Labels)
+	}
+
+	for name, mutate := range map[string]func(*nodeagent.NodeReport){
+		"positive source report": func(report *nodeagent.NodeReport) { report.Ready = true },
+		"foreign plan": func(report *nodeagent.NodeReport) {
+			report.InstanceID = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		"foreign source": func(report *nodeagent.NodeReport) {
+			report.ReleaseIdentity.ManifestDigest = "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := validTransitionReport
+			mutate(&candidate)
+			candidateKube := fakeClient(t, readyNode("node-a", now))
+			candidatePublisher := publisher
+			candidatePublisher.Client = candidateKube
+			if err := candidatePublisher.Apply(context.Background(), agentPod("node-a"), candidate); err == nil {
+				t.Fatal("unsupported transition report was accepted")
+			}
+		})
+	}
+}
+
 func TestNodeCapabilityReconcilerWithdrawsStaleLabels(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	kube := fakeClient(t, readyNode("stale", now.Add(-time.Minute)), readyNode("fresh", now))

@@ -96,7 +96,14 @@ with the exact source release identity, so it can authenticate to the source
 controller and validate the source CNI receipt while refusing all local path
 activation. The first Helm revision deploys the target controller, CNI
 installer, immutable class, and successor node-agent image while preserving the
-hold and source node-agent release identity. Apply then replaces every stale
+hold and source node-agent release identity. The target controller receives the
+exact plan digest and exact source release identity for this staged revision.
+Its authenticated observation relay accepts that source identity only when the
+report is `Ready=False` and its instance identity equals the plan digest; a
+positive report, foreign plan, or any other source identity remains rejected.
+This keeps the withdrawal acknowledgement current after the controller changes
+without making the relay dual-release capable outside the transaction. Apply
+then replaces every stale
 `OnDelete` gateway Pod and requires the exact target Pod and current Gateway
 `Ready=True` observation while workloads remain denied. The second revision
 removes the hold and activates the target node-agent release identity. This
@@ -229,7 +236,9 @@ install/certificate operation is refused while the installed deny path remains.
   server-side status observations, and maintained `client-go` polling. No new
   lifecycle or packet-filter library is introduced: the transaction ordering
   is Waycloak-specific, while packet denial remains the existing native
-  nftables/netlink node-agent primitive.
+  nftables/netlink node-agent primitive. The staged relay allowance extends the
+  existing authenticated publisher with an exact negative-report predicate;
+  it does not add a second protocol, token format, or retry implementation.
 - Observation certificate rotation is explicit and restart-safe. The declared
   single-server K3s datastore-snapshot row completes issue #32; additional
   distributions or datastore topologies are separate support expansion.

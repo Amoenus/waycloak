@@ -31,12 +31,14 @@ const (
 var BaselineCapabilities = []string{"dns-udp-tcp", "ipv4", "netlink", "nftables", "vxlan"}
 
 type Publisher struct {
-	Client             client.Client
-	ReleaseIdentity    wayv1.ReleaseIdentity
-	ConformanceProfile wayv1.QualifiedName
-	Required           []string
-	Now                func() time.Time
-	ClockSkew          time.Duration
+	Client                    client.Client
+	ReleaseIdentity           wayv1.ReleaseIdentity
+	TransitionPlanID          string
+	TransitionReleaseIdentity wayv1.ReleaseIdentity
+	ConformanceProfile        wayv1.QualifiedName
+	Required                  []string
+	Now                       func() time.Time
+	ClockSkew                 time.Duration
 }
 
 func (p Publisher) Apply(ctx context.Context, agentPod *corev1.Pod, report nodeagent.NodeReport) error {
@@ -52,7 +54,7 @@ func (p Publisher) Apply(ctx context.Context, agentPod *corev1.Pod, report nodea
 		_ = p.withdraw(ctx, report.NodeName)
 		return errors.New("node capability observation time is outside the accepted window")
 	}
-	if report.ReleaseIdentity != p.ReleaseIdentity || report.ConformanceProfile != p.ConformanceProfile || !containsAll(report.Capabilities, p.required()) {
+	if !p.supportsReleaseIdentity(report) || report.ConformanceProfile != p.ConformanceProfile || !containsAll(report.Capabilities, p.required()) {
 		_ = p.withdraw(ctx, report.NodeName)
 		return errors.New("node capability or immutable release identity is unsupported")
 	}
@@ -72,6 +74,18 @@ func (p Publisher) Apply(ctx context.Context, agentPod *corev1.Pod, report nodea
 		return p.withdraw(ctx, report.NodeName)
 	}
 	return nil
+}
+
+func (p Publisher) supportsReleaseIdentity(report nodeagent.NodeReport) bool {
+	if report.ReleaseIdentity == p.ReleaseIdentity {
+		return true
+	}
+	// During one exact release transaction, the reviewed successor agent runs
+	// under the source release identity until target gateway readiness is
+	// proven. Accept only its plan-bound negative capability report. A positive
+	// report, a foreign plan, or any other source identity remains unsupported.
+	return p.TransitionPlanID != "" && report.InstanceID == p.TransitionPlanID && !report.Ready &&
+		report.ReleaseIdentity == p.TransitionReleaseIdentity
 }
 
 func (p Publisher) Withdraw(ctx context.Context, nodeName string) error {

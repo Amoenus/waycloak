@@ -76,28 +76,31 @@ type InstalledReleaseObservation struct {
 }
 
 type deployedReleaseComponents struct {
-	HelmRevision                int64
-	ControllerVersion           string
-	ControllerManifest          string
-	CNIVersion                  string
-	CNIManifest                 string
-	NodeAgentVersion            string
-	NodeAgentManifest           string
-	ClassPresent                bool
-	ClassVersion                string
-	ClassManifest               string
-	ClassUID                    string
-	ClassGeneration             int64
-	Images                      map[string]string
-	ObservationCAUID            string
-	ObservationTLSUID           string
-	ObservationCADigest         string
-	ObservationServingDigest    string
-	ObservationRotationID       string
-	ObservationCapabilityHeld   bool
-	ObservationCapabilityHoldID string
-	TransitionPlanID            string
-	CRDIdentities               map[string]string
+	HelmRevision                       int64
+	ControllerVersion                  string
+	ControllerManifest                 string
+	ControllerTransitionPlanID         string
+	ControllerTransitionSourceVersion  string
+	ControllerTransitionSourceManifest string
+	CNIVersion                         string
+	CNIManifest                        string
+	NodeAgentVersion                   string
+	NodeAgentManifest                  string
+	ClassPresent                       bool
+	ClassVersion                       string
+	ClassManifest                      string
+	ClassUID                           string
+	ClassGeneration                    int64
+	Images                             map[string]string
+	ObservationCAUID                   string
+	ObservationTLSUID                  string
+	ObservationCADigest                string
+	ObservationServingDigest           string
+	ObservationRotationID              string
+	ObservationCapabilityHeld          bool
+	ObservationCapabilityHoldID        string
+	TransitionPlanID                   string
+	CRDIdentities                      map[string]string
 }
 
 func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, release string) (InstalledReleaseObservation, error) {
@@ -189,6 +192,15 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 	manifestDigest, err := requiredArgument(controllerContainer.Args, "--release-manifest-digest=")
 	if err != nil {
 		return InstalledReleaseObservation{}, err
+	}
+	for _, prefix := range []string{"--transition-plan-id=", "--transition-source-version=", "--transition-source-manifest-digest="} {
+		value, argumentErr := optionalSingularArgument(controllerContainer.Args, prefix)
+		if argumentErr != nil {
+			return InstalledReleaseObservation{}, argumentErr
+		}
+		if value != "" {
+			return InstalledReleaseObservation{}, errors.New("deployed controller retains release-transition authority")
+		}
 	}
 	engineImage, err := requiredArgument(controllerContainer.Args, "--gateway-engine-image=")
 	if err != nil {
@@ -335,6 +347,18 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 	if err != nil {
 		return observation, err
 	}
+	controllerTransitionPlanID, err := optionalSingularArgument(controllerContainer.Args, "--transition-plan-id=")
+	if err != nil {
+		return observation, err
+	}
+	controllerTransitionSourceVersion, err := optionalSingularArgument(controllerContainer.Args, "--transition-source-version=")
+	if err != nil {
+		return observation, err
+	}
+	controllerTransitionSourceManifest, err := optionalSingularArgument(controllerContainer.Args, "--transition-source-manifest-digest=")
+	if err != nil {
+		return observation, err
+	}
 	engineImage, err := requiredArgument(controllerContainer.Args, "--gateway-engine-image=")
 	if err != nil {
 		return observation, err
@@ -384,7 +408,9 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 
 	observation = deployedReleaseComponents{
 		HelmRevision: revision, ControllerVersion: controllerVersion, ControllerManifest: controllerManifest,
-		CNIVersion: cniVersion, CNIManifest: cniManifest, NodeAgentVersion: nodeVersion, NodeAgentManifest: nodeManifest,
+		ControllerTransitionPlanID: controllerTransitionPlanID, ControllerTransitionSourceVersion: controllerTransitionSourceVersion,
+		ControllerTransitionSourceManifest: controllerTransitionSourceManifest,
+		CNIVersion:                         cniVersion, CNIManifest: cniManifest, NodeAgentVersion: nodeVersion, NodeAgentManifest: nodeManifest,
 		Images: images, ObservationCAUID: string(caSecret.UID), ObservationTLSUID: string(tlsSecret.UID),
 		ObservationCADigest: digestBytes(caSecret.Data["ca.crt"]), ObservationServingDigest: digestBytes(tlsSecret.Data["tls.crt"]),
 		ObservationRotationID:       rotationID,
@@ -449,6 +475,7 @@ func exactQuiescedClassReplacedComponents(components deployedReleaseComponents, 
 func exactQuiescedRuntimeComponents(components deployedReleaseComponents, plan InstallPlan) bool {
 	if plan.Source.State != installStateDeployed || components.HelmRevision != plan.Source.HelmRevision ||
 		!components.ObservationCapabilityHeld || components.ObservationCapabilityHoldID != plan.PlanID || components.TransitionPlanID != plan.PlanID ||
+		components.ControllerTransitionPlanID != "" || components.ControllerTransitionSourceVersion != "" || components.ControllerTransitionSourceManifest != "" ||
 		components.ControllerVersion != plan.Source.Version || components.ControllerManifest != plan.Source.ManifestDigest ||
 		components.CNIVersion != plan.Source.Version || components.CNIManifest != plan.Source.ManifestDigest ||
 		components.NodeAgentVersion != plan.Source.Version || components.NodeAgentManifest != plan.Source.ManifestDigest ||
@@ -486,6 +513,7 @@ func exactSourceComponents(components deployedReleaseComponents, source Installe
 func exactSourceRuntimeComponents(components deployedReleaseComponents, source InstalledReleaseObservation) bool {
 	return source.State == installStateDeployed && components.HelmRevision == source.HelmRevision &&
 		!components.ObservationCapabilityHeld && components.ObservationCapabilityHoldID == "" && components.TransitionPlanID == "" &&
+		components.ControllerTransitionPlanID == "" && components.ControllerTransitionSourceVersion == "" && components.ControllerTransitionSourceManifest == "" &&
 		components.ControllerVersion == source.Version && components.ControllerManifest == source.ManifestDigest &&
 		components.CNIVersion == source.Version && components.CNIManifest == source.ManifestDigest &&
 		components.NodeAgentVersion == source.Version && components.NodeAgentManifest == source.ManifestDigest &&
@@ -504,6 +532,7 @@ func exactStagedComponents(components deployedReleaseComponents, plan InstallPla
 	source, target := plan.Source, plan.Target
 	if source.State != installStateDeployed || components.HelmRevision <= source.HelmRevision || !components.ClassPresent ||
 		!components.ObservationCapabilityHeld || components.ObservationCapabilityHoldID != plan.PlanID || components.TransitionPlanID != plan.PlanID ||
+		components.ControllerTransitionPlanID != plan.PlanID || components.ControllerTransitionSourceVersion != source.Version || components.ControllerTransitionSourceManifest != source.ManifestDigest ||
 		components.ControllerVersion != target.Version || components.ControllerManifest != target.ManifestDigest ||
 		components.CNIVersion != target.Version || components.CNIManifest != target.ManifestDigest ||
 		components.NodeAgentVersion != source.Version || components.NodeAgentManifest != source.ManifestDigest ||
@@ -764,6 +793,21 @@ func requiredArgument(arguments []string, prefix string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("deployed release lacks %s argument", prefix)
+}
+
+func optionalSingularArgument(arguments []string, prefix string) (string, error) {
+	value := ""
+	for _, argument := range arguments {
+		if !strings.HasPrefix(argument, prefix) {
+			continue
+		}
+		candidate := strings.TrimPrefix(argument, prefix)
+		if value != "" || candidate == "" {
+			return "", fmt.Errorf("deployed release has an invalid %s argument", prefix)
+		}
+		value = candidate
+	}
+	return value, nil
 }
 
 func observationCapabilityHeld(arguments []string) (bool, error) {
