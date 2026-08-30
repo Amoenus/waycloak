@@ -72,6 +72,25 @@ qualified CoreDNS overlay listener using Go's standard-library resolver. This
 does not change the public API, cluster DNS implementation-neutral boundary,
 semantic readiness, or fail-closed policy. Another exact candidate, repeated
 packet-level tunnel-loss/recovery proof, and clean 72-hour epoch are required.
+RC.35 exactly published and deployed that resolver correction through homelab
+GitOps revision `b6e190b5b4ab37e713aa872f311f21ea236f6f3c`; immutable adapter
+rotation preserved the exact backend and handoff generation 261. Its controlled
+Gluetun PID 1 restart then exposed a separate CoreDNS recovery latch before
+soak. Gluetun loopback DNS recovered, but the sidecar retained the sole
+upstream as unhealthy and `failfast_all_unhealthy_upstreams` returned only
+`SERVFAIL`, keeping gateway, membership, lease, delivery, and acknowledgement
+safely withdrawn. The successor uses CoreDNS's maintained `max_fails 0` option
+for both forwarders so real queries retry recovered upstreams, while Waycloak's
+strict cluster/external A/AAAA UDP/TCP semantic probes remain the sole
+fail-closed readiness authority. It adds no fallback, hysteresis, dependency,
+cluster-DNS implementation assumption, or public API change. RC.35 cannot
+certify; another exact candidate and repeated recovery/packet gates are
+required before a fresh epoch.
+The successor also makes the gateway-transition evidence collector compatible
+with the Windows PowerShell 5.1 host used for local certification by replacing
+unsupported UTC timestamp and JSON parsing options. A one-sample live collector
+check emitted healthy start, sample, transition, and summary records without
+recording the provider endpoint.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to

@@ -90,7 +90,7 @@ function Start-GatewayTransitionWatch {
         $encoding = [System.Text.UTF8Encoding]::new($false)
         & kubectl -n $Namespace get vpngateway $Gateway --watch --output-watch-events -o=json 2>$null | ForEach-Object {
             try {
-                $event = $_ | ConvertFrom-Json -DateKind String
+                $event = $_ | ConvertFrom-Json
                 $resource = $event.object
                 $conditions = [ordered]@{}
                 foreach ($condition in @($resource.status.conditions)) {
@@ -103,7 +103,7 @@ function Start-GatewayTransitionWatch {
                 $record = [ordered]@{
                     kind = "WaycloakGatewayTransition"
                     apiVersion = "evidence.waycloak.io/v1"
-                    observedAt = Get-Date -AsUTC -Format "O"
+                    observedAt = [DateTimeOffset]::UtcNow.ToString("O")
                     eventType = [string]$event.type
                     gatewayUID = [string]$resource.metadata.uid
                     resourceVersion = [string]$resource.metadata.resourceVersion
@@ -118,7 +118,7 @@ function Start-GatewayTransitionWatch {
                 $record = [ordered]@{
                     kind = "WaycloakGatewayTransitionCollectionError"
                     apiVersion = "evidence.waycloak.io/v1"
-                    observedAt = Get-Date -AsUTC -Format "O"
+                    observedAt = [DateTimeOffset]::UtcNow.ToString("O")
                     failureCategory = $_.Exception.GetType().Name
                     publicEndpointRecorded = $false
                 }
@@ -392,7 +392,7 @@ $previousGatewayDNSReadyStatus = $null
 if (Test-Path -LiteralPath $transitionPath) {
     foreach ($line in Get-Content -LiteralPath $transitionPath) {
         [System.IO.File]::AppendAllText($OutputPath, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-        $transition = $line | ConvertFrom-Json -DateKind String
+        $transition = $line | ConvertFrom-Json
         if ($transition.kind -eq "WaycloakGatewayTransitionCollectionError") {
             $summary.gatewayTransitionCollectionFailures++
             continue

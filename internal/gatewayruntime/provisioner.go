@@ -291,8 +291,9 @@ func (provisioner *Provisioner) desiredCoreDNSConfig(gateway *wayv1.VPNGateway, 
         policy sequential
         max_concurrent 128
         expire 10s
-        health_check 1s
-        failfast_all_unhealthy_upstreams
+        # Waycloak's completed semantic probes own fail-closed readiness. Keep
+        # CoreDNS from retaining stale upstream health across process restarts.
+        max_fails 0
     }
 }
 .:%d {
@@ -302,8 +303,9 @@ func (provisioner *Provisioner) desiredCoreDNSConfig(gateway *wayv1.VPNGateway, 
         policy sequential
         max_concurrent 128
         expire 10s
-        health_check 1s
-        failfast_all_unhealthy_upstreams
+        # Waycloak's completed semantic probes own fail-closed readiness. Keep
+        # CoreDNS from retaining stale upstream health across process restarts.
+        max_fails 0
     }
 }
 `, provisioner.ClusterDomain, gatewaydataplane.DNSListenPort, listenAddress, provisioner.ClusterDNSUpstream.String(), gatewaydataplane.DNSListenPort, listenAddress)

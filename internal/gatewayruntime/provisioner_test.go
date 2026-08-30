@@ -47,9 +47,14 @@ func TestProvisionerCreatesCredentialIsolatedGatewayAndObservesExactPod(t *testi
 	dnsConfig := &corev1.ConfigMap{}
 	must(t, kube.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: "waycloak-gateway-private-dns"}, dnsConfig))
 	corefile := dnsConfig.Data["Corefile"]
-	for _, required := range []string{"cluster.local:1053", "bind 100.96.0.1", "forward . 10.43.0.10:53", ".:1053", "forward . 127.0.0.1:53", "max_concurrent 128", "failfast_all_unhealthy_upstreams"} {
+	for _, required := range []string{"cluster.local:1053", "bind 100.96.0.1", "forward . 10.43.0.10:53", ".:1053", "forward . 127.0.0.1:53", "max_concurrent 128", "max_fails 0"} {
 		if !strings.Contains(corefile, required) {
 			t.Fatalf("cluster-agnostic Corefile lacks %q:\n%s", required, corefile)
+		}
+	}
+	for _, forbidden := range []string{"health_check", "failfast_all_unhealthy_upstreams"} {
+		if strings.Contains(corefile, forbidden) {
+			t.Fatalf("Corefile retains sticky upstream health state %q:\n%s", forbidden, corefile)
 		}
 	}
 	if strings.Contains(corefile, "kubernetes") || strings.Contains(corefile, "kubeconfig") {

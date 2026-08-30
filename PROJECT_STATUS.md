@@ -267,6 +267,41 @@ is not treated as proof of ordinary-egress fallback; a successor candidate
 must repeat packet-level tunnel-loss proof and demonstrate both fail-closed
 withdrawal and automatic same-identity recovery before any new 72-hour epoch.
 
+Signed `v0.1.0-rc.35` was published from exact commit
+`225b2d8793845827dbee787132279144e5bd179c`; runtime release run
+`33304149150`, CLI release run `33304149139`, and both independent
+post-publication verifiers passed. Its canonical manifest identity is
+`sha256:05611fbd7dc76d7cbad816230e55ea30cd55c7ae9825b92ef48ce8cf1a88b2ff`.
+Confirmation-bound plan
+`sha256:a29616d6081142481692c5aaf3101bccb19dc3b9a9e4cae550a23aca4c88d485`
+deployed Helm revision 63, and homelab GitOps revision
+`b6e190b5b4ab37e713aa872f311f21ea236f6f3c` converged root, Waycloak, and
+qBittorrent Healthy/Synced. The immutable adapter replacement preserved the
+exact qBittorrent Service and Pod identities and handoff generation 261.
+
+RC.35 is also invalid before soak. The controlled Gluetun PID 1 restart proved
+gateway and lease withdrawal with no protected-workload success during a
+non-ready observation and preserved the gateway/workload Pod UIDs plus handoff
+generation. Gluetun's loopback DNS subsequently resolved external names again,
+but CoreDNS continued returning `SERVFAIL` with `no healthy proxies`. Its
+forward plugin had marked the sole loopback upstream unhealthy during the
+restart; the one-second connection-cached health loop plus
+`failfast_all_unhealthy_upstreams` prevented subsequent real semantic probes
+from exercising the recovered resolver. Gateway DNS, membership, lease rules,
+delivery, and acknowledgement therefore remained safely withdrawn.
+
+The successor disables CoreDNS's independent upstream health state with its
+maintained `max_fails 0` option for both generic cluster-DNS and Gluetun
+loopback forwarders. Every real query still reaches its sole selected upstream,
+and Waycloak's bounded cluster/external A/AAAA UDP/TCP probes remain the only
+readiness authority, so transport or response failure still withdraws
+immediately with no fallback or hysteresis. The pinned CoreDNS v1.14.7 remains
+the latest qualified stable release. The same correction replaces unsupported
+Windows PowerShell `Get-Date -AsUTC` and `ConvertFrom-Json -DateKind String`
+calls in the gateway-transition collector with PowerShell 5.1-compatible
+equivalents, preserving failed RC.35 evidence while allowing the successor
+preflight and soak collectors to complete.
+
 ## Dependency-backed stabilization direction
 
 ADR 0044 was accepted on 2026-08-26 after the RC.26 local-cluster qBittorrent
