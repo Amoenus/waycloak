@@ -100,6 +100,26 @@ reference assets explicitly; source-provenance references remain independently
 verified release inputs but cannot be passed to the image scanner. RC.38 is not
 reused; the corrected exact source requires a new signed candidate.
 
+RC.39 restored provider ingress and began an unchanged-artifact epoch, which is
+preserved as invalid. A node-observation publication timeout caused correct
+fail-closed withdrawal but unnecessarily advanced the unchanged backend
+handoff identity. RC.40 published the identity-preservation correction at
+source `a7843cef2bcaedf0bb4041de0c508b475ebb475f` with canonical manifest
+`sha256:d63bbf06e3aa85004db620e5fd76afa9015657fbe625ad5111b5fa31892de62e`.
+Its RC.39-to-RC.40 live transition stopped safely before Helm upgrade because
+the successor node-agent required exact installed-CNI identity flags that the
+source RC.39 chart did not render during the pre-transition hold. Supplying the
+exact source version and manifest identity restored the held agent; the same
+immutable plan then completed and the gateway, binding, mapping, delivery, and
+listener acknowledgement recovered. RC.40 remains invalid for certification
+because manual intervention was required. The corrective source makes
+pre-transition quiescence add the absent source CNI identity, retain already
+exact values, and reject duplicates or foreign values before mutation. It adds
+no dependency or permissive behavior; this signed release-state transition is
+Waycloak-owned logic over the existing qualified Kubernetes clients. A new
+signed candidate, exact GitOps transition, repeated pre-soak gates, and fresh
+minimum 72-hour unchanged-artifact epoch remain required.
+
 ## Adapter apply/observe implementation slice
 
 Issue #245 is implemented in source and focused tests, with exact-release and

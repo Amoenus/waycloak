@@ -71,8 +71,27 @@ func ensureTransitionQuiescence(ctx context.Context, clients *Clients, plan Inst
 	}
 	agent = agent.DeepCopy()
 	agent.Spec.Template.Spec.Containers[index].Image = artifact.Repository + "@" + artifact.Digest
+	args := append([]string(nil), agent.Spec.Template.Spec.Containers[index].Args...)
+	for _, identity := range []struct {
+		prefix string
+		value  string
+	}{
+		{prefix: "--cni-release-version=", value: plan.Source.Version},
+		{prefix: "--cni-release-manifest-digest=", value: plan.Source.ManifestDigest},
+	} {
+		existing, argumentErr := optionalSingularArgument(args, identity.prefix)
+		if argumentErr != nil {
+			return argumentErr
+		}
+		if existing != "" && existing != identity.value {
+			return fmt.Errorf("source node agent has a foreign %s argument", identity.prefix)
+		}
+		if existing == "" {
+			args = append(args, identity.prefix+identity.value)
+		}
+	}
 	agent.Spec.Template.Spec.Containers[index].Args = append(
-		append([]string(nil), agent.Spec.Template.Spec.Containers[index].Args...),
+		args,
 		"--observation-capability-hold=true",
 		"--observation-capability-hold-id="+plan.PlanID,
 	)

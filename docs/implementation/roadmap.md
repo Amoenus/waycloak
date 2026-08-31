@@ -9,7 +9,7 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
-**Release-candidate checkpoint (2026-08-30):** `v0.1.0-rc.36` preserves the
+**Release-candidate checkpoint (2026-08-31):** `v0.1.0-rc.40` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
 72.0002 hours on the exact local-cluster qBittorrent canary, but the evidence
@@ -109,6 +109,25 @@ while that hold remains, and releases the hold only in final activation. No new
 dependency, packet-filter implementation, API field, hysteresis, or permissive
 audit exception is added. A new exact candidate must repeat forward and
 rollback packet qualification before a fresh 72-hour epoch.
+
+RC.37 through RC.39 completed the transition-ordering correction, refreshed
+the maintained Gluetun server dataset, and restored real-provider ingress.
+The RC.39 unchanged-artifact epoch was invalidated when a bounded
+node-observation publication timeout correctly withdrew traffic but rotated an
+unchanged backend identity. The successor preserves that exact Service/Pod and
+handoff identity while observation is unavailable and still withdraws runtime
+rules immediately. RC.40 published that correction, but its live transition
+exposed a backward-chart compatibility defect before qualification: the
+successor node-agent executable was installed under the source release hold
+without the source CNI identity arguments newly required by that executable.
+It refused startup and the plan stopped fail closed before Helm or class
+replacement. After the exact source CNI identity was supplied, the same
+immutable plan completed and the data plane recovered; the manual intervention
+disqualifies RC.40 from soak evidence. The next candidate makes quiescence add
+or validate those source-bound arguments before starting the successor agent,
+rejecting duplicates and foreign identities. This is Waycloak transition-state
+machinery built on the existing maintained Kubernetes clients; no third-party
+library can supply the product-specific signed-plan invariant.
 
 **Dependency-backed stabilization (2026-08-26):** ADR 0044 keeps the frozen
 API and fail-closed behavior while delegating general protocol machinery to

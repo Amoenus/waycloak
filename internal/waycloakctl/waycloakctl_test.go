@@ -898,6 +898,23 @@ func TestTransitionClassWithdrawalWaitsForObservedAttachmentDeny(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "acknowledge transition deny") {
 		t.Fatalf("ready attachment allowed transition quiescence: %v", err)
 	}
+	heldAgent, err := clients.Kubernetes.AppsV1().DaemonSets(plan.Namespace).Get(ctx, chartFullname(plan.Release)+"-node-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	heldContainer, err := requiredContainer(heldAgent.Spec.Template.Spec.Containers, "node-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for prefix, expected := range map[string]string{
+		"--cni-release-version=":         source.Version,
+		"--cni-release-manifest-digest=": source.ManifestDigest,
+	} {
+		actual, argumentErr := optionalSingularArgument(heldContainer.Args, prefix)
+		if argumentErr != nil || actual != expected {
+			t.Fatalf("transition hold CNI identity %s = %q, want %q: %v", prefix, actual, expected, argumentErr)
+		}
+	}
 	if _, err = clients.Dynamic.Resource(gatewayClassGVR).Get(ctx, "gluetun.waycloak.io", metav1.GetOptions{}); err != nil {
 		t.Fatalf("class was withdrawn before attachment deny acknowledgement: %v", err)
 	}
