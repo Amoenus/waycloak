@@ -120,6 +120,27 @@ Waycloak-owned logic over the existing qualified Kubernetes clients. A new
 signed candidate, exact GitOps transition, repeated pre-soak gates, and fresh
 minimum 72-hour unchanged-artifact epoch remain required.
 
+RC.41 published that transition correction from signed source
+`b72cf7c7f47144afbd37db0f0e2132c61586b2bd` with canonical manifest
+`sha256:5ff7d338da37c0bb47190a9436b50bec71274f0ac82dacf43b093b5b54689f9a`.
+The confirmation-bound RC.40-to-RC.41 transition, homelab GitOps revision
+`6421ce69b4aea66f29b3d5aa17c7d3f65cdeeafb`, immutable adapter rotation,
+DNS load, renewal, tunnel withdrawal/recovery, provider rotation, qBittorrent
+listener/DHT checks, and packet-path checks passed. A second controlled
+`vpn-engine` restart then exposed a separate handoff convergence defect before
+soak. After generation 292 was fully withdrawn while the gateway was
+unavailable, the controller persisted a selecting generation 293 although the
+runtime had never installed it. The next unavailable-gateway reconcile tried
+to withdraw that phantom successor from a runtime that still correctly
+recorded drained generation 292, so the lease remained fail closed in
+`ObservationUnavailable` with repeated generation conflicts. RC.41 is invalid
+before soak. The correction defers successor identity and generation creation
+until the gateway is observed Ready; recovery then durably selects the next
+generation before invoking the runtime. This is Waycloak-owned handoff state,
+so no third-party library is appropriate and no dependency, API field,
+hysteresis, or permissive fallback is added. A new exact candidate must repeat
+the pre-soak gates before a fresh minimum 72-hour unchanged-artifact epoch.
+
 ## Adapter apply/observe implementation slice
 
 Issue #245 is implemented in source and focused tests, with exact-release and

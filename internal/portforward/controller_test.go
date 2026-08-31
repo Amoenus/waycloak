@@ -127,6 +127,62 @@ func TestControllerHoldsDrainUntilExactWithdrawal(t *testing.T) {
 	}
 }
 
+func TestGatewayLossDoesNotPersistSuccessorUntilGatewayRecovers(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	lease, gateway, service := leaseFixture()
+	gateway.Namespace = lease.Namespace
+	lease.Spec.GatewayRef.Namespace = wayv1.NamespaceName(lease.Namespace)
+	pod, binding := boundPod("app-a", "pod-a", "binding-a", gateway)
+	endpointSlice := endpointSlice("slice-a", "slice-a", service, pod, 8080)
+	lease.Finalizers = []string{ProviderCleanupFinalizer}
+	lease.Status = wayv1.PortForwardLeaseStatus{ObservedGeneration: lease.Generation, HandoffGeneration: 7,
+		ActiveEndpoint: endpointFor(Candidate{ServiceUID: wayv1.ObjectUID(service.UID), EndpointSliceUID: wayv1.ObjectUID(endpointSlice.UID), PodUID: wayv1.ObjectUID(pod.UID)}, wayv1.EndpointPhaseActive),
+		Provider:       &wayv1.ProviderMappingStatus{PublicAddress: "8.8.8.8", PublicPort: 42000, ExpiresAt: metav1.NewTime(now.Add(time.Minute))}}
+	kube := leaseClient(t, lease, gateway, service, pod, binding, endpointSlice)
+	runtime := &fakeRuntime{now: now, withdrawReady: true}
+	reconciler := &PortForwardLeaseReconciler{Client: kube, APIReader: kube, Runtime: runtime, Now: func() time.Time { return now }}
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(lease)}
+
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	withdrawn := getLease(t, kube, lease)
+	if withdrawn.Status.HandoffGeneration != 7 || withdrawn.Status.ActiveEndpoint != nil {
+		t.Fatalf("gateway-loss withdrawal persisted phantom successor: %#v", withdrawn.Status)
+	}
+	if got := runtime.calls; !reflect.DeepEqual(got, []string{"withdraw:pod-a:7"}) {
+		t.Fatalf("gateway-loss calls = %v", got)
+	}
+
+	currentGateway := &wayv1.VPNGateway{}
+	if err := kube.Get(context.Background(), client.ObjectKeyFromObject(gateway), currentGateway); err != nil {
+		t.Fatal(err)
+	}
+	readyGateway(currentGateway)
+	if err := kube.Update(context.Background(), currentGateway); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	selecting := getLease(t, kube, lease)
+	if selecting.Status.HandoffGeneration != 8 || selecting.Status.ActiveEndpoint == nil || selecting.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) || selecting.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseSelecting {
+		t.Fatalf("gateway recovery selection = %#v", selecting.Status)
+	}
+	if got := runtime.calls; !reflect.DeepEqual(got, []string{"withdraw:pod-a:7"}) {
+		t.Fatalf("runtime called before recovered successor was durable: %v", got)
+	}
+
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	recovered := getLease(t, kube, lease)
+	assertReadyLease(t, recovered, wayv1.ObjectUID(pod.UID), 8)
+	if got := runtime.calls; !reflect.DeepEqual(got, []string{"withdraw:pod-a:7", "reconcile:pod-a:8"}) {
+		t.Fatalf("gateway recovery calls = %v", got)
+	}
+}
+
 func TestApplyStatusRejectsStaleHandoffGeneration(t *testing.T) {
 	lease, _, _ := leaseFixture()
 	kube := leaseClient(t, lease)

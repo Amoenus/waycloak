@@ -340,7 +340,13 @@ func (r *PortForwardLeaseReconciler) drainStatus(ctx context.Context, lease *way
 		return status, r.observationFreshness() / 2
 	}
 	status.ActiveEndpoint = nil
-	if evaluation.hasSelected {
+	// Do not persist a successor generation while the gateway is unavailable.
+	// The withdrawn runtime still owns the drained generation until a later
+	// Reconcile installs its successor. Persisting a selecting successor here
+	// would make the next unavailable-gateway reconcile try to withdraw a
+	// generation that the runtime has never observed, causing a permanent
+	// generation conflict.
+	if evaluation.hasSelected && evaluation.gatewayReady {
 		status.HandoffGeneration++
 		status.ActiveEndpoint = endpointFor(evaluation.selected, wayv1.EndpointPhaseSelecting)
 	}
