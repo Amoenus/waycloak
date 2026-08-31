@@ -336,6 +336,68 @@ func TestUnavailableAdapterPreservesIdentityAcrossPendingWithdrawal(t *testing.T
 	}
 }
 
+func TestUnavailableBindingPreservesIdentityAcrossPendingWithdrawalAndRecovery(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	lease, gateway, service := leaseFixture()
+	gateway.Namespace = lease.Namespace
+	lease.Spec.GatewayRef.Namespace = wayv1.NamespaceName(lease.Namespace)
+	readyGateway(gateway)
+	pod, binding := boundPod("app-a", "pod-a", "binding-a", gateway)
+	endpointSlice := endpointSlice("slice-a", "slice-a", service, pod, 8080)
+	lease.Finalizers = []string{ProviderCleanupFinalizer}
+	lease.Status = wayv1.PortForwardLeaseStatus{ObservedGeneration: lease.Generation, HandoffGeneration: 7,
+		ActiveEndpoint: endpointFor(Candidate{ServiceUID: wayv1.ObjectUID(service.UID), EndpointSliceUID: wayv1.ObjectUID(endpointSlice.UID), PodUID: wayv1.ObjectUID(pod.UID)}, wayv1.EndpointPhaseActive),
+		Provider:       &wayv1.ProviderMappingStatus{PublicAddress: "8.8.8.8", PublicPort: 42000, ExpiresAt: metav1.NewTime(now.Add(time.Minute))}}
+	binding.Status.Conditions = wayv1.BindingConditions{
+		{Type: wayv1.ConditionProgrammed, Status: metav1.ConditionFalse, Reason: wayv1.ReasonPending, ObservedGeneration: binding.Generation, LastTransitionTime: metav1.NewTime(now)},
+		{Type: wayv1.ConditionReady, Status: metav1.ConditionUnknown, Reason: wayv1.ReasonObservationUnavailable, ObservedGeneration: binding.Generation, LastTransitionTime: metav1.NewTime(now)},
+		{Type: wayv1.ConditionNodeReady, Status: metav1.ConditionUnknown, Reason: wayv1.ReasonObservationUnavailable, ObservedGeneration: binding.Generation, LastTransitionTime: metav1.NewTime(now)},
+	}
+	kube := leaseClient(t, lease, gateway, service, pod, binding, endpointSlice)
+	runtime := &fakeRuntime{now: now, withdrawReady: false}
+	reconciler := &PortForwardLeaseReconciler{Client: kube, APIReader: kube, Runtime: runtime, Now: func() time.Time { return now }}
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(lease)}
+
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	draining := getLease(t, kube, lease)
+	if draining.Status.HandoffGeneration != 7 || draining.Status.ActiveEndpoint == nil || draining.Status.ActiveEndpoint.PodUID != wayv1.ObjectUID(pod.UID) || draining.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseDraining {
+		t.Fatalf("binding suspension changed stable identity: %#v", draining.Status)
+	}
+	resolved := apiMeta.FindStatusCondition(draining.Status.Conditions, wayv1.ConditionResolvedRefs)
+	if resolved == nil || resolved.Reason != wayv1.ReasonRefNotFound || resolved.Message != backendUnavailableMessage {
+		t.Fatalf("binding suspension marker = %#v", resolved)
+	}
+
+	currentBinding := &wayv1.VPNWorkloadBinding{}
+	if err := kube.Get(context.Background(), client.ObjectKeyFromObject(binding), currentBinding); err != nil {
+		t.Fatal(err)
+	}
+	currentBinding.Status.Conditions = readyBindingConditions()
+	if err := kube.Update(context.Background(), currentBinding); err != nil {
+		t.Fatal(err)
+	}
+	runtime.withdrawReady = true
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	withdrawn := getLease(t, kube, lease)
+	if withdrawn.Status.HandoffGeneration != 7 || withdrawn.Status.ActiveEndpoint == nil || withdrawn.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseSelecting {
+		t.Fatalf("completed binding withdrawal changed stable identity: %#v", withdrawn.Status)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	recovered := getLease(t, kube, lease)
+	if recovered.Status.HandoffGeneration != 7 || recovered.Status.ActiveEndpoint == nil || recovered.Status.ActiveEndpoint.Phase != wayv1.EndpointPhaseActive {
+		t.Fatalf("binding recovery rotated stable identity: %#v", recovered.Status)
+	}
+	if got := runtime.calls; !reflect.DeepEqual(got, []string{"withdraw:pod-a:7", "withdraw:pod-a:7", "reconcile:pod-a:7"}) {
+		t.Fatalf("binding recovery calls = %v", got)
+	}
+}
+
 func TestControllerDerivesProviderAssignedPortOnlyFromReadyAdapterCapability(t *testing.T) {
 	lease, gateway, service := leaseFixture()
 	gateway.Namespace = lease.Namespace

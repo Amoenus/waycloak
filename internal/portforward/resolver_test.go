@@ -103,6 +103,25 @@ func TestResolverSupportsNumericPortAndClassifiesMissingPort(t *testing.T) {
 	}
 }
 
+func TestResolverRetainsExactCandidateWhenBindingObservationIsUnavailable(t *testing.T) {
+	lease, gateway, service := leaseFixture()
+	pod, binding := boundPod("app", "pod-uid", "binding-uid", gateway)
+	endpoint := endpointSlice("app", "slice-uid", service, pod, 8080)
+	now := metav1.NewTime(time.Unix(2000, 0).UTC())
+	binding.Status.Conditions = wayv1.BindingConditions{
+		{Type: wayv1.ConditionProgrammed, Status: metav1.ConditionFalse, Reason: wayv1.ReasonPending, ObservedGeneration: binding.Generation, LastTransitionTime: now},
+		{Type: wayv1.ConditionReady, Status: metav1.ConditionUnknown, Reason: wayv1.ReasonObservationUnavailable, ObservedGeneration: binding.Generation, LastTransitionTime: now},
+		{Type: wayv1.ConditionNodeReady, Status: metav1.ConditionUnknown, Reason: wayv1.ReasonObservationUnavailable, ObservedGeneration: binding.Generation, LastTransitionTime: now},
+	}
+	resolution, err := (Resolver{Reader: fakeReader(t, service, pod, binding, endpoint)}).Resolve(context.Background(), lease, gateway)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolution.Candidates) != 0 || len(resolution.UnavailableCandidates) != 1 || resolution.UnavailableCandidates[0].PodUID != wayv1.ObjectUID(pod.UID) {
+		t.Fatalf("unavailable binding identity = %#v", resolution)
+	}
+}
+
 func leaseFixture() (*wayv1.PortForwardLease, *wayv1.VPNGateway, *corev1.Service) {
 	lease := &wayv1.PortForwardLease{ObjectMeta: metav1.ObjectMeta{Name: "lease", Namespace: "apps", UID: "lease-uid"}, Spec: wayv1.PortForwardLeaseSpec{
 		GatewayRef: wayv1.NamespacedObjectReference{Namespace: "network", Name: "gateway"},

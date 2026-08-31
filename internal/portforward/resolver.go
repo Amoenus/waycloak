@@ -62,8 +62,9 @@ type Candidate struct {
 }
 
 type Resolution struct {
-	Service    *corev1.Service
-	Candidates []Candidate
+	Service               *corev1.Service
+	Candidates            []Candidate
+	UnavailableCandidates []Candidate
 }
 
 type Resolver struct {
@@ -103,6 +104,7 @@ func (r Resolver) Resolve(ctx context.Context, lease *wayv1.PortForwardLease, ga
 	}
 
 	byPod := map[wayv1.ObjectUID]Candidate{}
+	unavailableByPod := map[wayv1.ObjectUID]Candidate{}
 	for sliceIndex := range sliceList.Items {
 		endpointSlice := &sliceList.Items[sliceIndex]
 		if !ownedByService(endpointSlice, service) || endpointSlice.AddressType != discoveryv1.AddressTypeIPv4 {
@@ -117,53 +119,65 @@ func (r Resolver) Resolve(ctx context.Context, lease *wayv1.PortForwardLease, ga
 			if !eligibleEndpoint(endpoint) {
 				continue
 			}
-			candidate, ok, candidateErr := r.candidate(ctx, lease, gateway, service, endpointSlice, endpoint, targetPort, bindingList.Items)
+			candidate, eligible, observed, candidateErr := r.candidate(ctx, lease, gateway, service, endpointSlice, endpoint, targetPort, bindingList.Items)
 			if candidateErr != nil {
 				return Resolution{}, unavailable("Backend Pod observation is unavailable", candidateErr)
 			}
-			if !ok {
+			if !observed {
 				continue
 			}
-			current, exists := byPod[candidate.PodUID]
+			target := unavailableByPod
+			if eligible {
+				target = byPod
+			}
+			current, exists := target[candidate.PodUID]
 			if !exists || candidate.EndpointSliceUID < current.EndpointSliceUID {
-				byPod[candidate.PodUID] = candidate
+				target[candidate.PodUID] = candidate
 			}
 		}
 	}
-	result := Resolution{Service: service, Candidates: make([]Candidate, 0, len(byPod))}
+	result := Resolution{Service: service, Candidates: make([]Candidate, 0, len(byPod)), UnavailableCandidates: make([]Candidate, 0, len(unavailableByPod))}
 	for _, candidate := range byPod {
 		result.Candidates = append(result.Candidates, candidate)
 	}
-	sort.Slice(result.Candidates, func(i, j int) bool {
-		if result.Candidates[i].PodUID == result.Candidates[j].PodUID {
-			return result.Candidates[i].EndpointSliceUID < result.Candidates[j].EndpointSliceUID
-		}
-		return result.Candidates[i].PodUID < result.Candidates[j].PodUID
-	})
+	for _, candidate := range unavailableByPod {
+		result.UnavailableCandidates = append(result.UnavailableCandidates, candidate)
+	}
+	sortCandidates(result.Candidates)
+	sortCandidates(result.UnavailableCandidates)
 	return result, nil
 }
 
-func (r Resolver) candidate(ctx context.Context, lease *wayv1.PortForwardLease, gateway *wayv1.VPNGateway, service *corev1.Service, endpointSlice *discoveryv1.EndpointSlice, endpoint *discoveryv1.Endpoint, targetPort uint16, bindings []wayv1.VPNWorkloadBinding) (Candidate, bool, error) {
+func sortCandidates(candidates []Candidate) {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].PodUID == candidates[j].PodUID {
+			return candidates[i].EndpointSliceUID < candidates[j].EndpointSliceUID
+		}
+		return candidates[i].PodUID < candidates[j].PodUID
+	})
+}
+
+func (r Resolver) candidate(ctx context.Context, lease *wayv1.PortForwardLease, gateway *wayv1.VPNGateway, service *corev1.Service, endpointSlice *discoveryv1.EndpointSlice, endpoint *discoveryv1.Endpoint, targetPort uint16, bindings []wayv1.VPNWorkloadBinding) (Candidate, bool, bool, error) {
 	ref := endpoint.TargetRef
 	if ref == nil || ref.Kind != "Pod" || ref.Name == "" || ref.UID == "" || (ref.Namespace != "" && ref.Namespace != lease.Namespace) {
-		return Candidate{}, false, nil
+		return Candidate{}, false, false, nil
 	}
 	pod := &corev1.Pod{}
 	if err := r.Reader.Get(ctx, client.ObjectKey{Namespace: lease.Namespace, Name: ref.Name}, pod); err != nil {
 		if apierrors.IsNotFound(err) {
-			return Candidate{}, false, nil
+			return Candidate{}, false, false, nil
 		}
-		return Candidate{}, false, err
+		return Candidate{}, false, false, err
 	}
 	if pod.UID != ref.UID || pod.Status.Phase != corev1.PodRunning || !pod.DeletionTimestamp.IsZero() {
-		return Candidate{}, false, nil
+		return Candidate{}, false, false, nil
 	}
 	if len(endpoint.Addresses) != 1 {
-		return Candidate{}, false, nil
+		return Candidate{}, false, false, nil
 	}
 	applicationAddress, err := netip.ParseAddr(endpoint.Addresses[0])
 	if err != nil || !applicationAddress.Is4() || pod.Status.PodIP == "" || pod.Status.PodIP != applicationAddress.String() {
-		return Candidate{}, false, nil
+		return Candidate{}, false, false, nil
 	}
 	matches := make([]*wayv1.VPNWorkloadBinding, 0, 1)
 	for bindingIndex := range bindings {
@@ -173,27 +187,28 @@ func (r Resolver) candidate(ctx context.Context, lease *wayv1.PortForwardLease, 
 			binding.Spec.GatewayRef.UID != wayv1.ObjectUID(gateway.UID) || binding.Spec.Network.GatewayGeneration != gateway.Generation || binding.UID == "" || !binding.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if pod.Labels[EnrollmentLabel] != string(binding.Spec.RouteRef.Name) ||
-			!wayconditions.CurrentTrue(binding.Status.Conditions, wayv1.ConditionProgrammed, binding.Status.ObservedGeneration, binding.Generation) ||
-			!wayconditions.CurrentTrue(binding.Status.Conditions, wayv1.ConditionReady, binding.Status.ObservedGeneration, binding.Generation) ||
-			!wayconditions.CurrentTrue(binding.Status.Conditions, wayv1.ConditionNodeReady, binding.Status.ObservedGeneration, binding.Generation) {
+		if pod.Labels[EnrollmentLabel] != string(binding.Spec.RouteRef.Name) {
 			continue
 		}
 		matches = append(matches, binding)
 	}
 	if len(matches) != 1 {
-		return Candidate{}, false, nil
+		return Candidate{}, false, false, nil
 	}
 	binding := matches[0]
 	prefix, err := netip.ParsePrefix(binding.Spec.Allocation.Address)
 	if err != nil || !prefix.Addr().Is4() {
-		return Candidate{}, false, nil
+		return Candidate{}, false, false, nil
 	}
-	return Candidate{
+	candidate := Candidate{
 		ServiceUID: wayv1.ObjectUID(service.UID), EndpointSliceUID: wayv1.ObjectUID(endpointSlice.UID),
 		PodName: wayv1.ObjectName(pod.Name), PodUID: wayv1.ObjectUID(pod.UID), BindingName: wayv1.ObjectName(binding.Name),
 		BindingUID: wayv1.ObjectUID(binding.UID), OverlayAddress: prefix.Addr(), ApplicationAddress: applicationAddress, TargetPort: targetPort,
-	}, true, nil
+	}
+	eligible := wayconditions.CurrentTrue(binding.Status.Conditions, wayv1.ConditionProgrammed, binding.Status.ObservedGeneration, binding.Generation) &&
+		wayconditions.CurrentTrue(binding.Status.Conditions, wayv1.ConditionReady, binding.Status.ObservedGeneration, binding.Generation) &&
+		wayconditions.CurrentTrue(binding.Status.Conditions, wayv1.ConditionNodeReady, binding.Status.ObservedGeneration, binding.Generation)
+	return candidate, eligible, true, nil
 }
 
 func matchingServicePorts(service *corev1.Service, ref intstr.IntOrString) ([]corev1.ServicePort, error) {

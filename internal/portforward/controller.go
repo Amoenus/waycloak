@@ -28,6 +28,7 @@ const (
 	DefaultObservationFreshness = 20 * time.Second
 	DefaultCleanupTimeout       = 10 * time.Minute
 	adapterUnavailableMessage   = "Application adapter reference is unavailable"
+	backendUnavailableMessage   = "Backend binding observation is unavailable"
 )
 
 var leaseConditionOrder = []string{
@@ -91,6 +92,7 @@ type leaseEvaluation struct {
 	gatewayReady                    bool
 	adapterRequired                 bool
 	adapterReady                    bool
+	backendSuspended                bool
 	providerAssignedApplicationPort bool
 }
 
@@ -143,6 +145,13 @@ func (r *PortForwardLeaseReconciler) evaluate(ctx context.Context, lease *wayv1.
 	evaluation.resolution = backend
 	selected, ok := Select(backend.Candidates, lease.Status.ActiveEndpoint)
 	if !ok {
+		suspended, suspendedOK := Select(backend.UnavailableCandidates, lease.Status.ActiveEndpoint)
+		if suspendedOK && lease.Status.ActiveEndpoint != nil &&
+			suspended.ServiceUID == lease.Status.ActiveEndpoint.ServiceUID && suspended.PodUID == lease.Status.ActiveEndpoint.PodUID {
+			evaluation.selected, evaluation.hasSelected, evaluation.backendSuspended = suspended, true, true
+			evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, backendUnavailableMessage)
+			return evaluation
+		}
 		evaluation.states[wayv1.ConditionResolvedRefs] = wayconditions.False(wayv1.ReasonRefNotFound, "No eligible SingleActive Service endpoint is available")
 		return evaluation
 	}
@@ -203,8 +212,8 @@ func (r *PortForwardLeaseReconciler) runtimeStatus(ctx context.Context, lease *w
 				"resolved_refs_reason", resolved.Reason,
 			)
 		}
-		preserveIdentity := drainReason == "adapter_not_ready" ||
-			(drainReason == "already_draining" && adapterSuspensionInProgress(lease, evaluation))
+		preserveIdentity := drainReason == "adapter_not_ready" || drainReason == "backend_observation_unavailable" ||
+			(drainReason == "already_draining" && (adapterSuspensionInProgress(lease, evaluation) || backendSuspensionInProgress(lease, evaluation)))
 		return r.drainStatus(ctx, lease, evaluation, preserveIdentity)
 	}
 	if current == nil {
@@ -262,6 +271,20 @@ func adapterSuspensionInProgress(lease *wayv1.PortForwardLease, evaluation lease
 	return false
 }
 
+func backendSuspensionInProgress(lease *wayv1.PortForwardLease, evaluation leaseEvaluation) bool {
+	current := lease.Status.ActiveEndpoint
+	if current == nil || current.Phase != wayv1.EndpointPhaseDraining || !evaluation.gatewayReady || !evaluation.hasSelected ||
+		current.ServiceUID != evaluation.selected.ServiceUID || current.PodUID != evaluation.selected.PodUID {
+		return false
+	}
+	for _, condition := range lease.Status.Conditions {
+		if condition.Type == wayv1.ConditionResolvedRefs {
+			return condition.Status == metav1.ConditionFalse && condition.Reason == wayv1.ReasonRefNotFound && condition.Message == backendUnavailableMessage
+		}
+	}
+	return false
+}
+
 func handoffDrainReason(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEvaluation) string {
 	if current == nil {
 		return ""
@@ -271,6 +294,8 @@ func handoffDrainReason(current *wayv1.ActiveLeaseEndpoint, evaluation leaseEval
 		return "gateway_not_ready"
 	case current.Phase == wayv1.EndpointPhaseDraining:
 		return "already_draining"
+	case evaluation.backendSuspended:
+		return "backend_observation_unavailable"
 	case evaluation.hasSelected && evaluation.adapterRequired && !evaluation.adapterReady:
 		return "adapter_not_ready"
 	case !evaluation.hasSelected:
