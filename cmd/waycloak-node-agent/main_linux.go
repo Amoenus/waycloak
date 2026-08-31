@@ -57,16 +57,12 @@ func main() {
 	flag.StringVar(&cniReleaseManifestDigest, "cni-release-manifest-digest", "", "immutable signed release manifest digest of the installed CNI receipt")
 	flag.DurationVar(&interval, "reconcile-interval", 5*time.Second, "drift and observation interval")
 	flag.Parse()
-	if err := runWithCNIReleaseIdentity(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID, interval, observationCapabilityHold); err != nil {
+	if err := run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID, interval, observationCapabilityHold); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID string, interval time.Duration, observationCapabilityHold bool) error {
-	return runWithCNIReleaseIdentity(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseVersion, releaseManifestDigest, observationCapabilityHoldID, interval, observationCapabilityHold)
-}
-
-func runWithCNIReleaseIdentity(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID string, interval time.Duration, observationCapabilityHold bool) error {
+func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID string, interval time.Duration, observationCapabilityHold bool) error {
 	if nodeName == "" || relayURL == "" || interval < time.Second || filepath.Dir(socketPath) != filepath.Dir(keyFile) {
 		return errors.New("node name, observation relay, bounded reconcile interval, and one protected local protocol directory are required")
 	}
