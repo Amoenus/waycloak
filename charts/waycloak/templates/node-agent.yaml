@@ -4,6 +4,8 @@
 {{- $caSecret := required "nodeAgent.observationCASecret is required when nodeAgent.enabled=true" .Values.nodeAgent.observationCASecret }}
 {{- $releaseVersion := required "nodeAgent.releaseIdentity.version is required when nodeAgent.enabled=true" .Values.nodeAgent.releaseIdentity.version }}
 {{- $releaseDigest := required "nodeAgent.releaseIdentity.manifestDigest is required when nodeAgent.enabled=true" .Values.nodeAgent.releaseIdentity.manifestDigest }}
+{{- $cniReleaseVersion := default $releaseVersion .Values.nodeAgent.cniReleaseIdentity.version }}
+{{- $cniReleaseDigest := default $releaseDigest .Values.nodeAgent.cniReleaseIdentity.manifestDigest }}
 {{- $cniReceipt := required "nodeAgent.cniReceiptHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniReceiptHostPath }}
 {{- $cniBinary := required "nodeAgent.cniBinaryHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniBinaryHostPath }}
 {{- $cniConfig := required "nodeAgent.cniConfigHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniConfigHostPath }}
@@ -87,6 +89,8 @@ spec:
             - --reconcile-interval={{ .Values.nodeAgent.reconcileInterval }}
             - --release-version={{ $releaseVersion }}
             - --release-manifest-digest={{ $releaseDigest }}
+            - --cni-release-version={{ $cniReleaseVersion }}
+            - --cni-release-manifest-digest={{ $cniReleaseDigest }}
             - --conformance-profile={{ .Values.nodeAgent.conformanceProfile }}
             {{ if .Values.nodeAgent.observationCapabilityHold }}
             - --observation-capability-hold=true

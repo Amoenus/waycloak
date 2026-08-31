@@ -113,3 +113,8 @@ nodeAgent:
   releaseIdentity:
     version: ""
     manifestDigest: ""
+  # During a confirmation-bound transition the held target agent continues to
+  # advertise the source authority while validating the exact target CNI.
+  cniReleaseIdentity:
+    version: ""
+    manifestDigest: ""

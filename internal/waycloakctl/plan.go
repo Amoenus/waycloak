@@ -386,6 +386,9 @@ nodeAgent:
   releaseIdentity:
     version: %q
     manifestDigest: %q
+  cniReleaseIdentity:
+    version: %q
+    manifestDigest: %q
 defaultGatewayClass:
   enabled: true
   releaseIdentity:
@@ -395,7 +398,7 @@ defaultGatewayClass:
 		report.CNI.ConfigPath, report.CNI.BinaryPath, rotationID, architecture, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
-		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
+		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
 	if portForwarding != nil {
 		runtime := manifest.Images["waycloak-gateway-runtime"]
 		values += fmt.Sprintf(`portForwarding:

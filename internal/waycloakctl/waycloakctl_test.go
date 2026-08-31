@@ -152,6 +152,10 @@ func TestInstallPlanHasNoCredentialValuesAndRequiresExactConfirmation(t *testing
 	if count := strings.Count(plan.Values, nestedIdentity); count != 2 {
 		t.Fatalf("install values contain %d nested runtime release identities, want node agent and default class", count)
 	}
+	cniIdentity := "  cniReleaseIdentity:\n    version: " + strconv.Quote(manifest.Version) + "\n    manifestDigest: " + strconv.Quote(manifest.ManifestDigest) + "\n"
+	if count := strings.Count(plan.Values, cniIdentity); count != 1 {
+		t.Fatalf("install values contain %d installed CNI release identities, want one exact node-agent validation identity", count)
+	}
 	if !strings.Contains(plan.Values, "serviceIP: \"10.43.0.10\"") || !strings.Contains(plan.Values, "domain: \"cluster.local\"") {
 		t.Fatalf("install values do not bind reviewed split DNS:\n%s", plan.Values)
 	}

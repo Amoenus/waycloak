@@ -35,7 +35,7 @@ import (
 
 func main() {
 	var socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile string
-	var cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID string
+	var cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID string
 	var observationCapabilityHold bool
 	var interval time.Duration
 	flag.StringVar(&socketPath, "socket", waycni.DefaultAgentSocket, "root-only local CNI socket")
@@ -53,14 +53,20 @@ func main() {
 	flag.StringVar(&cniReceiptFile, "cni-receipt-file", "/var/lib/cni/waycloak/install-receipt.json", "root-protected exact CNI installation receipt")
 	flag.StringVar(&cniBinaryFile, "cni-binary-file", "/var/run/waycloak-cni-install/waycloak-cni", "read-only installed CNI binary")
 	flag.StringVar(&cniConfigFile, "cni-config-file", "/var/run/waycloak-cni-install/waycloak.conflist", "read-only active CNI conflist")
+	flag.StringVar(&cniReleaseVersion, "cni-release-version", "", "immutable signed release version of the installed CNI receipt")
+	flag.StringVar(&cniReleaseManifestDigest, "cni-release-manifest-digest", "", "immutable signed release manifest digest of the installed CNI receipt")
 	flag.DurationVar(&interval, "reconcile-interval", 5*time.Second, "drift and observation interval")
 	flag.Parse()
-	if err := run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID, interval, observationCapabilityHold); err != nil {
+	if err := runWithCNIReleaseIdentity(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID, interval, observationCapabilityHold); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, observationCapabilityHoldID string, interval time.Duration, observationCapabilityHold bool) error {
+	return runWithCNIReleaseIdentity(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, releaseVersion, releaseManifestDigest, observationCapabilityHoldID, interval, observationCapabilityHold)
+}
+
+func runWithCNIReleaseIdentity(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA, releaseVersion, releaseManifestDigest, conformanceProfile, cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseVersion, cniReleaseManifestDigest, observationCapabilityHoldID string, interval time.Duration, observationCapabilityHold bool) error {
 	if nodeName == "" || relayURL == "" || interval < time.Second || filepath.Dir(socketPath) != filepath.Dir(keyFile) {
 		return errors.New("node name, observation relay, bounded reconcile interval, and one protected local protocol directory are required")
 	}
@@ -71,7 +77,11 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 		return errors.New("capability hold has an invalid transition plan identity")
 	}
 	releaseIdentity := wayv1.ReleaseIdentity{Version: releaseVersion, ManifestDigest: releaseManifestDigest}
-	if err := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity); err != nil {
+	cniReleaseIdentity := wayv1.ReleaseIdentity{Version: cniReleaseVersion, ManifestDigest: cniReleaseManifestDigest}
+	if !validReleaseIdentity(cniReleaseIdentity.Version, cniReleaseIdentity.ManifestDigest) {
+		return errors.New("exact installed CNI release identity is required")
+	}
+	if err := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseIdentity); err != nil {
 		return fmt.Errorf("CNI installation is not eligible for fail-closed readiness: %w", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
