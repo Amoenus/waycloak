@@ -286,7 +286,7 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   identity. No alias or dual acceptance exists. Exact-head Linux verifier,
   admission, Kind/kindnet, k3d/Flannel, Gluetun, turnkey, and datastore-recovery
   step evidence passed again.
-- [ ] #137 Service-backed SingleActive PortForwardLease: API, controller,
+- [x] #137 Service-backed SingleActive PortForwardLease: API, controller,
   privileged handoff tests, and the signed amd64/arm64 runtime images are
   implemented. The default-disabled chart/runtime deployment boundary now
   requires an exact runtime image, named mTLS Secrets, explicit gateway feature
@@ -358,7 +358,7 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   uninstall/purge, clean signed replacement, zero fallback, and fresh state
   reacquisition. Its 301-second uninstall is a documented bounded maintenance
   limitation, not a reason to repeat destructive production work.
-- [ ] #140: `v0.0.0-core.7` passed exact publication and independent hosted
+- [x] #140: `v0.0.0-core.7` passed exact publication and independent hosted
   verification; Core.8 through Core.10 also passed their exact publication and
   registry-native verification gates. The live clean-break amd64 row reached
   Core.10 through exact lifecycle plans and stayed unavailable during gateway
@@ -438,9 +438,12 @@ flags; unsupported capability/configuration pairs fail before gateway mutation.
   regress handoff generation across controller replacement while the runtime
   and persistent adapter remained ahead. RC.15 makes lease-status writes
   resource-version checked, so the stale reconcile conflicts instead. Publish
-  and deploy the successor exact artifact, then complete a fresh minimum 72
-  unchanged-artifact hours before v1 graduation. ARM and other platforms are
-  future rows, not hidden blockers.
+  and deploy the successor exact artifact. RC.42 subsequently passed the exact
+  lifecycle and local qBittorrent gates, and its 36.920183-hour stability
+  window was accepted by explicit executive waiver without claiming 72 hours.
+  The remaining gate is one non-breaking beta release cycle followed by the v1
+  graduation review. ARM and other platforms are future rows, not hidden
+  blockers.
 
 ## Phase 0 — repository and design baseline
 
@@ -669,7 +672,7 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Add packaged-image lifecycle coverage that stops the exact CRI Pod
   sandbox, proves ordinary egress remains closed, and requires same-UID
   recovery across a CNI underlay-address rollover.
-- [ ] Pass the Linux race/envtest and packaged-image release gates, publish the
+- [x] Pass the Linux race/envtest and packaged-image release gates, publish the
   immutable patch release, deploy it through the normal homelab pipeline, and
   verify workload plus lease withdrawal/recovery on live provider traffic.
 
