@@ -1,9 +1,48 @@
 # Project status
 
+## RC.42 executive certification disposition
+
+`v0.1.0-rc.42` is the accepted local-cluster release candidate at signed
+source commit `41dfcf91679d365e5fdc4eadb9ff9a1511efec0d`, canonical manifest
+`sha256:96b283312317ffb6216224ff2a60c2bb322ba76398c360d481e6d90e4162c188`,
+and homelab GitOps revision
+`10b463b3ced056742ce9eea2ebf4e2b0f8984fd2`. Publication, independent exact
+artifact verification, the confirmation-bound transition, immutable adapter
+trust rotation, repeated gateway-engine recovery, transient and persistent DNS
+failure behavior, DNS load, tunnel fail-closed recovery, qBittorrent
+TCP/UDP/listener/DHT/tracker behavior, provider and gateway rotation,
+rollback/repair, resource, privacy, metrics, and packet gates passed.
+
+The unchanged-artifact RC.42 epoch ran from
+`2026-08-31T04:39:47.0660014Z` until the executive decision snapshot at
+`2026-09-01T17:34:59.7254492Z`, for 36.920183 hours. The project owner accepted
+that evidence as stable enough and waived the remaining 35.079817 hours for
+this candidate. This is an explicit one-time executive exception: it does not
+claim that the documented 72-hour duration was observed and does not weaken
+the normal qualification policy for later candidates.
+
+The final incomplete-duration audit remained healthy with 2,177 canonical
+samples, 2,147 qBittorrent samples, 213 successful external TCP checks and zero
+failures, 441 metrics samples, and zero non-True gateway, lease, binding, or
+binding-heartbeat observations. All five collectors were stopped after their
+identity was verified. The credential-contained terminal proof confirmed the
+acknowledged listener, DHT, cluster and external DNS, tunnel egress, external
+TCP reachability, and bidirectional TCP and UDP packet traffic. Earlier failed
+RC.30-RC.41 epochs and the three RC.42 collector/precondition failures remain
+preserved and are not merged into the accepted epoch.
+
+The signed evidence disposition is stored outside the repository at
+`waycloak-rc42-soak-20260831T043946Z-executive-waiver.json` with SHA-256
+`561e2313ff20d8d7f0ea38c63f3a56c16f44b26c4bcb7dfb13d45e25b2404bbe`.
+The terminal certification record is
+`waycloak-rc42-terminal-certification-proof.json` with SHA-256
+`1eb37677f55a57c168219498d44876530a7094aefe02c3dea9f9c10c20d3e337`.
+Neither record contains a public endpoint, credential, or provider port.
+
 ## OpenTelemetry implementation slice
 
-Issue #246 is implemented in source and focused tests, with exact-release and
-live-cluster evidence still outstanding. OpenTelemetry Go v1.46.0 is the single
+Issue #246 is implemented and qualified in exact RC.42 release and live-cluster
+evidence. OpenTelemetry Go v1.46.0 is the single
 internal operational signal model for gateway DNS/engine readiness, provider
 mapping refresh, rules and delivery, acknowledgement, qBittorrent adapter
 Apply/Observe, withdrawal, and recovery. The default creates no SDK, exporter,
@@ -23,13 +62,14 @@ credentials, endpoints, addresses, ports, UIDs, names, digests, arbitrary
 domains, torrents, or error messages. Host benchmarks measured a disabled call
 at 0.28-0.29 ns/op and a saturated enabled queue at 36-40 ns/op, both with zero
 allocations. Stripped Linux/amd64 binary growth is 152-200 KiB (0.76-2.00%)
-across the three instrumented components. Exact image/RSS, collector-loss, live failure localization,
-release, GitOps, and soak evidence remain before #246 is complete.
+across the three instrumented components. Exact image/RSS, collector-loss,
+live failure localization, release, GitOps, and accepted-soak evidence passed
+with RC.42.
 
 ## CoreDNS gateway-sidecar implementation slice
 
-Issue #244 is implemented in source and focused tests, with exact-release and
-live-cluster qualification still outstanding. The 391-line custom DNS server
+Issue #244 is implemented and qualified in exact RC.42 release and live-cluster
+evidence. The 391-line custom DNS server
 has been removed from the gateway agent. A digest-only CoreDNS v1.14.7 sidecar
 now owns split-DNS serving in the existing gateway Pod network namespace. It
 runs as non-root with a read-only filesystem, bounded resources and concurrency,
@@ -50,14 +90,14 @@ cluster A and external A/AAAA over both UDP and TCP, including EDNS0 and TCP
 retry after truncation. One failed path immediately clears readiness and
 withdraws forwarding. The official CoreDNS index and amd64/arm64 manifests are
 pinned in dependency and signed-release inventories with SPDX and vulnerability
-gates. A new exact release, homelab GitOps deployment, live client matrix,
-resource measurements, DNS leak/tunnel-loss/rotation/rollback evidence, and a
-new minimum 72-hour unchanged-artifact soak remain before #244 is complete.
+gates. Exact publication, homelab GitOps deployment, the live client matrix,
+resource measurements, DNS leak/tunnel-loss/rotation/rollback evidence, and
+accepted-soak evidence passed with RC.42.
 
 ## Gluetun-native port-forward implementation slice
 
-Issue #243 is implemented in source and focused tests, with exact-derived-image
-and live-cluster evidence still outstanding. The custom Proton NAT-PMP client
+Issue #243 is implemented and qualified in the exact derived RC.42 image and
+live-cluster evidence. The custom Proton NAT-PMP client
 has been removed. Gluetun v3.41.3 now owns provider mapping acquisition,
 renewal, and release; Waycloak observes the single shared TCP/UDP mapping over
 an API-key-authenticated loopback control route and retains stable lease/target
@@ -73,9 +113,9 @@ configuration cannot start a competing renewal loop. The frozen `v1beta1`
 Gluetun exposes no provider TTL; it is not described as provider lease expiry.
 The exact v3.41.3 source commit and upstream index digest are pinned, with
 current dependency-only rebuilds and an Alpine package upgrade behind the
-existing upstream-test, govulncheck, reproducibility, and Trivy gates. A new
-exact release, GitOps deployment, real-provider renewal/rotation/rollback, and
-qBittorrent TCP/UDP evidence remain required before #243 is complete.
+existing upstream-test, govulncheck, reproducibility, and Trivy gates. Exact
+release, GitOps deployment, real-provider renewal/rotation/rollback, and
+qBittorrent TCP/UDP evidence passed with RC.42.
 
 RC.37 live qualification acquired and renewed otherwise healthy Proton
 mappings across multiple gateway sessions, but independent TCP checks never
@@ -143,8 +183,8 @@ the pre-soak gates before a fresh minimum 72-hour unchanged-artifact epoch.
 
 ## Adapter apply/observe implementation slice
 
-Issue #245 is implemented in source and focused tests, with exact-release and
-local qBittorrent evidence still outstanding. The stable v1 JSON contract is
+Issue #245 is implemented and qualified in exact RC.42 release and local
+qBittorrent evidence. The stable v1 JSON contract is
 unchanged. The qBittorrent implementation now separates application `Apply`,
 listener `Observe`, and expiry-only renewal acknowledgement. A changed exact
 identity is durably applied once, then acknowledged only after matching
@@ -159,8 +199,8 @@ stale/contradictory identities remain HTTP 409, while dial, authentication,
 application API, and listener failures are HTTP 503 and retain typed
 `conflict`/`unavailable` classification across the gateway-runtime hop. Focused
 unit tests and Linux-target Staticcheck v0.8.1 pass. The ordered source slices
-Issues #243, #244, and #246 are now also implemented; #245 remains unchecked until the
-new exact artifact passes the qBittorrent GitOps validation.
+in issues #243, #244, #245, and #246 all passed exact RC.42 GitOps and
+qBittorrent validation.
 
 ## Dependency governance slice
 

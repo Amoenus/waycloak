@@ -9,6 +9,23 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
+**RC.42 accepted-candidate checkpoint (2026-09-01):** `v0.1.0-rc.42` at
+signed source `41dfcf91679d365e5fdc4eadb9ff9a1511efec0d`, canonical manifest
+`sha256:96b283312317ffb6216224ff2a60c2bb322ba76398c360d481e6d90e4162c188`,
+and homelab GitOps revision
+`10b463b3ced056742ce9eea2ebf4e2b0f8984fd2` passed exact publication and
+verification, the confirmation-bound transition, immutable adapter rotation,
+DNS and tunnel failure/recovery, DNS load, qBittorrent TCP/UDP/listener/DHT,
+provider and gateway rotation, rollback/repair, resource, privacy, metrics,
+and packet gates. Its unchanged-artifact epoch produced 36.920183 healthy
+hours, 2,177 canonical samples, 2,147 qBittorrent samples, 213 successful
+external TCP checks with zero failures, 441 metrics samples, and no non-True
+gateway, lease, binding, or heartbeat observation. The project owner accepted
+the candidate by an explicit executive waiver of the remaining 35.079817
+hours. This records a one-time certification exception and does not claim the
+documented 72-hour duration was observed or change the normal policy. All
+earlier invalid epochs remain preserved separately.
+
 **Release-candidate checkpoint (2026-08-31):** `v0.1.0-rc.41` preserves the
 frozen `networking.waycloak.io/v1beta1` contract and packages the complete
 product for signed direct consumption, Helm OCI, and KCL OCI. RC.25 completed
@@ -152,14 +169,14 @@ qualified maintained dependencies. Work proceeds in this order:
   and build tools, and signed-release consumption of the byte-identical
   inventory. Kubernetes v0.37 remains an owned #141 lag because the observed
   local cluster and certified row are still v1.36.1+k3s1.
-- [ ] #245 has implemented separate workload-adapter Apply, Observe and renewal
+- [x] #245 has implemented separate workload-adapter Apply, Observe and renewal
   acknowledgement semantics: expiry-only renewal makes no application call,
   changed identity applies once, TCP/UDP observation retries below freshness,
   adapter replacement reobserves without mutation, withdrawal bypasses cached
   acknowledgement, and conflict/unavailable classification survives both HTTP
-  hops. Exact release and local qBittorrent GitOps evidence remain before the
-  issue can be checked complete.
-- [ ] #243 has replaced custom provider acquisition/renewal with Gluetun
+  hops. These behaviors passed in the exact RC.42 GitOps qBittorrent
+  deployment.
+- [x] #243 has replaced custom provider acquisition/renewal with Gluetun
   v3.41.3's native port-forward lifecycle and a least-privilege,
   API-key-authenticated loopback observation route. Release-owned engine
   settings prevent competing lifecycle owners; unchanged mapping observations
@@ -169,10 +186,11 @@ qualified maintained dependencies. Work proceeds in this order:
   found its exact v3.41.3 binary embedded November 2025 Proton server metadata.
   The successor reproducibly imports the latest maintained, GitHub-verified
   `gluetun-servers` v0.2.0 Proton dataset at the same schema version and
-  preserves exact commit, checksum, and MIT-license provenance. Exact derived-image,
-  real-provider rotation, rollback, and local qBittorrent GitOps evidence remain
-  before the issue can be checked complete.
-- [ ] #244 has removed custom DNS serving and provisions the exact CoreDNS
+  preserves exact commit, checksum, and MIT-license provenance. Exact
+  derived-image, real-provider rotation, rollback, and local qBittorrent GitOps
+  evidence passed for RC.42; its accepted soak duration is governed by the
+  explicit executive exception above.
+- [x] #244 has removed custom DNS serving and provisions the exact CoreDNS
   v1.14.7 image as a non-root gateway sidecar with only the upstream binary's
   required `NET_BIND_SERVICE` capability. The generated Corefile
   uses only the preflight-bound generic cluster DNS endpoint and suffix plus
@@ -187,17 +205,16 @@ qualified maintained dependencies. Work proceeds in this order:
   deployment passed, but its epoch exposed an immediate single-response
   `SERVFAIL` withdrawal after transport errors had already received bounded
   retries. The successor reuses that existing attempt/deadline bound for
-  `SERVFAIL`, remains fail closed for sustained errors, and requires a new exact
-  release plus live client-matrix, DNS-load, resource, rotation, rollback, and
-  completed clean-soak evidence before the issue can be checked complete.
-- [ ] #246 has implemented bounded OpenTelemetry-first DNS, engine, mapping,
+  `SERVFAIL` and remains fail closed for sustained errors. Exact RC.42 release,
+  live client-matrix, DNS-load, resource, rotation, rollback, and accepted-soak
+  evidence passed.
+- [x] #246 has implemented bounded OpenTelemetry-first DNS, engine, mapping,
   translation, delivery, acknowledgement, adapter Apply/Observe, withdrawal,
   and recovery signals. Exporters are no-op by default; optional OTLP and a
   Prometheus-compatible exporter consume the same fixed-cardinality instrument
   set through a non-blocking 256-event queue with timeout, drop, and export
   failure accounting. Exact Linux image/RSS, collector-loss, live timeline,
-  release, GitOps, and soak evidence remain before the issue can be checked
-  complete.
+  release, GitOps, and accepted RC.42 soak evidence passed.
 
 Each slice is independently reversible and must pass exact artifact, packet,
 DNS leak, adapter, GitOps qBittorrent, resource-budget and privacy gates. The
@@ -618,13 +635,15 @@ real-deployment-proven narrow integration. Loadstone remains future work.
 - [x] Start lease reconciliation from an authoritative API-server read and
   emit endpoint-safe, transition-only diagnostics for every initiated handoff
   so informer lag and each drain predicate can be distinguished live.
-- [ ] Complete the minimum 72-hour unchanged-artifact local-cluster soak for
+- [x] Accept the RC.42 unchanged-artifact local-cluster soak for
   #116/#141 with qBittorrent as the sole application canary. Record outage
   counts and durations, DNS state, lease renewal/withdrawal/recovery, listener
   and DHT state, packet evidence, restarts, identity changes, and bounded
   resource writes. Do not add nodes or activate Bitmagnet. The Aug 11–17
-  cross-release history and the invalidated RC.13 epoch are lifecycle evidence
-  but do not replace this epoch.
+  cross-release history and invalidated epochs remain lifecycle evidence and
+  are not merged into RC.42. The project owner accepted 36.920183 observed
+  healthy hours by an explicit one-time executive waiver on 2026-09-01; this
+  does not claim that the normal 72-hour duration was observed.
 
 ### v0.3.3 controller correctness patch
 
