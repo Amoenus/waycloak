@@ -1,7 +1,7 @@
 # Stable and turnkey product implementation plan
 
-Status: accepted clean-rewrite dependency graph; implementation in progress
-Last updated: 2026-07-28
+Status: stable v1.0.1 published and live-qualified
+Last updated: 2026-09-01
 Product requirements: [stable-turnkey-product.md](../product/stable-turnkey-product.md)
 
 ## Delivery rule
@@ -104,26 +104,18 @@ knowledge is needed on the supported quick path.
 
 ## Phase 5 — API beta, operations and stable certification
 
-Current gate (2026-08-22): the signed beta cycle, dependencies #32/#33, and
-implementation issues #124–#139 have evidence-backed completion. RC.23 passed
-publication, independent verification, exact GitOps deployment, support-row
-matching, live qBittorrent torrent/DHT/port-forward operation, and its early
-runtime observations. Its graduation epoch was invalidated when the
-documentation audit found that Getting Started, README, configuration, and the
-soak example still selected RC.13/RC.11 artifacts. RC.24 corrects only that
-turnkey documentation/status surface and preserves the frozen runtime, schema,
-configuration semantics, and generated Kubernetes resources. Its exact GitOps
-rollout then exposed that the immutable `WorkloadAdapter` trust record requires
-a resource-scoped replacement, which its signed operator guidance did not yet
-describe. RC.25 documented that fail-closed transaction and completed its exact
-72-hour local-cluster qBittorrent interval. The interval remains lifecycle and
-recovery evidence, but failed graduation because unchanged reconciliation
-continuously renewed provider status, repeatedly drove the application adapter,
-and exposed recurrent DNS withdrawals plus incomplete failed-sample detail.
-RC.29 adds the dependency-backed stabilization slices from ADR 0044 without
-changing the frozen API or fail-closed contract. It must pass exact publication,
-GitOps deployment, and a fresh minimum 72-hour local qBittorrent soak before
-#140/#141 and the `v1.0.0` graduation review can close.
+Current gate (2026-09-01): the signed beta cycle, dependencies #32/#33, issues
+#124–#140, and the ADR 0044 dependency-backed stabilization slices have
+evidence-backed completion. RC.42 passed exact publication, GitOps deployment,
+the complete failure/recovery and real-provider matrix, and 36.920183 healthy
+unchanged-artifact hours. The project owner explicitly accepted that candidate
+and waived the remaining 35.079817 hours; this does not claim 72 hours were
+observed or alter the normal policy. Stable v1.0.1 then passed exact signed
+publication, independent verification, homelab promotion at GitOps revision
+`d0a12b21a24766fc729f9c0a4230de68e77abb4e`, immutable adapter rotation,
+gateway loss with zero ordinary fallback, DNS/tunnel/qBittorrent/packet gates,
+and confirmation-bound rollback and repair. The remaining work is evidence
+reconciliation and closure of #244, #141, and the parent epic #123.
 
 1. Publish signed standalone/chart CRD bundles and one support-matrix manifest.
 2. Test every supported beta upgrade/rollback, stored-version migration,

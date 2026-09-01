@@ -1,6 +1,6 @@
 # CoreDNS gateway-sidecar qualification
 
-Status: RC.42 qualification complete; security-refresh candidate pending
+Status: v1.0.1 security refresh published and live-qualified
 
 Reviewed: 2026-08-29
 
@@ -151,12 +151,19 @@ reinstalls deny rules. Exporter availability, sidecar process health, and
 upstream health checks cannot override this result; no hysteresis or direct
 fallback exists.
 
-## Remaining release gate
+## Stable release evidence
 
 Source tests cover exact Corefile generation, absence of Kubernetes API
 coupling, capability and credential isolation, startup ordering, the complete
 probe matrix, truncation retry, bounded transient retries, diagnostic classes,
-and fail-closed withdrawal. Completion still requires a newly signed exact
-release, homelab GitOps deployment, the live client/runtime matrix, DNS leak and
-tunnel-loss tests, qBittorrent behavior, renewal and rotation, measured resource
-evidence, rollback, and a new unchanged-artifact minimum 72-hour soak.
+and fail-closed withdrawal. Stable v1.0.1 publishes the signed multi-platform
+Waycloak derivative at
+`ghcr.io/amoenus/waycloak-coredns@sha256:dd9016c67f9f1c0d1c9beab3510b818c8a0006495b0a844bfd08aae75e7ee077`.
+Its exact publication, SBOM, signature, provenance, vulnerability gate, and
+independent verifier passed. Homelab promotion at GitOps revision
+`d0a12b21a24766fc729f9c0a4230de68e77abb4e` then passed 120/120 live DNS-load
+queries across external A/AAAA and cluster A over UDP/TCP, strict semantic
+readiness, gateway-loss withdrawal/recovery, qBittorrent operation, resource
+and privacy checks, rollback/repair, and packet evidence. The accepted RC.42
+candidate contributes the explicitly recorded 36.920183-hour executive soak
+waiver; this qualification does not claim that 72 hours were observed.

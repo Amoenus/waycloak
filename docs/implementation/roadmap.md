@@ -20,9 +20,16 @@ rebuilds the unchanged CoreDNS implementation reproducibly with maintained
 critical vulnerability that correctly stopped incomplete `v1.0.0`. Exact
 source, patch, checksums, licenses, SBOMs, signatures, provenance, platforms,
 labels, chart, KCL and CLI identities are public and independently verified.
-Homelab remains exact RC.42; the validated local GitOps update is awaiting the
-required production approval before commit, push, transition, and live
-certification. `v1.0.0` remains incomplete and must not be reused or deployed.
+Homelab is promoted at signed GitOps revision
+`d0a12b21a24766fc729f9c0a4230de68e77abb4e`. The exact confirmation-bound
+transition, immutable adapter rotation, Argo convergence, DNS and tunnel
+checks, qBittorrent TCP/UDP/listener/DHT/tracker behavior, gateway/provider
+rotation, rollback/repair, resource, privacy, metrics, and packet gates passed.
+The gateway-loss proof observed 13 denied protected-workload egress attempts
+and zero ordinary-egress violations before exact-image recovery. The stable
+release is therefore live-qualified under the explicitly recorded RC.42
+36.920183-hour executive soak waiver. `v1.0.0` remains incomplete and must not
+be reused or deployed.
 
 **RC.42 accepted-candidate checkpoint (2026-09-01):** `v0.1.0-rc.42` at
 signed source `41dfcf91679d365e5fdc4eadb9ff9a1511efec0d`, canonical manifest

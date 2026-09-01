@@ -33,12 +33,28 @@ verification. The canonical release manifest is
 the downloaded `release-manifest.json` asset is
 `sha256:b013fdf81286a22212e19e23e5bc7acfcca32dea75e234cc0bb4a2fb02f993fc`.
 
-Homelab remains on exact RC.42 pending the repository-required production
-approval. A local-only GitOps update to every v1.0.1 manifest identity and the
-immutable qBittorrent adapter trust record passes server-side Application dry
-run, full KCL source validation, focused qBittorrent render validation,
-targeted pre-commit, and diff checks. It is intentionally uncommitted,
-unpushed, and unsynced until that approval is granted.
+The approved homelab promotion is complete at signed GitOps revision
+`d0a12b21a24766fc729f9c0a4230de68e77abb4e`. The confirmation-bound transition
+used the exact published CLI and manifest, rotated the immutable qBittorrent
+adapter trust record, and converged the root, Waycloak, and qBittorrent Argo CD
+Applications Healthy/Synced. Adapter withdrawal remained fail closed and
+preserved the lease, Service, Pod, and handoff identities before resuming on
+the exact v1.0.1 adapter digest.
+
+Live stable certification repeated external and cluster DNS across A/AAAA and
+UDP/TCP, independent TCP reachability, qBittorrent TCP/UDP listener
+acknowledgement, DHT/PeX/LSD and tracker/peer behavior, tunnel egress, resource
+and privacy checks, metrics, and bidirectional packet capture. A controlled
+gateway replacement withdrew both the lease and binding; all 13 protected-
+workload egress attempts during withdrawal failed, with no ordinary-egress
+violation. Exact-image recovery advanced the legitimate handoff once from 298
+to 299 while preserving the qBittorrent Pod, Service, lease, and binding UIDs.
+The confirmation-bound RC.42 rollback and newly planned forward repair both
+recovered, a stale reviewed plan was correctly rejected, and no transition
+authority remained afterward. The signed external certification record is
+`waycloak-v1.0.1-live-certification-proof.json`, SHA-256
+`fc4448a4a38bf55d58e332d4537661f9017c989d73e0e8470d4902635740165f`.
+It records no credential, public endpoint, or provider port.
 
 ## RC.42 executive certification disposition
 
