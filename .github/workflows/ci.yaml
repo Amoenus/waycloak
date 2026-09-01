@@ -489,6 +489,65 @@ jobs:
           docker run --rm --entrypoint cat waycloak-gluetun:test \
             /etc/waycloak/gluetun-control-auth.toml | cmp - build/gluetun-candidate/control-auth.toml
 
+  coredns-candidate:
+    needs: classify
+    if: needs.classify.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install checksummed security tools
+        run: bash hack/install-security-tools.sh
+      - name: Rebuild and test the exact CoreDNS source twice
+        run: |
+          upstream_commit=427fc80ed9ca47f354585eb30a3f1332950856c4
+          x_crypto_version=v0.55.0
+          for build in first second; do
+            source_dir="$RUNNER_TEMP/coredns-source-$build"
+            git init "$source_dir"
+            git -C "$source_dir" remote add origin https://github.com/coredns/coredns.git
+            git -C "$source_dir" fetch --depth=1 origin "$upstream_commit"
+            git -C "$source_dir" checkout --detach FETCH_HEAD
+            bash hack/build-coredns-candidate.sh \
+              "$source_dir" "$RUNNER_TEMP/coredns-$build" \
+              "$upstream_commit" "$x_crypto_version" v1.0.1
+          done
+          diff --recursive --no-dereference "$RUNNER_TEMP/coredns-first" "$RUNNER_TEMP/coredns-second"
+          (cd "$RUNNER_TEMP/coredns-source-first" && GOWORK=off go test ./...)
+          go version -m "$RUNNER_TEMP/coredns-first/coredns-amd64" | tee "$RUNNER_TEMP/coredns-modules"
+          grep -q $'dep\tgolang.org/x/crypto\tv0.55.0\t' "$RUNNER_TEMP/coredns-modules"
+          grep -q $'dep\tgolang.org/x/mod\tv0.38.0\t' "$RUNNER_TEMP/coredns-modules"
+      - name: Build and scan the derived image
+        run: |
+          docker buildx build \
+            --file build/coredns-candidate/Dockerfile \
+            --platform=linux/amd64 \
+            --build-arg UPSTREAM_IMAGE=docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286 \
+            --build-arg COREDNS_UPSTREAM_COMMIT=427fc80ed9ca47f354585eb30a3f1332950856c4 \
+            --build-arg COREDNS_X_CRYPTO_VERSION=v0.55.0 \
+            --build-arg WAYCLOAK_RELEASE=v1.0.1 \
+            --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
+            --provenance=false \
+            --sbom=false \
+            --tag waycloak-coredns:test \
+            --load \
+            "$RUNNER_TEMP/coredns-first"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --ignorefile security/coredns-v1.14.7.trivyignore.yaml --show-suppressed \
+            --exit-code 1 waycloak-coredns:test
+          test "$(docker image inspect waycloak-coredns:test --format '{{.Config.User}}')" = 65532:65532
+          test "$(docker image inspect waycloak-coredns:test --format '{{index .Config.Labels "io.waycloak.coredns.upstream-commit"}}')" = 427fc80ed9ca47f354585eb30a3f1332950856c4
+          test "$(docker image inspect waycloak-coredns:test --format '{{index .Config.Labels "io.waycloak.coredns.x-crypto-version"}}')" = v0.55.0
+          docker run --rm waycloak-coredns:test -version
+
   kind-e2e:
     needs: classify
     if: needs.classify.outputs.full == 'true'
