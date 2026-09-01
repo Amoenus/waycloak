@@ -27,6 +27,8 @@ jobs:
     outputs:
       chart_digest: ${{ steps.publish-chart.outputs.digest }}
       chart_repository: ${{ steps.publish-chart.outputs.repository }}
+      coredns_digest: ${{ steps.publish-coredns.outputs.digest }}
+      coredns_repository: ${{ steps.publish-coredns.outputs.repository }}
       gateway_agent_digest: ${{ steps.publish-images.outputs.gateway_agent_digest }}
       gateway_agent_repository: ${{ steps.publish-images.outputs.gateway_agent_repository }}
       gateway_runtime_digest: ${{ steps.publish-images.outputs.gateway_runtime_digest }}
@@ -227,6 +229,64 @@ jobs:
             printf 'repository=%s\n' "$repository"
             printf 'digest=%s\n' "$digest"
           } >>"$GITHUB_OUTPUT"
+      - name: Build, test, and publish the vulnerability-fixed CoreDNS derivative
+        id: publish-coredns
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          upstream_commit=427fc80ed9ca47f354585eb30a3f1332950856c4
+          upstream_image=docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286
+          x_crypto_version=v0.55.0
+          repository=ghcr.io/amoenus/waycloak-coredns
+          release_version="${RELEASE_TAG#v}"
+
+          checkout_upstream() {
+            local destination="$1"
+            git init "$destination"
+            git -C "$destination" remote add origin https://github.com/coredns/coredns.git
+            git -C "$destination" fetch --depth=1 origin "$upstream_commit"
+            git -C "$destination" checkout --detach FETCH_HEAD
+            test "$(git -C "$destination" rev-parse HEAD)" = "$upstream_commit"
+          }
+
+          checkout_upstream "$RUNNER_TEMP/coredns-source-first"
+          checkout_upstream "$RUNNER_TEMP/coredns-source-second"
+          bash hack/build-coredns-candidate.sh \
+            "$RUNNER_TEMP/coredns-source-first" "$RUNNER_TEMP/coredns-first" \
+            "$upstream_commit" "$x_crypto_version" "$RELEASE_TAG"
+          bash hack/build-coredns-candidate.sh \
+            "$RUNNER_TEMP/coredns-source-second" "$RUNNER_TEMP/coredns-second" \
+            "$upstream_commit" "$x_crypto_version" "$RELEASE_TAG"
+          diff --recursive --no-dereference "$RUNNER_TEMP/coredns-first" "$RUNNER_TEMP/coredns-second"
+          (cd "$RUNNER_TEMP/coredns-source-first" && GOWORK=off go test ./...)
+
+          docker buildx build \
+            --file build/coredns-candidate/Dockerfile \
+            --platform=linux/amd64,linux/arm64 \
+            --build-arg "UPSTREAM_IMAGE=$upstream_image" \
+            --build-arg "COREDNS_UPSTREAM_COMMIT=$upstream_commit" \
+            --build-arg "COREDNS_X_CRYPTO_VERSION=$x_crypto_version" \
+            --build-arg "WAYCLOAK_RELEASE=$RELEASE_TAG" \
+            --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
+            --provenance=false \
+            --sbom=false \
+            --tag "$repository:$release_version" \
+            --push \
+            "$RUNNER_TEMP/coredns-first"
+          digest="$(docker buildx imagetools inspect "$repository:$release_version" | awk '$1 == "Digest:" {print $2; exit}')"
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "derived CoreDNS publisher did not return one exact index digest" >&2
+            exit 1
+          fi
+          printf '%s@%s\n' "$repository" "$digest" >dist/release/coredns.ref
+          cp "$RUNNER_TEMP/coredns-first/coredns-dependency.patch" dist/release/
+          cp "$RUNNER_TEMP/coredns-first/coredns-binaries.SHA256SUMS" dist/release/
+          cp "$RUNNER_TEMP/coredns-first/coredns-source.ref" dist/release/
+          cp "$RUNNER_TEMP/coredns-first/coredns.LICENSE" dist/release/
+          {
+            printf 'repository=%s\n' "$repository"
+            printf 'digest=%s\n' "$digest"
+          } >>"$GITHUB_OUTPUT"
       - name: Reproducibly package and publish the Helm chart
         id: publish-chart
         env:
@@ -351,13 +411,10 @@ jobs:
           output-file: dist/release/gluetun.spdx.json
           upload-artifact: false
           upload-release-assets: false
-      - name: Record the qualified immutable CoreDNS sidecar
-        run: |
-          printf '%s\n' 'docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286' >dist/release/coredns.ref
       - name: Generate CoreDNS SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
-          image: docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286
+          image: ${{ steps.publish-coredns.outputs.repository }}@${{ steps.publish-coredns.outputs.digest }}
           format: spdx-json
           output-file: dist/release/coredns.spdx.json
           upload-artifact: false
@@ -381,7 +438,7 @@ jobs:
       - name: Enforce the release vulnerability policy
         run: |
           while read -r reference; do
-            if [[ "$reference" == docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286 ]]; then
+            if [[ "$reference" == ghcr.io/amoenus/waycloak-coredns@sha256:* ]]; then
               trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
                 --ignorefile security/coredns-v1.14.7.trivyignore.yaml --show-suppressed \
                 --exit-code 1 "$reference"
@@ -438,6 +495,7 @@ jobs:
           sign_image "$(cat dist/release/waycloak-gateway-runtime.ref)" dist/release/waycloak-gateway-runtime.spdx.json
           sign_image "$(cat dist/release/waycloak-qbittorrent-adapter.ref)" dist/release/waycloak-qbittorrent-adapter.spdx.json
           sign_image "$(cat dist/release/gluetun.ref)" dist/release/gluetun.spdx.json
+          sign_image "$(cat dist/release/coredns.ref)" dist/release/coredns.spdx.json
 
           chart_reference="$(sed 's|^oci://||' dist/release/waycloak-chart.ref)"
           sign_image "$chart_reference" dist/release/waycloak-chart.spdx.json
@@ -493,6 +551,12 @@ jobs:
         with:
           subject-name: ${{ steps.publish-gluetun.outputs.repository }}
           subject-digest: ${{ steps.publish-gluetun.outputs.digest }}
+          push-to-registry: true
+      - name: Attest CoreDNS derivative provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.publish-coredns.outputs.repository }}
+          subject-digest: ${{ steps.publish-coredns.outputs.digest }}
           push-to-registry: true
       - name: Attest chart provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

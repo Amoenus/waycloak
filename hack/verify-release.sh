@@ -21,7 +21,9 @@ readonly kcl_archive="waycloak-kcl-${release_tag}.tar"
 readonly gluetun_upstream_commit="3d1e20c5551e9cae1f9d938dc7b7214a6987f27e"
 readonly gluetun_upstream_image="docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027"
 readonly gluetun_servers_commit="0c7381faba8b0ef5d59caec11eae7ef629f6b4c9"
+readonly coredns_upstream_commit="427fc80ed9ca47f354585eb30a3f1332950856c4"
 readonly coredns_upstream_image="docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286"
+readonly coredns_x_crypto_version="v0.55.0"
 
 bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-tag.sh" "$release_tag"
 if [[ ! "$source_sha" =~ ^[a-f0-9]{40}$ ]]; then
@@ -100,6 +102,10 @@ expected_assets=(
   gluetun.LICENSE
   gluetun.ref
   gluetun.spdx.json
+  coredns-binaries.SHA256SUMS
+  coredns-dependency.patch
+  coredns-source.ref
+  coredns.LICENSE
   coredns.ref
   coredns.spdx.json
   replacement-controller.ref
@@ -155,6 +161,7 @@ test "$(jq -r '.kcl.repository + "@" + .kcl.digest' "$asset_dir/release-manifest
   "$(cat "$asset_dir/waycloak-kcl.ref")"
 
 image_ref_files=(
+  coredns.ref
   gluetun.ref
   replacement-controller.ref
   waycloak-cni.ref
@@ -192,10 +199,26 @@ for ref_file in "${image_ref_files[@]}"; do
     --deny-self-hosted-runners
 done
 
-test "$(cat "$asset_dir/coredns.ref")" = "$coredns_upstream_image"
-test "$(jq -r '.images.coredns.repository + "@" + .images.coredns.digest' "$asset_dir/release-manifest.json")" = "$coredns_upstream_image"
+coredns_reference="$(cat "$asset_dir/coredns.ref")"
+[[ "$coredns_reference" =~ ^ghcr.io/amoenus/waycloak-coredns@sha256:[a-f0-9]{64}$ ]]
+test "$(cat "$asset_dir/coredns-source.ref")" = "github.com/coredns/coredns@${coredns_upstream_commit}"
 for architecture in amd64 arm64; do
-  retry_bounded_quiet "CoreDNS linux/${architecture} manifest" crane manifest --platform "linux/$architecture" "$coredns_upstream_image"
+  expected_checksum="$(awk -v architecture="$architecture" \
+    '$2 == "coredns-" architecture {print $1}' \
+    "$asset_dir/coredns-binaries.SHA256SUMS")"
+  [[ "$expected_checksum" =~ ^[a-f0-9]{64}$ ]]
+  retry_bounded_to_file "CoreDNS linux/${architecture} config" "$work_dir/coredns-${architecture}.config.json" \
+    crane config --platform "linux/$architecture" "$coredns_reference"
+  jq -e \
+    --arg commit "$coredns_upstream_commit" \
+    --arg crypto "$coredns_x_crypto_version" \
+    '.config.Labels["io.waycloak.coredns.upstream-commit"] == $commit and
+     .config.Labels["io.waycloak.coredns.x-crypto-version"] == $crypto' \
+    "$work_dir/coredns-${architecture}.config.json" >/dev/null
+  retry_bounded_to_file "CoreDNS linux/${architecture} filesystem" "$work_dir/coredns-${architecture}.tar" \
+    crane export --platform "linux/$architecture" "$coredns_reference" -
+  tar -xOf "$work_dir/coredns-${architecture}.tar" coredns >"$work_dir/coredns-${architecture}"
+  printf '%s  %s\n' "$expected_checksum" "$work_dir/coredns-${architecture}" | sha256sum --check -
 done
 
 gluetun_reference="$(cat "$asset_dir/gluetun.ref")"

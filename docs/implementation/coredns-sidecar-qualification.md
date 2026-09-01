@@ -1,6 +1,6 @@
 # CoreDNS gateway-sidecar qualification
 
-Status: source implementation complete; exact-release and live-cluster evidence pending
+Status: RC.42 qualification complete; security-refresh candidate pending
 
 Reviewed: 2026-08-29
 
@@ -8,8 +8,8 @@ Issue: #244
 
 ## Selection
 
-Waycloak selects CoreDNS v1.14.7 for the gateway split-DNS serving role. The
-release pins the official multi-platform image index exactly as
+Waycloak selects CoreDNS v1.14.7 for the gateway split-DNS serving role. RC.42
+pinned the official multi-platform image index exactly as
 `docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286`.
 Registry inspection confirmed linux/amd64 manifest
 `sha256:2329f5f0e7e79fbe56dcdf11ecc4337ee2476bb251095bc275fe9461cb88a55b`
@@ -27,6 +27,18 @@ to commit `427fc80ed9ca47f354585eb30a3f1332950856c4`. Every Waycloak release
 generates a CoreDNS SPDX asset, scans the exact image for HIGH/CRITICAL fixed
 vulnerabilities, verifies amd64 and arm64 availability, and carries the exact
 identity in the signed release manifest.
+
+The attempted `v1.0.0` publication on 2026-09-01 correctly stopped when the
+current vulnerability database identified CVE-2026-56854 in the official
+binary's `golang.org/x/crypto` v0.54.0; v0.55.0 contains the fix. CoreDNS
+v1.14.7 remains the latest upstream stable release. The successor therefore
+uses two exact source checkouts of the unchanged v1.14.7 commit, applies only
+the maintained `x/crypto` v0.55.0 dependency update and its selected transitive
+updates, runs the upstream suite, and requires byte-identical amd64/arm64
+binaries before publishing a signed multi-platform Waycloak derivative. The
+release carries the exact source reference, dependency patch, binary checksums,
+Apache-2.0 license, SBOM, signature, and hosted provenance. This changes no DNS
+protocol, plugin, Corefile, readiness, or cluster-DNS boundary.
 
 The first RC.27 publication attempt exposed a Trivy version-ordering false
 positive rather than a vulnerable CoreDNS build. The official binary embeds

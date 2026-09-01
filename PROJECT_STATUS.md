@@ -1,5 +1,25 @@
 # Project status
 
+## Stable publication security refresh
+
+The first `v1.0.0` runtime publication attempt at signed source
+`3bee8a32` stopped at the mandatory vulnerability gate after publishing only
+intermediate immutable images. The CLI publication and verifier passed, but no
+complete runtime release or canonical manifest was published. Trivy's current
+database identified critical CVE-2026-56854 in the official CoreDNS v1.14.7
+binary's `golang.org/x/crypto` v0.54.0; v0.55.0 contains the fix. This is a
+substantive release blocker and is not waived by the RC.42 soak decision.
+
+CoreDNS v1.14.7 remains the latest maintained stable upstream release. The
+successor keeps its exact source commit and unchanged DNS implementation, runs
+the upstream suite after applying the maintained `x/crypto` v0.55.0 dependency
+update, and requires two independent builds to produce byte-identical amd64 and
+arm64 binaries. The release publishes a signed Waycloak CoreDNS derivative
+with the exact upstream reference, dependency patch, binary checksums, license,
+SBOM, vulnerability scan, signature, and hosted provenance. This adds no DNS
+protocol code or alternate resolver: CoreDNS still owns DNS serving and
+Waycloak still owns strict semantic readiness and fail-closed withdrawal.
+
 ## RC.42 executive certification disposition
 
 `v0.1.0-rc.42` is the accepted local-cluster release candidate at signed
