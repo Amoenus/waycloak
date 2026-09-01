@@ -9,6 +9,21 @@ Each phase ends with observable acceptance criteria. A fresh implementation agen
 > work is planned. Do not extend the annotation/sidecar architecture except to
 > keep the currently installed release fail closed during replacement.
 
+**Stable publication checkpoint (2026-09-01):** `v1.0.1` at signed source
+`bab6b211e1719b1e92c432d25fd3bdb1496fb79b` passed main CI, runtime and CLI
+publication, and both independent public-artifact verifiers. Its canonical
+manifest is
+`sha256:f5960ede1d68eafba7765c5dd977bdbc66c1181d38d1c82b882179da589fa7a9`.
+The release retains latest qualified Gluetun v3.41.3 and CoreDNS v1.14.7, but
+rebuilds the unchanged CoreDNS implementation reproducibly with maintained
+`golang.org/x/crypto` v0.55.0 and `golang.org/x/mod` v0.40.0 to remove the
+critical vulnerability that correctly stopped incomplete `v1.0.0`. Exact
+source, patch, checksums, licenses, SBOMs, signatures, provenance, platforms,
+labels, chart, KCL and CLI identities are public and independently verified.
+Homelab remains exact RC.42; the validated local GitOps update is awaiting the
+required production approval before commit, push, transition, and live
+certification. `v1.0.0` remains incomplete and must not be reused or deployed.
+
 **RC.42 accepted-candidate checkpoint (2026-09-01):** `v0.1.0-rc.42` at
 signed source `41dfcf91679d365e5fdc4eadb9ff9a1511efec0d`, canonical manifest
 `sha256:96b283312317ffb6216224ff2a60c2bb322ba76398c360d481e6d90e4162c188`,
@@ -64,7 +79,7 @@ recovery. It also spends the existing bounded three-attempt DNS observation
 budget on transient `SERVFAIL` responses while still rejecting persistent
 failures immediately after that bound. It adds no dependency or hysteresis. A
 new exact candidate and clean 72-hour epoch are required; RC.31 does not close
-#123, #140, or #141. RC.32 exact publication, confirmation-bound deployment,
+issues #123, #140, or #141. RC.32 exact publication, confirmation-bound deployment,
 gateway activation, and GitOps revision
 `0c2baf0cf65e7eb45f9332c3823e12f6bd6639a8` passed, but the immutable adapter
 trust-record rotation exposed a follow-on defect before any soak epoch began.

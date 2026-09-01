@@ -21,6 +21,25 @@ SBOM, vulnerability scan, signature, and hosted provenance. This adds no DNS
 protocol code or alternate resolver: CoreDNS still owns DNS serving and
 Waycloak still owns strict semantic readiness and fail-closed withdrawal.
 
+The corrected stable release `v1.0.1` was published from signed source commit
+`bab6b211e1719b1e92c432d25fd3bdb1496fb79b`. Main CI run `33543127748`
+passed every job, including duplicate CoreDNS builds, the upstream CoreDNS
+suite, the derived-image vulnerability scan, Gluetun qualification, broad
+reproducibility and frozen-API checks, and the exact-artifact turnkey
+transition/rollback suite. Runtime release run `33544949433` and CLI release
+run `33544949577` both passed publication and independent public-artifact
+verification. The canonical release manifest is
+`sha256:f5960ede1d68eafba7765c5dd977bdbc66c1181d38d1c82b882179da589fa7a9`;
+the downloaded `release-manifest.json` asset is
+`sha256:b013fdf81286a22212e19e23e5bc7acfcca32dea75e234cc0bb4a2fb02f993fc`.
+
+Homelab remains on exact RC.42 pending the repository-required production
+approval. A local-only GitOps update to every v1.0.1 manifest identity and the
+immutable qBittorrent adapter trust record passes server-side Application dry
+run, full KCL source validation, focused qBittorrent render validation,
+targeted pre-commit, and diff checks. It is intentionally uncommitted,
+unpushed, and unsynced until that approval is granted.
+
 ## RC.42 executive certification disposition
 
 `v0.1.0-rc.42` is the accepted local-cluster release candidate at signed
