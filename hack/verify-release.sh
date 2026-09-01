@@ -24,6 +24,7 @@ readonly gluetun_servers_commit="0c7381faba8b0ef5d59caec11eae7ef629f6b4c9"
 readonly coredns_upstream_commit="427fc80ed9ca47f354585eb30a3f1332950856c4"
 readonly coredns_upstream_image="docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286"
 readonly coredns_x_crypto_version="v0.55.0"
+readonly coredns_x_mod_version="v0.40.0"
 
 bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-tag.sh" "$release_tag"
 if [[ ! "$source_sha" =~ ^[a-f0-9]{40}$ ]]; then
@@ -212,8 +213,10 @@ for architecture in amd64 arm64; do
   jq -e \
     --arg commit "$coredns_upstream_commit" \
     --arg crypto "$coredns_x_crypto_version" \
+    --arg mod "$coredns_x_mod_version" \
     '.config.Labels["io.waycloak.coredns.upstream-commit"] == $commit and
-     .config.Labels["io.waycloak.coredns.x-crypto-version"] == $crypto' \
+     .config.Labels["io.waycloak.coredns.x-crypto-version"] == $crypto and
+     .config.Labels["io.waycloak.coredns.x-mod-version"] == $mod' \
     "$work_dir/coredns-${architecture}.config.json" >/dev/null
   retry_bounded_to_file "CoreDNS linux/${architecture} filesystem" "$work_dir/coredns-${architecture}.tar" \
     crane export --platform "linux/$architecture" "$coredns_reference" -

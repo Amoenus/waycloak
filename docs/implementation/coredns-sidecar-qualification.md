@@ -33,7 +33,8 @@ current vulnerability database identified CVE-2026-56854 in the official
 binary's `golang.org/x/crypto` v0.54.0; v0.55.0 contains the fix. CoreDNS
 v1.14.7 remains the latest upstream stable release. The successor therefore
 uses two exact source checkouts of the unchanged v1.14.7 commit, applies only
-the maintained `x/crypto` v0.55.0 dependency update and its selected transitive
+the maintained `x/crypto` v0.55.0 and `x/mod` v0.40.0 dependency updates and
+their selected transitive
 updates, runs the upstream suite, and requires byte-identical amd64/arm64
 binaries before publishing a signed multi-platform Waycloak derivative. The
 release carries the exact source reference, dependency patch, binary checksums,

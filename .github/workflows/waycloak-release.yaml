@@ -237,6 +237,7 @@ jobs:
           upstream_commit=427fc80ed9ca47f354585eb30a3f1332950856c4
           upstream_image=docker.io/coredns/coredns@sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286
           x_crypto_version=v0.55.0
+          x_mod_version=v0.40.0
           repository=ghcr.io/amoenus/waycloak-coredns
           release_version="${RELEASE_TAG#v}"
 
@@ -253,10 +254,10 @@ jobs:
           checkout_upstream "$RUNNER_TEMP/coredns-source-second"
           bash hack/build-coredns-candidate.sh \
             "$RUNNER_TEMP/coredns-source-first" "$RUNNER_TEMP/coredns-first" \
-            "$upstream_commit" "$x_crypto_version" "$RELEASE_TAG"
+            "$upstream_commit" "$x_crypto_version" "$x_mod_version" "$RELEASE_TAG"
           bash hack/build-coredns-candidate.sh \
             "$RUNNER_TEMP/coredns-source-second" "$RUNNER_TEMP/coredns-second" \
-            "$upstream_commit" "$x_crypto_version" "$RELEASE_TAG"
+            "$upstream_commit" "$x_crypto_version" "$x_mod_version" "$RELEASE_TAG"
           diff --recursive --no-dereference "$RUNNER_TEMP/coredns-first" "$RUNNER_TEMP/coredns-second"
           (cd "$RUNNER_TEMP/coredns-source-first" && GOWORK=off go test ./...)
 
@@ -266,6 +267,7 @@ jobs:
             --build-arg "UPSTREAM_IMAGE=$upstream_image" \
             --build-arg "COREDNS_UPSTREAM_COMMIT=$upstream_commit" \
             --build-arg "COREDNS_X_CRYPTO_VERSION=$x_crypto_version" \
+            --build-arg "COREDNS_X_MOD_VERSION=$x_mod_version" \
             --build-arg "WAYCLOAK_RELEASE=$RELEASE_TAG" \
             --build-arg "WAYCLOAK_SOURCE_COMMIT=$GITHUB_SHA" \
             --provenance=false \

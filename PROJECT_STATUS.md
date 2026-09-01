@@ -12,9 +12,10 @@ substantive release blocker and is not waived by the RC.42 soak decision.
 
 CoreDNS v1.14.7 remains the latest maintained stable upstream release. The
 successor keeps its exact source commit and unchanged DNS implementation, runs
-the upstream suite after applying the maintained `x/crypto` v0.55.0 dependency
-update, and requires two independent builds to produce byte-identical amd64 and
-arm64 binaries. The release publishes a signed Waycloak CoreDNS derivative
+the upstream suite after applying the maintained `x/crypto` v0.55.0 and
+`x/mod` v0.40.0 dependency updates, and requires two independent builds to
+produce byte-identical amd64 and arm64 binaries. The release publishes a signed
+Waycloak CoreDNS derivative
 with the exact upstream reference, dependency patch, binary checksums, license,
 SBOM, vulnerability scan, signature, and hosted provenance. This adds no DNS
 protocol code or alternate resolver: CoreDNS still owns DNS serving and
