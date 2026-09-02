@@ -15,8 +15,14 @@ version as the Waycloak release and verify its digest through
 `release-manifest.json` or `waycloak-kcl.ref`:
 
 ```sh
-kcl run oci://ghcr.io/amoenus/waycloak-kcl --tag 0.1.0-rc.1 -S items
+kcl mod add oci://ghcr.io/amoenus/waycloak-kcl --tag 1.0.1
+kcl run examples/private-egress.k -S items
 ```
+
+The stable module digest is
+`sha256:4ccad6c38eac0028fe9aa7466b1cf7bce664f1cc25db5365288245361ebac45b`.
+See [`docs/guides/kcl.md`](../../docs/guides/kcl.md) for dependency imports,
+rendering, GitOps layout, and credential boundaries.
 
 Use the examples as authoring references after the complete Helm/CLI
 installation is healthy. This package does not install a controller or data

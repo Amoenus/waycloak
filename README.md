@@ -1,36 +1,55 @@
 # Waycloak
 
-Waycloak is a clean-break, Kubernetes-native private-egress system. An explicitly enrolled Pod is admitted only through the stable `VPNEgressRoute` API and a same-namespace Pod-template label:
+Waycloak provides selected, fail-closed VPN egress for explicitly enrolled
+Kubernetes workloads. Applications use ordinary Kubernetes Pod templates; VPN
+credentials and the VPN engine stay in a shared gateway rather than in the
+application Pod.
+
+The current stable release is **v1.0.1**. It supports the
+`networking.waycloak.io/v1beta1` API on the certified K3s/Flannel environment
+described in the [getting started guide](docs/getting-started.md#supported-environment).
+Do not deploy `v1.0.0`: its runtime artifacts did not pass the release
+vulnerability gate.
+
+## Start here
+
+- [Getting started](docs/getting-started.md) — verify, install, create a
+  gateway, and protect a workload.
+- [Configuration reference](docs/configuration.md) — all operator-controlled
+  installation, gateway, route, enrollment, RBAC, and optional feature settings.
+- [Advanced setup](docs/advanced-setup.md) — cross-namespace routing, GitOps,
+  port forwarding, observability, upgrades, and recovery.
+- [Helm and OCI guide](docs/guides/helm.md) — inspect and render the chart while
+  preserving the supported release lifecycle.
+- [KCL guide](docs/guides/kcl.md) — author typed Waycloak resources with the
+  optional OCI module.
+- [API reference](docs/api/v1beta1.md) — generated field-level API details.
+
+## The workload contract
+
+Enrollment is explicit on a workload's Pod template:
 
 ```yaml
 spec:
   template:
     metadata:
       labels:
-        networking.waycloak.io/egress-route: private-egress
+        networking.waycloak.io/egress-route: private
 ```
 
-The baseline security boundary is a mandatory chained CNI plugin backed by a privileged per-node agent. It installs deny-first state before CNI `ADD` succeeds. Waycloak injects no application sidecar or init container, Linux capability, host mount, VPN credential, or Kubernetes credential. A missing, rejected, unauthorized, unhealthy, or unprogrammed route fails closed; it never silently selects ordinary egress.
+That label is fail-closed intent. If the selected route, gateway, tunnel, DNS
+path, node agent, or release identity is not healthy, Waycloak denies startup
+or keeps egress blocked. It never silently falls back to ordinary internet
+egress. Application containers receive no additional Linux capabilities.
 
-## Current state
+Helm is the primary packaging surface and KCL is an optional authoring surface.
+Initial installation, upgrades, and rollbacks use a verified, reviewable
+`waycloakctl install plan/apply` transaction because the lifecycle also owns
+the CNI chain, immutable release identity, observation trust, and fail-closed
+activation sequence.
 
-`v0.1.0-rc.30` is the current feature-complete release candidate. The public
-`networking.waycloak.io/v1beta1` schemas and behavioral contracts are frozen;
-the alpha runtime is absent. The release provides signed CLI binaries,
-multi-platform OCI images, a Helm OCI chart, an optional KCL OCI module, SBOMs,
-provenance, and an exact signed release manifest. It is a prerelease and does
-not claim final stable graduation. Its certified operator row is K3s
-`v1.36.1+k3s1`, Flannel, containerd `2.2.3-k3s1`, Linux 5.10+, `amd64`, and
-Gluetun with Proton/OpenVPN; the signed manifest carries the exact feature and
-evidence identities.
+Waycloak does not claim anonymity. Its guarantee is selected, fail-closed VPN
+egress within the documented [threat model](docs/security/threat-model.md).
 
-Start with [Getting started](docs/getting-started.md), then read the [use
-cases](docs/use-cases.md), [configuration requirements](docs/configuration.md),
-[deployable resources](docs/deployable-resources.md), and [API
-reference](docs/api/v1beta1.md).
-
-The old [PRD](docs/product/PRD.md) and [alpha API contract](docs/api/api-contract.md) are as-built evidence only. They are not compatibility inputs.
-
-## License
-
-Waycloak is licensed under the [MIT License](LICENSE). Apache-2.0 material retains its required notices.
+Waycloak is licensed under the [MIT License](LICENSE). Apache-2.0 material
+retains its required notices.

@@ -7,10 +7,13 @@ Operators create a `VPNGateway` referencing an immutable `VPNGatewayClass` claim
 A failed CNI `ADD` prevents the sandbox from becoming runnable. Users diagnose the route, binding, gateway, and node-agent conditions; they never repair an enrolled workload by removing denial or selecting ordinary egress.
 
 The signed preflight/install/doctor workflow and complete examples are the
-supported release-candidate path documented in
-[Getting started](../getting-started.md). The clean-cluster timing and separate
-credentialed real-provider gates are certified under issue #138; stable
-graduation remains subject to the broader lifecycle and soak evidence.
+supported stable path documented in [Getting started](../getting-started.md).
+The [configuration reference](../configuration.md) keeps operator-controlled
+settings in one place, while the [Helm](../guides/helm.md) and
+[KCL](../guides/kcl.md) guides show the primary installation and optional typed
+authoring experiences. Stable `v1.0.1` qualification includes the exact
+artifact, real-provider, lifecycle, fail-closed, and live homelab evidence
+recorded in its [release notes](../releases/v1.0.1.md).
 
 Port forwarding is application-neutral by default: an owner selects a stable
 Service/backend port and Waycloak translates the changing public mapping at the

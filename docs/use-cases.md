@@ -49,7 +49,7 @@ operator-authored resources. Changed-release activation still goes through the
 journal-bound `waycloakctl install plan/apply` transaction before GitOps
 converges the matching immutable release identity.
 
-## Deliberate non-goals for v0.1
+## Deliberate non-goals for v1.0.1
 
 - anonymity claims or protection from a compromised node/cluster administrator;
 - transparent enrollment of unlabelled workloads;
