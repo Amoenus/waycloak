@@ -136,4 +136,6 @@ described in the [Helm guide](helm.md).
   Pods.
 
 See the [configuration reference](../configuration.md) for all resource fields
-and [API reference](../api/v1beta1.md) for generated schema details.
+and [API reference](../api/v1beta1.md) for generated schema details. The
+[workload-adapter guide](workload-adapters.md#kcl-trust-record) contains a
+digest-pinned qBittorrent `WorkloadAdapter` example.

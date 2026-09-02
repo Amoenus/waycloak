@@ -10,6 +10,7 @@ The stable documentation set targets Waycloak `v1.0.1` and the frozen
 3. [Advanced setup](advanced-setup.md)
 4. [Helm and OCI](guides/helm.md)
 5. [KCL authoring](guides/kcl.md)
+6. [Workload adapters and qBittorrent](guides/workload-adapters.md)
 
 ## Understand the product
 
@@ -20,6 +21,7 @@ The stable documentation set targets Waycloak `v1.0.1` and the frozen
 - [Architecture](architecture/architecture.md)
 - [Networking model](architecture/networking.md)
 - [Threat model](security/threat-model.md)
+- [Dependencies and responsibility boundaries](dependencies.md)
 
 ## Operate it
 

@@ -33,6 +33,12 @@ Kubernetes. Secret values are not represented in Helm values.
 | `WorkloadAdapter` | Namespace | Adapter operator | Last-resort application-specific handoff trust record; never a VPN/provider plugin |
 | Workload Pod template | Namespace | Workload owner | Explicit route enrollment label |
 
+The [workload-adapter guide](guides/workload-adapters.md) shows the additional
+Service, Deployment, PVC, PKI, application credential, trust-record, and lease
+ownership required by the qBittorrent reference integration. The
+[dependency boundary](dependencies.md) identifies which configuration remains
+owned by Gluetun, qBittorrent, Kubernetes, and other upstream projects.
+
 ## Controller-authored resources
 
 `VPNWorkloadBinding` is controller owned. It binds one exact Pod UID to route,

@@ -136,6 +136,11 @@ and reference a `WorkloadAdapter` only when compatibility evidence shows the
 application must learn or advertise the external port. Adapter credentials
 remain workload-owned.
 
+The complete reference deployment is in
+[Workload adapters](guides/workload-adapters.md). Do not combine it with
+Gluetun's application shell hooks; Waycloak's adapter protocol owns delivery,
+generation acknowledgement, and fail-closed withdrawal.
+
 ## Observability
 
 Kubernetes conditions, events, and `waycloakctl doctor` are authoritative.

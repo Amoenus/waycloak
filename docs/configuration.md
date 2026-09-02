@@ -266,6 +266,11 @@ advertise the provider-assigned port. An adapter is immutable operator trust,
 has no Kubernetes token or VPN credential, and cannot weaken fail-closed
 egress. qBittorrent is the reference last-resort adapter.
 
+See [Workload adapters](guides/workload-adapters.md) for a complete
+qBittorrent Service, adapter Deployment, immutable trust record, KCL example,
+and adapter-bound lease. Third-party configuration ownership and official
+upstream documentation are collected in [Dependencies](dependencies.md).
+
 ## Readiness and troubleshooting
 
 Use conditions and `waycloakctl doctor` as the authoritative operational view:

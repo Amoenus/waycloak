@@ -23,6 +23,10 @@ vulnerability gate.
   preserving the supported release lifecycle.
 - [KCL guide](docs/guides/kcl.md) — author typed Waycloak resources with the
   optional OCI module.
+- [Workload adapters](docs/guides/workload-adapters.md) — deploy the reference
+  qBittorrent adapter and bind it to a port-forward lease.
+- [Dependencies](docs/dependencies.md) — third-party ownership boundaries and
+  official upstream documentation.
 - [API reference](docs/api/v1beta1.md) — generated field-level API details.
 
 ## The workload contract

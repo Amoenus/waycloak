@@ -1,0 +1,160 @@
+# Waycloak v1.0.1 qBittorrent adapter example.
+# Prerequisites and PKI requirements: docs/guides/workload-adapters.md
+apiVersion: v1
+kind: Service
+metadata:
+  name: qbittorrent-peer
+  namespace: media
+spec:
+  selector:
+    app: qbittorrent
+  ports:
+    - name: peer-tcp
+      port: 51413
+      targetPort: 51413
+      protocol: TCP
+    - name: peer-udp
+      port: 51413
+      targetPort: 51413
+      protocol: UDP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qbittorrent-adapter-state
+  namespace: media
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: waycloak-adapter-7a5205a2e48d8bc4
+  namespace: media
+spec:
+  selector:
+    app: waycloak-qbittorrent-adapter
+  ports:
+    - name: https
+      port: 9444
+      targetPort: 9444
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waycloak-qbittorrent-adapter
+  namespace: media
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: waycloak-qbittorrent-adapter
+  template:
+    metadata:
+      labels:
+        app: waycloak-qbittorrent-adapter
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: adapter
+          image: ghcr.io/amoenus/waycloak-qbittorrent-adapter@sha256:327ff7dd23a0ab5296d00001376419df419774d93a15672ae112e4d71bfe20c0
+          args:
+            - --listen-address=:9444
+            - --tls-cert=/var/run/adapter-tls/tls.crt
+            - --tls-key=/var/run/adapter-tls/tls.key
+            - --client-ca=/var/run/adapter-tls/ca.crt
+            - --namespace=media
+            - --name=qbittorrent
+            - --image=ghcr.io/amoenus/waycloak-qbittorrent-adapter@sha256:327ff7dd23a0ab5296d00001376419df419774d93a15672ae112e4d71bfe20c0
+            - --pod-uid=$(POD_UID)
+            - --state-file=/var/lib/waycloak/adapter-state.json
+            - --qbittorrent-ca=/var/run/qbittorrent-ca/ca.crt
+            - --qbittorrent-server-name=qbittorrent-peer.media.svc.cluster.local
+            - --qbittorrent-username-file=/var/run/qbittorrent-auth/username
+            - --qbittorrent-password-file=/var/run/qbittorrent-auth/password
+            - --qbittorrent-port=8080
+          env:
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          ports:
+            - name: https
+              containerPort: 9444
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: adapter-tls
+              mountPath: /var/run/adapter-tls
+              readOnly: true
+            - name: qbittorrent-ca
+              mountPath: /var/run/qbittorrent-ca
+              readOnly: true
+            - name: qbittorrent-auth
+              mountPath: /var/run/qbittorrent-auth
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/waycloak
+      volumes:
+        - name: adapter-tls
+          secret:
+            secretName: qbittorrent-adapter-mtls
+        - name: qbittorrent-ca
+          configMap:
+            name: qbittorrent-webui-ca
+        - name: qbittorrent-auth
+          secret:
+            secretName: qbittorrent-webui-auth
+        - name: state
+          persistentVolumeClaim:
+            claimName: qbittorrent-adapter-state
+---
+apiVersion: networking.waycloak.io/v1beta1
+kind: WorkloadAdapter
+metadata:
+  name: qbittorrent
+  namespace: media
+spec:
+  image: ghcr.io/amoenus/waycloak-qbittorrent-adapter@sha256:327ff7dd23a0ab5296d00001376419df419774d93a15672ae112e4d71bfe20c0
+  protocolVersion: networking.waycloak.io/adapter/v1
+  supportedApplications:
+    - networking.waycloak.io/qbittorrent
+  supportedFeatures:
+    - networking.waycloak.io/PortForwardServiceSingleActive
+---
+apiVersion: networking.waycloak.io/v1beta1
+kind: PortForwardLease
+metadata:
+  name: qbittorrent-peer
+  namespace: media
+spec:
+  gatewayRef:
+    name: private
+    namespace: media
+  backendRef:
+    group: ""
+    kind: Service
+    name: qbittorrent-peer
+    port: 51413
+  protocols: [TCP, UDP]
+  endpointPolicy: SingleActive
+  applicationAdapterRef:
+    name: qbittorrent
