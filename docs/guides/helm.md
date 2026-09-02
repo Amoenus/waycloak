@@ -10,6 +10,11 @@ sha256:c4d46e1908625a6e3494db3dd99b2e8c4c47b947a8a8c2ee40a541b2e9af707b
 The digest in a verified `release-manifest.json` is authoritative. Never use a
 mutable `latest` reference.
 
+This guide covers the privileged platform lifecycle. It does not describe the
+normal application-onboarding path: once Waycloak and a gateway are healthy,
+workload owners use ordinary YAML or KCL through GitOps and do not need the
+CLI. See [GitOps workload onboarding](gitops-workloads.md).
+
 ## Pull and inspect the chart
 
 ```sh
@@ -90,6 +95,10 @@ release versions, manifest digests, image repositories/digests, CNI paths,
 node-agent hold state, observation trust, or default gateway-class identity.
 
 ## GitOps handoff
+
+This handoff applies only to the platform release itself. User-authored
+gateways, routes, leases, adapters, and workload templates can remain under
+normal continuous reconciliation.
 
 Use this boundary with Argo CD, Flux, or another reconciler:
 

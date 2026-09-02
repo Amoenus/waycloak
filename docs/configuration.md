@@ -4,6 +4,9 @@ This is the practical configuration index for Waycloak `v1.0.1`. It separates
 settings owned by the verified installation transaction from Kubernetes
 resources that operators and workload owners author after installation.
 
+For the minimal application-facing path—one route plus one Pod-template label—
+start with [GitOps workload onboarding](guides/gitops-workloads.md).
+
 ## Configuration ownership
 
 | Area | Owner and source of truth | Change path |
@@ -13,8 +16,8 @@ resources that operators and workload owners author after installation.
 | VPN credentials | external credential source and namespaced Secret | Secret controller or `kubectl`; never Helm/KCL |
 | Provider-native non-secret input | namespaced ConfigMap | operator/GitOps |
 | Gateway intent | `VPNGateway` | operator/GitOps |
-| Routing intent | `VPNEgressRoute` | workload or network owner |
-| Workload enrollment | Pod-template label | workload owner |
+| Routing intent | `VPNEgressRoute` | workload or network owner through GitOps |
+| Workload enrollment | Pod-template label | workload owner through GitOps |
 | Inbound mapping | `PortForwardLease` and optional `WorkloadAdapter` | operator/GitOps |
 | Runtime observations and bindings | controllers | read-only to users |
 

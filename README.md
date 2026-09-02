@@ -13,8 +13,10 @@ vulnerability gate.
 
 ## Start here
 
-- [Getting started](docs/getting-started.md) — verify, install, create a
-  gateway, and protect a workload.
+- [GitOps workload onboarding](docs/guides/gitops-workloads.md) — add one route
+  and one Pod-template label to protect an application behind a shared gateway.
+- [Getting started](docs/getting-started.md) — install the platform, create a
+  gateway, and then protect a workload.
 - [Configuration reference](docs/configuration.md) — all operator-controlled
   installation, gateway, route, enrollment, RBAC, and optional feature settings.
 - [Advanced setup](docs/advanced-setup.md) — cross-namespace routing, GitOps,
@@ -51,6 +53,10 @@ Initial installation, upgrades, and rollbacks use a verified, reviewable
 `waycloakctl install plan/apply` transaction because the lifecycle also owns
 the CNI chain, immutable release identity, observation trust, and fail-closed
 activation sequence.
+
+After that platform transaction, gateways, routes, workload enrollment, leases,
+and adapters are ordinary YAML or KCL resources managed through GitOps. The CLI
+is not required to enroll a workload.
 
 Waycloak does not claim anonymity. Its guarantee is selected, fail-closed VPN
 egress within the documented [threat model](docs/security/threat-model.md).

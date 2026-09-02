@@ -2,12 +2,19 @@
 
 Workload authors create a same-namespace `VPNEgressRoute` and place exactly one lookup label on the Pod template. The label is not a configuration bag. Old gateway, data-plane, adapter, and lease annotations are rejected.
 
+For a platform-provided shared gateway, this is a normal two-change GitOps
+workflow: add the local route and label the existing Pod template. No CLI is
+required. The copyable YAML, Kustomize layout, KCL equivalent, and Kubernetes-
+native verification are documented in
+[GitOps workload onboarding](../guides/gitops-workloads.md).
+
 Operators create a `VPNGateway` referencing an immutable `VPNGatewayClass` claim and same-namespace native configuration or Secret objects. The controller publishes positive-polarity `Accepted`, `ResolvedRefs`, `Programmed`, and `Ready` conditions with current `observedGeneration`; route status is per parent.
 
 A failed CNI `ADD` prevents the sandbox from becoming runnable. Users diagnose the route, binding, gateway, and node-agent conditions; they never repair an enrolled workload by removing denial or selecting ordinary egress.
 
-The signed preflight/install/doctor workflow and complete examples are the
-supported stable path documented in [Getting started](../getting-started.md).
+The signed preflight/install workflow is the supported privileged platform
+lifecycle documented in [Getting started](../getting-started.md). `doctor` is a
+convenient operational view, not a requirement for workload authoring.
 The [configuration reference](../configuration.md) keeps operator-controlled
 settings in one place, while the [Helm](../guides/helm.md) and
 [KCL](../guides/kcl.md) guides show the primary installation and optional typed

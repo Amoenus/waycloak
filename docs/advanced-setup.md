@@ -170,6 +170,10 @@ Keep these concerns separate:
 - Secrets come from a dedicated credential source; and
 - controller-authored bindings and status stay out of Git.
 
+Routine workload onboarding is fully declarative: a shared-gateway consumer
+commits one local route and one Pod-template label. See the copyable YAML and
+KCL examples in [GitOps workload onboarding](guides/gitops-workloads.md).
+
 For an initial install, commit reviewed render evidence but apply the exact
 plan with `waycloakctl`. For an upgrade or rollback, suspend automatic runtime
 sync, execute the reviewed transition, verify health, then resume GitOps. See

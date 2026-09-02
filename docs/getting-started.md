@@ -4,6 +4,15 @@ This guide installs the stable release, creates a Proton/OpenVPN gateway, and
 enrolls one workload. The result is selected VPN egress that fails closed when
 the protected path is unavailable.
 
+## Choose your starting point
+
+- **Waycloak is already installed and a shared gateway is available:** use the
+  [GitOps workload-onboarding guide](guides/gitops-workloads.md). You only add a
+  `VPNEgressRoute` and one Pod-template label; `waycloakctl` is not required.
+- **You operate the cluster and need to install Waycloak:** continue below. The
+  CLI performs the privileged CNI and release transaction that ordinary
+  continuous reconciliation cannot safely represent in `v1.0.1`.
+
 ## Supported environment
 
 The certified stable support row is:
@@ -141,9 +150,18 @@ kubectl --context "$KUBE_CONTEXT" -n media wait \
   --for=condition=Ready vpngateway/private --timeout=5m
 ```
 
+`gateway init` is a convenience generator, not a gateway runtime dependency.
+You may commit its non-secret output and let GitOps apply it, or author the same
+ConfigMap and `VPNGateway` directly using the
+[configuration reference](configuration.md#gateway-configuration). The Secret
+should come from your credential controller rather than Git.
+
 `Ready=True` is observed data-plane health, not merely successful registration.
 
 ## 4. Create a route and enroll a workload
+
+This step is ordinary declarative GitOps. The complete copyable shared-gateway
+and KCL variants are in [GitOps workload onboarding](guides/gitops-workloads.md).
 
 Save and apply `route.yaml`:
 
@@ -199,6 +217,7 @@ traffic remains denied rather than using ordinary egress.
 
 ## Continue
 
+- [GitOps workload onboarding](guides/gitops-workloads.md)
 - [Configuration reference](configuration.md)
 - [Advanced setup](advanced-setup.md)
 - [Helm and OCI guide](guides/helm.md)
