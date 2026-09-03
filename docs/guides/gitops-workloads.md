@@ -6,9 +6,10 @@ namespaced `VPNEgressRoute` and add one label to the application's Pod template.
 Argo CD, Flux, or another Kubernetes reconciler can apply both as ordinary
 declarative resources.
 
-This is the normal workload-author experience. The CLI is required for the
-privileged platform install, upgrade, rollback, and repair transaction; it is
-not required for routine route or workload changes.
+This is the normal workload-author experience. Supporting releases also offer
+a [GitOps-native clean platform bootstrap](gitops-bootstrap.md). The CLI remains
+required for upgrade, rollback, rotation, and repair transactions; it is not
+required for routine route or workload changes.
 
 ## What the platform team provides once
 

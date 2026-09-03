@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 )
 
 const controllerFirstBootstrapValues = `cniInstaller:
@@ -587,6 +588,16 @@ func ensureObservationSecrets(ctx context.Context, clients *Clients, namespace, 
 		return nil, nil, errors.New("observation CA and serving identity do not share exact trust material")
 	}
 	return caSecret, tlsSecret, nil
+}
+
+// BootstrapObservationSecrets creates or validates the release-owned
+// observation identities used by a clean GitOps installation. The operation
+// is idempotent and uses the same validation path as waycloakctl install apply.
+func BootstrapObservationSecrets(ctx context.Context, client kubernetes.Interface, namespace, release, bootstrapID string) (*corev1.Secret, *corev1.Secret, error) {
+	if client == nil || namespace == "" || release == "" || !validDigest(bootstrapID) {
+		return nil, nil, errors.New("an exact bootstrap identity, namespace, release, and Kubernetes client are required")
+	}
+	return ensureObservationSecrets(ctx, &Clients{Kubernetes: client}, namespace, release, bootstrapID)
 }
 
 func createReleaseOwnedSecret(ctx context.Context, clients *Clients, namespace, name, release, planID string, secretType corev1.SecretType, data map[string][]byte) (*corev1.Secret, error) {

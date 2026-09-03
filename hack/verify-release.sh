@@ -40,7 +40,7 @@ if [[ ! -d "$asset_dir" ]]; then
   exit 1
 fi
 
-for command_name in cmp cosign crane gh go jq sha256sum tail tar timeout; do
+for command_name in cmp cosign crane gh go helm jq sha256sum tail tar timeout; do
   if ! command -v "$command_name" >/dev/null; then
     echo "required command is unavailable: ${command_name}" >&2
     exit 1
@@ -94,6 +94,9 @@ expected_assets=(
   dependency-inventory.json
   release-manifest.json
   release-manifest.sigstore.json
+  waycloak-argocd-k3s-flannel-amd64.yaml
+  waycloak-flux-k3s-flannel-amd64.yaml
+  waycloak-values-k3s-flannel-amd64.yaml
   gluetun-binaries.SHA256SUMS
   gluetun-control-auth.toml
   gluetun-dependency.patch
@@ -152,6 +155,35 @@ jq -e --arg version "$release_tag" \
   "$asset_dir/release-manifest.json" >/dev/null
 bash "$(dirname -- "${BASH_SOURCE[0]}")/validate-release-inventory.sh" \
   "$asset_dir/release-manifest.json"
+go run ./hack/gitopsvalues \
+  --release-manifest "$asset_dir/release-manifest.json" \
+  --profile k3s-flannel-amd64 \
+  >"$work_dir/waycloak-values-k3s-flannel-amd64.yaml"
+cmp "$work_dir/waycloak-values-k3s-flannel-amd64.yaml" \
+  "$asset_dir/waycloak-values-k3s-flannel-amd64.yaml"
+go run ./hack/gitopsvalues \
+  --release-manifest "$asset_dir/release-manifest.json" \
+  --profile k3s-flannel-amd64 \
+  --format flux \
+  --overlay-cidr 100.96.0.0/16 \
+  >"$work_dir/waycloak-flux-k3s-flannel-amd64.yaml"
+cmp "$work_dir/waycloak-flux-k3s-flannel-amd64.yaml" \
+  "$asset_dir/waycloak-flux-k3s-flannel-amd64.yaml"
+go run ./hack/gitopsvalues \
+  --release-manifest "$asset_dir/release-manifest.json" \
+  --profile k3s-flannel-amd64 \
+  --format argocd \
+  --overlay-cidr 100.96.0.0/16 \
+  >"$work_dir/waycloak-argocd-k3s-flannel-amd64.yaml"
+cmp "$work_dir/waycloak-argocd-k3s-flannel-amd64.yaml" \
+  "$asset_dir/waycloak-argocd-k3s-flannel-amd64.yaml"
+helm template waycloak "$asset_dir/$chart_archive" \
+  --namespace waycloak-system \
+  --values "$asset_dir/waycloak-values-k3s-flannel-amd64.yaml" \
+  --set-string controller.gateway.overlayCIDR=100.96.0.0/16 \
+  >"$work_dir/gitops-bootstrap.yaml"
+grep -q '^kind: Job$' "$work_dir/gitops-bootstrap.yaml"
+grep -q 'bootstrap-observation-certificates' "$work_dir/gitops-bootstrap.yaml"
 cmp dependencies/dependency-inventory.json "$asset_dir/dependency-inventory.json"
 go run ./hack/dependencyaudit \
   --inventory "$asset_dir/dependency-inventory.json" \

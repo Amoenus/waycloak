@@ -2,13 +2,16 @@
 {{- $digest := required "controller.image.digest is required when controller.enabled=true" .Values.controller.image.digest }}
 {{- $version := required "releaseIdentity.version is required when controller.enabled=true" .Values.releaseIdentity.version }}
 {{- $manifest := required "releaseIdentity.manifestDigest is required when controller.enabled=true" .Values.releaseIdentity.manifestDigest }}
-{{- $tlsSecret := required "controller.observationTLSSecret is required when controller.enabled=true" .Values.controller.observationTLSSecret }}
+{{- $tlsSecret := default (printf "%s-observation-tls" .Release.Name) .Values.controller.observationTLSSecret }}
 {{- $engineDigest := required "controller.gateway.engineImage.digest is required when controller.enabled=true" .Values.controller.gateway.engineImage.digest }}
 {{- $agentDigest := required "controller.gateway.agentImage.digest is required when controller.enabled=true" .Values.controller.gateway.agentImage.digest }}
 {{- $coreDNSDigest := required "controller.gateway.coreDNSImage.digest is required when controller.enabled=true" .Values.controller.gateway.coreDNSImage.digest }}
 {{- $overlayCIDR := required "controller.gateway.overlayCIDR is required when controller.enabled=true" .Values.controller.gateway.overlayCIDR }}
 {{- $clusterDNSServiceIP := required "controller.gateway.clusterDNS.serviceIP is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.serviceIP }}
 {{- $clusterDNSDomain := required "controller.gateway.clusterDNS.domain is required when controller.enabled=true" .Values.controller.gateway.clusterDNS.domain }}
+{{- if and .Values.observability.metrics.enabled (eq (int .Values.observability.metrics.port) 8081) }}
+{{- fail "observability.metrics.port 8081 is reserved for the controller health endpoint" }}
+{{- end }}
 {{- $portForwardDigest := "" }}
 {{- $portForwardTLSSecret := "" }}
 {{- if .Values.portForwarding.enabled }}
@@ -36,6 +39,10 @@ spec:
     - name: observations
       port: {{ .Values.controller.observationPort }}
       targetPort: observations
+      protocol: TCP
+    - name: health
+      port: 8081
+      targetPort: health
       protocol: TCP
     {{- if .Values.observability.metrics.enabled }}
     - name: metrics

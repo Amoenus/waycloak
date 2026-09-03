@@ -13,6 +13,8 @@ vulnerability gate.
 
 ## Start here
 
+- [GitOps-native platform bootstrap](docs/guides/gitops-bootstrap.md) — choose
+  plain Helm, Flux, Argo CD, or KCL-authored values for a clean installation.
 - [GitOps workload onboarding](docs/guides/gitops-workloads.md) — add one route
   and one Pod-template label to protect an application behind a shared gateway.
 - [Getting started](docs/getting-started.md) — install the platform, create a
@@ -49,10 +51,12 @@ or keeps egress blocked. It never silently falls back to ordinary internet
 egress. Application containers receive no additional Linux capabilities.
 
 Helm is the primary packaging surface and KCL is an optional authoring surface.
-Initial installation, upgrades, and rollbacks use a verified, reviewable
+Stable `v1.0.1` installation, upgrades, and rollbacks use a verified, reviewable
 `waycloakctl install plan/apply` transaction because the lifecycle also owns
 the CNI chain, immutable release identity, observation trust, and fail-closed
-activation sequence.
+activation sequence. The first supporting release after `v1.0.1` moves clean
+installation to the standard GitOps chart path above; changed-release
+transitions remain CLI-controlled until separately qualified.
 
 After that platform transaction, gateways, routes, workload enrollment, leases,
 and adapters are ordinary YAML or KCL resources managed through GitOps. The CLI

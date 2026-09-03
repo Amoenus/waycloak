@@ -316,6 +316,30 @@ jobs:
           test "$(grep -c -- '/var/lib/cni/waycloak/install-receipt.json' "$RUNNER_TEMP/enabled-1.yaml")" -eq 1
           test "$(grep -c '^      hostNetwork: true$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
           test "$(grep -c '^      dnsPolicy: ClusterFirstWithHostNet$' "$RUNNER_TEMP/enabled-1.yaml")" -eq 2
+          gitops_args=("${enabled_args[@]}"
+            --set bootstrap.observationCertificates.enabled=true
+            --set-string controller.observationTLSSecret=
+            --set-string nodeAgent.observationRelayURL=
+            --set-string nodeAgent.observationCASecret=
+            --set-string nodeAgent.releaseIdentity.version=
+            --set-string nodeAgent.releaseIdentity.manifestDigest=)
+          helm template "${gitops_args[@]}" >"$RUNNER_TEMP/gitops-bootstrap-1.yaml"
+          helm template "${gitops_args[@]}" >"$RUNNER_TEMP/gitops-bootstrap-2.yaml"
+          cmp "$RUNNER_TEMP/gitops-bootstrap-1.yaml" "$RUNNER_TEMP/gitops-bootstrap-2.yaml"
+          test "$(grep -c '^kind: Job$' "$RUNNER_TEMP/gitops-bootstrap-1.yaml")" -eq 1
+          grep -q 'bootstrap-observation-certificates' "$RUNNER_TEMP/gitops-bootstrap-1.yaml"
+          grep -q -- '--url=http://waycloak-controller.waycloak-system.svc:8081/readyz' "$RUNNER_TEMP/gitops-bootstrap-1.yaml"
+          grep -q 'secretName: waycloak-observation-tls' "$RUNNER_TEMP/gitops-bootstrap-1.yaml"
+          grep -q 'name: waycloak-observation-ca' "$RUNNER_TEMP/gitops-bootstrap-1.yaml"
+          helm template private-egress charts/waycloak "${gitops_args[@]:2}" >"$RUNNER_TEMP/gitops-custom-release.yaml"
+          grep -q 'secretName: private-egress-observation-tls' "$RUNNER_TEMP/gitops-custom-release.yaml"
+          grep -q 'name: private-egress-observation-ca' "$RUNNER_TEMP/gitops-custom-release.yaml"
+          grep -q 'private-egress-waycloak-controller.waycloak-system.svc:8081/readyz' "$RUNNER_TEMP/gitops-custom-release.yaml"
+          if helm template "${enabled_args[@]}" --set controller.enabled=false >"$RUNNER_TEMP/cni-without-controller.yaml" 2>"$RUNNER_TEMP/cni-without-controller.err"; then
+            echo "CNI installer rendered without its controller readiness authority" >&2
+            exit 1
+          fi
+          grep -q 'controller.enabled must be true when cniInstaller.enabled=true' "$RUNNER_TEMP/cni-without-controller.err"
           if grep -Eq 'waycloak-port-forward|gateway-port-forward-runtime-image|ghcr.io/amoenus/waycloak-gateway-runtime@sha256:' "$RUNNER_TEMP/enabled-1.yaml"; then
             echo "baseline chart rendering contains a port-forward runtime surface" >&2
             exit 1
@@ -378,12 +402,14 @@ jobs:
           kcl run kcl/waycloak/examples/basic.k -S items >"$RUNNER_TEMP/kcl-example.yaml"
           kcl run kcl/waycloak/examples/private-egress.k -S items >"$RUNNER_TEMP/kcl-private-egress-example.yaml"
           kcl run kcl/waycloak/examples/workload-adapter.k -S items >"$RUNNER_TEMP/kcl-workload-adapter-example.yaml"
+          kcl run kcl/waycloak/examples/gitops-bootstrap-values.k -S values >"$RUNNER_TEMP/kcl-gitops-bootstrap-values.yaml"
           test "$(grep -c '^kind: VPNGatewayClass$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
           test "$(grep -c '^kind: VPNGateway$' "$RUNNER_TEMP/kcl-example.yaml")" -eq 1
           test "$(grep -c '^kind: VPNEgressRoute$' "$RUNNER_TEMP/kcl-private-egress-example.yaml")" -eq 1
           test "$(grep -c '^kind: Deployment$' "$RUNNER_TEMP/kcl-private-egress-example.yaml")" -eq 1
           grep -q 'networking.waycloak.io/egress-route: private' "$RUNNER_TEMP/kcl-private-egress-example.yaml"
           test "$(grep -c '^kind: WorkloadAdapter$' "$RUNNER_TEMP/kcl-workload-adapter-example.yaml")" -eq 1
+          grep -Eq "^    overlayCIDR: ['\"]?100[.]96[.]0[.]0/16['\"]?$" "$RUNNER_TEMP/kcl-gitops-bootstrap-values.yaml"
           mkdir -p "$RUNNER_TEMP/kcl-1" "$RUNNER_TEMP/kcl-2"
           (cd kcl/waycloak && kcl mod pkg --target "$RUNNER_TEMP/kcl-1")
           (cd kcl/waycloak && kcl mod pkg --target "$RUNNER_TEMP/kcl-2")

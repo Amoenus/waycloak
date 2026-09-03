@@ -10,6 +10,13 @@ native verification are documented in
 
 Operators create a `VPNGateway` referencing an immutable `VPNGatewayClass` claim and same-namespace native configuration or Secret objects. The controller publishes positive-polarity `Accepted`, `ResolvedRefs`, `Programmed`, and `Ready` conditions with current `observedGeneration`; route status is per parent.
 
+Cluster operators choose plain Helm, Flux, or Argo CD for a clean bootstrap.
+Each supporting release publishes exact generated values and ready-made GitOps
+manifests; KCL may author the cluster-owned overlay. The chart uses a standard
+pre-install Job and init-container ordering so the public surface stays one
+release manifest plus one small cluster values file. See
+[GitOps-native platform bootstrap](../guides/gitops-bootstrap.md).
+
 A failed CNI `ADD` prevents the sandbox from becoming runnable. Users diagnose the route, binding, gateway, and node-agent conditions; they never repair an enrolled workload by removing denial or selecting ordinary egress.
 
 The signed preflight/install workflow is the supported privileged platform

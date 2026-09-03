@@ -4,6 +4,14 @@ fullnameOverride: ""
 serviceAccount:
   annotations: {}
 
+# A standard Helm pre-install hook can create the private observation
+# identities required by a clean GitOps installation. Existing identities are
+# validated and preserved. Release transitions and certificate rotation remain
+# separate, fail-closed operations.
+bootstrap:
+  observationCertificates:
+    enabled: false
+
 observability:
   metrics:
     enabled: true

@@ -40,8 +40,9 @@ human-readable table.
 
 | Tool | Role | Boundary | Official documentation |
 | --- | --- | --- | --- |
-| Helm | primary OCI-packaged installation surface | `waycloakctl` owns initial install and release transitions; Helm can inspect/render the exact chart | [Helm OCI registries](https://helm.sh/docs/topics/registries/) |
-| KCL | optional typed authoring for Waycloak custom resources | no controller, installer, credential, or runtime role | [KCL documentation](https://www.kcl-lang.io/docs/) |
+| Helm | primary OCI-packaged installation surface | supporting releases allow a chart-owned clean bootstrap; `waycloakctl` continues to own changed-release transitions | [Helm OCI registries](https://helm.sh/docs/topics/registries/) |
+| Flux or Argo CD | optional reconciliation of the canonical Helm chart | user-selected; Waycloak publishes examples but has no runtime dependency on either | [Flux Helm releases](https://fluxcd.io/flux/guides/helmreleases/), [Argo CD Helm](https://argo-cd.readthedocs.io/en/stable/user-guide/helm/) |
+| KCL | optional typed authoring for Waycloak resources and cluster-owned Helm values | no controller, credential, or runtime role; Helm remains the installation package | [KCL documentation](https://www.kcl-lang.io/docs/) |
 | Cosign/GitHub attestations | release signature and provenance verification | operator verifies published evidence before planning | [Cosign verification](https://docs.sigstore.dev/cosign/verifying/verify/), [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations) |
 
 ## Gluetun configuration boundary

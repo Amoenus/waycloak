@@ -33,6 +33,20 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "bootstrap-observation-certificates" {
+		if err := runObservationCertificateBootstrap(os.Args[2:]); err != nil {
+			ctrl.Log.Error(err, "bootstrap observation certificates")
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "wait-ready" {
+		if err := waitForControllerReady(os.Args[2:]); err != nil {
+			ctrl.Log.Error(err, "wait for controller readiness")
+			os.Exit(1)
+		}
+		return
+	}
 	var metricsAddress, probeAddress, observationAddress, observationCert, observationKey, observationAgentNamespace, observationAgentServiceAccount string
 	var gatewayControllerName, releaseVersion, releaseManifestDigest, conformanceProfile string
 	var transitionPlanID, transitionSourceVersion, transitionSourceManifestDigest string

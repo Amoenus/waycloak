@@ -38,6 +38,12 @@ runtime image digests.
 
 ## Supported installation flow
 
+Stable `v1.0.1` uses the CLI flow below. The first supporting release after
+`v1.0.1` publishes release-generated values plus ready-made Flux and Argo CD
+manifests for a one-reconciliation clean install. See
+[GitOps-native platform bootstrap](gitops-bootstrap.md). The CLI remains the
+transition authority for upgrades, rollback, rotation, and repair.
+
 The chart alone cannot safely establish the host CNI chain, exact runtime
 identity, observation certificates, immutable gateway class, or activation
 ordering. Generate those values from the signed release and the observed

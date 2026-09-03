@@ -1,10 +1,14 @@
 {{- if .Values.cniInstaller.enabled }}
+{{- if not .Values.controller.enabled }}
+{{- fail "controller.enabled must be true when cniInstaller.enabled=true" }}
+{{- end }}
 {{- $digest := required "cniInstaller.image.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.image.digest }}
 {{- $pauseDigest := required "cniInstaller.pauseImage.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.pauseImage.digest }}
 {{- $configPath := required "cniInstaller.configHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.configHostPath }}
 {{- $binaryPath := required "cniInstaller.binaryHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.binaryHostPath }}
 {{- $version := required "releaseIdentity.version is required when cniInstaller.enabled=true" .Values.releaseIdentity.version }}
 {{- $manifest := required "releaseIdentity.manifestDigest is required when cniInstaller.enabled=true" .Values.releaseIdentity.manifestDigest }}
+{{- $controllerDigest := required "controller.image.digest is required when cniInstaller.enabled=true" .Values.controller.image.digest }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -38,6 +42,28 @@ spec:
       tolerations:
         - operator: Exists
       initContainers:
+        - name: wait-controller
+          image: "{{ .Values.controller.image.repository }}@{{ $controllerDigest }}"
+          imagePullPolicy: IfNotPresent
+          command: ["/ko-app/replacement-controller"]
+          args:
+            - wait-ready
+            - --url=http://{{ include "waycloak.fullname" . }}-controller.{{ .Release.Namespace }}.svc:8081/readyz
+            - --timeout=2m
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 1m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
         - name: install
           image: "{{ .Values.cniInstaller.image.repository }}@{{ $digest }}"
           imagePullPolicy: IfNotPresent

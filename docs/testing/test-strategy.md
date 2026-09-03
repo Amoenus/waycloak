@@ -370,6 +370,19 @@ count before readiness returns.
 
 ## Turnkey CLI and installation
 
+The first post-`v1.0.1` release adds a separate GitOps-native clean-install
+row. It must render and install the release-generated plain Helm, Flux, and
+Argo CD assets from the same signed manifest, verify the certificate bootstrap
+Job is idempotent and least privilege, and prove that the CNI receipt cannot be
+created before the controller is ready. A process interruption before or after
+certificate creation must converge on the same identities. Existing labeled
+workloads must not be admitted as protected until authenticated node capability
+is current, and packet capture must observe zero ordinary-egress fallback.
+
+This row does not qualify GitOps upgrades. Changed-release reconciliation must
+continue to stop safely at the immutable class boundary until forward,
+rollback, rotation, repair, and interruption tests explicitly qualify it.
+
 Treat every `waycloakctl` output schema and mutation boundary as an API. Unit
 tests require strict JSON decoding, exact plan recomputation and confirmation,
 unsupported-cluster refusal before mutation, in-memory observation-key creation,

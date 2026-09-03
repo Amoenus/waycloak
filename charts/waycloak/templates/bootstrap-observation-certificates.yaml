@@ -1,0 +1,119 @@
+{{- if .Values.bootstrap.observationCertificates.enabled }}
+{{- if not .Values.controller.enabled }}
+{{- fail "controller.enabled must be true when bootstrap observation certificates are enabled" }}
+{{- end }}
+{{- $digest := required "controller.image.digest is required when bootstrap observation certificates are enabled" .Values.controller.image.digest }}
+{{- $version := required "releaseIdentity.version is required when bootstrap observation certificates are enabled" .Values.releaseIdentity.version }}
+{{- $manifest := required "releaseIdentity.manifestDigest is required when bootstrap observation certificates are enabled" .Values.releaseIdentity.manifestDigest }}
+{{- $bootstrapID := printf "gitops-bootstrap-v1\x00%s\x00%s\x00%s\x00%s" .Release.Name .Release.Namespace $version $manifest | sha256sum | printf "sha256:%s" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "waycloak.fullname" . }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "waycloak.fullname" . }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ .Release.Name }}-observation-ca
+      - {{ .Release.Name }}-observation-tls
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "waycloak.fullname" . }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "waycloak.fullname" . }}-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "waycloak.fullname" . }}-bootstrap
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "waycloak.fullname" . }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "waycloak.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        {{- include "waycloak.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      serviceAccountName: {{ include "waycloak.fullname" . }}-bootstrap
+      automountServiceAccountToken: true
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: observation-certificates
+          image: "{{ .Values.controller.image.repository }}@{{ $digest }}"
+          imagePullPolicy: IfNotPresent
+          command: ["/ko-app/replacement-controller"]
+          args:
+            - bootstrap-observation-certificates
+            - --namespace={{ .Release.Namespace }}
+            - --release={{ .Release.Name }}
+            - --bootstrap-id={{ $bootstrapID }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+{{- end }}

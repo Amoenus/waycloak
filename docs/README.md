@@ -5,13 +5,14 @@ The stable documentation set targets Waycloak `v1.0.1` and the frozen
 
 ## Use Waycloak
 
-1. [GitOps workload onboarding](guides/gitops-workloads.md)
-2. [Getting started and platform installation](getting-started.md)
-3. [Configuration reference](configuration.md)
-4. [Advanced setup](advanced-setup.md)
-5. [Helm and OCI](guides/helm.md)
-6. [KCL authoring](guides/kcl.md)
-7. [Workload adapters and qBittorrent](guides/workload-adapters.md)
+1. [GitOps-native platform bootstrap](guides/gitops-bootstrap.md)
+2. [GitOps workload onboarding](guides/gitops-workloads.md)
+3. [Getting started and stable platform installation](getting-started.md)
+4. [Configuration reference](configuration.md)
+5. [Advanced setup](advanced-setup.md)
+6. [Helm and OCI](guides/helm.md)
+7. [KCL authoring](guides/kcl.md)
+8. [Workload adapters and qBittorrent](guides/workload-adapters.md)
 
 ## Understand the product
 

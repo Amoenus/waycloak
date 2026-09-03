@@ -15,6 +15,7 @@ include = [
     "k8s/apimachinery/pkg/apis/meta/v1/object_meta.k",
     "k8s/apimachinery/pkg/apis/meta/v1/owner_reference.k",
     "examples/basic.k",
+	"examples/gitops-bootstrap-values.k",
 	"examples/private-egress.k",
 	"examples/workload-adapter.k",
     "README.md",

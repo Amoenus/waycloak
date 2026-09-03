@@ -13,6 +13,12 @@ the protected path is unavailable.
   CLI performs the privileged CNI and release transaction that ordinary
   continuous reconciliation cannot safely represent in `v1.0.1`.
 
+The first supporting release after `v1.0.1` moves clean installation to one
+standard Helm reconciliation, with ready-made Flux and Argo CD manifests. See
+[GitOps-native platform bootstrap](guides/gitops-bootstrap.md). Existing
+installations and all `v1.0.1` installs must continue using the stable flow
+below.
+
 ## Supported environment
 
 The certified stable support row is:

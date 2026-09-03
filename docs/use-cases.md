@@ -44,10 +44,11 @@ product.
 
 ### GitOps-managed clusters
 
-Argo CD or another GitOps controller may own the exact chart declaration and
-operator-authored resources. Changed-release activation still goes through the
-journal-bound `waycloakctl install plan/apply` transaction before GitOps
-converges the matching immutable release identity.
+Supporting releases let Flux or Argo CD perform a clean installation from
+generated, exact chart declarations. Stable `v1.0.1` clean installs and all
+changed-release activation still go through the journal-bound
+`waycloakctl install plan/apply` transaction before GitOps converges the
+matching immutable release identity.
 
 ## Deliberate non-goals for v1.0.1
 

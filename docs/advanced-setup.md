@@ -174,8 +174,10 @@ Routine workload onboarding is fully declarative: a shared-gateway consumer
 commits one local route and one Pod-template label. See the copyable YAML and
 KCL examples in [GitOps workload onboarding](guides/gitops-workloads.md).
 
-For an initial install, commit reviewed render evidence but apply the exact
-plan with `waycloakctl`. For an upgrade or rollback, suspend automatic runtime
+For a stable `v1.0.1` install, commit reviewed render evidence but apply the
+exact plan with `waycloakctl`. The first supporting release after `v1.0.1`
+offers a [GitOps-native clean bootstrap](guides/gitops-bootstrap.md). For an
+upgrade or rollback, suspend automatic runtime
 sync, execute the reviewed transition, verify health, then resume GitOps. See
 the [Helm and OCI guide](guides/helm.md#gitops-handoff).
 

@@ -22,18 +22,29 @@ converge the already matching target; never manually delete or mutate the class.
 
 It does not render the alpha controller, mutation webhooks, sidecars, init
 containers, allocation ConfigMaps, alpha CRDs, or any compatibility bridge.
-Install through a signed `waycloakctl` exact-artifact plan: development values
-do not invent image digests, release identity, observation trust, or root-owned
-host paths. The runtime agent never writes the host CNI directories.
+Development values do not invent image digests, release identity, observation
+trust, or root-owned host paths. The runtime agent never writes the host CNI
+directories. Supporting releases publish deterministic, checksummed
+`waycloak-values-k3s-flannel-amd64.yaml`, Flux, and Argo CD assets generated
+from the signed release manifest.
+
+For a clean GitOps installation, the release-owned values enable an idempotent
+Helm pre-install Job that creates the observation identities through a
+temporary namespaced Role. The CNI installer waits for the controller's native
+readiness endpoint before changing the host chain. This preserves the former
+controller-first CLI ordering inside one standard Helm reconciliation. The CLI
+remains required for changed-release transitions, rotation, repair, and
+destructive removal until their GitOps equivalents pass the same acceptance
+gates.
 
 For stable `v1.0.1`, pull the chart with `helm pull
 oci://ghcr.io/amoenus/charts/waycloak --version 1.0.1`. Its published digest is
 `sha256:c4d46e1908625a6e3494db3dd99b2e8c4c47b947a8a8c2ee40a541b2e9af707b`;
 the exact digest recorded in the verified `release-manifest.json` remains
-authoritative for GitOps and inspection. Initial
-installation and changed-release activation still require the reviewed
-`waycloakctl` transaction; raw Helm consumption does not establish those safety
-preconditions.
+authoritative for GitOps and inspection. Initial installation with `v1.0.1`
+and all changed-release activation still require the reviewed `waycloakctl`
+transaction. The first supporting release after `v1.0.1` adds the clean GitOps
+bootstrap described above.
 
 The end-to-end user workflow and supported GitOps handoff are documented in
 [`docs/guides/helm.md`](../../docs/guides/helm.md).

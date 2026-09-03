@@ -12,6 +12,20 @@ Waycloak separates declarative intent from the privileged packet boundary:
 
 Application containers are not mutated. Admission rejects old annotations and defends static ownership rules, but admission is not the packet-security boundary. See [Kubernetes API maturity](kubernetes-api-maturity.md) for the complete ownership and lifecycle model.
 
+## Deployment lifecycle
+
+One OCI Helm chart is the installation package for plain Helm, Flux, and Argo
+CD. Release-generated manifests adapt that chart to each reconciler without
+creating another Waycloak API. On a clean install, a standard pre-install Job
+creates or validates observation trust with temporary namespaced RBAC. The CNI
+installer waits for the controller's Kubernetes readiness endpoint before
+atomically modifying the host chain; the node agent then requires the exact
+receipt and files before publishing capability. KCL may generate values or
+resources but has no runtime role.
+
+Changed-release transitions remain separately staged because the installed CNI
+deny path and immutable gateway class must not be advanced independently.
+
 ## Extension boundaries
 
 Waycloak integrates VPN behavior through the Gluetun engine adapter. That

@@ -236,6 +236,21 @@ write, runtime socket, host root, VPN device, bpffs/cgroupfs in the nftables bas
 Secret mount. Installer privilege is separate and ends after exact installation.
 Capabilities and mounts are conformance-tested per support row.
 
+### GitOps certificate bootstrap
+
+**Threat:** the clean-install certificate Job is replaced or its temporary
+Kubernetes credentials are abused to read or mutate unrelated Secrets.
+
+**Controls:** the Job runs the exact digest-pinned controller image as non-root
+with no added capability or host mount. Its Helm-hook ServiceAccount and
+namespaced Role are removed after success. The Role may create Secrets only in
+the installation namespace and may read only the two deterministic observation
+Secret names; it cannot update, patch, delete, or list Secrets. Kubernetes RBAC
+cannot restrict `create` by `resourceNames`, so the temporary ability to create
+another Secret in the dedicated infrastructure namespace is explicit residual
+risk. The command validates any existing pair and never replaces mismatched or
+partial trust material.
+
 ### Kubernetes credential abuse
 
 **Threat:** a compromised node agent mutates desired intent or forges readiness

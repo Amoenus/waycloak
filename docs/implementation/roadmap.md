@@ -31,6 +31,26 @@ release is therefore live-qualified under the explicitly recorded RC.42
 36.920183-hour executive soak waiver. `v1.0.0` remains incomplete and must not
 be reused or deployed.
 
+**GitOps-native bootstrap slice (2026-09-03):** the next release is simplifying
+clean installation without adding a Waycloak-specific release CRD or custom
+GitOps plugin. It uses the existing Helm chart, standard hooks, Kubernetes
+Jobs/RBAC/init containers, and release-generated Flux/Argo CD manifests.
+
+- [x] Generate deterministic release-owned Helm values from the signed release
+  manifest for the certified K3s/Flannel `amd64` profile.
+- [x] Generate digest-pinned Flux and exact-version Argo CD manifests while
+  preserving one canonical chart.
+- [x] Bootstrap observation certificates idempotently through a temporary
+  namespaced Helm hook identity.
+- [x] Preserve controller-first activation by waiting for controller readiness
+  before the privileged CNI installer changes the host chain.
+- [x] Add an optional KCL cluster-values overlay without making KCL a runtime
+  dependency or alternate package manager.
+- [ ] Prove clean Helm, Flux, and Argo CD installation on disposable certified
+  clusters, including interruption recovery and zero ordinary-egress fallback.
+- [ ] Publish, independently verify, and promote the first supporting release
+  before describing this path as stable.
+
 **RC.42 accepted-candidate checkpoint (2026-09-01):** `v0.1.0-rc.42` at
 signed source `41dfcf91679d365e5fdc4eadb9ff9a1511efec0d`, canonical manifest
 `sha256:96b283312317ffb6216224ff2a60c2bb322ba76398c360d481e6d90e4162c188`,

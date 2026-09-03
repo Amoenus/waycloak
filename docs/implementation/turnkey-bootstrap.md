@@ -4,6 +4,15 @@ Status: certified implementation for issue #138; stable graduation remains
 subject to the remaining release-wide gates
 Last updated: 2026-08-09
 
+> **Development update (2026-09-03):** `main` adds a GitOps-native clean
+> install using the same chart and exact artifacts. A standard Helm pre-install
+> Job creates the initial observation identities, and the CNI installer waits
+> for controller readiness before modifying the host chain. Release-generated
+> plain Helm, Flux, and Argo CD assets are described in
+> [GitOps-native platform bootstrap](../guides/gitops-bootstrap.md). This does
+> not replace the certified `v1.0.1` lifecycle below or authorize raw GitOps
+> upgrades.
+
 `waycloakctl` is a stateless assistant around the Helm and Kubernetes APIs. It
 does not become a controller, store VPN credentials, translate alpha objects,
 or weaken an unsupported cluster into a nominally successful install. JSON

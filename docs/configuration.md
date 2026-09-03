@@ -7,6 +7,10 @@ resources that operators and workload owners author after installation.
 For the minimal application-facing path—one route plus one Pod-template label—
 start with [GitOps workload onboarding](guides/gitops-workloads.md).
 
+The table below describes stable `v1.0.1`. The first supporting release after
+it adds release-generated clean-install values for plain Helm, Flux, and Argo
+CD; see [GitOps-native platform bootstrap](guides/gitops-bootstrap.md).
+
 ## Configuration ownership
 
 | Area | Owner and source of truth | Change path |

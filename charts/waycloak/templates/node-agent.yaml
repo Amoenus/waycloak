@@ -1,9 +1,9 @@
 {{- if .Values.nodeAgent.enabled }}
 {{- $digest := required "nodeAgent.image.digest is required when nodeAgent.enabled=true" .Values.nodeAgent.image.digest }}
-{{- $relayURL := required "nodeAgent.observationRelayURL is required when nodeAgent.enabled=true" .Values.nodeAgent.observationRelayURL }}
-{{- $caSecret := required "nodeAgent.observationCASecret is required when nodeAgent.enabled=true" .Values.nodeAgent.observationCASecret }}
-{{- $releaseVersion := required "nodeAgent.releaseIdentity.version is required when nodeAgent.enabled=true" .Values.nodeAgent.releaseIdentity.version }}
-{{- $releaseDigest := required "nodeAgent.releaseIdentity.manifestDigest is required when nodeAgent.enabled=true" .Values.nodeAgent.releaseIdentity.manifestDigest }}
+{{- $relayURL := default (printf "https://%s-controller.%s.svc:%v/node-observations/v1/report" (include "waycloak.fullname" .) .Release.Namespace .Values.controller.observationPort) .Values.nodeAgent.observationRelayURL }}
+{{- $caSecret := default (printf "%s-observation-ca" .Release.Name) .Values.nodeAgent.observationCASecret }}
+{{- $releaseVersion := default .Values.releaseIdentity.version .Values.nodeAgent.releaseIdentity.version | required "releaseIdentity.version is required when nodeAgent.enabled=true" }}
+{{- $releaseDigest := default .Values.releaseIdentity.manifestDigest .Values.nodeAgent.releaseIdentity.manifestDigest | required "releaseIdentity.manifestDigest is required when nodeAgent.enabled=true" }}
 {{- $cniReleaseVersion := default $releaseVersion .Values.nodeAgent.cniReleaseIdentity.version }}
 {{- $cniReleaseDigest := default $releaseDigest .Values.nodeAgent.cniReleaseIdentity.manifestDigest }}
 {{- $cniReceipt := required "nodeAgent.cniReceiptHostPath is required when nodeAgent.enabled=true" .Values.nodeAgent.cniReceiptHostPath }}

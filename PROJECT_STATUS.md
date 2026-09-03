@@ -1,5 +1,23 @@
 # Project status
 
+## GitOps-native clean bootstrap development slice
+
+As of 2026-09-03, `main` contains the first clean-install implementation that
+does not require `waycloakctl`. One canonical chart now creates observation
+identities through an idempotent, least-privilege Helm pre-install Job and
+waits for controller readiness before the privileged CNI init container changes
+the host chain. Release publication deterministically generates checksummed
+plain-Helm values and ready-made Flux and Argo CD manifests for the certified
+K3s/Flannel `amd64` profile. The optional KCL module emits the same small
+cluster-owned overlay.
+
+This is not yet a stable support claim. It requires clean-cluster acceptance,
+fail-closed packet tests, public artifact verification, and homelab promotion
+in a new release after `v1.0.1`. Stable `v1.0.1` continues to require the
+reviewed CLI install transaction. Upgrade, rollback, certificate rotation,
+repair, and destructive removal also remain CLI-controlled pending equivalent
+GitOps transition evidence.
+
 ## Stable publication security refresh
 
 The first `v1.0.0` runtime publication attempt at signed source

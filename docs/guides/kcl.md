@@ -8,6 +8,11 @@ After that one-time platform step, a GitOps repository may use KCL for routine
 gateway, route, and workload changes without invoking `waycloakctl`. For the
 minimal shared-gateway workflow, see [GitOps workload onboarding](gitops-workloads.md).
 
+Supporting releases also include `examples/gitops-bootstrap-values.k`, which
+renders the cluster-owned overlay for the canonical Helm chart. KCL remains an
+optional authoring layer; users may feed its YAML to plain Helm, Flux, or Argo
+CD as described in [GitOps-native platform bootstrap](gitops-bootstrap.md).
+
 The stable OCI module is:
 
 ```text
