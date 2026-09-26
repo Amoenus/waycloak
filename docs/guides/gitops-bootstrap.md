@@ -137,6 +137,56 @@ kcl run examples/gitops-bootstrap-values.k -S values >cluster-values.yaml
 Use the result with plain Helm or as input to the user's existing Flux or Argo
 CD configuration. KCL remains optional and produces ordinary YAML.
 
+## Option 5: external certificate ownership (cert-manager)
+
+The Waycloak Helm chart does not depend on `cert-manager`. However, if you
+already use it, you can provision the admission CA and serving certificate
+before or alongside the Helm release instead of using the chart's native
+bootstrap Job.
+
+1. Disable the native bootstrap Job and provide the exact Secret name in
+   your `cluster-values.yaml`:
+
+   ```yaml
+   bootstrap:
+     observationCertificates:
+       enabled: false
+
+   controller:
+     observationTLSSecret: waycloak-observation-tls
+   ```
+
+2. Create a self-signed `Issuer` and a `Certificate` in the target namespace.
+   The certificate must include the specific SPIFFE URI identity
+   `spiffe://waycloak.io/replacement-controller` and the internal Service DNS
+   name:
+
+   ```yaml
+   apiVersion: cert-manager.io/v1
+   kind: Issuer
+   metadata:
+     name: waycloak-selfsigned-issuer
+     namespace: waycloak-system
+   spec:
+     selfSigned: {}
+   ---
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: waycloak-observation-tls
+     namespace: waycloak-system
+   spec:
+     secretName: waycloak-observation-tls
+     duration: 8760h # 1 year
+     issuerRef:
+       name: waycloak-selfsigned-issuer
+     commonName: waycloak-controller.waycloak-system.svc
+     dnsNames:
+       - waycloak-controller.waycloak-system.svc
+     uris:
+       - spiffe://waycloak.io/replacement-controller
+   ```
+
 ## How ordering remains fail closed
 
 The chart uses standard Kubernetes and Helm lifecycle mechanisms:
