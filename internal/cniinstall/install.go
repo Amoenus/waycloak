@@ -68,19 +68,19 @@ func Install(options Options) error {
 			return errors.New("separately owned installation requires an unchained upstream primary config; review migration from the in-place layout")
 		}
 		existing, readErr := readRegular(options.ConfigPath, 1<<20)
-		if readErr == nil {
-			backup, backupErr := readRegular(options.BackupPath, 1<<20)
-			if backupErr != nil {
-				return fmt.Errorf("refuse adoption of owned CNI config without preserved primary: %w", backupErr)
-			}
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("inspect owned CNI destination: %w", readErr)
+		}
+		backup, backupErr := readRegular(options.BackupPath, 1<<20)
+		if backupErr == nil {
 			expected, installed, renderErr := render(backup, options)
-			if renderErr != nil || installed || !bytes.Equal(expected, existing) || !jsonEqual(expected, rendered) {
+			if renderErr != nil || installed || readErr == nil && !bytes.Equal(expected, existing) || !jsonEqual(expected, rendered) {
 				return errors.New("owned CNI config or upstream topology differs from the preserved primary; review migration before reinstalling")
 			}
 			original = backup
 			rendered = expected
-		} else if !errors.Is(readErr, os.ErrNotExist) {
-			return fmt.Errorf("inspect owned CNI destination: %w", readErr)
+		} else if readErr == nil || !errors.Is(backupErr, os.ErrNotExist) {
+			return fmt.Errorf("refuse adoption of owned CNI config without preserved primary: %w", backupErr)
 		}
 	}
 	if !alreadyInstalled {

@@ -172,6 +172,15 @@ func TestOwnedInstallBootstrapsAndSurvivesPrimaryRegeneration(t *testing.T) {
 	if current, _ := os.ReadFile(primary); string(current) != rewritten {
 		t.Fatal("reinstall rewrote the upstream primary")
 	}
+	if err := os.Remove(options.ConfigPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := validate(); err == nil {
+		t.Fatal("missing owned config retained readiness")
+	}
+	if err := Install(options); err != nil {
+		t.Fatalf("could not restore missing owned config from exact preserved topology: %v", err)
+	}
 	// Same-release repair and exact new-release replacement are visible to
 	// repeated validation; no process-cached receipt or inode is authoritative.
 	if err := atomicWrite(options.BinaryPath, []byte("drift"), 0o755); err != nil {
