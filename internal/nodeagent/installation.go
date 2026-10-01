@@ -30,6 +30,19 @@ type CNIInstallationReceipt struct {
 }
 
 func ValidateCNIInstallation(receiptPath, binaryPath, configPath string, expected wayv1.ReleaseIdentity) error {
+	return validateCNIInstallation(receiptPath, binaryPath, configPath, expected, false)
+}
+
+// ValidateCNIInstallationForDenyHold validates exact source artifacts during a
+// journal-bound release transition. The successor may still have the old chart's
+// individual file mounts, so directory selection cannot yet be observed. This
+// must only be used by a transition-held service: it never authorizes readiness,
+// ADD, CHECK, or reopening an attachment. Normal operation uses the full check.
+func ValidateCNIInstallationForDenyHold(receiptPath, binaryPath, configPath string, expected wayv1.ReleaseIdentity) error {
+	return validateCNIInstallation(receiptPath, binaryPath, configPath, expected, true)
+}
+
+func validateCNIInstallation(receiptPath, binaryPath, configPath string, expected wayv1.ReleaseIdentity, denyHold bool) error {
 	if receiptPath == "" || binaryPath == "" || configPath == "" || expected.Version == "" || expected.ManifestDigest == "" {
 		return errors.New("CNI receipt, binary, config, and exact release identity are required")
 	}
@@ -67,6 +80,9 @@ func ValidateCNIInstallation(receiptPath, binaryPath, configPath string, expecte
 	}
 	if err := requireWaycloakChain(configBytes); err != nil {
 		return err
+	}
+	if denyHold {
+		return nil
 	}
 	if err := ValidateCNIConfigSelection(configPath); err != nil {
 		return err

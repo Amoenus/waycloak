@@ -228,6 +228,10 @@ earlier `.conf`, `.conflist`, or `.json` file, including ambiguous symlinks.
 The agent mounts the config, binary, and receipt **directories** read-only, so
 atomic replacements become visible without recreating the agent Pod. A file
 mount or `subPath` would retain the replaced inode and must not be substituted.
+During a journal-bound release transition only, the successor may validate the
+exact source receipt through legacy file mounts while its existing transition
+hold prohibits readiness and attachment activation. Full directory validation
+is mandatory before leaving that deny-only state.
 
 The receipt binds the upstream topology as well as the installed chain and
 binary. An equivalent infrastructure rewrite, including whitespace and key

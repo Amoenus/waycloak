@@ -77,7 +77,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 	if !validReleaseIdentity(cniReleaseIdentity.Version, cniReleaseIdentity.ManifestDigest) {
 		return errors.New("exact installed CNI release identity is required")
 	}
-	if err := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseIdentity); err != nil {
+	if err := validateInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, cniReleaseIdentity, observationCapabilityHoldID != ""); err != nil {
 		return fmt.Errorf("CNI installation is not eligible for fail-closed readiness: %w", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -177,7 +177,7 @@ func run(socketPath, keyFile, stateDir, nodeName, relayURL, relayToken, relayCA,
 }
 
 func recoverInstalledState(ctx context.Context, service *nodeagent.Service, receiptFile, binaryFile, configFile string, releaseIdentity wayv1.ReleaseIdentity) error {
-	if err := nodeagent.ValidateCNIInstallation(receiptFile, binaryFile, configFile, releaseIdentity); err != nil {
+	if err := validateInstallation(receiptFile, binaryFile, configFile, releaseIdentity, service.TransitionHeld); err != nil {
 		return fmt.Errorf("CNI installation invalid: %w", err)
 	}
 	if err := service.LockdownAll(ctx); err != nil {
@@ -189,13 +189,20 @@ func recoverInstalledState(ctx context.Context, service *nodeagent.Service, rece
 	return nil
 }
 
+func validateInstallation(receiptFile, binaryFile, configFile string, releaseIdentity wayv1.ReleaseIdentity, transitionHeld bool) error {
+	if transitionHeld {
+		return nodeagent.ValidateCNIInstallationForDenyHold(receiptFile, binaryFile, configFile, releaseIdentity)
+	}
+	return nodeagent.ValidateCNIInstallation(receiptFile, binaryFile, configFile, releaseIdentity)
+}
+
 func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nodeagent.Reporter, cniReceiptFile, cniBinaryFile, cniConfigFile string, releaseIdentity wayv1.ReleaseIdentity, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	publication := &publicationTransitions{}
 	lastInstallationError := ""
 	for {
-		installationErr := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity)
+		installationErr := validateInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity, service.TransitionHeld)
 		if installationErr != nil {
 			service.SetBackendHealthy(false)
 			if message := installationErr.Error(); message != lastInstallationError {

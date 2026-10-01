@@ -40,6 +40,9 @@ func TestValidateCNIInstallationRequiresExactProtectedArtifacts(t *testing.T) {
 		if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err == nil || !strings.Contains(err.Error(), "shadowed") {
 			t.Fatalf("earlier runtime config was ignored: %v", err)
 		}
+		if err := ValidateCNIInstallationForDenyHold(receiptPath, binaryPath, configPath, release); err != nil {
+			t.Fatalf("exact deny-only transition cannot start with legacy mounts: %v", err)
+		}
 		if err := os.Remove(shadow); err != nil {
 			t.Fatal(err)
 		}
@@ -52,6 +55,9 @@ func TestValidateCNIInstallationRequiresExactProtectedArtifacts(t *testing.T) {
 	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err == nil {
 		t.Fatal("tampered CNI binary was accepted")
 	}
+	if err := ValidateCNIInstallationForDenyHold(receiptPath, binaryPath, configPath, release); err == nil {
+		t.Fatal("deny hold accepted tampered source artifacts")
+	}
 	writeProtected(t, binaryPath, binary)
 	writeProtected(t, configPath, []byte(`{"cniVersion":"1.1.0","plugins":[{"type":"kindnet"}]}`))
 	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err == nil {
@@ -62,6 +68,9 @@ func TestValidateCNIInstallationRequiresExactProtectedArtifacts(t *testing.T) {
 	skewed.Version = "v2.0.0"
 	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, skewed); err == nil {
 		t.Fatal("release-skewed CNI receipt was accepted")
+	}
+	if err := ValidateCNIInstallationForDenyHold(receiptPath, binaryPath, configPath, skewed); err == nil {
+		t.Fatal("deny hold accepted a foreign source release")
 	}
 }
 
