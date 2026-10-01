@@ -135,6 +135,7 @@ cniInstaller:
     repository: %q
     digest: %q
   configHostPath: %q
+  sourceConfigHostPath: %q
   binaryHostPath: %q
 nodeAgent:
   enabled: true
@@ -159,9 +160,9 @@ defaultGatewayClass:
 		selected.dnsServiceIP, selected.clusterDomain,
 		selected.architecture, cni.Repository, cni.Digest,
 		pause.Repository, pause.Digest,
-		selected.cniConfigPath, selected.cniBinaryPath,
+		path.Join(path.Dir(selected.cniConfigPath), "05-waycloak.conflist"), selected.cniConfigPath, selected.cniBinaryPath,
 		selected.architecture, agent.Repository, agent.Digest,
-		selected.cniBinaryPath, selected.cniConfigPath,
+		selected.cniBinaryPath, path.Join(path.Dir(selected.cniConfigPath), "05-waycloak.conflist"),
 		manifest.Version, manifest.ManifestDigest), nil
 }
 

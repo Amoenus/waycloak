@@ -5,6 +5,10 @@
 {{- $digest := required "cniInstaller.image.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.image.digest }}
 {{- $pauseDigest := required "cniInstaller.pauseImage.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.pauseImage.digest }}
 {{- $configPath := required "cniInstaller.configHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.configHostPath }}
+{{- $sourceConfig := .Values.cniInstaller.sourceConfigHostPath }}
+{{- if and $sourceConfig (or (ne (dir $sourceConfig) (dir $configPath)) (ge (base $configPath) (base $sourceConfig))) }}
+{{- fail "cniInstaller.configHostPath must precede sourceConfigHostPath in the same CNI directory" }}
+{{- end }}
 {{- $binaryPath := required "cniInstaller.binaryHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.binaryHostPath }}
 {{- $version := required "releaseIdentity.version is required when cniInstaller.enabled=true" .Values.releaseIdentity.version }}
 {{- $manifest := required "releaseIdentity.manifestDigest is required when cniInstaller.enabled=true" .Values.releaseIdentity.manifestDigest }}
@@ -73,7 +77,7 @@ spec:
             - /ko-app/waycloak-cni
             - /host-bin/{{ base $binaryPath }}
             - /host-config/{{ base $configPath }}
-            - /host-state/install-receipt.json
+            - /host-state/{{ base .Values.cniInstaller.receiptHostPath }}
             - /host-config/{{ base $configPath }}.waycloak-original
             # These are the versioned local-protocol defaults owned by the
             # node-agent binary. Keep the rendered CNI contract exact.
@@ -82,6 +86,9 @@ spec:
             - /var/lib/cni/waycloak/attachments
             - {{ $version | quote }}
             - {{ $manifest | quote }}
+            {{- if $sourceConfig }}
+            - /host-config/{{ base $sourceConfig }}
+            {{- end }}
           securityContext:
             privileged: true
             runAsUser: 0

@@ -82,6 +82,11 @@ cniInstaller:
     repository: registry.k8s.io/pause
     digest: ""
   configHostPath: ""
+  # For owned installation, set configHostPath to an earlier-sorting path
+  # (e.g. 05-waycloak.conflist) and this to the unchanged upstream conflist
+  # (e.g. 10-flannel.conflist) in the same runtime config directory.
+  # Empty preserves the explicit legacy in-place installation contract.
+  sourceConfigHostPath: ""
   binaryHostPath: ""
   receiptHostPath: /var/lib/cni/waycloak/install-receipt.json
 

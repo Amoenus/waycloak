@@ -1,5 +1,21 @@
 # Project status
 
+## Owned CNI lifecycle development slice
+
+Issue [#248](https://github.com/Amoenus/waycloak/issues/248) addresses upstream
+CNI regeneration removing Waycloak from the active chain. The implementation
+adds explicit source-to-owned-conflist bootstrap, selection and upstream
+topology validation, read-only directory mounts, and installation failure and
+recovery diagnostics. Release-generated GitOps values select this layout;
+existing CLI plans retain their explicit in-place contract. The existing
+Kind/K3s CNI proof now exercises the real installer and upstream regeneration,
+and a Linux mount-namespace test reproduces the former stale-inode failure.
+
+This is development work, not a published release or an automatic migration
+of existing installations. Full CI, exact-artifact publication, and supported
+cluster promotion remain release gates. See the
+[ownership and migration boundary](docs/guides/gitops-bootstrap.md#cni-ownership-across-infrastructure-restarts).
+
 ## GitOps-native clean bootstrap development slice
 
 As of 2026-09-03, `main` contains the first clean-install implementation that

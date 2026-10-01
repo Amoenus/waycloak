@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
@@ -33,6 +34,19 @@ func TestValidateCNIInstallationRequiresExactProtectedArtifacts(t *testing.T) {
 	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err != nil {
 		t.Fatal(err)
 	}
+	for _, extension := range []string{".conf", ".conflist", ".json"} {
+		shadow := filepath.Join(directory, "00-foreign"+extension)
+		writeProtected(t, shadow, []byte("even an invalid earlier config is ambiguous"))
+		if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err == nil || !strings.Contains(err.Error(), "shadowed") {
+			t.Fatalf("earlier runtime config was ignored: %v", err)
+		}
+		if err := os.Remove(shadow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err != nil {
+		t.Fatalf("selection recovery failed: %v", err)
+	}
 
 	writeProtected(t, binaryPath, []byte("tampered"))
 	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, release); err == nil {
@@ -48,6 +62,19 @@ func TestValidateCNIInstallationRequiresExactProtectedArtifacts(t *testing.T) {
 	skewed.Version = "v2.0.0"
 	if err := ValidateCNIInstallation(receiptPath, binaryPath, configPath, skewed); err == nil {
 		t.Fatal("release-skewed CNI receipt was accepted")
+	}
+}
+
+func TestConfigSelectionRejectsEarlierDanglingSymlink(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink privileges are platform dependent on Windows")
+	}
+	directory := t.TempDir()
+	if err := os.Symlink(filepath.Join(directory, "missing"), filepath.Join(directory, "00-foreign.conf")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCNIConfigSelection(filepath.Join(directory, "05-waycloak.conflist")); err == nil {
+		t.Fatal("earlier dangling symlink was ignored")
 	}
 }
 

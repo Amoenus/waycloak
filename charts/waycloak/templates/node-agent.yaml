@@ -97,9 +97,9 @@ spec:
             - --observation-capability-hold-id={{ .Values.nodeAgent.transitionPlanID }}
             {{ end }}
             - --state-dir=/var/lib/cni/waycloak/attachments
-            - --cni-receipt-file=/var/run/waycloak-cni-install/install-receipt.json
-            - --cni-binary-file=/var/run/waycloak-cni-install/waycloak-cni
-            - --cni-config-file=/var/run/waycloak-cni-install/waycloak.conflist
+            - --cni-receipt-file=/var/run/waycloak-cni-install/state/{{ base $cniReceipt }}
+            - --cni-binary-file=/var/run/waycloak-cni-install/bin/{{ base $cniBinary }}
+            - --cni-config-file=/var/run/waycloak-cni-install/config/{{ base $cniConfig }}
           env:
             - name: WAYCLOAK_NODE_NAME
               valueFrom:
@@ -127,13 +127,13 @@ spec:
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
             - name: cni-receipt
-              mountPath: /var/run/waycloak-cni-install/install-receipt.json
+              mountPath: /var/run/waycloak-cni-install/state
               readOnly: true
             - name: cni-binary
-              mountPath: /var/run/waycloak-cni-install/waycloak-cni
+              mountPath: /var/run/waycloak-cni-install/bin
               readOnly: true
             - name: cni-config
-              mountPath: /var/run/waycloak-cni-install/waycloak.conflist
+              mountPath: /var/run/waycloak-cni-install/config
               readOnly: true
           resources:
             requests:
@@ -181,14 +181,14 @@ spec:
                       path: ca.crt
         - name: cni-receipt
           hostPath:
-            path: {{ $cniReceipt }}
-            type: File
+            path: {{ dir $cniReceipt }}
+            type: DirectoryOrCreate
         - name: cni-binary
           hostPath:
-            path: {{ $cniBinary }}
-            type: File
+            path: {{ dir $cniBinary }}
+            type: Directory
         - name: cni-config
           hostPath:
-            path: {{ $cniConfig }}
-            type: File
+            path: {{ dir $cniConfig }}
+            type: Directory
 {{- end }}

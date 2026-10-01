@@ -205,6 +205,53 @@ An enrolled workload still cannot schedule or obtain a working sandbox until
 the exact route and observed data plane are ready. The bootstrap does not grant
 application containers capabilities or place credentials in workloads.
 
+## CNI ownership across infrastructure restarts
+
+The generated K3s values install `05-waycloak.conflist` alongside the upstream
+`10-flannel.conflist`. The installer creates the owned file directly from the
+unchained upstream source on each new node; no manual seed file is needed.
+It leaves the upstream file unchanged and preserves a protected original next
+to the owned file with the `.waycloak-original` suffix. These chart values
+select the layout (both paths must be in the runtime's config directory):
+
+```yaml
+cniInstaller:
+  configHostPath: /var/lib/rancher/k3s/agent/etc/cni/net.d/05-waycloak.conflist
+  sourceConfigHostPath: /var/lib/rancher/k3s/agent/etc/cni/net.d/10-flannel.conflist
+nodeAgent:
+  cniConfigHostPath: /var/lib/rancher/k3s/agent/etc/cni/net.d/05-waycloak.conflist
+```
+
+This layout requires the supported runtime's single-network, first-config
+selection contract. Installation and each node-agent reconciliation reject an
+earlier `.conf`, `.conflist`, or `.json` file, including ambiguous symlinks.
+The agent mounts the config, binary, and receipt **directories** read-only, so
+atomic replacements become visible without recreating the agent Pod. A file
+mount or `subPath` would retain the replaced inode and must not be substituted.
+
+The receipt binds the upstream topology as well as the installed chain and
+binary. An equivalent infrastructure rewrite, including whitespace and key
+order changes, remains healthy. A changed topology, missing primary, shadowing
+config, or artifact digest mismatch withdraws node readiness and locks retained
+attachments down. Logs identify the failed artifact or selection check and
+record recovery. Restoring the exact valid installation lets normal relay and
+attachment reconciliation recover readiness; the agent never rewrites host CNI.
+
+For topology changes, first hold or stop protected workloads through the
+reviewed lifecycle, review the new primary chain, and update the owned chain
+and receipt using exact release artifacts before resuming workloads. Do not
+delete the receipt or backup to force adoption of unexplained drift. The
+installer deliberately refuses foreign destinations, symlinks, a primary that
+already contains Waycloak, and a backup that cannot reproduce the owned chain.
+
+An empty `sourceConfigHostPath` retains the legacy in-place installer used by
+existing CLI plans. Those plans are not silently rewritten. Migration from an
+in-place installation and rollback to a release without owned-layout support
+require a separately reviewed host-CNI migration while workloads are held;
+ordinary CLI release planning does not perform that migration. Never mix these
+new chart values or receipt fields with old release binaries. Application image
+updates require no host-CNI migration and remain ordinary Kubernetes rollouts.
+
 ## Current lifecycle boundary
 
 This slice simplifies a **clean install**. Upgrade, rollback, certificate

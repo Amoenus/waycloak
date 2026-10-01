@@ -36,6 +36,13 @@ clean installation without adding a Waycloak-specific release CRD or custom
 GitOps plugin. It uses the existing Helm chart, standard hooks, Kubernetes
 Jobs/RBAC/init containers, and release-generated Flux/Argo CD manifests.
 
+**CNI ownership follow-up (#248, 2026-10-01):** implementation adds direct
+bootstrap of an earlier-sorting owned chain, observed directory selection and
+upstream topology checks, directory mounts that see atomic replacements, and
+runtime installation diagnostics. Kind/K3s acceptance now uses the real owned
+installer and regenerates the upstream file before workload creation. Existing
+CLI plans remain in-place; migration and release promotion are explicit gates.
+
 - [x] Generate deterministic release-owned Helm values from the signed release
   manifest for the certified K3s/Flannel `amd64` profile.
 - [x] Generate digest-pinned Flux and exact-version Argo CD manifests while

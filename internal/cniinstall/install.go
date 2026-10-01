@@ -24,15 +24,18 @@ import (
 const PluginType = "waycloak-cni"
 
 type Options struct {
-	SourceBinary    string
-	BinaryPath      string
-	ConfigPath      string
-	ReceiptPath     string
-	BackupPath      string
-	AgentSocket     string
-	AgentKeyFile    string
-	StateDirectory  string
-	ReleaseIdentity wayv1.ReleaseIdentity
+	SourceBinary string
+	BinaryPath   string
+	ConfigPath   string
+	// SourceConfigPath selects separately owned installation. Empty retains
+	// the explicit legacy in-place contract used by existing release plans.
+	SourceConfigPath string
+	ReceiptPath      string
+	BackupPath       string
+	AgentSocket      string
+	AgentKeyFile     string
+	StateDirectory   string
+	ReleaseIdentity  wayv1.ReleaseIdentity
 }
 
 type conflist struct {
@@ -45,13 +48,40 @@ func Install(options Options) error {
 	if err := options.validate(); err != nil {
 		return err
 	}
-	original, err := readRegular(options.ConfigPath, 1<<20)
+	if err := nodeagent.ValidateCNIConfigSelection(options.ConfigPath); err != nil {
+		return err
+	}
+	configSource := options.ConfigPath
+	if options.SourceConfigPath != "" {
+		configSource = options.SourceConfigPath
+	}
+	original, err := readRegular(configSource, 1<<20)
 	if err != nil {
 		return fmt.Errorf("read primary CNI conflist: %w", err)
 	}
 	rendered, alreadyInstalled, err := render(original, options)
 	if err != nil {
 		return err
+	}
+	if options.SourceConfigPath != "" {
+		if alreadyInstalled {
+			return errors.New("separately owned installation requires an unchained upstream primary config; review migration from the in-place layout")
+		}
+		existing, readErr := readRegular(options.ConfigPath, 1<<20)
+		if readErr == nil {
+			backup, backupErr := readRegular(options.BackupPath, 1<<20)
+			if backupErr != nil {
+				return fmt.Errorf("refuse adoption of owned CNI config without preserved primary: %w", backupErr)
+			}
+			expected, installed, renderErr := render(backup, options)
+			if renderErr != nil || installed || !bytes.Equal(expected, existing) || !jsonEqual(expected, rendered) {
+				return errors.New("owned CNI config or upstream topology differs from the preserved primary; review migration before reinstalling")
+			}
+			original = backup
+			rendered = expected
+		} else if !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("inspect owned CNI destination: %w", readErr)
+		}
 	}
 	if !alreadyInstalled {
 		if err := preserveOriginal(options.BackupPath, original); err != nil {
@@ -83,6 +113,13 @@ func Install(options Options) error {
 		ReleaseIdentity: options.ReleaseIdentity,
 		BinarySHA256:    "sha256:" + hex.EncodeToString(binarySum[:]),
 		ConfigSHA256:    "sha256:" + hex.EncodeToString(configSum[:]),
+	}
+	if options.SourceConfigPath != "" {
+		receipt.PrimaryConfigName = filepath.Base(options.SourceConfigPath)
+		receipt.PrimaryConfigSHA256, err = nodeagent.PrimaryConfigDigest(original)
+		if err != nil {
+			return err
+		}
 	}
 	receiptBytes, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
@@ -131,6 +168,13 @@ func (options Options) validate() error {
 	if options.BinaryPath == options.SourceBinary || options.ConfigPath == options.BackupPath ||
 		options.ReleaseIdentity.Version == "" || !validDigest(options.ReleaseIdentity.ManifestDigest) {
 		return errors.New("distinct install paths and an exact release identity are required")
+	}
+	if options.SourceConfigPath != "" {
+		if !filepath.IsAbs(options.SourceConfigPath) || filepath.Dir(options.SourceConfigPath) != filepath.Dir(options.ConfigPath) ||
+			!strings.HasSuffix(options.SourceConfigPath, ".conflist") || filepath.Base(options.ConfigPath) >= filepath.Base(options.SourceConfigPath) ||
+			options.SourceConfigPath == options.BackupPath {
+			return errors.New("owned config must precede a distinct primary .conflist in the same runtime CNI directory")
+		}
 	}
 	receiptDirectory := filepath.ToSlash(filepath.Dir(options.ReceiptPath))
 	if !path.IsAbs(receiptDirectory) {

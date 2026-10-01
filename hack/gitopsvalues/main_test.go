@@ -24,7 +24,9 @@ func TestBuildValuesProducesExactK3sBootstrap(t *testing.T) {
 	for _, wanted := range []string{
 		"enabled: true",
 		"manifestDigest: \"" + manifest.ManifestDigest + "\"",
-		"configHostPath: \"/var/lib/rancher/k3s/agent/etc/cni/net.d/10-flannel.conflist\"",
+		"configHostPath: \"/var/lib/rancher/k3s/agent/etc/cni/net.d/05-waycloak.conflist\"",
+		"sourceConfigHostPath: \"/var/lib/rancher/k3s/agent/etc/cni/net.d/10-flannel.conflist\"",
+		"cniConfigHostPath: \"/var/lib/rancher/k3s/agent/etc/cni/net.d/05-waycloak.conflist\"",
 		"serviceIP: \"10.43.0.10\"",
 	} {
 		if !strings.Contains(values, wanted) {
