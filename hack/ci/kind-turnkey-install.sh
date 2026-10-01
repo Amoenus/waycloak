@@ -371,7 +371,7 @@ manifest_digest="$(jq -r '.manifestDigest' "$work_dir/baseline-release-manifest.
 test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.releaseIdentity.version}')" = "$baseline_release_version"
 test "$(kubectl get vpngatewayclass gluetun.waycloak.io -o jsonpath='{.spec.releaseIdentity.manifestDigest}')" = "$manifest_digest"
 test "$(kubectl get deployment waycloak-controller -n "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$baseline_controller_ref"
-test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[0].image}')" = "$baseline_cni_ref"
+test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="install")].image}')" = "$baseline_cni_ref"
 test "$(kubectl get daemonset waycloak-node-agent -n "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$baseline_node_agent_ref"
 test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/arch}')" = amd64
 test "$(kubectl get daemonset waycloak-cni-installer -n "$system_namespace" -o jsonpath='{.spec.template.spec.hostNetwork}')" = true
@@ -943,7 +943,7 @@ apply_exact_transition() {
   before_controller_image="$(kubectl get deployment waycloak-controller \
     --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')"
   before_cni_image="$(kubectl get daemonset waycloak-cni-installer \
-    --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[0].image}')"
+    --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="install")].image}')"
   before_agent_image="$(kubectl get daemonset waycloak-node-agent \
     --namespace "$system_namespace" -o jsonpath='{.spec.template.spec.containers[0].image}')"
   direct_values_path="$work_dir/direct-values-${label}.yaml"
@@ -961,7 +961,7 @@ apply_exact_transition() {
   test "$(kubectl get deployment waycloak-controller --namespace "$system_namespace" \
     -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$before_controller_image"
   test "$(kubectl get daemonset waycloak-cni-installer --namespace "$system_namespace" \
-    -o jsonpath='{.spec.template.spec.initContainers[0].image}')" = "$before_cni_image"
+    -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="install")].image}')" = "$before_cni_image"
   test "$(kubectl get daemonset waycloak-node-agent --namespace "$system_namespace" \
     -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$before_agent_image"
   test "$(kubectl get secrets --namespace "$system_namespace" \
