@@ -111,7 +111,7 @@ func validateCNIInstallation(receiptPath, binaryPath, configPath string, expecte
 func ValidateCNIConfigSelection(configPath string) error {
 	name := filepath.Base(configPath)
 	if !strings.HasSuffix(name, ".conflist") {
-		return errors.New("Waycloak config must be a .conflist in the runtime CNI config directory")
+		return errors.New("installed config must be a .conflist in the runtime CNI config directory")
 	}
 	entries, err := os.ReadDir(filepath.Dir(configPath))
 	if err != nil {
