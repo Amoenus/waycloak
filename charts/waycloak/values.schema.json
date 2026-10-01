@@ -187,6 +187,7 @@
           }
         },
         "configHostPath": {"type": "string"},
+        "sourceConfigHostPath": {"type": "string", "pattern": "^$|^/.*\\.conflist$"},
         "binaryHostPath": {"type": "string"},
         "receiptHostPath": {"type": "string"}
       }

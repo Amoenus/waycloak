@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
@@ -20,10 +21,12 @@ import (
 const InstallationReceiptAPIVersion = "cni-installation.waycloak.io/v1"
 
 type CNIInstallationReceipt struct {
-	APIVersion      string                `json:"apiVersion"`
-	ReleaseIdentity wayv1.ReleaseIdentity `json:"releaseIdentity"`
-	BinarySHA256    string                `json:"binarySHA256"`
-	ConfigSHA256    string                `json:"configSHA256"`
+	APIVersion          string                `json:"apiVersion"`
+	ReleaseIdentity     wayv1.ReleaseIdentity `json:"releaseIdentity"`
+	BinarySHA256        string                `json:"binarySHA256"`
+	ConfigSHA256        string                `json:"configSHA256"`
+	PrimaryConfigName   string                `json:"primaryConfigName,omitempty"`
+	PrimaryConfigSHA256 string                `json:"primaryConfigSHA256,omitempty"`
 }
 
 func ValidateCNIInstallation(receiptPath, binaryPath, configPath string, expected wayv1.ReleaseIdentity) error {
@@ -56,13 +59,77 @@ func ValidateCNIInstallation(receiptPath, binaryPath, configPath string, expecte
 		return fmt.Errorf("verify installed CNI config: %w", err)
 	}
 	configSum := sha256.Sum256(configBytes)
-	if binaryDigest != receipt.BinarySHA256 || "sha256:"+hex.EncodeToString(configSum[:]) != receipt.ConfigSHA256 {
-		return errors.New("installed CNI binary or config does not match the signed-plan receipt")
+	if binaryDigest != receipt.BinarySHA256 {
+		return errors.New("installed CNI binary does not match the signed-plan receipt; rerun the exact release installer")
+	}
+	if "sha256:"+hex.EncodeToString(configSum[:]) != receipt.ConfigSHA256 {
+		return errors.New("installed CNI config does not match the signed-plan receipt; inspect config ownership and rerun the exact release installer")
 	}
 	if err := requireWaycloakChain(configBytes); err != nil {
 		return err
 	}
+	if err := ValidateCNIConfigSelection(configPath); err != nil {
+		return err
+	}
+	if receipt.PrimaryConfigName != "" || receipt.PrimaryConfigSHA256 != "" {
+		name := receipt.PrimaryConfigName
+		if filepath.Base(name) != name || !strings.HasSuffix(name, ".conflist") || name <= filepath.Base(configPath) || !validDigest(receipt.PrimaryConfigSHA256) {
+			return errors.New("CNI receipt has an invalid primary config identity")
+		}
+		primary, err := readProtectedRegular(filepath.Join(filepath.Dir(configPath), name), 1<<20)
+		if err != nil {
+			return fmt.Errorf("verify upstream primary CNI config: %w", err)
+		}
+		digest, err := PrimaryConfigDigest(primary)
+		if err != nil || digest != receipt.PrimaryConfigSHA256 {
+			return errors.New("upstream primary CNI config changed; review the topology and update the owned chain before restoring readiness")
+		}
+	}
 	return nil
+}
+
+// ValidateCNIConfigSelection enforces the supported single-network runtime's
+// first-file selection contract. Treat even invalid earlier files and symlinks
+// as conflicts: silently assuming that a runtime will skip them is unsafe.
+// The installer also calls this before creating the destination.
+func ValidateCNIConfigSelection(configPath string) error {
+	name := filepath.Base(configPath)
+	if !strings.HasSuffix(name, ".conflist") {
+		return errors.New("Waycloak config must be a .conflist in the runtime CNI config directory")
+	}
+	entries, err := os.ReadDir(filepath.Dir(configPath))
+	if err != nil {
+		return fmt.Errorf("inspect CNI config selection: %w", err)
+	}
+	for _, entry := range entries {
+		ext := filepath.Ext(entry.Name())
+		if !entry.IsDir() && (ext == ".conf" || ext == ".conflist" || ext == ".json") && entry.Name() < name {
+			return fmt.Errorf("CNI config %q is shadowed by earlier config %q; review runtime config selection", name, entry.Name())
+		}
+	}
+	return nil
+}
+
+// PrimaryConfigDigest ignores formatting and object-key order, but retains
+// every topology field and plugin order. Infrastructure rewrites of equivalent
+// configuration are harmless; changes of network meaning require review.
+func PrimaryConfigDigest(data []byte) (string, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value map[string]any
+	if err := decoder.Decode(&value); err != nil {
+		return "", err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", errors.New("primary CNI config contains trailing JSON")
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func readProtectedRegular(path string, limit int64) ([]byte, error) {

@@ -126,23 +126,36 @@ func TestChainedCNICreationTimeFailClosed(t *testing.T) {
 
 	original := filepath.Join(t.TempDir(), cniConfigName+".original")
 	copyFromPod(t, namespace, installerPod.Name, "/host-config/"+cniConfigName, original)
-	rendered := filepath.Join(t.TempDir(), cniConfigName)
-	appendWaycloakPlugin(t, original, rendered)
 	copyLocalFile(t, cniBinary, namespace, installerPod.Name, "/tmp/waycloak-cni")
-	copyLocalFile(t, rendered, namespace, installerPod.Name, "/tmp/waycloak.conflist")
 
 	installed := false
 	t.Cleanup(func() {
 		if installed {
 			bestEffortCopyToPod(original, namespace, installerPod.Name, "/tmp/original.conflist")
 			_ = exec.Command("kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0644", "/tmp/original.conflist", "/host-config/"+cniConfigName).Run()
+			_ = exec.Command("kubectl", "exec", "-n", namespace, installerPod.Name, "--", "rm", "-f", "/host-config/05-waycloak.conflist", "/host-config/05-waycloak.conflist.waycloak-original").Run()
 			_ = exec.Command("kubectl", "exec", "-n", namespace, installerPod.Name, "--", "rm", "-f", "/host-bin/waycloak-cni").Run()
 			_ = exec.Command("kubectl", "exec", "-n", namespace, installerPod.Name, "--", "rm", "-rf", "/host-state/waycloak-e2e").Run()
+			_ = exec.Command("kubectl", "exec", "-n", namespace, installerPod.Name, "--", "rm", "-rf", "/host-state/waycloak-e2e-install").Run()
 		}
 	})
-	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0755", "/tmp/waycloak-cni", "/host-bin/waycloak-cni")
-	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0644", "/tmp/waycloak.conflist", "/host-config/"+cniConfigName)
+	installOwned := func() {
+		command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "/tmp/waycloak-cni", "install",
+			"/tmp/waycloak-cni", "/host-bin/waycloak-cni", "/host-config/05-waycloak.conflist",
+			"/host-state/waycloak-e2e-install/install-receipt.json", "/host-config/05-waycloak.conflist.waycloak-original",
+			"/run/waycloak-cni-e2e/agent.sock", "/run/waycloak-cni-e2e/agent.key", "/var/lib/cni/waycloak-e2e",
+			"v0.0.0-e2e", "sha256:"+strings.Repeat("a", 64), "/host-config/"+cniConfigName)
+	}
+	installOwned()
 	installed = true
+	// Regenerate the upstream-owned file, just as the infrastructure does on
+	// restart. Subsequent ordinary and protected Pods must still traverse the
+	// installed owned chain, including after the runtime restart below.
+	copyLocalFile(t, original, namespace, installerPod.Name, "/tmp/original.conflist")
+	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "cmp", "/tmp/original.conflist", "/host-config/"+cniConfigName)
+	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "install", "-m", "0644", "/tmp/original.conflist", "/host-config/.primary-replacement")
+	command(t, nil, "kubectl", "exec", "-n", namespace, installerPod.Name, "--", "mv", "/host-config/.primary-replacement", "/host-config/"+cniConfigName)
+	installOwned()
 	assertLocalProtocolAuthentication(t, namespace, installerPod.Name)
 
 	before := readCaptureCounts(t, namespace, agentPod.Name)
@@ -559,33 +572,6 @@ func restartFixtureAgent(t *testing.T, namespace, pod string) {
 	t.Helper()
 	command(t, nil, "kubectl", "exec", "-n", namespace, pod, "--", "sh", "-c", "kill $(cat /host-run/agent.pid); for i in $(seq 1 50); do test ! -S /host-run/agent.sock && break; sleep .02; done")
 	startFixtureAgent(t, namespace, pod)
-}
-
-func appendWaycloakPlugin(t *testing.T, source, target string) {
-	t.Helper()
-	data, err := os.ReadFile(source)
-	must(t, err)
-	var conflist struct {
-		CNIVersion string                   `json:"cniVersion"`
-		Name       string                   `json:"name"`
-		Plugins    []map[string]interface{} `json:"plugins"`
-	}
-	must(t, json.Unmarshal(data, &conflist))
-	if conflist.CNIVersion == "" || conflist.Name == "" || len(conflist.Plugins) == 0 {
-		t.Fatalf("primary CNI conflist is incomplete")
-	}
-	for _, plugin := range conflist.Plugins {
-		if plugin["type"] == "waycloak-cni" {
-			t.Fatalf("refusing to modify a CNI conflist that already contains Waycloak")
-		}
-	}
-	conflist.Plugins = append(conflist.Plugins, map[string]interface{}{
-		"type": "waycloak-cni", "agentSocket": "/run/waycloak-cni-e2e/agent.sock", "agentKeyFile": "/run/waycloak-cni-e2e/agent.key", "stateDir": "/var/lib/cni/waycloak-e2e",
-		"resolveTimeout": "2s", "bindingTimeout": "5s", "retryInterval": "100ms",
-	})
-	rendered, err := json.MarshalIndent(conflist, "", "  ")
-	must(t, err)
-	must(t, os.WriteFile(target, append(rendered, '\n'), 0o600))
 }
 
 func copyFromPod(t *testing.T, namespace, pod, source, target string) {

@@ -193,13 +193,21 @@ func reconcileLoop(ctx context.Context, service *nodeagent.Service, reporter nod
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	publication := &publicationTransitions{}
+	lastInstallationError := ""
 	for {
 		installationErr := nodeagent.ValidateCNIInstallation(cniReceiptFile, cniBinaryFile, cniConfigFile, releaseIdentity)
 		if installationErr != nil {
 			service.SetBackendHealthy(false)
+			if message := installationErr.Error(); message != lastInstallationError {
+				log.Printf("CNI installation unhealthy; withdrawing node readiness: %s", message)
+				lastInstallationError = message
+			}
 			if lockdownErr := service.LockdownAll(ctx); lockdownErr != nil && ctx.Err() == nil {
 				log.Printf("invalid-CNI lockdown incomplete: %v", lockdownErr)
 			}
+		} else if lastInstallationError != "" {
+			log.Printf("CNI installation verification recovered; relay and attachment reconciliation must pass before readiness")
+			lastInstallationError = ""
 		}
 		if publishObservation(ctx, service, reporter, publication) && installationErr == nil {
 			reconcileErr := service.ReconcileAll(ctx)
