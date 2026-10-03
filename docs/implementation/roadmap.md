@@ -12,6 +12,11 @@ replacement recorded zero ordinary-egress matches. See
 The operator selected deployment of the current fixes before the larger lifecycle
 change. Version/configuration-only reconciliation with an optional CLI remains
 the next milestone in [#252](https://github.com/Amoenus/waycloak/issues/252).
+The first implementation separates the guarded transition engine from shell
+execution and adds verified release resolution and an in-process Helm adapter.
+The controller/API, declarative adoption, configuration-only transitions, and
+interrupted-operation acceptance remain open; see
+[proposed ADR 0046](../decisions/0046-in-cluster-installation-lifecycle.md).
 The normal real-provider soak and broader support certification remain pending.
 Restore missing legacy packet-test entrypoints in
 [#256](https://github.com/Amoenus/waycloak/issues/256); do not count empty test
