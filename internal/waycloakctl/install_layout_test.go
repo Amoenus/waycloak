@@ -101,6 +101,24 @@ func TestUpgradePreservesOwnedCNIAndAllNodeCoverage(t *testing.T) {
 	if strings.Contains(plan.Values, "10-flannel.conflist") || strings.Contains(plan.Values, "kubernetes.io/arch") || strings.Count(plan.Values, "05-waycloak.conflist") != 2 || strings.Count(plan.Values, "nodeSelector: {}") != 2 {
 		t.Fatalf("upgrade changed host layout or node coverage:\n%s", plan.Values)
 	}
+	if strings.Contains(plan.Values, "sourceConfigHostPath") {
+		t.Fatal("legacy layout emits an option rejected by older chart schemas")
+	}
+	ownedSource := source
+	ownedLayout := *source.NodeLayout
+	ownedLayout.SourceConfigPath = "/var/lib/rancher/k3s/agent/etc/cni/net.d/10-flannel.conflist"
+	ownedSource.NodeLayout = &ownedLayout
+	ownedSource, err = finalizeInstalledReleaseObservation(ownedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedPlan, err := BuildInstallPlan(target, "waycloak-system", "waycloak", "amd64", report, ownedSource, crds, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ownedPlan.Values, `sourceConfigHostPath: "`+ownedLayout.SourceConfigPath+`"`) {
+		t.Fatal("owned layout lost its explicit upstream source")
+	}
 	if _, err := observeInstallTransitionCheckpoint(ctx, clients, plan, crds); err != nil {
 		t.Fatal(err)
 	}
