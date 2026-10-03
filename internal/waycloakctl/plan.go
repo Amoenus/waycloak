@@ -349,6 +349,12 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	if len(layout.AgentNodeSelector) == 0 {
 		agentSelector = []byte("{}")
 	}
+	// Older charts reject unknown values even when empty. Preserve their
+	// legacy layout without emitting the newer owned-source option.
+	sourceConfigValue := ""
+	if layout.SourceConfigPath != "" {
+		sourceConfigValue = fmt.Sprintf("  sourceConfigHostPath: %q\n", layout.SourceConfigPath)
+	}
 	values := fmt.Sprintf(`releaseIdentity:
   version: %q
   manifestDigest: %q
@@ -385,8 +391,7 @@ cniInstaller:
   configHostPath: %q
   binaryHostPath: %q
   receiptHostPath: %q
-  sourceConfigHostPath: %q
-nodeAgent:
+%snodeAgent:
   enabled: true
   observationRotationID: %q
   nodeSelector: %s
@@ -410,7 +415,7 @@ defaultGatewayClass:
     version: %q
     manifestDigest: %q
 `, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", controllerConformanceProfile, engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, coreDNS.Repository, coreDNS.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, installerSelector, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
-		layout.ConfigPath, layout.BinaryPath, layout.ReceiptPath, layout.SourceConfigPath, rotationID, agentSelector, agent.Repository, agent.Digest,
+		layout.ConfigPath, layout.BinaryPath, layout.ReceiptPath, sourceConfigValue, rotationID, agentSelector, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
 		layout.ReceiptPath, layout.BinaryPath, layout.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
