@@ -39,7 +39,13 @@ func (r commandInstallRuntime) Apply(ctx context.Context, plan InstallPlan, over
 		return err
 	}
 	if overrides != "" {
-		path := filepath.Join(directory, "lifecycle-overrides.yaml")
+		// Preserve the CLI's observable phase filenames: the interruption
+		// acceptance harness stops Helm after the held staging application.
+		name := "node-agent-transition-hold.yaml"
+		if overrides == controllerFirstBootstrapValues {
+			name = "controller-first-bootstrap.yaml"
+		}
+		path := filepath.Join(directory, name)
 		if err := os.WriteFile(path, []byte(overrides), 0o600); err != nil {
 			return err
 		}
