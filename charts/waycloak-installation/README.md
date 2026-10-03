@@ -5,8 +5,10 @@ This chart installs a separate controller and the cluster-scoped
 release and reconciles the runtime chart in place. `waycloakctl` and the Helm
 executable are not used by that controller.
 
-The implementation is undergoing release qualification. The examples below
-target the planned `v1.0.2-rc.4` candidate; they do not assert it is published.
+The signed `v1.0.2-rc.4` candidate is published. Declarative adoption from rc.3,
+configuration changes, interrupted-controller recovery, and rollback/return have
+passed live qualification. See [project status](../../PROJECT_STATUS.md) for
+the evidence and remaining legacy-adoption and soak limits.
 
 ## Namespace and installation
 
