@@ -55,6 +55,18 @@ func TestLockdownDropsDirectPackets(t *testing.T) {
 	if err := connect(target, 500*time.Millisecond); err == nil {
 		t.Fatal("direct Kubernetes Service packet escaped after lockdown")
 	}
+	link := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: overlayName(Config{PodUID: uid})}}
+	if err := netlink.LinkAdd(link); err != nil {
+		t.Fatal(err)
+	}
+	rule := netlink.NewRule()
+	rule.Family, rule.Table, rule.Priority, rule.Protocol = netlink.FAMILY_V4, protectedRouteTable, protectedRulePriority, waycloakRuleProtocol
+	if err := netlink.RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+	if err := netlink.RouteAdd(&netlink.Route{Family: netlink.FAMILY_V4, Table: protectedRouteTable, Protocol: waycloakRouteProtocol, Type: unix.RTN_BLACKHOLE}); err != nil {
+		t.Fatal(err)
+	}
 	// Teardown can run while application processes still own this namespace.
 	// Ordinary routing must remain unusable, including after repeated CNI DEL.
 	for attempt := range 2 {
@@ -64,6 +76,22 @@ func TestLockdownDropsDirectPackets(t *testing.T) {
 		if err := connect(target, 500*time.Millisecond); err == nil {
 			t.Fatalf("direct packet escaped from live namespace after cleanup attempt %d", attempt)
 		}
+	}
+	if _, err := netlink.LinkByName(link.Attrs().Name); err == nil {
+		t.Fatal("cleanup retained the owned overlay link")
+	}
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, remaining := range rules {
+		if remaining.Protocol == waycloakRuleProtocol {
+			t.Fatal("cleanup retained an owned routing rule")
+		}
+	}
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, &netlink.Route{Table: protectedRouteTable}, netlink.RT_FILTER_TABLE)
+	if err != nil || len(routes) != 0 {
+		t.Fatalf("cleanup retained protected routes: %v (error %v)", routes, err)
 	}
 
 	tables, err := (&nftables.Conn{}).ListTablesOfFamily(nftables.TableFamilyINet)
