@@ -24,9 +24,11 @@ KCL_PACKAGE_DIR ?= dist/kcl
 .PHONY: generate manifests api-reference test test-race vet envtest e2e baseline-runtime-images-oci release-runtime-images-oci waycloak-cni-image-oci node-agent-image-oci replacement-controller-image-oci gateway-runtime-image-oci gateway-agent-image-oci qbittorrent-adapter-image-oci waycloakctl-release chart-package kcl-package alpha-audit api-freeze-audit dependency-audit verify-generated verify-chart-generated verify-kcl-generated verify-workflows
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/v1beta1"
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/installation/v1alpha1"
 
 manifests:
 	$(CONTROLLER_GEN) crd paths="./api/v1beta1" output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) crd paths="./api/installation/v1alpha1" output:crd:artifacts:config=config/installation
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-controller,fileName=controller-role.yaml paths="./internal/rbac/controller" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-distribution,fileName=distribution-role.yaml paths="./internal/rbac/distribution" output:rbac:artifacts:config=config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=waycloak-network-operator,fileName=network-operator-role.yaml paths="./internal/rbac/networkoperator" output:rbac:artifacts:config=config/rbac
@@ -93,12 +95,14 @@ waycloakctl-release:
 chart-package:
 	mkdir -p $(CHART_PACKAGE_DIR)
 	helm package charts/waycloak --destination $(CHART_PACKAGE_DIR)
+	helm package charts/waycloak-installation --destination $(CHART_PACKAGE_DIR)
 
 kcl-package:
 	mkdir -p $(KCL_PACKAGE_DIR)
 	cd $(KCL_MODULE_DIR) && kcl mod pkg --target $(abspath $(KCL_PACKAGE_DIR))
 
 verify-chart-generated:
+	diff -u config/installation/installation.waycloak.io_waycloakinstallations.yaml charts/waycloak-installation/crds/installation.waycloak.io_waycloakinstallations.yaml
 	diff -u config/crd/bases/networking.waycloak.io_portforwardleases.yaml charts/waycloak/crds/networking.waycloak.io_portforwardleases.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpnegressroutes.yaml charts/waycloak/crds/networking.waycloak.io_vpnegressroutes.yaml
 	diff -u config/crd/bases/networking.waycloak.io_vpngatewayclasses.yaml charts/waycloak/crds/networking.waycloak.io_vpngatewayclasses.yaml

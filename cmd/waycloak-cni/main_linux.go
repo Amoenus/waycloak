@@ -35,16 +35,22 @@ func main() {
 }
 
 func install() error {
-	if len(os.Args) != 12 && len(os.Args) != 13 {
-		return errors.New("usage: waycloak-cni install SOURCE BINARY CONFIG RECEIPT BACKUP SOCKET KEY STATE RELEASE_VERSION RELEASE_DIGEST [PRIMARY_CONFIG]")
+	if len(os.Args) < 12 || len(os.Args) > 14 {
+		return errors.New("usage: waycloak-cni install SOURCE BINARY CONFIG RECEIPT BACKUP SOCKET KEY STATE RELEASE_VERSION RELEASE_DIGEST [PRIMARY_CONFIG [migrate-legacy-source]]")
 	}
 	options := cniinstall.Options{
 		SourceBinary: os.Args[2], BinaryPath: os.Args[3], ConfigPath: os.Args[4], ReceiptPath: os.Args[5], BackupPath: os.Args[6],
 		AgentSocket: os.Args[7], AgentKeyFile: os.Args[8], StateDirectory: os.Args[9],
 		ReleaseIdentity: wayv1.ReleaseIdentity{Version: os.Args[10], ManifestDigest: os.Args[11]},
 	}
-	if len(os.Args) == 13 {
+	if len(os.Args) >= 13 {
 		options.SourceConfigPath = os.Args[12]
+	}
+	if len(os.Args) == 14 {
+		if os.Args[13] != "migrate-legacy-source" {
+			return errors.New("unknown primary migration mode")
+		}
+		options.MigrateLegacySource = true
 	}
 	return cniinstall.Install(options)
 }

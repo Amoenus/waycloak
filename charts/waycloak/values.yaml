@@ -30,6 +30,11 @@ releaseIdentity:
 
 controller:
   enabled: false
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  nodeSelector: {}
+  tolerations: []
   image:
     repository: ghcr.io/amoenus/waycloak-replacement-controller
     digest: ""
@@ -74,6 +79,9 @@ portForwarding:
 
 cniInstaller:
   enabled: false
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
   nodeSelector: {}
   image:
     repository: ghcr.io/amoenus/waycloak-cni
@@ -87,6 +95,7 @@ cniInstaller:
   # (e.g. 10-flannel.conflist) in the same runtime config directory.
   # Empty preserves the explicit legacy in-place installation contract.
   sourceConfigHostPath: ""
+  migrateLegacySource: false
   binaryHostPath: ""
   receiptHostPath: /var/lib/cni/waycloak/install-receipt.json
 
@@ -105,6 +114,9 @@ defaultGatewayClass:
 # the API-only chart stage avoids publishing a mutable or placeholder image.
 nodeAgent:
   enabled: false
+  resources:
+    requests: {cpu: 25m, memory: 48Mi}
+    limits: {memory: 192Mi}
   observationRotationID: initial
   # Reserved for the confirmation-bound waycloakctl release transaction.
   # A held successor retains deny-first state under the source identity.

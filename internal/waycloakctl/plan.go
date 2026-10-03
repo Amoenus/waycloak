@@ -135,6 +135,12 @@ func LoadReleaseManifest(path string) (ReleaseManifest, string, error) {
 	if err != nil {
 		return ReleaseManifest{}, "", err
 	}
+	return DecodeReleaseManifest(data)
+}
+
+// DecodeReleaseManifest validates a manifest after the caller verifies its
+// signature. The returned digest identifies the exact signed artifact bytes.
+func DecodeReleaseManifest(data []byte) (ReleaseManifest, string, error) {
 	if len(data) > 1<<20 {
 		return ReleaseManifest{}, "", errors.New("release manifest exceeds size limit")
 	}
@@ -293,6 +299,10 @@ func canonicalSupportMatrix(matrix *ReleaseSupportMatrix) *ReleaseSupportMatrix 
 }
 
 func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string, portForwarding *PortForwardInstallIdentity) (InstallPlan, error) {
+	return buildInstallPlan(manifest, namespace, release, nodeArchitecture, report, source, targetCRDs, portForwarding, false)
+}
+
+func buildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitecture string, report PreflightReport, source InstalledReleaseObservation, targetCRDs map[string]string, portForwarding *PortForwardInstallIdentity, native bool) (InstallPlan, error) {
 	if portForwarding != nil {
 		copy := *portForwarding
 		portForwarding = &copy
@@ -313,7 +323,7 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 		if err := portForwarding.validate(); err != nil {
 			return InstallPlan{}, err
 		}
-		if source.State == installStateDeployed && source.ManifestDigest == manifest.ManifestDigest {
+		if !native && source.State == installStateDeployed && source.ManifestDigest == manifest.ManifestDigest {
 			return InstallPlan{}, errors.New("port-forward activation requires a changed exact release identity for journal-bound gateway class replacement")
 		}
 	}

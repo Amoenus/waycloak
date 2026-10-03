@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: waycloak-installation-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waycloak-installation-controller
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  # Host probe port must be released before the replacement binds it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waycloak-installation-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waycloak-installation-controller
+    spec:
+      serviceAccountName: waycloak-installation-controller
+      hostNetwork: true
+      # Release verification must work while cluster DNS is recovering.
+      dnsPolicy: Default
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{ . | toJson }}
+      {{- end }}
+      tolerations: {{ .Values.tolerations | toJson }}
+      containers:
+        - name: controller
+          image: {{ printf "%s@%s" .Values.image.repository (required "image.digest must identify the signed replacement-controller image" .Values.image.digest) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - installation-controller
+            - --namespace=$(POD_NAMESPACE)
+            - --runtime-namespace={{ .Values.runtimeNamespace }}
+            - --health-probe-bind-address=:{{ .Values.healthPort }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: health
+              containerPort: {{ .Values.healthPort }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources: {{ .Values.resources | toJson }}
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: 256Mi

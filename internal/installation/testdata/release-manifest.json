@@ -1,0 +1,81 @@
+{
+  "apiVersion": "release.waycloak.io/v1",
+  "version": "v1.0.2-rc.3",
+  "manifestDigest": "sha256:d207e874ee787cc425b0b9ab938d1433d6efeb4e5e2e8984044d9a6b372f6a03",
+  "chart": {
+    "repository": "oci://ghcr.io/amoenus/charts/waycloak",
+    "digest": "sha256:166cb67939ad55e08d9ca2575b45ce3ecadfcae57b54027997664a9e13c2592f"
+  },
+  "kcl": {
+    "repository": "oci://ghcr.io/amoenus/waycloak-kcl",
+    "digest": "sha256:44d463d696c4cbdf4dbc24010ea5829f2a9db907a320658392b2df12fb1f2699"
+  },
+  "images": {
+    "coredns": {
+      "repository": "ghcr.io/amoenus/waycloak-coredns",
+      "digest": "sha256:9c5d4483c07711d6f4e8561167a9813a6eba53bd8249e78cfbb7ce733cae0dc5"
+    },
+    "gluetun": {
+      "repository": "ghcr.io/amoenus/waycloak-gluetun",
+      "digest": "sha256:894087face69be223773d8dc1783d541e2bf35eaa7f45d85928ae81b65872cd7"
+    },
+    "pause": {
+      "repository": "registry.k8s.io/pause",
+      "digest": "sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
+    },
+    "replacement-controller": {
+      "repository": "ghcr.io/amoenus/waycloak-replacement-controller",
+      "digest": "sha256:e061cdc7105d7449ac7d15a0be78b8660a3900e7bfb098391fe985613bfbc627"
+    },
+    "waycloak-cni": {
+      "repository": "ghcr.io/amoenus/waycloak-cni",
+      "digest": "sha256:6204bcef50beb3a321980166bef1ecf6d02227a54015696fd3325a0c8452d793"
+    },
+    "waycloak-gateway-agent": {
+      "repository": "ghcr.io/amoenus/waycloak-gateway-agent",
+      "digest": "sha256:d5029c3b84a55d0ee4ee5f7e13e609992e74aeca13a3e82ab8f59cb585bbe5d1"
+    },
+    "waycloak-gateway-runtime": {
+      "repository": "ghcr.io/amoenus/waycloak-gateway-runtime",
+      "digest": "sha256:2957acad4e9e7c254b30225e0933dc45083c6196f260f62e0b66cf7036cd0ee6"
+    },
+    "waycloak-node-agent": {
+      "repository": "ghcr.io/amoenus/waycloak-node-agent",
+      "digest": "sha256:1c28a6813d905ae82c9c045bce5d5965143b972887eac0eab0e65c75eb37eba6"
+    },
+    "waycloak-qbittorrent-adapter": {
+      "repository": "ghcr.io/amoenus/waycloak-qbittorrent-adapter",
+      "digest": "sha256:a78bc16f9f6781e89decc305c006acf4a72440c353894e43ed4354630790a244"
+    }
+  },
+  "profiles": [
+    "networking.waycloak.io/Core-v1"
+  ],
+  "supportMatrix": {
+    "rows": [
+      {
+        "id": "k3s-v1.36-flannel-containerd-linux-amd64-gluetun-proton-openvpn",
+        "kubernetes": "v1.36.1+k3s1",
+        "distribution": "k3s",
+        "cni": "flannel",
+        "runtime": "containerd://2.2.3-k3s1",
+        "kernel": "linux>=5.10",
+        "architecture": "amd64",
+        "engine": "gluetun",
+        "providerConfiguration": "protonvpn/openvpn",
+        "features": [
+          "networking.waycloak.io/DNS",
+          "networking.waycloak.io/PortForwardServiceSingleActive",
+          "networking.waycloak.io/TCP",
+          "networking.waycloak.io/UDP",
+          "networking.waycloak.io/WorkloadAdapter"
+        ],
+        "evidenceSuites": [
+          "homelab-qbittorrent-proton",
+          "k3s-datastore-recovery",
+          "kind-turnkey-install"
+        ]
+      }
+    ]
+  }
+}

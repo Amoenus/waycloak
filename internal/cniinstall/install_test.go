@@ -4,6 +4,7 @@
 package cniinstall
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,6 +137,100 @@ func write(t *testing.T, path, value string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(value), mode); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLegacyMigrationResumesEveryFilesystemPrefixWithSelectedGuard(t *testing.T) {
+	for prefix := 0; prefix <= 4; prefix++ {
+		t.Run(fmt.Sprintf("prefix-%d", prefix), func(t *testing.T) {
+			directory := t.TempDir()
+			source := filepath.Join(directory, "source")
+			primary := filepath.Join(directory, "10-primary.conflist")
+			original := `{"cniVersion":"1.1.0","name":"primary","plugins":[{"type":"bridge"}]}`
+			write(t, source, "old-binary", 0o755)
+			write(t, primary, original, 0o644)
+			legacy := fixture(directory, source, primary)
+			if err := Install(legacy); err != nil {
+				t.Fatal(err)
+			}
+			owned := legacy
+			owned.SourceConfigPath = primary
+			owned.ConfigPath = filepath.Join(directory, "05-waycloak.conflist")
+			owned.BackupPath = owned.ConfigPath + ".waycloak-original"
+			owned.MigrateLegacySource = true
+			owned.ReleaseIdentity.Version = "v1.0.2-rc.4"
+			owned.ReleaseIdentity.ManifestDigest = "sha256:" + strings.Repeat("b", 64)
+			write(t, source, "new-binary", 0o755)
+			chain, _, err := render([]byte(original), owned)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prefix >= 1 {
+				write(t, owned.BackupPath, original, 0o600)
+			}
+			if prefix >= 2 {
+				write(t, owned.BinaryPath, "new-binary", 0o755)
+			}
+			if prefix >= 3 {
+				write(t, owned.ConfigPath, string(chain), 0o644)
+			}
+			if prefix >= 4 {
+				write(t, primary, original, 0o644)
+			}
+			selected := primary
+			if prefix >= 3 {
+				selected = owned.ConfigPath
+			}
+			guard, err := os.ReadFile(selected)
+			if err != nil || !strings.Contains(string(guard), PluginType) {
+				t.Fatal("interruption left no selected guard", err)
+			}
+			if err := Install(owned); err != nil {
+				t.Fatal(err)
+			}
+			if err := Install(owned); err != nil {
+				t.Fatal("migration replay failed", err)
+			}
+			upstream, err := os.ReadFile(primary)
+			if err != nil || string(upstream) != original {
+				t.Fatal("primary was not restored exactly", err)
+			}
+			backup, err := os.ReadFile(legacy.BackupPath)
+			if err != nil || string(backup) != original {
+				t.Fatal("legacy backup was changed", err)
+			}
+			if err := nodeagent.ValidateCNIInstallation(owned.ReceiptPath, owned.BinaryPath, owned.ConfigPath, owned.ReleaseIdentity); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestLegacyMigrationRejectsUnreproducibleSourceBeforeMutation(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	primary := filepath.Join(directory, "10-primary.conflist")
+	write(t, source, "old-binary", 0o755)
+	write(t, primary, `{"cniVersion":"1.1.0","name":"primary","plugins":[{"type":"bridge"}]}`, 0o644)
+	options := fixture(directory, source, primary)
+	if err := Install(options); err != nil {
+		t.Fatal(err)
+	}
+	write(t, options.BackupPath, `{"cniVersion":"1.1.0","name":"different","plugins":[{"type":"bridge"}]}`, 0o600)
+	options.SourceConfigPath = primary
+	options.ConfigPath = filepath.Join(directory, "05-waycloak.conflist")
+	options.BackupPath = options.ConfigPath + ".waycloak-original"
+	options.MigrateLegacySource = true
+	write(t, source, "new-binary", 0o755)
+	if err := Install(options); err == nil {
+		t.Fatal("unreproducible source was adopted")
+	}
+	binary, err := os.ReadFile(options.BinaryPath)
+	if err != nil || string(binary) != "old-binary" {
+		t.Fatal("rejected migration changed binary", err)
+	}
+	if _, err := os.Stat(options.ConfigPath); !os.IsNotExist(err) {
+		t.Fatal("rejected migration wrote destination", err)
 	}
 }
 

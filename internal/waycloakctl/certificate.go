@@ -353,6 +353,9 @@ func recoverCertificateRotationPlan(ctx context.Context, clients *Clients, names
 }
 
 func ApplyCertificateRotationPlan(ctx context.Context, clients *Clients, plan CertificateRotationPlan, confirmation string) error {
+	if err := ensureNoNativeInstallationOwner(ctx, clients, plan.Namespace); err != nil {
+		return err
+	}
 	if err := plan.validate(); err != nil {
 		return err
 	}

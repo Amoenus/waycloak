@@ -6,6 +6,9 @@
 {{- $pauseDigest := required "cniInstaller.pauseImage.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.pauseImage.digest }}
 {{- $configPath := required "cniInstaller.configHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.configHostPath }}
 {{- $sourceConfig := .Values.cniInstaller.sourceConfigHostPath }}
+{{- if and .Values.cniInstaller.migrateLegacySource (not $sourceConfig) }}
+{{- fail "cniInstaller.migrateLegacySource requires a separately owned sourceConfigHostPath" }}
+{{- end }}
 {{- if and $sourceConfig (or (ne (dir $sourceConfig) (dir $configPath)) (ge (base $configPath) (base $sourceConfig))) }}
 {{- fail "cniInstaller.configHostPath must precede sourceConfigHostPath in the same CNI directory" }}
 {{- end }}
@@ -38,7 +41,8 @@ spec:
       # that plugin or its local node-agent socket is absent or incompatible.
       # Enrolled application Pods are separately forbidden from hostNetwork.
       hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: Default
+      enableServiceLinks: true
       {{- with .Values.cniInstaller.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -52,7 +56,9 @@ spec:
           command: ["/ko-app/replacement-controller"]
           args:
             - wait-ready
-            - --url=http://{{ include "waycloak.fullname" . }}-controller.{{ .Release.Namespace }}.svc:8081/readyz
+            # Kubelet injects the existing same-namespace Service address; this
+            # bootstrap check must not depend on a running CoreDNS Pod.
+            - --url=http://$({{ include "waycloak.fullname" . | upper | replace "-" "_" }}_CONTROLLER_SERVICE_HOST):8081/readyz
             - --timeout=2m
           securityContext:
             runAsNonRoot: true
@@ -65,9 +71,9 @@ spec:
           resources:
             requests:
               cpu: 1m
-              memory: 8Mi
-            limits:
               memory: 32Mi
+            limits:
+              memory: 96Mi
         - name: install
           image: "{{ .Values.cniInstaller.image.repository }}@{{ $digest }}"
           imagePullPolicy: IfNotPresent
@@ -88,7 +94,12 @@ spec:
             - {{ $manifest | quote }}
             {{- if $sourceConfig }}
             - /host-config/{{ base $sourceConfig }}
+            {{- if .Values.cniInstaller.migrateLegacySource }}
+            - migrate-legacy-source
             {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.cniInstaller.resources | nindent 12 }}
           securityContext:
             privileged: true
             runAsUser: 0

@@ -30,12 +30,15 @@ type Options struct {
 	// SourceConfigPath selects separately owned installation. Empty retains
 	// the explicit legacy in-place contract used by existing release plans.
 	SourceConfigPath string
-	ReceiptPath      string
-	BackupPath       string
-	AgentSocket      string
-	AgentKeyFile     string
-	StateDirectory   string
-	ReleaseIdentity  wayv1.ReleaseIdentity
+	// MigrateLegacySource authorizes moving a reproducible legacy chain to the
+	// separately owned destination before restoring its unchained primary.
+	MigrateLegacySource bool
+	ReceiptPath         string
+	BackupPath          string
+	AgentSocket         string
+	AgentKeyFile        string
+	StateDirectory      string
+	ReleaseIdentity     wayv1.ReleaseIdentity
 }
 
 type conflist struct {
@@ -63,9 +66,21 @@ func Install(options Options) error {
 	if err != nil {
 		return err
 	}
+	var legacySource []byte
 	if options.SourceConfigPath != "" {
 		if alreadyInstalled {
-			return errors.New("separately owned installation requires an unchained upstream primary config; review migration from the in-place layout")
+			if !options.MigrateLegacySource {
+				return errors.New("separately owned installation requires an unchained upstream primary config; review migration from the in-place layout")
+			}
+			backup, err := readRegular(options.SourceConfigPath+".waycloak-original", 1<<20)
+			if err != nil {
+				return fmt.Errorf("read legacy migration primary: %w", err)
+			}
+			expected, installed, err := render(backup, options)
+			if err != nil || installed || !jsonEqual(expected, original) {
+				return errors.New("legacy migration primary does not reproduce the exact source chain")
+			}
+			legacySource, original, rendered, alreadyInstalled = original, backup, expected, false
 		}
 		existing, readErr := readRegular(options.ConfigPath, 1<<20)
 		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
@@ -106,6 +121,21 @@ func Install(options Options) error {
 	}
 	if err := atomicWrite(options.ConfigPath, rendered, 0o644); err != nil {
 		return fmt.Errorf("install chained CNI config: %w", err)
+	}
+	if legacySource != nil {
+		// The earlier selected chain is durable before the primary loses its
+		// Waycloak entry. Every crash prefix therefore retains a selected guard.
+		current, err := readRegular(options.SourceConfigPath, 1<<20)
+		if err != nil {
+			return err
+		}
+		if jsonEqual(current, legacySource) {
+			if err := atomicWrite(options.SourceConfigPath, original, 0o644); err != nil {
+				return fmt.Errorf("restore migrated primary: %w", err)
+			}
+		} else if !jsonEqual(current, original) {
+			return errors.New("upstream primary changed during legacy migration; owned guard retained")
+		}
 	}
 	binarySum, configSum := sha256.Sum256(binary), sha256.Sum256(rendered)
 	receipt := nodeagent.CNIInstallationReceipt{
@@ -151,6 +181,9 @@ func preserveOriginal(backupPath string, original []byte) error {
 }
 
 func (options Options) validate() error {
+	if options.MigrateLegacySource && options.SourceConfigPath == "" {
+		return errors.New("legacy migration requires a separately owned primary source")
+	}
 	for name, value := range map[string]string{
 		"source binary": options.SourceBinary, "binary path": options.BinaryPath,
 		"config path": options.ConfigPath, "receipt path": options.ReceiptPath,
@@ -268,7 +301,7 @@ func createExclusive(path string, data []byte, mode os.FileMode) error {
 		err = file.Sync()
 	}
 	closeErr := file.Close()
-	return errors.Join(err, closeErr)
+	return errors.Join(err, closeErr, syncDirectory(filepath.Dir(path)))
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
@@ -293,7 +326,10 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(temporaryPath, path)
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
 }
 
 func requireEOF(decoder *json.Decoder) error {

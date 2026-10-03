@@ -25,6 +25,16 @@ reconciliation remains [#252](https://github.com/Amoenus/waycloak/issues/252).
 The operator chose the guarded deployment first; mandatory CLI transitions and
 manual immutable adapter trust rotation remain product gaps.
 
+The #252 implementation now includes the installation API, separate controller
+Deployment and Helm chart, exact release verification, in-process Helm application,
+immutable generation-bound journals, queued intent, and owned-operation recovery.
+Restart tests cover every phase; API-server tests enforce singleton and immutable
+runtime identity. Configuration changes establish denial before class withdrawal.
+Linux unit/vet, focused race, and API-server tests passed locally. Publication,
+adoption, and live packet-level upgrade/rollback qualification remain pending;
+this controller has not replaced the running rc.3 deployment. See
+[ADR 0046](docs/decisions/0046-in-cluster-installation-lifecycle.md).
+
 ## Live-namespace teardown correction
 
 Release candidate `v1.0.2-rc.2` passed publication, guarded forward/rollback,

@@ -1,0 +1,17 @@
+apiVersion: installation.waycloak.io/v1alpha1
+kind: WaycloakInstallation
+metadata:
+  name: waycloak
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  version: {{ default (printf "v%s" (trimPrefix "v" .Chart.AppVersion)) .Values.version | quote }}
+  namespace: {{ .Values.runtimeNamespace | quote }}
+  release: {{ .Values.runtimeRelease | quote }}
+  overlayCIDR: {{ .Values.overlayCIDR | quote }}
+  {{- with .Values.nodeArchitecture }}
+  nodeArchitecture: {{ . | quote }}
+  {{- end }}
+  adoptExisting: {{ .Values.adoptExisting }}
+  suspend: {{ .Values.suspend }}
+  config: {{ .Values.config | toJson }}

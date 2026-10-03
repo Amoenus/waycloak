@@ -319,6 +319,36 @@ jobs:
             printf 'digest=%s\n' "$digest"
             printf 'package=%s\n' "dist/release/waycloak-$release_version.tgz"
           } >>"$GITHUB_OUTPUT"
+      - name: Reproducibly package and publish the installation chart
+        id: publish-installation-chart
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          CONTROLLER_DIGEST: ${{ steps.publish-images.outputs.replacement_controller_digest }}
+        run: |
+          release_version="${RELEASE_TAG#v}"
+          repository="ghcr.io/amoenus/charts/waycloak-installation"
+          [[ "$CONTROLLER_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          cp -a charts/waycloak-installation "$RUNNER_TEMP/waycloak-installation"
+          sed -i "s/digest: \"\"/digest: \"$CONTROLLER_DIGEST\"/" "$RUNNER_TEMP/waycloak-installation/values.yaml"
+          for build in first second; do
+            helm package "$RUNNER_TEMP/waycloak-installation" \
+              --version "$release_version" --app-version "$RELEASE_TAG" \
+              --destination "$RUNNER_TEMP/chart-$build" >/dev/null
+          done
+          cmp "$RUNNER_TEMP/chart-first/waycloak-installation-$release_version.tgz" "$RUNNER_TEMP/chart-second/waycloak-installation-$release_version.tgz"
+          package="dist/release/waycloak-installation-$release_version.tgz"
+          cp "$RUNNER_TEMP/chart-first/waycloak-installation-$release_version.tgz" "$package"
+          helm push "$package" oci://ghcr.io/amoenus/charts >"$RUNNER_TEMP/installation-chart-push.txt"
+          digest="$(awk '$1 == "Digest:" {print $2}' "$RUNNER_TEMP/installation-chart-push.txt")"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'oci://%s@%s\n' "$repository" "$digest" >dist/release/waycloak-installation-chart.ref
+          helm template waycloak-installation "$package" --namespace waycloak-system --include-crds \
+            --kube-version 1.36.0 >dist/release/waycloak-installation.yaml
+          {
+            printf 'repository=%s\n' "$repository"
+            printf 'digest=%s\n' "$digest"
+            printf 'package=%s\n' "$package"
+          } >>"$GITHUB_OUTPUT"
       - name: Reproducibly package and publish the KCL OCI module
         id: publish-kcl
         env:
@@ -435,6 +465,14 @@ jobs:
           output-file: dist/release/waycloak-chart.spdx.json
           upload-artifact: false
           upload-release-assets: false
+      - name: Generate installation chart SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          file: ${{ steps.publish-installation-chart.outputs.package }}
+          format: spdx-json
+          output-file: dist/release/waycloak-installation-chart.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - name: Generate KCL module SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
@@ -525,6 +563,8 @@ jobs:
 
           chart_reference="$(sed 's|^oci://||' dist/release/waycloak-chart.ref)"
           sign_image "$chart_reference" dist/release/waycloak-chart.spdx.json
+          installation_reference="$(sed 's|^oci://||' dist/release/waycloak-installation-chart.ref)"
+          sign_image "$installation_reference" dist/release/waycloak-installation-chart.spdx.json
           kcl_reference="$(sed 's|^oci://||' dist/release/waycloak-kcl.ref)"
           sign_image "$kcl_reference" dist/release/waycloak-kcl.spdx.json
           bash hack/cosign-retry.sh sign-blob --yes \
@@ -589,6 +629,12 @@ jobs:
         with:
           subject-name: ${{ steps.publish-chart.outputs.repository }}
           subject-digest: ${{ steps.publish-chart.outputs.digest }}
+          push-to-registry: true
+      - name: Attest installation chart provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.publish-installation-chart.outputs.repository }}
+          subject-digest: ${{ steps.publish-installation-chart.outputs.digest }}
           push-to-registry: true
       - name: Attest KCL module provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

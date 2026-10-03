@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -27,6 +28,12 @@ func DefaultClientFactory(_ context.Context, kubeconfig, contextName string) (*C
 	if err != nil {
 		return nil, fmt.Errorf("load Kubernetes client configuration: %w", err)
 	}
+	return NewClientsForConfig(config)
+}
+
+// NewClientsForConfig uses either in-cluster identity or an explicit client
+// configuration without requiring a kubeconfig file or external executable.
+func NewClientsForConfig(config *rest.Config) (*Clients, error) {
 	kube, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err

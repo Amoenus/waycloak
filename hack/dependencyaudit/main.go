@@ -216,13 +216,22 @@ func verifyInventory(value inventory, root string, now time.Time) error {
 	if !equalStringMap(directModules, inventoryModules) {
 		return fmt.Errorf("direct Go module inventory does not exactly match go.mod: go.mod=%v inventory=%v", sortedPairs(directModules), sortedPairs(inventoryModules))
 	}
-	if len(value.ReleaseArtifacts) != 11 {
-		return errors.New("release artifact dependency inventory must cover chart, KCL, and nine images")
+	if len(value.ReleaseArtifacts) != 12 {
+		return errors.New("release artifact dependency inventory must cover runtime and installation charts, KCL, and nine images")
 	}
+	seenArtifacts := map[string]bool{}
 	for _, artifact := range value.ReleaseArtifacts {
-		if artifact.Name == "" || artifact.IdentityIn != "release-manifest.json" || artifact.SBOM == "" || artifact.Provenance == "" {
+		expectedIdentity := "release-manifest.json"
+		if artifact.Name == "installation-chart" {
+			expectedIdentity = "waycloak-installation-chart.ref and signed SHA256SUMS"
+		}
+		if artifact.Name == "" || seenArtifacts[artifact.Name] || artifact.IdentityIn != expectedIdentity || artifact.SBOM == "" || artifact.Provenance == "" {
 			return fmt.Errorf("release artifact %q has incomplete exact-artifact evidence", artifact.Name)
 		}
+		seenArtifacts[artifact.Name] = true
+	}
+	if !seenArtifacts["installation-chart"] {
+		return errors.New("installation chart evidence is missing")
 	}
 	return nil
 }
