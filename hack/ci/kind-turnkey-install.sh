@@ -1963,4 +1963,13 @@ kubectl delete pod/recovery-probe vpnegressroute/recovery --namespace "$smoke_na
 
 apply_port_forward_capability
 
+kubectl apply -f config/installation/installation.waycloak.io_waycloakinstallations.yaml
+kubectl wait --for=condition=Established crd/waycloakinstallations.installation.waycloak.io --timeout=60s
+WAYCLOAK_NATIVE_E2E=1 \
+  WAYCLOAK_NATIVE_MANIFEST="$work_dir/port-forward-release-manifest.json" \
+  WAYCLOAK_NATIVE_CHART="$work_dir/chart/waycloak-${chart_version}.tgz" \
+  WAYCLOAK_NATIVE_PROBE_URL="$probe_url" \
+  WAYCLOAK_NATIVE_PROBE_IMAGE="$curl_ref" \
+  go test -tags=e2e ./internal/installation -run '^TestNativeLifecycleInDisposableKind$' -count=1 -timeout=20m -v
+
 printf 'exact-artifact Kind install apply completed in %ss\n' "$apply_elapsed"
