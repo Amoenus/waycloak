@@ -135,6 +135,12 @@ func LoadReleaseManifest(path string) (ReleaseManifest, string, error) {
 	if err != nil {
 		return ReleaseManifest{}, "", err
 	}
+	return DecodeReleaseManifest(data)
+}
+
+// DecodeReleaseManifest validates a manifest after the caller verifies its
+// signature. The returned digest identifies the exact signed artifact bytes.
+func DecodeReleaseManifest(data []byte) (ReleaseManifest, string, error) {
 	if len(data) > 1<<20 {
 		return ReleaseManifest{}, "", errors.New("release manifest exceeds size limit")
 	}

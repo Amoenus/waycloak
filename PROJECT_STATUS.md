@@ -25,6 +25,13 @@ reconciliation remains [#252](https://github.com/Amoenus/waycloak/issues/252).
 The operator chose the guarded deployment first; mandatory CLI transitions and
 manual immutable adapter trust rotation remain product gaps.
 
+Work on #252 has started with a shared in-process installation boundary, exact
+release signature verification, and a Helm library adapter. The CLI continues
+to use the same transition guards. This is not a deployed declarative controller:
+the installation API, ownership transfer, configuration changes, interruption
+recovery, and end-to-end acceptance remain pending. See
+[proposed ADR 0046](docs/decisions/0046-in-cluster-installation-lifecycle.md).
+
 ## Live-namespace teardown correction
 
 Release candidate `v1.0.2-rc.2` passed publication, guarded forward/rollback,

@@ -583,6 +583,12 @@ func ChartCRDIdentities(ctx context.Context, runner func(context.Context, string
 	if err != nil {
 		return nil, fmt.Errorf("read exact target chart CRDs: %w: %s", err, bounded(output, 4096))
 	}
+	return DecodeChartCRDIdentities(output)
+}
+
+// DecodeChartCRDIdentities checks the complete networking API inventory from
+// either a verified chart loaded in-process or the optional Helm CLI.
+func DecodeChartCRDIdentities(output []byte) (map[string]string, error) {
 	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(output), 64<<10)
 	identities := make(map[string]string, len(stateCRDNames))
 	for {

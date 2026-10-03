@@ -19,7 +19,6 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -235,6 +234,15 @@ func observeInstallTransitionCheckpoint(ctx context.Context, clients *Clients, p
 }
 
 func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context.Context, string, ...string) ([]byte, error), plan InstallPlan, confirmation string) error {
+	return ApplyInstallPlanWithRuntime(ctx, clients, commandInstallRuntime{run: runner}, plan, confirmation)
+}
+
+// ApplyInstallPlanWithRuntime shares the same validated, journal-bound transition
+// with an in-process installer. The caller must bind authorization to PlanID.
+func ApplyInstallPlanWithRuntime(ctx context.Context, clients *Clients, runtime InstallRuntime, plan InstallPlan, confirmation string) error {
+	if runtime == nil {
+		return errors.New("install runtime is required")
+	}
 	if err := plan.validate(); err != nil {
 		return err
 	}
@@ -266,10 +274,7 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 	if current.Cluster.Architectures[plan.NodeArchitecture] == 0 {
 		return errors.New("refusing mutation: reviewed node architecture is no longer present")
 	}
-	if runner == nil {
-		runner = defaultRunner
-	}
-	targetCRDs, err := ChartCRDIdentities(ctx, runner, plan.Chart)
+	targetCRDs, err := runtime.CRDIdentities(ctx, plan.Chart)
 	if err != nil {
 		return err
 	}
@@ -289,7 +294,7 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 		}
 		return nil
 	}
-	return applyInstallPlanAtCheckpoint(ctx, clients, runner, plan, targetCRDs, checkpoint)
+	return applyInstallPlanWithRuntimeAtCheckpoint(ctx, clients, runtime, plan, targetCRDs, checkpoint)
 }
 
 func observePortForwardInstallIdentity(ctx context.Context, clients *Clients, namespace, name string, adapterProtocolEnabled bool) (PortForwardInstallIdentity, error) {
@@ -341,6 +346,10 @@ func observePortForwardInstallIdentity(ctx context.Context, clients *Clients, na
 }
 
 func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner func(context.Context, string, ...string) ([]byte, error), plan InstallPlan, targetCRDs map[string]string, checkpoint string) error {
+	return applyInstallPlanWithRuntimeAtCheckpoint(ctx, clients, commandInstallRuntime{run: runner}, plan, targetCRDs, checkpoint)
+}
+
+func applyInstallPlanWithRuntimeAtCheckpoint(ctx context.Context, clients *Clients, runtime InstallRuntime, plan InstallPlan, targetCRDs map[string]string, checkpoint string) error {
 	if err := validateInstallCRDTransition(plan.Source, targetCRDs); err != nil {
 		return err
 	}
@@ -364,16 +373,6 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 	if !bytes.Equal(caSecret.Data["ca.crt"], tlsSecret.Data["ca.crt"]) {
 		return errors.New("observation CA and serving identity do not share exact trust material")
 	}
-	directory, err := os.MkdirTemp("", "waycloak-install-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(directory)
-	valuesPath := filepath.Join(directory, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte(plan.Values), 0o600); err != nil {
-		return err
-	}
-	chart := plan.Chart.Repository + "@" + plan.Chart.Digest
 	deployed := plan.Source.State == installStateDeployed
 	changedTransition := deployed && plan.Source.ManifestDigest != plan.Target.ManifestDigest
 	if changedTransition {
@@ -427,26 +426,16 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 		checkpoint = installCheckpointQuiescedClassReplaced
 	}
 	if !deployed {
-		bootstrapValuesPath := filepath.Join(directory, "controller-first-bootstrap.yaml")
-		if err := os.WriteFile(bootstrapValuesPath, []byte(controllerFirstBootstrapValues), 0o600); err != nil {
-			return err
-		}
-		output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath, bootstrapValuesPath)...)
-		if err != nil {
-			return fmt.Errorf("controller-first Helm bootstrap failed before baseline activation: %w: %s", err, bounded(output, 4096))
+		if err := runtime.Apply(ctx, plan, controllerFirstBootstrapValues); err != nil {
+			return fmt.Errorf("controller-first bootstrap failed before baseline activation: %w", err)
 		}
 	} else if changedTransition && (checkpoint == installCheckpointQuiescedClassWithdrawn || checkpoint == installCheckpointQuiescedClassReplaced) {
 		holdValues, err := nodeAgentTransitionHoldValues(plan)
 		if err != nil {
 			return err
 		}
-		holdValuesPath := filepath.Join(directory, "node-agent-transition-hold.yaml")
-		if err := os.WriteFile(holdValuesPath, []byte(holdValues), 0o600); err != nil {
-			return err
-		}
-		output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath, holdValuesPath)...)
-		if err != nil {
-			return fmt.Errorf("helm transition staging failed with the prior node agent retained: %w: %s", err, bounded(output, 4096))
+		if err := runtime.Apply(ctx, plan, holdValues); err != nil {
+			return fmt.Errorf("transition staging failed with the deny hold retained: %w", err)
 		}
 		components, err := observeDeployedReleaseComponents(ctx, clients, plan.Namespace, plan.Release)
 		if err != nil {
@@ -464,9 +453,8 @@ func applyInstallPlanAtCheckpoint(ctx context.Context, clients *Clients, runner 
 			return err
 		}
 	}
-	output, err := runner(ctx, "helm", helmUpgradeArguments(plan, chart, valuesPath)...)
-	if err != nil {
-		return fmt.Errorf("helm baseline activation failed; keep the deny path installed while diagnosing: %w: %s", err, bounded(output, 4096))
+	if err := runtime.Apply(ctx, plan, ""); err != nil {
+		return fmt.Errorf("baseline activation failed; keep the deny path installed while diagnosing: %w", err)
 	}
 	if err := ensureTargetGatewayPods(ctx, clients, plan.Target); err != nil {
 		return err
