@@ -62,10 +62,13 @@ metadata:
 spec:
   replicas: {{ .Values.controller.replicas }}
   # The recovery controller must start even when every CNI agent is unavailable.
-  # Release host listener ports before starting its replacement.
+  # Avoid overlapping host listener ports during replacement. Keep the existing
+  # strategy type so server-side apply can adopt older defaulted Deployments.
   strategy:
-    type: Recreate
-    rollingUpdate: null
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       {{- include "waycloak.selectorLabels" . | nindent 6 }}

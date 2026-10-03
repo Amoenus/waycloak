@@ -129,8 +129,10 @@ limits are now 96 MiB. This startup measurement does not replace live controller
 memory qualification.
 
 Both controllers use host networking so an unavailable CNI agent cannot prevent
-their replacement Pods from starting. The runtime Deployment uses `Recreate`
-to release its host listener ports before replacement. Its observation listener
+their replacement Pods from starting. The runtime Deployment uses a rolling
+update with zero surge to release its host listener ports before replacement.
+Keeping its strategy type also permits server-side adoption of older defaulted
+Deployments. Its observation listener
 still authenticates node reports. The installation controller uses node DNS for
 public release verification. The CNI installer waits on the controller Service
 address injected by kubelet, rather than requiring cluster DNS during recovery.
