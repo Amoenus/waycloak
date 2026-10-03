@@ -127,3 +127,12 @@ The local `wait-ready` helper reached 48,008 KiB maximum RSS during a two-second
 unavailable-endpoint check. Its previous 32 MiB limit was insufficient; helper
 limits are now 96 MiB. This startup measurement does not replace live controller
 memory qualification.
+
+Both controllers use host networking so an unavailable CNI agent cannot prevent
+their replacement Pods from starting. The runtime Deployment uses `Recreate`
+to release its host listener ports before replacement. Its observation listener
+still authenticates node reports. The installation controller uses node DNS for
+public release verification. The CNI installer waits on the controller Service
+address injected by kubelet, rather than requiring cluster DNS during recovery.
+Runtime controller health and enabled metrics listeners are consequently exposed
+on the selected host; operators must reserve their configured ports.

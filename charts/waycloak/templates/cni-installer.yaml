@@ -41,7 +41,8 @@ spec:
       # that plugin or its local node-agent socket is absent or incompatible.
       # Enrolled application Pods are separately forbidden from hostNetwork.
       hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: Default
+      enableServiceLinks: true
       {{- with .Values.cniInstaller.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -55,7 +56,9 @@ spec:
           command: ["/ko-app/replacement-controller"]
           args:
             - wait-ready
-            - --url=http://{{ include "waycloak.fullname" . }}-controller.{{ .Release.Namespace }}.svc:8081/readyz
+            # Kubelet injects the existing same-namespace Service address; this
+            # bootstrap check must not depend on a running CoreDNS Pod.
+            - --url=http://$({{ include "waycloak.fullname" . | upper | replace "-" "_" }}_CONTROLLER_SERVICE_HOST):8081/readyz
             - --timeout=2m
           securityContext:
             runAsNonRoot: true

@@ -227,6 +227,13 @@ func TestNativeLifecycleInDisposableKind(t *testing.T) {
 	if len(interrupt) != 0 {
 		t.Fatalf("unexercised interruption phases: %v", interrupt)
 	}
+	nativeRecoveryWithoutAgentsOrDNS(t, ctx, clients)
+	if err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		observed, err := nativeExecProbe(ctx, config, clients, protected, probeURL)
+		return err == nil && observed != "" && observed != ordinaryIP, nil
+	}); err != nil {
+		t.Fatal("protected egress did not recover after control-plane bootstrap test", err)
+	}
 	stopMonitor()
 	<-done
 	lock.Lock()
@@ -235,6 +242,101 @@ func TestNativeLifecycleInDisposableKind(t *testing.T) {
 	if succeeded == 0 || denied == 0 || fallback != 0 || collection != 0 {
 		t.Fatal("native lifecycle packet qualification failed")
 	}
+}
+
+func nativeRecoveryWithoutAgentsOrDNS(t *testing.T, ctx context.Context, clients *waycloakctl.Clients) {
+	t.Helper()
+	agents := clients.Kubernetes.AppsV1().DaemonSets("waycloak-system")
+	ds, err := agents.Get(ctx, "waycloak-node-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := ds.Spec.Template.Spec.NodeSelector
+	ds.Spec.Template.Spec.NodeSelector = map[string]string{"waycloak-test-agent-disabled": "true"}
+	if _, err := agents.Update(ctx, ds, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		current, err := agents.Get(ctx, ds.Name, metav1.GetOptions{})
+		if err == nil {
+			current.Spec.Template.Spec.NodeSelector = selector
+			_, err = agents.Update(ctx, current, metav1.UpdateOptions{})
+		}
+		if err != nil {
+			t.Error("restore node agents", err)
+		}
+	}()
+	if err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		pods, err := clients.Kubernetes.CoreV1().Pods("waycloak-system").List(ctx, metav1.ListOptions{LabelSelector: "app.kubernetes.io/component=node-agent"})
+		return err == nil && len(pods.Items) == 0, err
+	}); err != nil {
+		t.Fatal("withdraw test agents", err)
+	}
+	dnsClient := clients.Kubernetes.AppsV1().Deployments("kube-system")
+	dns, err := dnsClient.Get(ctx, "coredns", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicas := dns.Spec.Replicas
+	zero := int32(0)
+	dns.Spec.Replicas = &zero
+	if _, err := dnsClient.Update(ctx, dns, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		current, err := dnsClient.Get(ctx, dns.Name, metav1.GetOptions{})
+		if err == nil {
+			current.Spec.Replicas = replicas
+			_, err = dnsClient.Update(ctx, current, metav1.UpdateOptions{})
+		}
+		if err != nil {
+			t.Error("restore cluster DNS", err)
+		}
+	}()
+	if err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		pods, err := clients.Kubernetes.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{LabelSelector: "k8s-app=kube-dns"})
+		return err == nil && len(pods.Items) == 0, err
+	}); err != nil {
+		t.Fatal("withdraw cluster DNS", err)
+	}
+	for _, component := range []string{"controller", "cni-installer"} {
+		podsClient := clients.Kubernetes.CoreV1().Pods("waycloak-system")
+		labels := "app.kubernetes.io/component=" + component
+		pods, err := podsClient.List(ctx, metav1.ListOptions{LabelSelector: labels})
+		if err != nil || len(pods.Items) == 0 {
+			t.Fatal("find recovery component", component, err)
+		}
+		old := map[types.UID]bool{}
+		for _, pod := range pods.Items {
+			old[pod.UID] = true
+			uid := pod.UID
+			if err := podsClient.Delete(ctx, pod.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			current, err := podsClient.List(ctx, metav1.ListOptions{LabelSelector: labels})
+			if err != nil || len(current.Items) != len(old) {
+				return false, err
+			}
+			for _, pod := range current.Items {
+				if old[pod.UID] || !pod.Spec.HostNetwork || pod.DeletionTimestamp != nil {
+					return false, nil
+				}
+				ready := false
+				for _, condition := range pod.Status.Conditions {
+					ready = ready || condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue
+				}
+				if !ready {
+					return false, nil
+				}
+			}
+			return true, nil
+		}); err != nil {
+			t.Fatal("component could not restart without agents or DNS", component, err)
+		}
+	}
+	t.Log("runtime controller and CNI installers restarted with all agents and cluster DNS unavailable")
 }
 
 func nativeExecProbe(ctx context.Context, config *rest.Config, clients *waycloakctl.Clients, pod, url string) (string, error) {

@@ -61,6 +61,10 @@ metadata:
     app.kubernetes.io/component: controller
 spec:
   replicas: {{ .Values.controller.replicas }}
+  # The recovery controller must start even when every CNI agent is unavailable.
+  # Release host listener ports before starting its replacement.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "waycloak.selectorLabels" . | nindent 6 }}
@@ -72,6 +76,8 @@ spec:
         app.kubernetes.io/component: controller
     spec:
       serviceAccountName: {{ include "waycloak.fullname" . }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       {{- with .Values.controller.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -24,7 +24,8 @@ spec:
     spec:
       serviceAccountName: waycloak-installation-controller
       hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      # Release verification must work while cluster DNS is recovering.
+      dnsPolicy: Default
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
