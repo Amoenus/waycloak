@@ -64,7 +64,7 @@ func TestLockdownDropsDirectPackets(t *testing.T) {
 	if err := netlink.RuleAdd(rule); err != nil {
 		t.Fatal(err)
 	}
-	if err := netlink.RouteAdd(&netlink.Route{Family: netlink.FAMILY_V4, Table: protectedRouteTable, Protocol: waycloakRouteProtocol, Type: unix.RTN_BLACKHOLE}); err != nil {
+	if err := netlink.RouteAdd(&netlink.Route{Dst: &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 32)}, Table: protectedRouteTable, Protocol: waycloakRouteProtocol, Type: unix.RTN_BLACKHOLE}); err != nil {
 		t.Fatal(err)
 	}
 	// Teardown can run while application processes still own this namespace.
