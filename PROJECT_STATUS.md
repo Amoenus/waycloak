@@ -1,39 +1,53 @@
 # Project status
 
-## October candidate deployed and checked
+## Declarative October candidate deployed and checked
 
-Signed candidate `v1.0.2-rc.3`, source
-`b7b1bae2df54dbea33f54d5a812e2577d37d9df7`, is deployed. Its canonical manifest is
-`sha256:d207e874ee787cc425b0b9ab938d1433d6efeb4e5e2e8984044d9a6b372f6a03`.
-Full PR and exact-main CI, runtime/CLI publication, signatures, provenance,
-and independent public-artifact verification passed.
+Signed `v1.0.2-rc.4`, source `ab9498e71262ec8086d615da048d043acfa88c55`,
+is published and deployed. Its canonical manifest is
+`sha256:f36066685c364f50cb6ac64bde276dbfd366cb89bce47182f84f9fc5a7e2b4ee`.
+Exact-main CI, runtime/CLI publication, signatures, provenance, vulnerability
+policy, and independent public-artifact verification passed. The release includes
+the refreshed Gluetun and CoreDNS derivatives for both architectures.
 
-The in-place transition recorded 100 egress probes with zero ordinary-egress
-matches; all 62 probes after acknowledged hold were denied. The replacement
-proof recorded 114 probes inside the terminating container, including 23 denied
-after deletion began, with zero ordinary-egress matches. Its replacement was
-Ready and passed DNS, VPN egress, TCP/UDP listener and external TCP forwarding checks.
-The parallel replacement monitor recorded 45 samples and two collection gaps,
-with no observed fallback. A worker K3s restart regenerated the primary CNI file
-while preserving the owned chain, workload and agent identities; its 50 probes
-observed no fallback. All three node capabilities, exact runtime images, retained
-storage identities, and GitOps applications passed final checks.
+[PR #258](https://github.com/Amoenus/waycloak/pull/258) implements the installation
+API, separate controller and Helm chart, exact release verification, in-process
+Helm application, immutable generation-bound journals, queued intent, and owned
+operation recovery. `waycloakctl` is optional. Kubernetes desired state owns
+ordinary installation, version/configuration changes, rollback, and recovery.
+CI covers interruption at every phase and recovery while node agents and cluster
+DNS are unavailable. See [ADR 0046](docs/decisions/0046-in-cluster-installation-lifecycle.md).
 
-These are bounded candidate checks, not a completed real-provider soak or a
-new certified mixed-architecture support row. Fully declarative lifecycle
-reconciliation remains [#252](https://github.com/Amoenus/waycloak/issues/252).
-The operator chose the guarded deployment first; mandatory CLI transitions and
-manual immutable adapter trust rotation remain product gaps.
+The existing three-node deployment adopted rc.3, recovered after an intentional
+installation-controller deletion during Staging, and reached rc.4 Ready. A
+same-version resource change reached generation 2 Ready. Declarative rollback
+reached rc.3 generation 3 Ready, and restoring GitOps reconciliation returned to
+rc.4 generation 4 Ready. No CLI transition or journal repair was used. Across
+those transitions, 374 probes recorded 146 VPN responses, 228 denied requests,
+zero ordinary-egress matches, zero collection gaps, and zero successes after an
+acknowledged hold. Workload identity, three PVC identities, and certificate
+Secret UIDs/public hashes were retained. The independent adapter image and
+immutable trust record updated automatically in ordered GitOps sync waves.
 
-The #252 implementation now includes the installation API, separate controller
-Deployment and Helm chart, exact release verification, in-process Helm application,
-immutable generation-bound journals, queued intent, and owned-operation recovery.
-Restart tests cover every phase; API-server tests enforce singleton and immutable
-runtime identity. Configuration changes establish denial before class withdrawal.
-Linux unit/vet, focused race, and API-server tests passed locally. Publication,
-adoption, and live packet-level upgrade/rollback qualification remain pending;
-this controller has not replaced the running rc.3 deployment. See
-[ADR 0046](docs/decisions/0046-in-cluster-installation-lifecycle.md).
+A subsequent protected-workload replacement recorded 91 probes inside the old
+terminating container with zero ordinary-egress matches. Eleven followed the
+deletion request: six VPN responses and five failures. The parallel replacement
+monitor recorded 48 samples, three denials, and four collection gaps; no fallback
+was observed. Port-forward handoff converged without manual repair. The worker
+K3s restart preserved the owned chain's hash/inode/timestamp while regenerating
+the primary source; installer and agent identities stayed stable with no restarts.
+Its 41 samples included 38 VPN responses and three collection gaps, with no
+observed fallback. Gaps are not evidence of packet denial.
+
+Final checks passed all-node readiness, exact runtime identity, binding, route,
+gateway, adapter and lease readiness, DNS A/AAAA over UDP/TCP, VPN/lease agreement,
+TCP/UDP listeners, external TCP forwarding, HTTPS, and retained Bound storage.
+The installation controller and runtime are within their configured memory limits.
+
+These bounded candidate checks are not a completed real-provider soak or a new
+certified mixed-architecture support row. Direct adoption from an untouched
+v1.0.1 installation still needs dedicated qualification under
+[#252](https://github.com/Amoenus/waycloak/issues/252); that issue remains open.
+The historical rc.3 checks below preceded declarative adoption.
 
 ## Live-namespace teardown correction
 

@@ -1,23 +1,23 @@
 # Implementation roadmap
 
-**October candidate checkpoint:** signed `v1.0.2-rc.3` is published, independently
-verified, and deployed with preserved CNI paths and node coverage. Full CI and
-live upgrade, terminating-workload replacement, DNS/forwarding, and worker-restart
-checks passed. It corrects [#254](https://github.com/Amoenus/waycloak/issues/254):
-rc.2 and v1.0.1 removed namespace denial before a terminating application stopped.
-The privileged regression reproduced the old failure; the corrected live
-replacement recorded zero ordinary-egress matches. See
-[project status](../../PROJECT_STATUS.md) for exact artifact and evidence counts.
+**October declarative checkpoint:** signed `v1.0.2-rc.4` is published,
+independently verified, and deployed. The installation API/controller and chart
+now own exact-artifact validation, held transitions, gateway replacement, rollback,
+and interrupted-operation recovery. `waycloakctl` is optional. Full exact-main
+CI and live adoption, configuration change, interrupted-controller recovery,
+rollback/return, workload replacement, DNS/forwarding, and worker-restart checks
+passed. See [project status](../../PROJECT_STATUS.md) for artifact identities,
+probe counts, and collection gaps.
 
-The operator selected deployment of the current fixes before the larger lifecycle
-change. Version/configuration-only reconciliation with an optional CLI remains
-the next milestone in [#252](https://github.com/Amoenus/waycloak/issues/252).
-The controller/API, installation chart, verified artifact resolution, configuration
-transitions, immutable journal, queued intent, and owned Helm recovery are implemented.
-Local restart, configuration, unit/race, and API-server checks passed. Publication,
-declarative adoption, and live interruption/upgrade/rollback acceptance remain open;
-see [ADR 0046](../decisions/0046-in-cluster-installation-lifecycle.md).
+The former mandatory-CLI lifecycle gap is implemented in
+[PR #258](https://github.com/Amoenus/waycloak/pull/258), following
+[ADR 0046](../decisions/0046-in-cluster-installation-lifecycle.md).
+[#252](https://github.com/Amoenus/waycloak/issues/252) remains open for dedicated
+qualification of direct adoption from an untouched v1.0.1 installation.
 The normal real-provider soak and broader support certification remain pending.
+Runtime rollback older than rc.3 is rejected because of the terminating-namespace
+teardown defect corrected in [#254](https://github.com/Amoenus/waycloak/issues/254).
+
 Restore missing legacy packet-test entrypoints in
 [#256](https://github.com/Amoenus/waycloak/issues/256); do not count empty test
 selections as acceptance evidence.
