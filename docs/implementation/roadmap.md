@@ -1,19 +1,21 @@
 # Implementation roadmap
 
-**October teardown qualification blocker:** candidate `v1.0.2-rc.2` completed
-guarded release transitions and owned-CNI infrastructure recovery, but a live
-terminating workload escaped through ordinary egress during cleanup. Issue
-[#254](https://github.com/Amoenus/waycloak/issues/254) retains namespace denial
-through teardown and adds an explicitly invoked privileged packet regression.
-Promotion requires a corrected exact artifact and a repeat replacement proof.
-Declarative lifecycle reconciliation remains open in
-[#252](https://github.com/Amoenus/waycloak/issues/252).
+**October candidate checkpoint:** signed `v1.0.2-rc.3` is published, independently
+verified, and deployed with preserved CNI paths and node coverage. Full CI and
+live upgrade, terminating-workload replacement, DNS/forwarding, and worker-restart
+checks passed. It corrects [#254](https://github.com/Amoenus/waycloak/issues/254):
+rc.2 and v1.0.1 removed namespace denial before a terminating application stopped.
+The privileged regression reproduced the old failure; the corrected live
+replacement recorded zero ordinary-egress matches. See
+[project status](../../PROJECT_STATUS.md) for exact artifact and evidence counts.
 
-The October successor release also preserves installed CNI host paths and node
-selectors during exact CLI transitions. Unit regressions and the hosted
-transition/rollback suite gate this change alongside the Gluetun OpenSSL and
-CoreDNS gRPC security refresh. Exact publication and homelab promotion remain
-pending.
+The operator selected deployment of the current fixes before the larger lifecycle
+change. Version/configuration-only reconciliation with an optional CLI remains
+the next milestone in [#252](https://github.com/Amoenus/waycloak/issues/252).
+The normal real-provider soak and broader support certification remain pending.
+Restore missing legacy packet-test entrypoints in
+[#256](https://github.com/Amoenus/waycloak/issues/256); do not count empty test
+selections as acceptance evidence.
 
 Each phase ends with observable acceptance criteria. A fresh implementation agent should take the first unchecked vertical slice, not build all packages speculatively.
 

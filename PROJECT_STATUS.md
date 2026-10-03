@@ -1,19 +1,47 @@
 # Project status
 
+## October candidate deployed and checked
+
+Signed candidate `v1.0.2-rc.3`, source
+`b7b1bae2df54dbea33f54d5a812e2577d37d9df7`, is deployed. Its canonical manifest is
+`sha256:d207e874ee787cc425b0b9ab938d1433d6efeb4e5e2e8984044d9a6b372f6a03`.
+Full PR and exact-main CI, runtime/CLI publication, signatures, provenance,
+and independent public-artifact verification passed.
+
+The in-place transition recorded 100 egress probes with zero ordinary-egress
+matches; all 62 probes after acknowledged hold were denied. The replacement
+proof recorded 114 probes inside the terminating container, including 23 denied
+after deletion began, with zero ordinary-egress matches. Its replacement was
+Ready and passed DNS, VPN egress, TCP/UDP listener and external TCP forwarding checks.
+The parallel replacement monitor recorded 45 samples and two collection gaps,
+with no observed fallback. A worker K3s restart regenerated the primary CNI file
+while preserving the owned chain, workload and agent identities; its 50 probes
+observed no fallback. All three node capabilities, exact runtime images, retained
+storage identities, and GitOps applications passed final checks.
+
+These are bounded candidate checks, not a completed real-provider soak or a
+new certified mixed-architecture support row. Fully declarative lifecycle
+reconciliation remains [#252](https://github.com/Amoenus/waycloak/issues/252).
+The operator chose the guarded deployment first; mandatory CLI transitions and
+manual immutable adapter trust rotation remain product gaps.
+
 ## Live-namespace teardown correction
 
 Release candidate `v1.0.2-rc.2` passed publication, guarded forward/rollback,
 owned-CNI migration, and worker-restart checks. Workload replacement qualification
 then observed one ordinary-egress response from the terminating old Pod.
-Issue [#254](https://github.com/Amoenus/waycloak/issues/254) blocks promotion:
+Issue [#254](https://github.com/Amoenus/waycloak/issues/254) blocked that candidate:
 cleanup removed the nftables guard while application processes could still run.
 Cleanup now atomically installs deny-only policy before releasing forwarding
 resources and retains that guard until kernel network-namespace destruction.
 A privileged packet regression exercises repeated cleanup in a live namespace.
-The corrected candidate still requires publication and deployment qualification.
-Fully declarative lifecycle reconciliation remains tracked in
-[#252](https://github.com/Amoenus/waycloak/issues/252); the CLI is a temporary
-deployment requirement, not the intended product contract.
+The packet regression failed against the old implementation and passed with
+the correction, including removal of owned routing resources. The identical
+backend in v1.0.1 is also affected; its release notes flag the defect. Neither
+v1.0.1 nor rc.2 is a safe fallback for this teardown failure. Missing legacy
+packet-test entrypoints discovered during this work are tracked separately in
+[#256](https://github.com/Amoenus/waycloak/issues/256); their empty test selection
+is not counted as evidence.
 
 ## October release dependency refresh
 
@@ -25,8 +53,7 @@ CoreDNS source remains the exact v1.14.7 release; two additional scanner
 exceptions document fixes already present in that source and expire on
 2026-11-27. No gRPC vulnerability is suppressed.
 
-The owned-CNI changes below are merged. Publication, an exact in-place homelab
-transition, and live recovery/fail-closed validation remain pending.
+These dependency and owned-CNI changes are included in the deployed candidate.
 
 Release preparation also identified a CLI transition gap: regenerated defaults
 could replace an operator-owned CNI path and restrict an existing mixed-node
@@ -34,7 +61,7 @@ deployment. New plans now bind and preserve observed host paths and node
 selectors, reject subsequent drift, and correctly parse the installer's optional
 source-config argument without confusing it with the release identity.
 
-## Owned CNI lifecycle development slice
+## Owned CNI lifecycle candidate
 
 Issue [#248](https://github.com/Amoenus/waycloak/issues/248) addresses upstream
 CNI regeneration removing Waycloak from the active chain. The implementation
@@ -45,9 +72,9 @@ existing CLI plans retain their explicit in-place contract. The existing
 Kind/K3s CNI proof now exercises the real installer and upstream regeneration,
 and a Linux mount-namespace test reproduces the former stale-inode failure.
 
-This is development work, not a published release or an automatic migration
-of existing installations. Full CI, exact-artifact publication, and supported
-cluster promotion remain release gates. See the
+The candidate passed a held migration and infrastructure-restart checks.
+Migration of an existing installation is still explicit; publication does not
+automatically change its CNI layout. See the
 [ownership and migration boundary](docs/guides/gitops-bootstrap.md#cni-ownership-across-infrastructure-restarts).
 
 ## GitOps-native clean bootstrap development slice
