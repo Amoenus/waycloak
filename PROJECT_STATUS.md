@@ -1,5 +1,18 @@
 # Project status
 
+## October release dependency refresh
+
+The successor to v1.0.1 updates the derived Gluetun image's exact Alpine
+OpenSSL package set to 3.5.9-r0 and the derived CoreDNS image's gRPC dependency
+to v1.83.2. Both architectures retain duplicate-build, upstream-test, image
+security, provenance, and independent publication verification gates. The
+CoreDNS source remains the exact v1.14.7 release; two additional scanner
+exceptions document fixes already present in that source and expire on
+2026-11-27. No gRPC vulnerability is suppressed.
+
+The owned-CNI changes below are merged. Publication, an exact in-place homelab
+transition, and live recovery/fail-closed validation remain pending.
+
 ## Owned CNI lifecycle development slice
 
 Issue [#248](https://github.com/Amoenus/waycloak/issues/248) addresses upstream
