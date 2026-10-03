@@ -59,23 +59,25 @@ var installRuntimeImageNames = []string{
 // InstalledReleaseObservation is the non-sensitive, canonical source state
 // bound into every install or exact-release transition plan.
 type InstalledReleaseObservation struct {
-	State                    string            `json:"state"`
-	ObservationDigest        string            `json:"observationDigest"`
-	HelmRevision             int64             `json:"helmRevision,omitempty"`
-	Version                  string            `json:"version,omitempty"`
-	ManifestDigest           string            `json:"manifestDigest,omitempty"`
-	Images                   map[string]string `json:"images,omitempty"`
-	GatewayClassUID          string            `json:"gatewayClassUID,omitempty"`
-	GatewayClassGeneration   int64             `json:"gatewayClassGeneration,omitempty"`
-	ObservationCAUID         string            `json:"observationCAUID,omitempty"`
-	ObservationTLSUID        string            `json:"observationTLSUID,omitempty"`
-	ObservationCADigest      string            `json:"observationCADigest,omitempty"`
-	ObservationServingDigest string            `json:"observationServingDigest,omitempty"`
-	ObservationRotationID    string            `json:"observationRotationID,omitempty"`
-	CRDIdentities            map[string]string `json:"crdIdentities,omitempty"`
+	NodeLayout               *NodeInstallLayout `json:"nodeLayout,omitempty"`
+	State                    string             `json:"state"`
+	ObservationDigest        string             `json:"observationDigest"`
+	HelmRevision             int64              `json:"helmRevision,omitempty"`
+	Version                  string             `json:"version,omitempty"`
+	ManifestDigest           string             `json:"manifestDigest,omitempty"`
+	Images                   map[string]string  `json:"images,omitempty"`
+	GatewayClassUID          string             `json:"gatewayClassUID,omitempty"`
+	GatewayClassGeneration   int64              `json:"gatewayClassGeneration,omitempty"`
+	ObservationCAUID         string             `json:"observationCAUID,omitempty"`
+	ObservationTLSUID        string             `json:"observationTLSUID,omitempty"`
+	ObservationCADigest      string             `json:"observationCADigest,omitempty"`
+	ObservationServingDigest string             `json:"observationServingDigest,omitempty"`
+	ObservationRotationID    string             `json:"observationRotationID,omitempty"`
+	CRDIdentities            map[string]string  `json:"crdIdentities,omitempty"`
 }
 
 type deployedReleaseComponents struct {
+	NodeLayout                         *NodeInstallLayout
 	HelmRevision                       int64
 	ControllerVersion                  string
 	ControllerManifest                 string
@@ -239,8 +241,14 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 	if rotationID == "" {
 		rotationID = initialObservationRotation
 	}
-	cniVersion := cniContainer.Args[len(cniContainer.Args)-2]
-	cniManifest := cniContainer.Args[len(cniContainer.Args)-1]
+	cniVersion, cniManifest, err := installerReleaseIdentity(cniContainer)
+	if err != nil {
+		return InstalledReleaseObservation{}, err
+	}
+	layout, err := observeNodeInstallLayout(cni.Spec.Template.Spec, agent.Spec.Template.Spec)
+	if err != nil {
+		return InstalledReleaseObservation{}, err
+	}
 	classVersion, _, _ := unstructured.NestedString(class.Object, "spec", "releaseIdentity", "version")
 	classManifest, _, _ := unstructured.NestedString(class.Object, "spec", "releaseIdentity", "manifestDigest")
 	if version == "" || !validDigest(manifestDigest) || nodeVersion != version || cniVersion != version || classVersion != version || nodeManifest != manifestDigest || cniManifest != manifestDigest || classManifest != manifestDigest {
@@ -260,7 +268,8 @@ func ObserveInstalledRelease(ctx context.Context, clients *Clients, namespace, r
 		}
 	}
 	observation := InstalledReleaseObservation{
-		State: installStateDeployed, HelmRevision: revision, Version: version, ManifestDigest: manifestDigest,
+		NodeLayout: layout,
+		State:      installStateDeployed, HelmRevision: revision, Version: version, ManifestDigest: manifestDigest,
 		Images: images, GatewayClassUID: string(class.GetUID()), GatewayClassGeneration: class.GetGeneration(),
 		ObservationCAUID: string(caSecret.UID), ObservationTLSUID: string(tlsSecret.UID),
 		ObservationCADigest: digestBytes(caSecret.Data["ca.crt"]), ObservationServingDigest: digestBytes(tlsSecret.Data["tls.crt"]),
@@ -390,8 +399,14 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 	if rotationID == "" {
 		rotationID = initialObservationRotation
 	}
-	cniVersion := cniContainer.Args[len(cniContainer.Args)-2]
-	cniManifest := cniContainer.Args[len(cniContainer.Args)-1]
+	cniVersion, cniManifest, err := installerReleaseIdentity(cniContainer)
+	if err != nil {
+		return observation, err
+	}
+	layout, err := observeNodeInstallLayout(cni.Spec.Template.Spec, agent.Spec.Template.Spec)
+	if err != nil {
+		return observation, err
+	}
 	images := map[string]string{
 		"replacement-controller": controllerContainer.Image,
 		"waycloak-cni":           cniContainer.Image,
@@ -407,6 +422,7 @@ func observeDeployedReleaseComponents(ctx context.Context, clients *Clients, nam
 	}
 
 	observation = deployedReleaseComponents{
+		NodeLayout:   layout,
 		HelmRevision: revision, ControllerVersion: controllerVersion, ControllerManifest: controllerManifest,
 		ControllerTransitionPlanID: controllerTransitionPlanID, ControllerTransitionSourceVersion: controllerTransitionSourceVersion,
 		ControllerTransitionSourceManifest: controllerTransitionSourceManifest,
@@ -552,7 +568,7 @@ func exactStagedComponents(components deployedReleaseComponents, plan InstallPla
 }
 
 func sameTransitionTrust(components deployedReleaseComponents, source InstalledReleaseObservation) bool {
-	return components.ObservationCAUID == source.ObservationCAUID && components.ObservationTLSUID == source.ObservationTLSUID &&
+	return reflect.DeepEqual(components.NodeLayout, source.NodeLayout) && components.ObservationCAUID == source.ObservationCAUID && components.ObservationTLSUID == source.ObservationTLSUID &&
 		components.ObservationCADigest == source.ObservationCADigest && components.ObservationServingDigest == source.ObservationServingDigest
 }
 
@@ -621,6 +637,9 @@ func validateInstallTarget(source, target InstalledReleaseObservation, manifest 
 		return errors.New("helm completed without advancing the deployed revision")
 	}
 	if source.State == installStateDeployed {
+		if !reflect.DeepEqual(source.NodeLayout, target.NodeLayout) {
+			return errors.New("ordinary release transition changed installed CNI paths or node coverage")
+		}
 		classChanged := source.ManifestDigest != manifest.ManifestDigest
 		if classChanged && target.GatewayClassUID == source.GatewayClassUID {
 			return errors.New("release transition did not replace the immutable gateway class identity")

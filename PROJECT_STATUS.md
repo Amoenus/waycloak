@@ -13,6 +13,12 @@ exceptions document fixes already present in that source and expire on
 The owned-CNI changes below are merged. Publication, an exact in-place homelab
 transition, and live recovery/fail-closed validation remain pending.
 
+Release preparation also identified a CLI transition gap: regenerated defaults
+could replace an operator-owned CNI path and restrict an existing mixed-node
+deployment. New plans now bind and preserve observed host paths and node
+selectors, reject subsequent drift, and correctly parse the installer's optional
+source-config argument without confusing it with the release identity.
+
 ## Owned CNI lifecycle development slice
 
 Issue [#248](https://github.com/Amoenus/waycloak/issues/248) addresses upstream
