@@ -14,10 +14,12 @@ import (
 
 	installv1 "github.com/Amoenus/waycloak/api/installation/v1alpha1"
 	"github.com/Amoenus/waycloak/internal/enrollment"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/yaml"
@@ -406,6 +408,13 @@ func VerifyNativeInstall(ctx context.Context, clients *Clients, snapshot NativeI
 		return err
 	}
 	return wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		nodes, err := clients.Kubernetes.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: labels.SelectorFromSet(snapshot.Layout.AgentNodeSelector).String()})
+		if err != nil {
+			return false, err
+		}
+		if !nativeNodesReady(nodes.Items, time.Now()) {
+			return false, nil
+		}
 		controller, err := clients.Kubernetes.AppsV1().Deployments(plan.Namespace).Get(ctx, chartFullname(plan.Release)+"-controller", metav1.GetOptions{})
 		if err != nil {
 			return false, err
@@ -450,4 +459,26 @@ func VerifyNativeInstall(ctx context.Context, clients *Clients, snapshot NativeI
 		}
 		return len(selected) == 0, nil
 	})
+}
+
+func nativeNodesReady(nodes []corev1.Node, now time.Time) bool {
+	if len(nodes) == 0 {
+		return false
+	}
+	for index := range nodes {
+		node := &nodes[index]
+		if node.Labels[scheduling.CNIReadyLabel] != "true" || scheduling.Stale(node, now, scheduling.DefaultFreshness) {
+			return false
+		}
+		ready := false
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+				ready = true
+			}
+		}
+		if !ready {
+			return false
+		}
+	}
+	return true
 }

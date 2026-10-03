@@ -6,15 +6,38 @@ package waycloakctl
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	installv1 "github.com/Amoenus/waycloak/api/installation/v1alpha1"
+	"github.com/Amoenus/waycloak/internal/scheduling"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
+
+func TestNativeReadinessRequiresFreshNodeCapabilities(t *testing.T) {
+	now := time.Now()
+	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{scheduling.CNIReadyLabel: "true", scheduling.CapabilityEpochLabel: strconv.FormatInt(now.Unix(), 10)}}, Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}}
+	if !nativeNodesReady([]corev1.Node{node}, now) {
+		t.Fatal("fresh ready capability rejected")
+	}
+	if nativeNodesReady([]corev1.Node{node}, now.Add(time.Minute)) {
+		t.Fatal("stale node capability accepted")
+	}
+	node.Status.Conditions[0].Status = corev1.ConditionFalse
+	if nativeNodesReady([]corev1.Node{node}, now) {
+		t.Fatal("unready node accepted")
+	}
+	node.Status.Conditions[0].Status = corev1.ConditionTrue
+	delete(node.Labels, scheduling.CNIReadyLabel)
+	if nativeNodesReady([]corev1.Node{node}, now) || nativeNodesReady(nil, now) {
+		t.Fatal("missing node coverage accepted")
+	}
+}
 
 type nativeTestRuntime struct {
 	crds    map[string]string
