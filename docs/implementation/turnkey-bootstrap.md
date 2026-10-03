@@ -62,10 +62,13 @@ waycloakctl install apply --context <context> --plan install-plan.json --confirm
 
 The architecture flag is optional only when preflight observes exactly one
 architecture. A mixed-architecture cluster requires an explicit reviewed row.
-The generated values constrain both the CNI installer and node agent to that
-architecture; only those nodes can publish the exact `cni-ready` capability
-that enrolled workloads select. Building a multi-platform image is not treated
-as conformance evidence for an otherwise unproved node row.
+For a clean installation, generated values constrain the CNI installer and node
+agent to that architecture. An existing installation instead preserves and binds
+its observed selectors and CNI paths, including explicitly unrestricted node
+coverage; selecting the planning row must not silently narrow that deployment.
+Only nodes with a verified installation publish the exact `cni-ready` capability
+that enrolled workloads select. A multi-platform image or a bounded deployment
+check does not establish conformance for an otherwise unproved node row.
 
 The release manifest must satisfy
 [`release-manifest-v1.schema.json`](../api/release-manifest-v1.schema.json) and
