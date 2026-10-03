@@ -267,25 +267,19 @@ func (b *linuxBackend) Repair(ctx context.Context, cfg Config) error {
 	return b.Verify(ctx, cfg)
 }
 
-func (*linuxBackend) Cleanup(_ context.Context, podUID string, cfg *Config) error {
+func (b *linuxBackend) Cleanup(ctx context.Context, podUID string, cfg *Config) error {
 	if podUID == "" {
 		return errors.New("pod UID is required")
 	}
-	var errs []error
-	conn := &nftables.Conn{}
-	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("list owned nftables state: %w", err))
-	} else {
-		for _, table := range tables {
-			if table.Name == policyTableName(podUID) {
-				conn.DelTable(table)
-			}
-		}
-		if err := conn.Flush(); err != nil {
-			errs = append(errs, fmt.Errorf("remove owned nftables state: %w", err))
-		}
+	// Pod deletion and CNI DEL can precede the last application process exiting.
+	// Atomically replace forwarding policy with denial before removing routes,
+	// and leave that guard for the kernel to collect with the network namespace.
+	// If denial fails, retain the existing forwarding state rather than expose
+	// the namespace's ordinary route while its processes can still send packets.
+	if err := b.InstallLockdown(ctx, podUID); err != nil {
+		return fmt.Errorf("retain namespace lockdown before cleanup: %w", err)
 	}
+	var errs []error
 	for _, family := range []int{netlink.FAMILY_V4, netlink.FAMILY_V6} {
 		rules, err := netlink.RuleList(family)
 		if err != nil {

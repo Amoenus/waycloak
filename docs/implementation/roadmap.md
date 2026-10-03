@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+**October teardown qualification blocker:** candidate `v1.0.2-rc.2` completed
+guarded release transitions and owned-CNI infrastructure recovery, but a live
+terminating workload escaped through ordinary egress during cleanup. Issue
+[#254](https://github.com/Amoenus/waycloak/issues/254) retains namespace denial
+through teardown and adds an explicitly invoked privileged packet regression.
+Promotion requires a corrected exact artifact and a repeat replacement proof.
+Declarative lifecycle reconciliation remains open in
+[#252](https://github.com/Amoenus/waycloak/issues/252).
+
 The October successor release also preserves installed CNI host paths and node
 selectors during exact CLI transitions. Unit regressions and the hosted
 transition/rollback suite gate this change alongside the Gluetun OpenSSL and

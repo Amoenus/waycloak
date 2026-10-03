@@ -168,6 +168,9 @@ func (a Agent) Repair(ctx context.Context, cfg Config) error {
 	return a.Backend.Repair(ctx, cfg)
 }
 
+// Cleanup removes forwarding resources while retaining deny-only protection.
+// The caller must enter the exact workload namespace; its lifetime, not Pod API
+// deletion or CNI DEL, determines when the kernel may remove the final guard.
 func (a Agent) Cleanup(ctx context.Context, podUID string, cfg *Config) error {
 	if a.Backend == nil {
 		return errors.New("data-plane backend is required")
