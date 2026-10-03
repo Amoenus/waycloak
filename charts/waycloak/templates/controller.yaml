@@ -65,6 +65,7 @@ spec:
   # Release host listener ports before starting its replacement.
   strategy:
     type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       {{- include "waycloak.selectorLabels" . | nindent 6 }}
