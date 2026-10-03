@@ -6,6 +6,9 @@
 {{- $pauseDigest := required "cniInstaller.pauseImage.digest is required when cniInstaller.enabled=true" .Values.cniInstaller.pauseImage.digest }}
 {{- $configPath := required "cniInstaller.configHostPath is required when cniInstaller.enabled=true" .Values.cniInstaller.configHostPath }}
 {{- $sourceConfig := .Values.cniInstaller.sourceConfigHostPath }}
+{{- if and .Values.cniInstaller.migrateLegacySource (not $sourceConfig) }}
+{{- fail "cniInstaller.migrateLegacySource requires a separately owned sourceConfigHostPath" }}
+{{- end }}
 {{- if and $sourceConfig (or (ne (dir $sourceConfig) (dir $configPath)) (ge (base $configPath) (base $sourceConfig))) }}
 {{- fail "cniInstaller.configHostPath must precede sourceConfigHostPath in the same CNI directory" }}
 {{- end }}
@@ -65,9 +68,9 @@ spec:
           resources:
             requests:
               cpu: 1m
-              memory: 8Mi
-            limits:
               memory: 32Mi
+            limits:
+              memory: 96Mi
         - name: install
           image: "{{ .Values.cniInstaller.image.repository }}@{{ $digest }}"
           imagePullPolicy: IfNotPresent
@@ -88,6 +91,9 @@ spec:
             - {{ $manifest | quote }}
             {{- if $sourceConfig }}
             - /host-config/{{ base $sourceConfig }}
+            {{- if .Values.cniInstaller.migrateLegacySource }}
+            - migrate-legacy-source
+            {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.cniInstaller.resources | nindent 12 }}

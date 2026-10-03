@@ -32,6 +32,14 @@ components, admission policy, and cluster RBAC. The runtime chart remains an
 implementation artifact, with its direct-upgrade guard intact until adoption
 and ownership transfer are complete.
 
+Legacy Flannel adoption moves the selected in-place chain to
+`05-waycloak.conflist`. Under the authenticated hold, the installer validates
+that the preserved primary reproduces the legacy chain, durably writes the owned
+chain, and only then restores the unchained upstream file. Directory entries are
+synced on Linux before advancing. Interrupted filesystem prefixes retain a
+selected guard and are replayable. Existing owned layouts and node selectors
+remain unchanged; an unexplained primary topology change is rejected.
+
 A version resolves to the project's published release manifest. Verification
 requires the exact publication workflow, exact requested tag, GitHub OIDC
 issuer, certificate transparency, artifact transparency, and a trusted signing
@@ -115,3 +123,7 @@ The stripped Linux amd64 controller binary measured 68,042,914 bytes with
 implementation. This is a binary-size observation, not a resident-memory result.
 The existing dependency-refresh budget records describe an earlier baseline;
 live process memory and both architectures remain qualification requirements.
+The local `wait-ready` helper reached 48,008 KiB maximum RSS during a two-second
+unavailable-endpoint check. Its previous 32 MiB limit was insufficient; helper
+limits are now 96 MiB. This startup measurement does not replace live controller
+memory qualification.

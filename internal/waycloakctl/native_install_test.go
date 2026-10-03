@@ -21,6 +21,30 @@ type nativeTestRuntime struct {
 	applied int
 }
 
+func TestNativeLegacyFlannelAdoptionBindsOwnedMigration(t *testing.T) {
+	ctx := context.Background()
+	clients := supportedClients(t)
+	source := releaseManifest()
+	objects, identities, _ := testInstallCRDBundle(t)
+	if _, _, err := ensureObservationSecrets(ctx, clients, "waycloak-system", "waycloak", "sha256:"+strings.Repeat("1", 64)); err != nil {
+		t.Fatal(err)
+	}
+	seedInstalledRelease(t, clients, source, "waycloak-system", "waycloak", 1, objects)
+	target := source
+	target.Version = "v1.0.2-rc.4"
+	target.ManifestDigest, _ = target.IdentityDigest()
+	snapshot, err := PrepareNativeInstall(ctx, clients, &nativeTestRuntime{crds: identities}, installv1.WaycloakInstallationSpec{Version: target.Version, Namespace: "waycloak-system", Release: "waycloak", OverlayCIDR: "100.96.0.0/16", AdoptExisting: true}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Layout.SourceConfigPath != snapshot.Plan.Source.NodeLayout.ConfigPath || !strings.HasSuffix(snapshot.Layout.ConfigPath, "/05-waycloak.conflist") || !strings.Contains(snapshot.Plan.Values, "migrateLegacySource: true") {
+		t.Fatal("legacy adoption did not bind separately owned migration")
+	}
+	if !reflect.DeepEqual(snapshot.Layout.AgentNodeSelector, snapshot.Plan.Source.NodeLayout.AgentNodeSelector) || !reflect.DeepEqual(snapshot.Layout.InstallerNodeSelector, snapshot.Plan.Source.NodeLayout.InstallerNodeSelector) {
+		t.Fatal("migration changed node coverage")
+	}
+}
+
 func (r *nativeTestRuntime) CRDIdentities(context.Context, Artifact) (map[string]string, error) {
 	return r.crds, nil
 }

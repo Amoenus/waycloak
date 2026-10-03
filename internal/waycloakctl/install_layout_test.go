@@ -46,6 +46,11 @@ func TestNodeInstallLayoutOwnedAndLegacyMounts(t *testing.T) {
 	if err != nil || v != manifest.Version || d != manifest.ManifestDigest {
 		t.Fatalf("optional source path corrupted release identity: %s %s %v", v, d, err)
 	}
+	installer.InitContainers[0].Args = append(installer.InitContainers[0].Args, "migrate-legacy-source")
+	migrated, err := observeNodeInstallLayout(installer, agent)
+	if err != nil || migrated.SourceConfigPath != layout.SourceConfigPath || migrated.ConfigPath != layout.ConfigPath {
+		t.Fatalf("migration mode changed observed layout: %+v %v", migrated, err)
+	}
 	// The same host file resolved through a legacy individual mount must retain
 	// the same identity after the new chart switches to directory mounts.
 	agent.Volumes[1].HostPath.Path += "/05-waycloak.conflist"

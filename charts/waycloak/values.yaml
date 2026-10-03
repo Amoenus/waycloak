@@ -95,6 +95,7 @@ cniInstaller:
   # (e.g. 10-flannel.conflist) in the same runtime config directory.
   # Empty preserves the explicit legacy in-place installation contract.
   sourceConfigHostPath: ""
+  migrateLegacySource: false
   binaryHostPath: ""
   receiptHostPath: /var/lib/cni/waycloak/install-receipt.json
 

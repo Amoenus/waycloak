@@ -93,6 +93,12 @@ The owner record binds subsequent operations to this installation's UID. Keep
 the installation object during upgrades; deleting and recreating it does not
 authorize adoption of another UID's journal.
 
+Legacy Flannel layouts are migrated under the deny hold to a separately owned
+`05-waycloak.conflist`. The preserved original must reproduce the existing chain.
+The installer writes and syncs the owned guarded chain before restoring the
+upstream primary, so a restart can regenerate the primary without removing
+Waycloak's selected chain. Existing owned layouts retain their paths.
+
 ## Progress, interruptions, and rollback
 
 ```sh

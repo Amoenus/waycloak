@@ -190,6 +190,7 @@
         },
         "configHostPath": {"type": "string"},
         "sourceConfigHostPath": {"type": "string", "pattern": "^$|^/.*\\.conflist$"},
+        "migrateLegacySource": {"type": "boolean"},
         "binaryHostPath": {"type": "string"},
         "receiptHostPath": {"type": "string"}
       }

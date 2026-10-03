@@ -102,6 +102,16 @@ func PrepareNativeInstall(ctx context.Context, clients *Clients, runtime Install
 		return result, err
 	}
 	layout := source.NodeLayout
+	if layout != nil && layout.SourceConfigPath == "" && layout.ConfigPath == report.CNI.ConfigPath &&
+		source.ManifestDigest != manifest.ManifestDigest && (report.CNI.Name == "flannel" || report.CNI.Name == "k3s-flannel") {
+		migrated := *layout
+		migrated.SourceConfigPath = layout.ConfigPath
+		migrated.ConfigPath = path.Join(path.Dir(layout.ConfigPath), "05-waycloak.conflist")
+		layout = &migrated
+		installer := values["cniInstaller"].(map[string]any)
+		installer["configHostPath"], installer["sourceConfigHostPath"], installer["migrateLegacySource"] = layout.ConfigPath, layout.SourceConfigPath, true
+		values["nodeAgent"].(map[string]any)["cniConfigHostPath"] = layout.ConfigPath
+	}
 	if layout == nil {
 		layout = &NodeInstallLayout{ConfigPath: report.CNI.ConfigPath, BinaryPath: report.CNI.BinaryPath, ReceiptPath: "/var/lib/cni/waycloak/install-receipt.json"}
 		// Own a separate chain on fresh K3s installations. K3s remains free to
@@ -340,7 +350,9 @@ func nativeStaged(ctx context.Context, clients *Clients, snapshot NativeInstallP
 	if err != nil {
 		return err
 	}
-	if !sameTransitionTrust(components, plan.Source) || !components.ClassPresent || components.ClassUID == plan.Source.GatewayClassUID ||
+	expectedSource := plan.Source
+	expectedSource.NodeLayout = &snapshot.Layout
+	if !sameTransitionTrust(components, expectedSource) || !components.ClassPresent || components.ClassUID == plan.Source.GatewayClassUID ||
 		components.ClassVersion != plan.Target.Version || components.ClassManifest != plan.Target.ManifestDigest ||
 		!components.ObservationCapabilityHeld || components.ObservationCapabilityHoldID != plan.PlanID || components.TransitionPlanID != plan.PlanID ||
 		components.NodeAgentVersion != plan.Source.Version || components.NodeAgentManifest != plan.Source.ManifestDigest ||
@@ -379,7 +391,9 @@ func VerifyNativeInstall(ctx context.Context, clients *Clients, snapshot NativeI
 	if err != nil {
 		return err
 	}
-	if err := validateInstallTargetWithClassReplacement(plan.Source, target, plan.Target, plan.TargetCRDs, plan.Source.State == installStateDeployed); err != nil {
+	expectedSource := plan.Source
+	expectedSource.NodeLayout = &snapshot.Layout
+	if err := validateInstallTargetWithClassReplacement(expectedSource, target, plan.Target, plan.TargetCRDs, plan.Source.State == installStateDeployed); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(target.NodeLayout, &snapshot.Layout) {

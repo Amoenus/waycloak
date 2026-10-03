@@ -24,8 +24,11 @@ type NodeInstallLayout struct {
 }
 
 func installerReleaseIdentity(container corev1.Container) (string, string, error) {
-	if (len(container.Args) != 11 && len(container.Args) != 12) || container.Args[0] != "install" {
+	if (len(container.Args) < 11 || len(container.Args) > 13) || container.Args[0] != "install" {
 		return "", "", errors.New("CNI installer does not use the versioned install argument contract")
+	}
+	if len(container.Args) == 13 && container.Args[12] != "migrate-legacy-source" {
+		return "", "", errors.New("CNI installer has an unknown migration mode")
 	}
 	return container.Args[9], container.Args[10], nil
 }
@@ -76,7 +79,7 @@ func observeNodeInstallLayout(installer, agent corev1.PodSpec) (*NodeInstallLayo
 		}
 		*item.destination = installed
 	}
-	if len(ic.Args) == 12 {
+	if len(ic.Args) >= 12 {
 		result.SourceConfigPath, err = mountedHostFile(installer, ic, ic.Args[11])
 		if err != nil {
 			return nil, err
