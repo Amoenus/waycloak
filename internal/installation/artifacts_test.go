@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
 )
@@ -94,5 +95,29 @@ func TestDownloadRejectsFailureAndOversize(t *testing.T) {
 		if _, err := r.fetch(context.Background(), releaseRepository, 3); err == nil {
 			t.Fatalf("accepted response %d", code)
 		}
+	}
+}
+
+// Opt-in network integration against immutable public artifacts. It never
+// creates Kubernetes clients or changes a cluster.
+func TestPublishedArtifactsWithoutExecutables(t *testing.T) {
+	if os.Getenv("WAYCLOAK_VERIFY_PUBLIC_ARTIFACTS") != "1" {
+		t.Skip("set WAYCLOAK_VERIFY_PUBLIC_ARTIFACTS=1 for the public registry integration check")
+	}
+	t.Setenv("PATH", "")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	resolver := ReleaseResolver{}
+	manifest, err := resolver.Resolve(ctx, "v1.0.2-rc.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := HelmRuntime{}
+	identities, err := runtime.CRDIdentities(ctx, manifest.Chart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(identities) != 6 {
+		t.Fatalf("unexpected networking API inventory: %d", len(identities))
 	}
 }

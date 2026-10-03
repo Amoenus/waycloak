@@ -20,6 +20,7 @@ import (
 	"helm.sh/helm/v4/pkg/kube"
 	"helm.sh/helm/v4/pkg/registry"
 	"helm.sh/helm/v4/pkg/storage/driver"
+	"oras.land/oras-go/v2/registry/remote/auth"
 	"sigs.k8s.io/yaml"
 )
 
@@ -43,7 +44,13 @@ func (r *HelmRuntime) chart(ctx context.Context, artifact waycloakctl.Artifact) 
 	if chart := r.charts[artifact]; chart != nil {
 		return chart, nil
 	}
-	client, err := registry.NewClient(registry.ClientOptHTTPClient(&http.Client{Timeout: 45 * time.Second}))
+	httpClient := &http.Client{Timeout: 45 * time.Second}
+	// Published artifacts are public. Do not inherit an operator's Docker
+	// credentials or invoke an external credential-helper executable.
+	authorizer := auth.Client{Client: httpClient, Cache: auth.NewCache(), Credential: func(context.Context, string) (auth.Credential, error) {
+		return auth.EmptyCredential, nil
+	}}
+	client, err := registry.NewClient(registry.ClientOptHTTPClient(httpClient), registry.ClientOptAuthorizer(authorizer), registry.ClientOptRegistryAuthorizer(&authorizer))
 	if err != nil {
 		return nil, err
 	}
