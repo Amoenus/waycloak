@@ -1,5 +1,11 @@
 # Implementation roadmap
 
+The October successor release also preserves installed CNI host paths and node
+selectors during exact CLI transitions. Unit regressions and the hosted
+transition/rollback suite gate this change alongside the Gluetun OpenSSL and
+CoreDNS gRPC security refresh. Exact publication and homelab promotion remain
+pending.
+
 Each phase ends with observable acceptance criteria. A fresh implementation agent should take the first unchecked vertical slice, not build all packages speculatively.
 
 > **Replacement plan (2026-07-26):** the completed phases below document the

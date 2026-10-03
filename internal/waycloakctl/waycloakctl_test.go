@@ -132,7 +132,7 @@ func TestInstallPlanRequiresExplicitArchitectureOnMixedCluster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.NodeArchitecture != "amd64" || strings.Count(plan.Values, "kubernetes.io/arch: \"amd64\"") != 2 {
+	if plan.NodeArchitecture != "amd64" || strings.Count(plan.Values, `"kubernetes.io/arch":"amd64"`) != 2 {
 		t.Fatalf("plan did not constrain both node components: %#v\n%s", plan, plan.Values)
 	}
 }
@@ -1282,10 +1282,11 @@ func seedInstalledRelease(t *testing.T, clients *Clients, manifest ReleaseManife
 		InitContainers: []corev1.Container{{Name: "install", Image: image("waycloak-cni"), Args: []string{"install", manifest.Version, manifest.ManifestDigest}}},
 		Containers:     []corev1.Container{{Name: "receipt-holder", Image: image("pause")}},
 	}}}}
-	upsertTestDaemonSet(t, clients, cni)
 	agent := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: fullname + "-node-agent", Namespace: namespace, Generation: 1}, Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
 		Name: "node-agent", Image: image("waycloak-node-agent"), Args: []string{"--release-version=" + manifest.Version, "--release-manifest-digest=" + manifest.ManifestDigest},
 	}}}}}, Status: appsv1.DaemonSetStatus{ObservedGeneration: 1, DesiredNumberScheduled: 1, UpdatedNumberScheduled: 1, NumberReady: 1, NumberAvailable: 1}}
+	seedTestNodeLayout(&cni.Spec.Template.Spec, &agent.Spec.Template.Spec, manifest)
+	upsertTestDaemonSet(t, clients, cni)
 	upsertTestDaemonSet(t, clients, agent)
 	class := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "networking.waycloak.io/v1beta1", "kind": "VPNGatewayClass",
@@ -1329,7 +1330,7 @@ func seedStagedRelease(t *testing.T, clients *Clients, source InstalledReleaseOb
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent.Spec.Template.Spec.Containers[0].Args = []string{"--release-version=" + source.Version, "--release-manifest-digest=" + source.ManifestDigest, "--observation-capability-hold=true", "--observation-capability-hold-id=" + planID}
+	agent.Spec.Template.Spec.Containers[0].Args = append([]string{"--release-version=" + source.Version, "--release-manifest-digest=" + source.ManifestDigest, "--observation-capability-hold=true", "--observation-capability-hold-id=" + planID}, agent.Spec.Template.Spec.Containers[0].Args[2:]...)
 	if agent.Spec.Template.Annotations == nil {
 		agent.Spec.Template.Annotations = map[string]string{}
 	}

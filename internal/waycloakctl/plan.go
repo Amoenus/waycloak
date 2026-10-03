@@ -334,6 +334,21 @@ func BuildInstallPlan(manifest ReleaseManifest, namespace, release, nodeArchitec
 	if source.State == installStateDeployed {
 		rotationID = source.ObservationRotationID
 	}
+	layout := NodeInstallLayout{ConfigPath: report.CNI.ConfigPath, BinaryPath: report.CNI.BinaryPath,
+		ReceiptPath:           "/var/lib/cni/waycloak/install-receipt.json",
+		InstallerNodeSelector: map[string]string{"kubernetes.io/arch": architecture},
+		AgentNodeSelector:     map[string]string{"kubernetes.io/arch": architecture}}
+	if source.NodeLayout != nil {
+		layout = *source.NodeLayout
+	}
+	installerSelector, _ := json.Marshal(layout.InstallerNodeSelector)
+	agentSelector, _ := json.Marshal(layout.AgentNodeSelector)
+	if len(layout.InstallerNodeSelector) == 0 {
+		installerSelector = []byte("{}")
+	}
+	if len(layout.AgentNodeSelector) == 0 {
+		agentSelector = []byte("{}")
+	}
 	values := fmt.Sprintf(`releaseIdentity:
   version: %q
   manifestDigest: %q
@@ -360,8 +375,7 @@ controller:
       domain: %q
 cniInstaller:
   enabled: true
-  nodeSelector:
-    kubernetes.io/arch: %q
+  nodeSelector: %s
   image:
     repository: %q
     digest: %q
@@ -370,11 +384,12 @@ cniInstaller:
     digest: %q
   configHostPath: %q
   binaryHostPath: %q
+  receiptHostPath: %q
+  sourceConfigHostPath: %q
 nodeAgent:
   enabled: true
   observationRotationID: %q
-  nodeSelector:
-    kubernetes.io/arch: %q
+  nodeSelector: %s
   image:
     repository: %q
     digest: %q
@@ -394,10 +409,10 @@ defaultGatewayClass:
   releaseIdentity:
     version: %q
     manifestDigest: %q
-`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", controllerConformanceProfile, engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, coreDNS.Repository, coreDNS.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, architecture, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
-		report.CNI.ConfigPath, report.CNI.BinaryPath, rotationID, architecture, agent.Repository, agent.Digest,
+`, manifest.Version, manifest.ManifestDigest, controller.Repository, controller.Digest, release+"-observation-tls", controllerConformanceProfile, engine.Repository, engine.Digest, gatewayAgent.Repository, gatewayAgent.Digest, coreDNS.Repository, coreDNS.Digest, report.Networking.OverlayCIDR, report.Networking.DNSServiceIP, report.Networking.ClusterDomain, installerSelector, cni.Repository, cni.Digest, pause.Repository, pause.Digest,
+		layout.ConfigPath, layout.BinaryPath, layout.ReceiptPath, layout.SourceConfigPath, rotationID, agentSelector, agent.Repository, agent.Digest,
 		"https://"+controllerService+"."+namespace+".svc:9443"+observationrelay.ReportPath, release+"-observation-ca",
-		"/var/lib/cni/waycloak/install-receipt.json", report.CNI.BinaryPath, report.CNI.ConfigPath,
+		layout.ReceiptPath, layout.BinaryPath, layout.ConfigPath,
 		manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest, manifest.Version, manifest.ManifestDigest)
 	if portForwarding != nil {
 		runtime := manifest.Images["waycloak-gateway-runtime"]
@@ -425,7 +440,7 @@ defaultGatewayClass:
 			"helm upgrade --install " + release + " " + manifest.Chart.Repository + "@" + manifest.Chart.Digest + " --namespace " + namespace + " --values <reviewed-values.yaml> --wait",
 		},
 		Security:       []string{"create a Pod Security privileged namespace for release-owned node components", "install a privileged root node-agent DaemonSet", "mount exact CNI/netns/state host paths", "install cluster-scoped CRDs, admission policies, and least-privilege RBAC"},
-		CNIChanges:     []string{"atomically append waycloak-cni after the primary plugin in " + report.CNI.ConfigPath, "install the exact CNI binary at " + report.CNI.BinaryPath, "preserve the original chain and write a release-bound receipt"},
+		CNIChanges:     []string{"atomically install waycloak-cni in the preserved chain at " + layout.ConfigPath, "install the exact CNI binary at " + layout.BinaryPath, "preserve the original chain, node coverage, and write a release-bound receipt"},
 		Rollback:       []string{"retain the deny path and stop new workload rollout", "create a new target-bound plan from the separately verified prior exact release manifest", "apply that exact plan and verify CRD, runtime, node receipt, gateway activation, and protected packet denial before resuming rollout"},
 		Purge:          []string{"normal Helm uninstall does not delete CRDs or restore the CNI chain", "destructive CRD purge and CNI restoration are separate confirmation-gated operations"},
 		SecretObjects:  []string{release + "-observation-ca", release + "-observation-tls"},

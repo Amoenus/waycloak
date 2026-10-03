@@ -327,7 +327,7 @@ jq -e '
   (.preflightDigest | test("^sha256:[a-f0-9]{64}$")) and
   .nodeArchitecture == "amd64" and
   .metadata.nodeArchitecture == "amd64" and
-  (.valuesYAML | contains("kubernetes.io/arch:")) and
+  (.valuesYAML | contains("kubernetes.io/arch")) and
   (.valuesYAML | contains("serviceIP: \"10.96.0.10\"")) and
   (.valuesYAML | contains("domain: \"cluster.local\""))
 ' "$work_dir/install-plan.json" >/dev/null
@@ -918,6 +918,9 @@ apply_exact_transition() {
     .operation == "ExactReleaseTransition" and
     .source.state == "Deployed" and
     .source.version == $source and
+    .source.nodeLayout.configPath == "/etc/cni/net.d/10-kindnet.conflist" and
+    .source.nodeLayout.installerNodeSelector["kubernetes.io/arch"] == "amd64" and
+    .source.nodeLayout.agentNodeSelector["kubernetes.io/arch"] == "amd64" and
     .targetRelease.version == $target and
     .targetRelease.manifestDigest == $digest and
     (.source.crdIdentities | length) == 6 and

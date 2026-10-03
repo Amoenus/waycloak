@@ -1,4 +1,18 @@
 vulnerabilities:
+  - id: CVE-2026-82399
+    expired_at: 2026-11-27
+    statement: >-
+      GHSA-mrg3-qvqr-jw29 identifies v1.14.7 as fixed. The exact upstream
+      v1.14.7 tag resolves to our pinned commit
+      427fc80ed9ca47f354585eb30a3f1332950856c4. Only Go dependencies are
+      patched; Trivy compares the dirty release pseudo-version as pre-release.
+  - id: CVE-2026-86003
+    expired_at: 2026-11-27
+    statement: >-
+      GHSA-9gm5-9rfh-m6vx identifies v1.14.7 as fixed. The exact upstream
+      v1.14.7 tag resolves to our pinned commit
+      427fc80ed9ca47f354585eb30a3f1332950856c4. Only Go dependencies are
+      patched; Trivy compares the dirty release pseudo-version as pre-release.
   - id: CVE-2023-28452
     expired_at: 2026-11-27
     statement: >-

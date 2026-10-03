@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 6 ]]; then
-  echo "usage: build-coredns-candidate.sh SOURCE_DIR OUTPUT_DIR UPSTREAM_COMMIT X_CRYPTO_VERSION X_MOD_VERSION RELEASE_TAG" >&2
+if [[ "$#" -ne 7 ]]; then
+  echo "usage: build-coredns-candidate.sh SOURCE_DIR OUTPUT_DIR UPSTREAM_COMMIT X_CRYPTO_VERSION X_MOD_VERSION GRPC_VERSION RELEASE_TAG" >&2
   exit 2
 fi
 
@@ -14,7 +14,8 @@ readonly output_dir="$2"
 readonly upstream_commit="$3"
 readonly x_crypto_version="$4"
 readonly x_mod_version="$5"
-readonly release_tag="$6"
+readonly grpc_version="$6"
+readonly release_tag="$7"
 
 test "$(git -C "$source_dir" rev-parse HEAD)" = "$upstream_commit"
 mkdir -p "$output_dir"
@@ -24,8 +25,10 @@ mkdir -p "$output_dir"
   export GOWORK=off
   go get "golang.org/x/crypto@${x_crypto_version}"
   go get "golang.org/x/mod@${x_mod_version}"
+  go get "google.golang.org/grpc@${grpc_version}"
   test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = "$x_crypto_version"
   test "$(go list -m -f '{{.Version}}' golang.org/x/mod)" = "$x_mod_version"
+  test "$(go list -m -f '{{.Version}}' google.golang.org/grpc)" = "$grpc_version"
   git diff --exit-code -- coredns.go plugin.cfg
   git diff --binary -- go.mod go.sum >"$output_dir/coredns-dependency.patch"
   test -s "$output_dir/coredns-dependency.patch"

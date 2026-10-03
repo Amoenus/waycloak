@@ -249,7 +249,14 @@ installer deliberately refuses foreign destinations, symlinks, a primary that
 already contains Waycloak, and a backup that cannot reproduce the owned chain.
 
 An empty `sourceConfigHostPath` retains the legacy in-place installer used by
-existing CLI plans. Those plans are not silently rewritten. Migration from an
+existing CLI plans. New transition plans observe and preserve the installed
+host config, binary, receipt, optional source-config paths, and both node
+selectors. They bind these settings into the reviewed source identity and
+reject drift before mutation and at recovery checkpoints. File-to-directory
+mount replacement preserves the same underlying host-file identity. Plans
+created by older CLI versions must be regenerated before starting a transition
+with the new CLI. Existing active journals must finish with their original CLI.
+Migration from an
 in-place installation and rollback to a release without owned-layout support
 require a separately reviewed host-CNI migration while workloads are held;
 ordinary CLI release planning does not perform that migration. Never mix these
