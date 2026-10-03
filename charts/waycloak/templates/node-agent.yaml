@@ -136,11 +136,7 @@ spec:
               mountPath: /var/run/waycloak-cni-install/config
               readOnly: true
           resources:
-            requests:
-              cpu: 25m
-              memory: 48Mi
-            limits:
-              memory: 192Mi
+            {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
       volumes:
         - name: run
           hostPath:

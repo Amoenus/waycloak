@@ -127,6 +127,10 @@ expected_assets=(
   waycloak-qbittorrent-adapter.spdx.json
   waycloak-chart.ref
   waycloak-chart.spdx.json
+  waycloak-installation-chart.ref
+  waycloak-installation-chart.spdx.json
+  waycloak-installation.yaml
+  "waycloak-installation-${release_tag#v}.tgz"
   waycloak-kcl.ref
   waycloak-kcl.spdx.json
   "$chart_archive"
@@ -323,6 +327,27 @@ retry_bounded_to_file "exact chart layer" "$work_dir/$chart_archive" \
 cmp "$asset_dir/$chart_archive" "$work_dir/$chart_archive"
 test "$(tar -tzf "$asset_dir/$chart_archive" | grep -Ec \
   '^waycloak/crds/networking\.waycloak\.io_(portforwardleases|vpnegressroutes|vpngatewayclasses|vpngateways|vpnworkloadbindings|workloadadapters)\.yaml$')" -eq 6
+
+installation_reference="$(sed 's|^oci://||' "$asset_dir/waycloak-installation-chart.ref")"
+[[ "$installation_reference" =~ ^ghcr.io/amoenus/charts/waycloak-installation@sha256:[a-f0-9]{64}$ ]]
+retry_bounded_quiet "installation chart signature" cosign verify \
+  --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$installation_reference"
+retry_bounded_quiet "installation chart SPDX" cosign verify-attestation --type spdxjson \
+  --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$installation_reference"
+retry_bounded_quiet "installation chart provenance" gh attestation verify "oci://$installation_reference" \
+  --repo "$repository" --signer-workflow "$signer_workflow" \
+  --source-ref "refs/tags/${release_tag}" --source-digest "$source_sha" --deny-self-hosted-runners
+retry_bounded_to_file "installation chart manifest" "$work_dir/installation-chart.manifest.json" crane manifest "$installation_reference"
+jq -e '.layers | length == 1 and .[0].mediaType == "application/vnd.cncf.helm.chart.content.v1.tar+gzip"' "$work_dir/installation-chart.manifest.json" >/dev/null
+installation_layer="$(jq -r '.layers[0].digest' "$work_dir/installation-chart.manifest.json")"
+[[ "$installation_layer" =~ ^sha256:[a-f0-9]{64}$ ]]
+retry_bounded_to_file "installation chart archive" "$work_dir/installation-chart.tgz" \
+  crane blob "${installation_reference%@sha256:*}@$installation_layer"
+cmp "$asset_dir/waycloak-installation-${release_tag#v}.tgz" "$work_dir/installation-chart.tgz"
+helm template waycloak-installation "$work_dir/installation-chart.tgz" --namespace waycloak-system \
+  --include-crds --kube-version 1.36.0 >"$work_dir/installation.yaml"
+cmp "$asset_dir/waycloak-installation.yaml" "$work_dir/installation.yaml"
+grep -Fq "$(cat "$asset_dir/replacement-controller.ref")" "$work_dir/installation.yaml"
 
 kcl_reference="$(sed 's|^oci://||' "$asset_dir/waycloak-kcl.ref")"
 retry_bounded_quiet "KCL module signature" cosign verify \

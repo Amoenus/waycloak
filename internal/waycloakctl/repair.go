@@ -465,6 +465,9 @@ func helmRevisionSecretName(release string, version int64) string {
 }
 
 func ApplyInstallRepairPlan(ctx context.Context, clients *Clients, runner func(context.Context, string, ...string) ([]byte, error), plan InstallRepairPlan, confirmation string) error {
+	if err := ensureNoNativeInstallationOwner(ctx, clients, plan.Namespace); err != nil {
+		return err
+	}
 	if err := plan.validate(); err != nil {
 		return err
 	}

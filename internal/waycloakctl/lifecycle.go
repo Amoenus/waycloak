@@ -630,6 +630,10 @@ func validateInstallCRDTransition(source InstalledReleaseObservation, target map
 }
 
 func validateInstallTarget(source, target InstalledReleaseObservation, manifest ReleaseManifest, targetCRDs map[string]string) error {
+	return validateInstallTargetWithClassReplacement(source, target, manifest, targetCRDs, source.ManifestDigest != manifest.ManifestDigest)
+}
+
+func validateInstallTargetWithClassReplacement(source, target InstalledReleaseObservation, manifest ReleaseManifest, targetCRDs map[string]string, classChanged bool) error {
 	if target.State != installStateDeployed || target.Version != manifest.Version || target.ManifestDigest != manifest.ManifestDigest || !reflect.DeepEqual(target.CRDIdentities, targetCRDs) {
 		return errors.New("helm completed without the exact target release and CRD identity")
 	}
@@ -646,7 +650,6 @@ func validateInstallTarget(source, target InstalledReleaseObservation, manifest 
 		if !reflect.DeepEqual(source.NodeLayout, target.NodeLayout) {
 			return errors.New("ordinary release transition changed installed CNI paths or node coverage")
 		}
-		classChanged := source.ManifestDigest != manifest.ManifestDigest
 		if classChanged && target.GatewayClassUID == source.GatewayClassUID {
 			return errors.New("release transition did not replace the immutable gateway class identity")
 		}

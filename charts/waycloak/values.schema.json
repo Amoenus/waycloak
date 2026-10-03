@@ -79,6 +79,7 @@
       "additionalProperties": false,
       "required": ["enabled", "image", "replicas", "observationTLSSecret", "observationPort", "conformanceProfile", "gateway"],
       "properties": {
+        "resources": {"type":"object","additionalProperties":false,"properties":{"requests":{"type":"object","additionalProperties":{"type":["string","number"]}},"limits":{"type":"object","additionalProperties":{"type":["string","number"]}}}},"nodeSelector":{"type":"object","additionalProperties":{"type":"string"}},"tolerations":{"type":"array","items":{"type":"object"}},
         "enabled": {"type": "boolean"},
         "image": {
           "type": "object",
@@ -166,6 +167,7 @@
       "additionalProperties": false,
       "required": ["enabled", "nodeSelector", "image", "pauseImage", "configHostPath", "binaryHostPath", "receiptHostPath"],
       "properties": {
+        "resources": {"type":"object","additionalProperties":false,"properties":{"requests":{"type":"object","additionalProperties":{"type":["string","number"]}},"limits":{"type":"object","additionalProperties":{"type":["string","number"]}}}},
         "enabled": {"type": "boolean"},
         "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}},
         "image": {
@@ -215,6 +217,7 @@
       "additionalProperties": false,
       "required": ["enabled", "observationRotationID", "observationCapabilityHold", "transitionPlanID", "nodeSelector", "image", "observationRelayURL", "observationCASecret", "cniReceiptHostPath", "cniBinaryHostPath", "cniConfigHostPath", "reconcileInterval", "conformanceProfile", "releaseIdentity", "cniReleaseIdentity"],
       "properties": {
+        "resources": {"type":"object","additionalProperties":false,"properties":{"requests":{"type":"object","additionalProperties":{"type":["string","number"]}},"limits":{"type":"object","additionalProperties":{"type":["string","number"]}}}},
         "enabled": {"type": "boolean"},
         "observationRotationID": {"type": "string", "pattern": "^(initial|sha256:[a-f0-9]{64})$"},
         "observationCapabilityHold": {"type": "boolean"},

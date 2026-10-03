@@ -6,6 +6,8 @@ package installation
 import (
 	"bytes"
 	"context"
+	"encoding/base32"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,11 +17,15 @@ import (
 
 	"github.com/Amoenus/waycloak/internal/waycloakctl"
 	"helm.sh/helm/v4/pkg/action"
+	chartutil "helm.sh/helm/v4/pkg/chart/common/util"
 	"helm.sh/helm/v4/pkg/chart/loader"
 	chartv2 "helm.sh/helm/v4/pkg/chart/v2"
 	"helm.sh/helm/v4/pkg/kube"
 	"helm.sh/helm/v4/pkg/registry"
+	releasecommon "helm.sh/helm/v4/pkg/release/common"
+	releasev1 "helm.sh/helm/v4/pkg/release/v1"
 	"helm.sh/helm/v4/pkg/storage/driver"
+	"k8s.io/apimachinery/pkg/types"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"sigs.k8s.io/yaml"
 )
@@ -32,6 +38,44 @@ type HelmRuntime struct {
 	Configuration *action.Configuration
 	Namespace     string
 	charts        map[waycloakctl.Artifact]*chartv2.Chart
+	// Set only by the elected installation reconciler for an immutable journal.
+	Operation *Operation
+}
+
+type Operation struct {
+	InstallationUID types.UID
+	PlanID          string
+	Phase           string
+}
+
+func (o *Operation) labels() (map[string]string, error) {
+	if o == nil {
+		return nil, nil
+	}
+	if o.InstallationUID == "" || !regexpDigest.MatchString(o.PlanID) {
+		return nil, errors.New("installation operation identity is incomplete")
+	}
+	if o.Phase != waycloakctl.NativePhaseStage && o.Phase != waycloakctl.NativePhaseActivate {
+		return nil, errors.New("installation phase does not permit a Helm operation")
+	}
+	data, _ := hex.DecodeString(strings.TrimPrefix(o.PlanID, "sha256:"))
+	return map[string]string{"installation.waycloak.io/uid": string(o.InstallationUID), "installation.waycloak.io/plan": base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data), "installation.waycloak.io/phase": o.Phase}, nil
+}
+
+func (r *HelmRuntime) Validate(ctx context.Context, plan waycloakctl.InstallPlan) error {
+	chart, err := r.chart(ctx, plan.Chart)
+	if err != nil {
+		return err
+	}
+	values, err := mergeValues(plan.Values, "")
+	if err != nil {
+		return err
+	}
+	coalesced, err := chartutil.CoalesceValues(chart, values)
+	if err != nil {
+		return err
+	}
+	return chartutil.ValidateAgainstSchema(chart, coalesced)
 }
 
 func (r *HelmRuntime) chart(ctx context.Context, artifact waycloakctl.Artifact) (*chartv2.Chart, error) {
@@ -104,10 +148,15 @@ func (r *HelmRuntime) Apply(ctx context.Context, plan waycloakctl.InstallPlan, o
 	if err != nil {
 		return err
 	}
-	_, err = r.Configuration.Releases.Last(plan.Release)
+	labels, err := r.Operation.labels()
+	if err != nil {
+		return err
+	}
+	last, err := r.Configuration.Releases.Last(plan.Release)
 	if errors.Is(err, driver.ErrReleaseNotFound) {
 		install := action.NewInstall(r.Configuration)
 		install.ReleaseName, install.Namespace = plan.Release, plan.Namespace
+		install.Labels = labels
 		install.ServerSideApply, install.ForceConflicts = true, true
 		install.WaitStrategy, install.Timeout = kube.StatusWatcherStrategy, 10*time.Minute
 		_, err = install.RunWithContext(ctx, chart, values)
@@ -116,8 +165,27 @@ func (r *HelmRuntime) Apply(ctx context.Context, plan waycloakctl.InstallPlan, o
 	if err != nil {
 		return err
 	}
+	previous, ok := last.(*releasev1.Release)
+	if !ok {
+		return errors.New("unsupported Helm release record format")
+	}
+	if previous.Info.Status.IsPending() && r.Operation != nil {
+		for key, value := range labels {
+			if previous.Labels[key] != value {
+				return errors.New("pending Helm operation is not owned by the active installation journal")
+			}
+		}
+		// The manager's leader Lease excludes a live predecessor. Preserve the
+		// record and its manifest; a normal upgrade replays the same held phase.
+		previous.Info.Status = releasecommon.StatusFailed
+		previous.Info.Description = "Interrupted installation phase; replaying its immutable journal under the leader Lease"
+		if err := r.Configuration.Releases.Update(previous); err != nil {
+			return err
+		}
+	}
 	upgrade := action.NewUpgrade(r.Configuration)
 	upgrade.Namespace = plan.Namespace
+	upgrade.Labels = labels
 	upgrade.ServerSideApply, upgrade.ForceConflicts = "true", true
 	upgrade.WaitStrategy, upgrade.Timeout = kube.StatusWatcherStrategy, 10*time.Minute
 	_, err = upgrade.RunWithContext(ctx, plan.Release, chart, values)

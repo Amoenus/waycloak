@@ -240,6 +240,9 @@ func ApplyInstallPlan(ctx context.Context, clients *Clients, runner func(context
 // ApplyInstallPlanWithRuntime shares the same validated, journal-bound transition
 // with an in-process installer. The caller must bind authorization to PlanID.
 func ApplyInstallPlanWithRuntime(ctx context.Context, clients *Clients, runtime InstallRuntime, plan InstallPlan, confirmation string) error {
+	if err := ensureNoNativeInstallationOwner(ctx, clients, plan.Namespace); err != nil {
+		return err
+	}
 	if runtime == nil {
 		return errors.New("install runtime is required")
 	}
@@ -295,6 +298,19 @@ func ApplyInstallPlanWithRuntime(ctx context.Context, clients *Clients, runtime 
 		return nil
 	}
 	return applyInstallPlanWithRuntimeAtCheckpoint(ctx, clients, runtime, plan, targetCRDs, checkpoint)
+}
+
+// Native installation owns all runtime transitions after adoption. External
+// executable operations cannot race its durable journal and leader Lease.
+func ensureNoNativeInstallationOwner(ctx context.Context, clients *Clients, namespace string) error {
+	_, err := clients.Kubernetes.CoreV1().ConfigMaps(namespace).Get(ctx, "waycloak-installation-owner", metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("runtime is managed by WaycloakInstallation/waycloak; update its version or configuration in Kubernetes")
 }
 
 func observePortForwardInstallIdentity(ctx context.Context, clients *Clients, namespace, name string, adapterProtocolEnabled bool) (PortForwardInstallIdentity, error) {

@@ -1,0 +1,26 @@
+# Release packaging replaces this digest with the signed controller image.
+image:
+  repository: ghcr.io/amoenus/waycloak-replacement-controller
+  digest: ""
+  pullPolicy: IfNotPresent
+runtimeNamespace: waycloak-system
+runtimeRelease: waycloak
+# Empty means the version of this installation chart.
+version: ""
+overlayCIDR: 100.96.0.0/16
+nodeArchitecture: ""
+adoptExisting: false
+suspend: false
+config: {}
+resources:
+  requests:
+    cpu: 25m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+nodeSelector: {}
+tolerations:
+  - operator: Exists
+# Host networking allows the reconciler to recover a broken CNI installation.
+# Choose a free host port; this listener serves only health/readiness probes.
+healthPort: 18081

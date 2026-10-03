@@ -1,6 +1,6 @@
 # ADR 0046: In-cluster installation lifecycle
 
-- Status: Proposed; artifact and application adapters implemented, reconciler pending
+- Status: Implemented for qualification; release and live acceptance pending
 - Date: 2026-10-03
 - Tracks: [#252](https://github.com/Amoenus/waycloak/issues/252)
 
@@ -18,7 +18,7 @@ before the existing authenticated deny hold has completed. A Helm hook that
 runs another upgrade of the same release also conflicts with the outer pending
 revision. Neither approach transfers transition ownership into the cluster.
 
-## Proposed decision
+## Decision
 
 Introduce a separate installation controller and a cluster-scoped installation
 resource. The installation chart installs that controller and desired state;
@@ -73,8 +73,9 @@ Waycloak CLI and must have an acceptance test starting from v1.0.1.
 
 After adoption, ordinary version/configuration changes affect only installation
 desired state. No runtime dependency on Argo CD, Flux, or another GitOps product
-is introduced. Exact migration manifests and conflict detection remain part of
-the pending implementation; this ADR is not an operational migration recipe.
+is introduced. The immutable runtime ownership record rejects external CLI
+transitions after adoption. Journals owned by another installation UID are
+rejected. Live adoption and packet-level upgrade qualification remain gates.
 
 ## Implemented boundary and outstanding acceptance
 
@@ -86,18 +87,31 @@ Offline tests verify a real published signature, reject altered artifacts and
 tag substitution, exercise staged application with an empty executable search
 path, and refuse to take over pending Helm operations.
 
-This foundation does not install a reconciler or complete #252. The installation
-API/chart, generation-bound status, durable recovery at every intermediate
-write, configuration-only reconciliation, adoption, and full packet-level
-upgrade/rollback acceptance still need implementation. Until then, ADR 0042
-and ADR 0045 remain the supported operational procedures. The running rc.3
-deployment is unaffected by these library additions.
+The installation API, separate Helm chart, controller process, immutable journal,
+generation-bound status, and configuration transitions are implemented. Tests
+restart the reconciler at each phase, queue superseding intent, reject foreign
+UIDs and pending Helm operations, and withdraw readiness after observed health
+loss. API-server tests enforce singleton ownership and immutable network identity.
+These tests do not complete #252: release publication, v1.0.1 adoption, and live
+packet-level upgrade, rollback, and infrastructure recovery remain acceptance
+gates. Until qualification completes, the running rc.3 deployment continues to
+use ADR 0042 and ADR 0045.
 
 ## Tradeoffs
 
-The Helm and Sigstore libraries add a substantial dependency graph. The lifecycle
-controller should be a separate binary so those imports do not become part of
-the node agent or protected workloads. Its release needs the same vulnerability
+The Helm and Sigstore libraries add a substantial dependency graph. A separate
+Deployment invokes the installation subcommand in the signed replacement-controller
+image, preserving the existing nine-image release contract. This increases the
+networking controller binary; it does not add these imports to node agents or
+protected workloads. The installation process has separate resource limits and
+host networking so CNI startup failure cannot prevent recovery. Its release
+needs the same vulnerability
 and artifact-verification gates as the existing runtime. The initial dependency
 review pins the corrected ORAS, gRPC, crypto, and module-tooling versions instead
 of relying on the libraries' older transitive selections.
+
+The stripped Linux amd64 controller binary measured 68,042,914 bytes with
+`CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags '-s -w'` during
+implementation. This is a binary-size observation, not a resident-memory result.
+The existing dependency-refresh budget records describe an earlier baseline;
+live process memory and both architectures remain qualification requirements.

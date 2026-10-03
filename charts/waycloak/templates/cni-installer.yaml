@@ -89,6 +89,8 @@ spec:
             {{- if $sourceConfig }}
             - /host-config/{{ base $sourceConfig }}
             {{- end }}
+          resources:
+            {{- toYaml .Values.cniInstaller.resources | nindent 12 }}
           securityContext:
             privileged: true
             runAsUser: 0

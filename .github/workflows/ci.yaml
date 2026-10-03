@@ -229,6 +229,12 @@ jobs:
       - name: Verify deterministic Helm rendering and package
         run: |
           helm lint charts/waycloak
+          installation_digest="sha256:$(printf '%064d' 1)"
+          helm lint charts/waycloak-installation --set-string image.digest="$installation_digest"
+          installation_args=(waycloak-installation charts/waycloak-installation --namespace waycloak-system --include-crds --set-string image.digest="$installation_digest")
+          helm template "${installation_args[@]}" >"$RUNNER_TEMP/installation-1.yaml"
+          helm template "${installation_args[@]}" >"$RUNNER_TEMP/installation-2.yaml"
+          cmp "$RUNNER_TEMP/installation-1.yaml" "$RUNNER_TEMP/installation-2.yaml"
           render_args=(waycloak charts/waycloak --namespace waycloak-system --include-crds)
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-1.yaml"
           helm template "${render_args[@]}" >"$RUNNER_TEMP/render-2.yaml"

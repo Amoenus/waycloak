@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	installv1 "github.com/Amoenus/waycloak/api/installation/v1alpha1"
 	wayv1 "github.com/Amoenus/waycloak/api/v1beta1"
 	waybinding "github.com/Amoenus/waycloak/internal/binding"
 	waycontroller "github.com/Amoenus/waycloak/internal/controller"
@@ -55,7 +56,7 @@ func TestReplacementAPI(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := filepath.Clean(filepath.Join("..", ".."))
 	environment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join(repositoryRoot, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join(repositoryRoot, "config", "crd", "bases"), filepath.Join(repositoryRoot, "config", "installation")},
 		ErrorIfCRDPathMissing: true,
 		BinaryAssetsDirectory: os.Getenv("KUBEBUILDER_ASSETS"),
 	}
@@ -73,6 +74,7 @@ func TestReplacementAPI(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	must(t, wayv1.AddToScheme(scheme))
+	must(t, installv1.AddToScheme(scheme))
 	must(t, corev1.AddToScheme(scheme))
 	must(t, rbacv1.AddToScheme(scheme))
 	must(t, admissionv1.AddToScheme(scheme))
@@ -80,6 +82,33 @@ func TestReplacementAPI(t *testing.T) {
 	must(t, discoveryv1.AddToScheme(scheme))
 	admin := mustClient(t, config, scheme)
 	must(t, admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}))
+
+	t.Run("installation singleton and immutable runtime boundary", func(t *testing.T) {
+		installation := &installv1.WaycloakInstallation{ObjectMeta: metav1.ObjectMeta{Name: "waycloak"}, Spec: installv1.WaycloakInstallationSpec{Version: "v1.0.2-rc.4", Namespace: "waycloak-system", Release: "waycloak", OverlayCIDR: "100.96.0.0/16"}}
+		foreign := installation.DeepCopy()
+		foreign.Name = "another-installation"
+		if err := admin.Create(ctx, foreign); !apierrors.IsInvalid(err) {
+			t.Fatalf("second installation accepted: %v", err)
+		}
+		must(t, admin.Create(ctx, installation))
+		for _, mutate := range []func(*installv1.WaycloakInstallation){
+			func(i *installv1.WaycloakInstallation) { i.Spec.Namespace = "other-system" },
+			func(i *installv1.WaycloakInstallation) { i.Spec.Release = "another-runtime" },
+			func(i *installv1.WaycloakInstallation) { i.Spec.OverlayCIDR = "100.100.0.0/16" },
+			func(i *installv1.WaycloakInstallation) { i.Spec.Version = "latest" },
+		} {
+			changed := installation.DeepCopy()
+			mutate(changed)
+			if err := admin.Update(ctx, changed); !apierrors.IsInvalid(err) {
+				t.Fatalf("invalid runtime change accepted: %v", err)
+			}
+		}
+		installation.Spec.Version = "v1.0.2-rc.5"
+		must(t, admin.Update(ctx, installation))
+		installation.Status.ReadyGeneration = installation.Generation
+		must(t, admin.Status().Update(ctx, installation))
+		must(t, admin.Delete(ctx, installation))
+	})
 
 	t.Run("fresh discovery serves only replacement kinds", func(t *testing.T) {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)

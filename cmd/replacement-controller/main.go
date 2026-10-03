@@ -33,6 +33,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "installation-controller" {
+		if err := runInstallationController(os.Args[2:]); err != nil {
+			ctrl.Log.Error(err, "reconcile installation")
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "bootstrap-observation-certificates" {
 		if err := runObservationCertificateBootstrap(os.Args[2:]); err != nil {
 			ctrl.Log.Error(err, "bootstrap observation certificates")
