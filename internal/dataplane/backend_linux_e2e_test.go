@@ -55,6 +55,16 @@ func TestLockdownDropsDirectPackets(t *testing.T) {
 	if err := connect(target, 500*time.Millisecond); err == nil {
 		t.Fatal("direct Kubernetes Service packet escaped after lockdown")
 	}
+	// Teardown can run while application processes still own this namespace.
+	// Ordinary routing must remain unusable, including after repeated CNI DEL.
+	for attempt := range 2 {
+		if err := (Agent{Backend: backend}).Cleanup(context.Background(), uid, nil); err != nil {
+			t.Fatalf("cleanup attempt %d: %v", attempt, err)
+		}
+		if err := connect(target, 500*time.Millisecond); err == nil {
+			t.Fatalf("direct packet escaped from live namespace after cleanup attempt %d", attempt)
+		}
+	}
 
 	tables, err := (&nftables.Conn{}).ListTablesOfFamily(nftables.TableFamilyINet)
 	if err != nil {
@@ -66,7 +76,7 @@ func TestLockdownDropsDirectPackets(t *testing.T) {
 		foundUnrelated = foundUnrelated || table.Name == unrelatedName
 	}
 	if !foundOwned || !foundUnrelated {
-		t.Fatalf("table ownership after lockdown: owned=%t unrelated=%t", foundOwned, foundUnrelated)
+		t.Fatalf("table ownership after cleanup: owned=%t unrelated=%t", foundOwned, foundUnrelated)
 	}
 }
 

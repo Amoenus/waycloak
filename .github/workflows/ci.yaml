@@ -107,6 +107,8 @@ jobs:
             go test -tags=e2e ./internal/cniinstall \
               -run '^TestReadOnlyDirectoryMountObservesAtomicInstallationReplacement$' \
               -v -count=1 -timeout=2m
+      - name: Prove live workload namespace remains denied after teardown
+        run: sudo env "PATH=$PATH" bash hack/ci/dataplane-teardown.sh
       - name: Prove atomic SingleActive port-forward packet path
         run: |
           sudo env "PATH=$PATH" WAYCLOAK_E2E_PORT_FORWARD_NETNS=1 \

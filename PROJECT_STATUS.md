@@ -1,5 +1,20 @@
 # Project status
 
+## Live-namespace teardown correction
+
+Release candidate `v1.0.2-rc.2` passed publication, guarded forward/rollback,
+owned-CNI migration, and worker-restart checks. Workload replacement qualification
+then observed one ordinary-egress response from the terminating old Pod.
+Issue [#254](https://github.com/Amoenus/waycloak/issues/254) blocks promotion:
+cleanup removed the nftables guard while application processes could still run.
+Cleanup now atomically installs deny-only policy before releasing forwarding
+resources and retains that guard until kernel network-namespace destruction.
+A privileged packet regression exercises repeated cleanup in a live namespace.
+The corrected candidate still requires publication and deployment qualification.
+Fully declarative lifecycle reconciliation remains tracked in
+[#252](https://github.com/Amoenus/waycloak/issues/252); the CLI is a temporary
+deployment requirement, not the intended product contract.
+
 ## October release dependency refresh
 
 The successor to v1.0.1 updates the derived Gluetun image's exact Alpine
