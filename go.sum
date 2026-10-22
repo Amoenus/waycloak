@@ -111,6 +111,8 @@ github.com/codahale/rfc6979 v0.0.0-20141003034818-6a90f24967eb h1:EDmT6Q9Zs+SbUo
 github.com/codahale/rfc6979 v0.0.0-20141003034818-6a90f24967eb/go.mod h1:ZjrT6AXHbDs86ZSdt/osfBi5qfexBrKUdONk989Wnk4=
 github.com/containernetworking/cni v1.3.0 h1:v6EpN8RznAZj9765HhXQrtXgX+ECGebEYEmnuFjskwo=
 github.com/containernetworking/cni v1.3.0/go.mod h1:Bs8glZjjFfGPHMw6hQu82RUgEPNGEaBb9KS5KtNMnJ4=
+github.com/containernetworking/cni v1.3.1 h1:gnHlU/YC1bJcS+CSh+pYQKeuu4O4gsMGW1NMaLhkzW4=
+github.com/containernetworking/cni v1.3.1/go.mod h1:OtVXL0yXMfQb+p93OC/vRuhjpxsO1gAV0smjt28UQUQ=
 github.com/containernetworking/plugins v1.9.1 h1:8oU6WsIsU3bpnNZuvHp74a6cE1MJwbj2P7s4/yTUNlA=
 github.com/containernetworking/plugins v1.9.1/go.mod h1:fj7kS55qg3o/RgS+WGsF3+ZxwIImMPusQZKzBpcSr4c=
 github.com/coreos/go-oidc v2.5.0+incompatible h1:6W0vGJR3Tu0r0PwfmjOrRZSlfxeEln8dsejt3ZWIvwo=
