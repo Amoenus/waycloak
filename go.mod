@@ -6,7 +6,7 @@ toolchain go1.26.6
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/containernetworking/cni v1.3.0
+	github.com/containernetworking/cni v1.3.1
 	github.com/containernetworking/plugins v1.9.1
 	github.com/google/nftables v0.3.0
 	github.com/prometheus/client_golang v1.24.1
