@@ -623,7 +623,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Create pinned Kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: waycloak-ci
           version: v0.33.0
@@ -661,7 +661,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Create pinned Kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: waycloak-cni-ci
           version: v0.33.0
@@ -696,7 +696,7 @@ jobs:
         with:
           version: v4.2.4
       - name: Install pinned Kind
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           install_only: true
           version: v0.33.0
